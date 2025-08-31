@@ -141,7 +141,7 @@ struct ModeCard: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 16) {
-                // Mode icon with background
+                // Mode icon with black & white gradient
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(mode.gradient)
@@ -149,19 +149,19 @@ struct ModeCard: View {
                     
                     Image(systemName: mode.icon)
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
                 }
                 
-                // Mode info
+                // Mode info (clean without emoji)
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(mode.emoji)
-                            .font(.system(size: 18))
-                        
-                        Text(mode.title)
-                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
-                    }
+                    Text(mode.title)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
                     
                     Text(mode.subtitle)
                         .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -171,26 +171,21 @@ struct ModeCard: View {
                 
                 Spacer()
                 
-                // Selection indicator
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(mode.color)
-                        .transition(.scale.combined(with: .opacity))
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                }
+                // Clean selection indicator
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textTertiary)
+                    .scaleEffect(isSelected ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? mode.color.opacity(0.1) : DesignSystem.Colors.surfaceSecondary)
+                    .fill(isSelected ? DesignSystem.Colors.surfaceSecondary : DesignSystem.Colors.surface)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(isSelected ? mode.color.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                            .stroke(isSelected ? DesignSystem.Colors.border : Color.clear, lineWidth: 1.5)
                     )
             )
             .scaleEffect(isSelected ? 1.02 : 1.0)

@@ -62,23 +62,11 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     var gradient: LinearGradient {
         switch self {
         case .calendar:
-            return LinearGradient(
-                colors: [Color.blue.opacity(0.8), Color.blue.opacity(0.6)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            return DesignSystem.Colors.primaryGradient
         case .todo:
-            return LinearGradient(
-                colors: [Color.green.opacity(0.8), Color.green.opacity(0.6)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            return DesignSystem.Colors.secondaryGradient
         case .search:
-            return LinearGradient(
-                colors: [Color.purple.opacity(0.8), Color.purple.opacity(0.6)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            return DesignSystem.Colors.tertiaryGradient
         }
     }
     
