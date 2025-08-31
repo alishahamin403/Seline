@@ -311,11 +311,11 @@ struct CalendarEventCard: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "video.circle.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(DesignSystem.Colors.accent)
 
                                 Text("Meeting Link")
                                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(DesignSystem.Colors.accent)
                             }
                         }
 
@@ -348,12 +348,14 @@ struct CalendarEventCard: View {
             }
         }
         .buttonStyle(PlainButtonStyle())
-        .background(Color.clear)
-        .overlay(
+        .background(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(
-                    colorScheme == .light ? Color.blue : Color.white.opacity(0.3),
-                    lineWidth: colorScheme == .light ? 0.8 : 0.5
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 4,
+                    x: 0,
+                    y: 2
                 )
         )
         .scaleEffect(isPressed ? 0.98 : 1.0)

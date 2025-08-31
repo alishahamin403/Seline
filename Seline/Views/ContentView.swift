@@ -405,6 +405,9 @@ struct ContentView: View {
             ExpandableEventsSection(
                 events: viewModel.upcomingEvents,
                 isExpanded: .constant(false),
+                onAddEvent: {
+                    showingAddCalendarEvent = true
+                },
                 onViewAll: {
                     showingUpcomingEvents = true
                 }
@@ -856,6 +859,7 @@ struct SearchSuggestion {
 struct ExpandableEventsSection: View {
     let events: [CalendarEvent]
     @Binding var isExpanded: Bool
+    let onAddEvent: () -> Void
     let onViewAll: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
@@ -906,15 +910,34 @@ struct ExpandableEventsSection: View {
                 
                 Spacer()
                 
-                // Modern arrow with subtle background
-                ZStack {
-                    Circle()
-                        .fill(DesignSystem.Colors.surfaceSecondary)
-                        .frame(width: 28, height: 28)
+                HStack(spacing: 8) {
+                    // Modern Add button
+                    Button(action: onAddEvent) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Add")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(DesignSystem.Colors.accent)
+                        )
+                    }
                     
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    // Modern arrow with subtle background
+                    ZStack {
+                        Circle()
+                            .fill(DesignSystem.Colors.surfaceSecondary)
+                            .frame(width: 28, height: 28)
+                        
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                    }
                 }
             }
             .padding(.horizontal, 20)
