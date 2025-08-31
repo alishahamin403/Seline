@@ -61,11 +61,6 @@ struct EventDetailView: View {
                 }
             )
         }
-
-            }
-            .navigationBarHidden(true)
-
-        }
         .alert("Delete Event", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -455,7 +450,7 @@ struct EventDetailView: View {
         )
     }
     
-    private func statusIndicator(for status: EventAttendee.ResponseStatus) -> some View {
+    private func statusIndicator(for status: EventAttendeeStatus) -> some View {
         HStack(spacing: 4) {
             Circle()
                 .fill(statusColor(for: status))
@@ -467,7 +462,7 @@ struct EventDetailView: View {
         }
     }
     
-    private func statusColor(for status: EventAttendee.ResponseStatus) -> Color {
+    private func statusColor(for status: EventAttendeeStatus) -> Color {
         switch status {
         case .accepted:
             return DesignSystem.Colors.success
@@ -480,7 +475,7 @@ struct EventDetailView: View {
         }
     }
     
-    private func statusText(for status: EventAttendee.ResponseStatus) -> String {
+    private func statusText(for status: EventAttendeeStatus) -> String {
         switch status {
         case .accepted:
             return "Going"
