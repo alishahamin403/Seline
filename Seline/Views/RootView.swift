@@ -16,6 +16,13 @@ struct RootView: View {
             if showingSplash {
                 SplashView()
                     .onAppear {
+                        // Debug authentication state during splash
+                        debugAuthenticationState()
+                        
+                        // Check for persistent authentication
+                        let hasPersistentAuth = authService.checkPersistentAuthentication()
+                        print("🔐 Persistent auth available: \(hasPersistentAuth)")
+                        
                         // Show splash for a brief moment, then check auth state
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             withAnimation(.easeInOut(duration: 0.5)) {
@@ -27,14 +34,49 @@ struct RootView: View {
                 if authService.isAuthenticated {
                     MainAppView()
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        .onAppear {
+                            print("🏠 DISPLAYING: MainAppView (user is authenticated)")
+                            debugViewSelection()
+                        }
                 } else {
                     OnboardingView()
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .onAppear {
+                            print("👋 DISPLAYING: OnboardingView (user not authenticated)")
+                            debugViewSelection()
+                        }
                 }
             }
         }
         .animation(.easeInOut(duration: 0.5), value: authService.isAuthenticated)
         .animation(.easeInOut(duration: 0.5), value: showingSplash)
+        .onReceive(authService.$isAuthenticated) { isAuth in
+            print("🔄 AUTHENTICATION STATE CHANGED: \(isAuth)")
+            debugAuthenticationState()
+        }
+    }
+    
+    // MARK: - Debug Methods
+    
+    private func debugAuthenticationState() {
+        print("🔍 AUTHENTICATION DEBUG:")
+        print("  - isAuthenticated: \(authService.isAuthenticated)")
+        print("  - user: \(authService.user?.email ?? "nil")")
+        print("  - authError: \(authService.authError ?? "nil")")
+        print("  - isLoading: \(authService.isLoading)")
+        
+        // Check UserDefaults directly
+        let storedAuthState = UserDefaults.standard.bool(forKey: "seline_auth_state")
+        let hasUserData = UserDefaults.standard.data(forKey: "seline_user") != nil
+        print("  - UserDefaults.authState: \(storedAuthState)")
+        print("  - UserDefaults.userData: \(hasUserData)")
+    }
+    
+    private func debugViewSelection() {
+        print("🎯 VIEW SELECTION DEBUG:")
+        print("  - showingSplash: \(showingSplash)")
+        print("  - authService.isAuthenticated: \(authService.isAuthenticated)")
+        print("  - Will show: \(authService.isAuthenticated ? "MainAppView" : "OnboardingView")")
     }
 }
 
@@ -62,7 +104,7 @@ struct SplashView: View {
             // App Name
             Text("Seline")
                 .font(DesignSystem.Typography.title1)
-                .primaryText()
+                .textPrimary()
                 .opacity(opacity)
             
             // Loading Indicator
@@ -73,12 +115,12 @@ struct SplashView: View {
                 
                 Text("Loading...")
                     .font(DesignSystem.Typography.footnote)
-                    .secondaryText()
+                    .textSecondary()
             }
             .opacity(opacity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .designSystemBackground()
+        .linearBackground()
         .onAppear {
             withAnimation(.easeOut(duration: 0.8)) {
                 scale = 1.0
@@ -124,15 +166,15 @@ struct SettingsView: View {
                         VStack(spacing: 4) {
                             Text(user.name)
                                 .font(DesignSystem.Typography.headline)
-                                .primaryText()
+                                .textPrimary()
                             
                             Text(user.email)
                                 .font(DesignSystem.Typography.subheadline)
-                                .secondaryText()
+                                .textSecondary()
                         }
                     }
                     .padding(DesignSystem.Spacing.lg)
-                    .cardStyle()
+                    .linearCard()
                 }
                 
                 // Settings Options
@@ -140,7 +182,11 @@ struct SettingsView: View {
                     SettingsRow(
                         icon: "bell.fill",
                         title: "Notifications",
-                        action: {}
+                        subtitle: "Email alerts and updates",
+                        iconColor: .red,
+                        action: {
+                            // Handle notifications
+                        }
                     )
                     
                     Divider()
@@ -149,7 +195,11 @@ struct SettingsView: View {
                     SettingsRow(
                         icon: "paintbrush.fill",
                         title: "Appearance",
-                        action: {}
+                        subtitle: "Theme and display",
+                        iconColor: .purple,
+                        action: {
+                            // Handle appearance
+                        }
                     )
                     
                     Divider()
@@ -158,7 +208,11 @@ struct SettingsView: View {
                     SettingsRow(
                         icon: "shield.fill",
                         title: "Privacy",
-                        action: {}
+                        subtitle: "Data protection",
+                        iconColor: .green,
+                        action: {
+                            // Handle privacy
+                        }
                     )
                     
                     Divider()
@@ -167,10 +221,14 @@ struct SettingsView: View {
                     SettingsRow(
                         icon: "questionmark.circle.fill",
                         title: "Help & Support",
-                        action: {}
+                        subtitle: "Get assistance",
+                        iconColor: .blue,
+                        action: {
+                            // Handle help
+                        }
                     )
                 }
-                .cardStyle()
+                .linearCard()
                 
                 // Sign Out
                 Button(action: {
@@ -189,45 +247,16 @@ struct SettingsView: View {
                         Spacer()
                     }
                     .padding(DesignSystem.Spacing.md)
-                    .cardStyle()
+                    .linearCard()
                 }
                 
                 Spacer()
             }
             .padding(DesignSystem.Spacing.md)
-            .designSystemBackground()
+            .linearBackground()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
         }
-    }
-}
-
-struct SettingsRow: View {
-    let icon: String
-    let title: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: DesignSystem.Spacing.md) {
-                Image(systemName: icon)
-                    .font(.title3)
-                    .foregroundColor(DesignSystem.Colors.accent)
-                    .frame(width: 24, height: 24)
-                
-                Text(title)
-                    .font(DesignSystem.Typography.body)
-                    .primaryText()
-                
-                Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(DesignSystem.Colors.systemTextSecondary)
-            }
-            .padding(DesignSystem.Spacing.md)
-        }
-        .buttonStyle(PlainButtonStyle())
     }
 }
 

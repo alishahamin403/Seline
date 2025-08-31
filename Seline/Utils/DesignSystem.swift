@@ -9,80 +9,122 @@ import SwiftUI
 
 struct DesignSystem {
     
-    // MARK: - Colors
+    // MARK: - Linear-Inspired Colors
     struct Colors {
         
-        // MARK: - System Adaptive Colors (automatically switch with system appearance)
-        static let systemBackground = Color(UIColor.systemBackground)
-        static let systemSecondaryBackground = Color(UIColor.secondarySystemBackground)
-        static let systemTextPrimary = Color(UIColor.label)
-        static let systemTextSecondary = Color(UIColor.secondaryLabel)
-        static let systemBorder = Color(UIColor.separator)
-        
         // MARK: - Accent Colors
-        static let accent = Color(hex: "#2383E2") // Notion blue
+        static let accent = Color(hex: "#5E6AD2") // Linear's signature purple
+        static let accentSecondary = Color(hex: "#8B92E6")
+        static let success = Color(hex: "#00C896")
+        static let warning = Color(hex: "#FF8C42")
+        static let danger = Color(hex: "#FF6B6B")
         
-        // MARK: - Static Colors (for direct usage)
-        static let notionBlue = Color(hex: "#2383E2")
+        // MARK: - Light Mode Colors (Linear-inspired)
+        private static let backgroundLight = Color(hex: "#FFFFFF")
+        private static let surfaceLight = Color(hex: "#FAFAFA") // Subtle gray for cards/surfaces
+        private static let surfaceSecondaryLight = Color(hex: "#F5F5F5") // Even subtler for secondary surfaces
+        private static let textPrimaryLight = Color(hex: "#1B1B1B") // Dark text for excellent contrast
+        private static let textSecondaryLight = Color(hex: "#6B6B6B") // Medium gray for secondary text
+        private static let textTertiaryLight = Color(hex: "#9B9B9B") // Light gray for tertiary text
+        private static let borderLight = Color(hex: "#E5E5E5") // Subtle borders
+        private static let borderSecondaryLight = Color(hex: "#F0F0F0") // Even subtler borders
+        private static let shadowLight = Color.black.opacity(0.04) // Subtle shadows
         
-        // MARK: - Manual Light/Dark Colors (for when you need specific control)
-        static let backgroundLight = Color(hex: "#FFFFFF")
-        static let secondaryBackgroundLight = Color(hex: "#F7F6F3")
-        static let textPrimaryLight = Color(hex: "#37352F")
-        static let textSecondaryLight = Color(hex: "#787774")
-        static let borderLight = Color(hex: "#E9E9E7")
+        // MARK: - Dark Mode Colors (Linear-inspired)
+        private static let backgroundDark = Color(hex: "#1A1A1A") // True Linear dark
+        private static let surfaceDark = Color(hex: "#2A2A2A") // Dark surfaces
+        private static let surfaceSecondaryDark = Color(hex: "#333333") // Secondary dark surfaces
+        private static let textPrimaryDark = Color(hex: "#FFFFFF") // Pure white text
+        private static let textSecondaryDark = Color(hex: "#B8B8B8") // Light gray for secondary
+        private static let textTertiaryDark = Color(hex: "#8A8A8A") // Medium gray for tertiary
+        private static let borderDark = Color(hex: "#404040") // Subtle dark borders
+        private static let borderSecondaryDark = Color(hex: "#353535") // Even subtler dark borders
+        private static let shadowDark = Color.black.opacity(0.2) // Stronger shadows for dark mode
         
-        static let backgroundDark = Color(hex: "#191919")
-        static let secondaryBackgroundDark = Color(hex: "#2F2F2F")
-        static let textPrimaryDark = Color(hex: "#FFFFFF")
-        static let textSecondaryDark = Color(hex: "#9B9A97")
-        static let borderDark = Color(hex: "#373737")
-        
-        // MARK: - Smart Adaptive Colors
-        static var adaptiveBackground: Color {
+        // MARK: - Adaptive Colors (Auto Light/Dark)
+        static var background: Color {
             Color(UIColor { traitCollection in
                 traitCollection.userInterfaceStyle == .dark ? UIColor(backgroundDark) : UIColor(backgroundLight)
             })
         }
         
-        static var adaptiveSecondaryBackground: Color {
+        static var surface: Color {
             Color(UIColor { traitCollection in
-                traitCollection.userInterfaceStyle == .dark ? UIColor(secondaryBackgroundDark) : UIColor(secondaryBackgroundLight)
+                traitCollection.userInterfaceStyle == .dark ? UIColor(surfaceDark) : UIColor(surfaceLight)
             })
         }
         
-        static var adaptiveTextPrimary: Color {
+        static var surfaceSecondary: Color {
+            Color(UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark ? UIColor(surfaceSecondaryDark) : UIColor(surfaceSecondaryLight)
+            })
+        }
+        
+        static var textPrimary: Color {
             Color(UIColor { traitCollection in
                 traitCollection.userInterfaceStyle == .dark ? UIColor(textPrimaryDark) : UIColor(textPrimaryLight)
             })
         }
         
-        static var adaptiveTextSecondary: Color {
+        static var textSecondary: Color {
             Color(UIColor { traitCollection in
                 traitCollection.userInterfaceStyle == .dark ? UIColor(textSecondaryDark) : UIColor(textSecondaryLight)
             })
         }
         
-        static var adaptiveBorder: Color {
+        static var textTertiary: Color {
+            Color(UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark ? UIColor(textTertiaryDark) : UIColor(textTertiaryLight)
+            })
+        }
+        
+        static var border: Color {
             Color(UIColor { traitCollection in
                 traitCollection.userInterfaceStyle == .dark ? UIColor(borderDark) : UIColor(borderLight)
             })
         }
+        
+        static var borderSecondary: Color {
+            Color(UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark ? UIColor(borderSecondaryDark) : UIColor(borderSecondaryLight)
+            })
+        }
+        
+        static var shadow: Color {
+            Color(UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark ? UIColor(shadowDark) : UIColor(shadowLight)
+            })
+        }
+        
     }
     
-    // MARK: - Typography
+    // MARK: - Linear-Inspired Typography
     struct Typography {
+        // Display & Titles
+        static let display = Font.system(size: 32, weight: .bold, design: .default)
         static let title1 = Font.system(size: 28, weight: .bold, design: .default)
-        static let title2 = Font.system(size: 22, weight: .bold, design: .default)
+        static let title2 = Font.system(size: 24, weight: .bold, design: .default)
         static let title3 = Font.system(size: 20, weight: .semibold, design: .default)
-        static let headline = Font.system(size: 17, weight: .semibold, design: .default)
-        static let body = Font.system(size: 17, weight: .regular, design: .default)
-        static let bodyMedium = Font.system(size: 17, weight: .medium, design: .default)
-        static let callout = Font.system(size: 16, weight: .regular, design: .default)
-        static let subheadline = Font.system(size: 15, weight: .regular, design: .default)
+        
+        // Headlines & Body
+        static let headline = Font.system(size: 18, weight: .semibold, design: .default)
+        static let body = Font.system(size: 16, weight: .regular, design: .default)
+        static let bodyMedium = Font.system(size: 16, weight: .medium, design: .default)
+        static let bodySemibold = Font.system(size: 16, weight: .semibold, design: .default)
+        
+        // Supporting Text
+        static let callout = Font.system(size: 15, weight: .regular, design: .default)
+        static let calloutMedium = Font.system(size: 15, weight: .medium, design: .default)
+        static let subheadline = Font.system(size: 14, weight: .regular, design: .default)
+        static let subheadlineMedium = Font.system(size: 14, weight: .medium, design: .default)
+        
+        // Small Text
         static let footnote = Font.system(size: 13, weight: .regular, design: .default)
         static let caption = Font.system(size: 12, weight: .regular, design: .default)
         static let caption2 = Font.system(size: 11, weight: .regular, design: .default)
+        
+        // Special
+        static let code = Font.system(size: 14, weight: .regular, design: .monospaced)
     }
     
     // MARK: - Spacing
@@ -141,35 +183,96 @@ extension Color {
     }
 }
 
-// MARK: - View Extensions for Design System
+// MARK: - Linear-Inspired View Extensions
 extension View {
-    func designSystemBackground() -> some View {
-        self.background(DesignSystem.Colors.systemBackground)
+    // Background Styles
+    func linearBackground() -> some View {
+        self.background(DesignSystem.Colors.background.ignoresSafeArea())
     }
     
-    func designSystemSecondaryBackground() -> some View {
-        self.background(DesignSystem.Colors.systemSecondaryBackground)
+    func linearSurface() -> some View {
+        self.background(DesignSystem.Colors.surface)
     }
     
-    func primaryText() -> some View {
-        self.foregroundColor(DesignSystem.Colors.systemTextPrimary)
+    func linearSurfaceSecondary() -> some View {
+        self.background(DesignSystem.Colors.surfaceSecondary)
     }
     
-    func secondaryText() -> some View {
-        self.foregroundColor(DesignSystem.Colors.systemTextSecondary)
+    // Text Styles
+    func textPrimary() -> some View {
+        self.foregroundColor(DesignSystem.Colors.textPrimary)
     }
     
-    func accentColor() -> some View {
+    func textSecondary() -> some View {
+        self.foregroundColor(DesignSystem.Colors.textSecondary)
+    }
+    
+    func textTertiary() -> some View {
+        self.foregroundColor(DesignSystem.Colors.textTertiary)
+    }
+    
+    func textAccent() -> some View {
         self.foregroundColor(DesignSystem.Colors.accent)
     }
     
-    func cardStyle() -> some View {
+    func textSuccess() -> some View {
+        self.foregroundColor(DesignSystem.Colors.success)
+    }
+    
+    func textWarning() -> some View {
+        self.foregroundColor(DesignSystem.Colors.warning)
+    }
+    
+    func textDanger() -> some View {
+        self.foregroundColor(DesignSystem.Colors.danger)
+    }
+    
+    // Linear-Inspired Card Styles
+    func linearCard() -> some View {
         self
-            .background(DesignSystem.Colors.systemSecondaryBackground)
-            .cornerRadius(DesignSystem.CornerRadius.md)
-            .overlay(
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                    .fill(DesignSystem.Colors.surface)
+                    .shadow(
+                        color: DesignSystem.Colors.shadow,
+                        radius: 8,
+                        x: 0,
+                        y: 2
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
+                    )
+            )
+    }
+    
+    func linearCardSecondary() -> some View {
+        self
+            .background(
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                    .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
+                    .fill(DesignSystem.Colors.surfaceSecondary)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
+                            .stroke(DesignSystem.Colors.borderSecondary, lineWidth: 1)
+                    )
+            )
+    }
+    
+    func linearCardInteractive() -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                    .fill(DesignSystem.Colors.surface)
+                    .shadow(
+                        color: DesignSystem.Colors.shadow,
+                        radius: 12,
+                        x: 0,
+                        y: 4
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
+                    )
             )
     }
 }

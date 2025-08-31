@@ -68,9 +68,9 @@ struct AnimationSystem {
         static func shimmerEffect() -> some View {
             LinearGradient(
                 colors: [
-                    DesignSystem.Colors.systemBorder.opacity(0.3),
-                    DesignSystem.Colors.systemBorder.opacity(0.7),
-                    DesignSystem.Colors.systemBorder.opacity(0.3)
+                    DesignSystem.Colors.border.opacity(0.3),
+                    DesignSystem.Colors.border.opacity(0.7),
+                    DesignSystem.Colors.border.opacity(0.3)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
@@ -110,6 +110,10 @@ struct AnimationSystem {
         
         static func iconBounce() -> Animation {
             Animation.bouncy(duration: 0.4)
+        }
+        
+        static func shimmer() -> Animation {
+            Animation.easeInOut(duration: 1.5).repeatForever(autoreverses: true)
         }
     }
 }

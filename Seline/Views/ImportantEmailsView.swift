@@ -10,136 +10,214 @@ import SwiftUI
 struct ImportantEmailsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ContentViewModel()
-    @State private var showingEmailDetail = false
     @State private var selectedEmail: Email?
+    @State private var isShowingEmailDetail = false
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header with stats
-                importantEmailsHeader
-                
-                // Email list
-                if viewModel.isLoading {
-                    loadingView
-                } else if viewModel.importantEmails.isEmpty {
-                    emptyStateView
-                } else {
-                    importantEmailsList
-                }
-            }
-            .designSystemBackground()
-            .navigationTitle("Important Emails")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .accentColor()
-                }
+        ZStack {
+            DesignSystem.Colors.surface.ignoresSafeArea()
+            
+            if viewModel.isLoading {
+                loadingView
+            } else if cachedImportantEmails.isEmpty {
+                emptyStateView
+            } else {
+                importantEmailsList
             }
         }
-        .sheet(item: $selectedEmail) { email in
-            EmailDetailView(email: email)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { dismiss() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                            .font(.title2)
+                        Text("Back")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundColor(DesignSystem.Colors.accent)
+                }
+            }
+            
+            ToolbarItem(placement: .principal) {
+                Text("Important Emails")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+            }
+        }
+        .fullScreenCover(item: $selectedEmail) { email in
+            NavigationView {
+                GmailStyleEmailDetailView(email: email, viewModel: viewModel)
+                    .navigationBarHidden(true)
+            }
+            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
+        }
+        .onChange(of: selectedEmail) { email in
+            if email != nil {
+                print("🔄 ImportantEmailsView: selectedEmail changed to \(email?.id ?? "nil")")
+                isShowingEmailDetail = true
+            } else {
+                print("🔄 ImportantEmailsView: selectedEmail cleared")
+                isShowingEmailDetail = false
+            }
         }
         .onAppear {
+            // Initialize cache immediately if emails are already available
+            updateCachedEmails()
+            
             Task {
-                await viewModel.loadEmails()
+                // Clear any in-memory cached/mock data before reloading
+                EmailCacheManager.shared.clearCache()
+                // Load category emails which recomputes Important from today's emails only
+                await viewModel.loadCategoryEmails()
+                await MainActor.run {
+                    updateCachedEmails()
+                }
             }
+        }
+        .onChange(of: viewModel.importantEmails) { _ in
+            updateCachedEmails()
         }
     }
     
-    // MARK: - Header
+    // MARK: - Header Section
     
-    private var importantEmailsHeader: some View {
-        VStack(spacing: DesignSystem.Spacing.md) {
+    private var headerSection: some View {
+        VStack(spacing: 0) {
+            // Top SafeArea + navigation
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(viewModel.importantEmails.count)")
-                        .font(DesignSystem.Typography.title1)
-                        .fontWeight(.bold)
-                        .foregroundColor(.red)
-                    
-                    Text("Important Emails")
-                        .font(DesignSystem.Typography.subheadline)
-                        .secondaryText()
+                Button(action: {
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
+                    dismiss()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                            .font(.title2)
+                        Text("Back")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
                 }
                 
                 Spacer()
                 
-                // Priority indicator
-                ZStack {
-                    Circle()
-                        .fill(.red.opacity(0.1))
-                        .frame(width: 50, height: 50)
-                    
-                    Image(systemName: "exclamationmark.circle.fill")
+                Text("Important Emails")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                
+                Spacer()
+                
+                // Placeholder for right button to center title
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.left")
                         .font(.title2)
-                        .foregroundColor(.red)
+                    Text("Back")
+                        .font(.system(size: 16, weight: .medium))
                 }
+                .foregroundColor(.clear)
+                .foregroundColor(DesignSystem.Colors.accent)
             }
-            
-            // Quick stats
-            if !viewModel.importantEmails.isEmpty {
-                HStack(spacing: DesignSystem.Spacing.lg) {
-                    StatItem(
-                        value: viewModel.importantEmails.filter { !$0.isRead }.count,
-                        label: "Unread",
-                        color: DesignSystem.Colors.accent
-                    )
-                    
-                    StatItem(
-                        value: viewModel.importantEmails.filter { $0.date > Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date() }.count,
-                        label: "Today",
-                        color: .orange
-                    )
-                    
-                    StatItem(
-                        value: viewModel.importantEmails.filter { !$0.attachments.isEmpty }.count,
-                        label: "With Files",
-                        color: .green
-                    )
-                    
-                    Spacer()
-                }
-            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 20)
+            .background(DesignSystem.Colors.surface)
         }
-        .padding(DesignSystem.Spacing.lg)
-        .background(DesignSystem.Colors.systemSecondaryBackground)
-        .overlay(
-            Rectangle()
-                .fill(DesignSystem.Colors.systemBorder)
-                .frame(height: 1),
-            alignment: .bottom
-        )
     }
     
     // MARK: - Email List
     
+    @State private var cachedImportantEmails: [Email] = []
+    
+    private func updateCachedEmails() {
+        // Filter to today's emails only and drop any mock/preloaded IDs
+        let today = Calendar.current
+        let emails = viewModel.importantEmails
+            .filter { today.isDateInToday($0.date) }
+            .filter { !($0.id.hasPrefix("gmail_") || $0.id.hasPrefix("important_") || $0.id.hasPrefix("promo_")) }
+        ArrayBoundsLogger.logArrayAccess(arrayName: "importantEmails", count: emails.count)
+        
+        guard !emails.isEmpty else { 
+            print("🔍 ImportantEmailsView: No important emails to display")
+            cachedImportantEmails = []
+            return
+        }
+        
+        print("🔍 ImportantEmailsView: Processing \(emails.count) important emails")
+        let sortedEmails = emails.safeSortedByDate(ascending: false)
+        ArrayBoundsLogger.logArrayOperation(operation: "Sort", arrayName: "importantEmails", originalCount: emails.count, resultCount: sortedEmails.count)
+        
+        cachedImportantEmails = sortedEmails
+    }
+    
     private var importantEmailsList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(viewModel.importantEmails.sorted { $0.date > $1.date }) { email in
-                    ImportantEmailRow(email: email) {
+        ScrollView(.vertical, showsIndicators: true) {
+            LazyVStack(spacing: 1) {
+                ForEach(cachedImportantEmails.indices, id: \.self) { index in
+                    let email = cachedImportantEmails[index]
+                    CleanEmailRow(email: email) {
+                        print("📧 ImportantEmailsView: EmailRow tapped for email: \(email.id)")
+                        
+                        // Add haptic feedback
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                        impactFeedback.impactOccurred()
+                        
                         selectedEmail = email
-                        showingEmailDetail = true
                     }
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
-                    
-                    if email.id != viewModel.importantEmails.last?.id {
-                        Divider()
-                            .padding(.leading, 80)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            Task {
+                                do {
+                                    try await GmailService.shared.deleteEmail(emailId: email.id)
+                                    await viewModel.refresh()
+                                    await MainActor.run { updateCachedEmails() }
+                                } catch GmailError.insufficientPermissions {
+                                    // Surface hint to user
+                                    let alert = UIAlertController(title: "Permission Required", message: "To delete emails, Seline needs Gmail modify permission. Please sign out and sign in again when prompted.", preferredStyle: .alert)
+                                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                                       let window = scene.windows.first,
+                                       let root = window.rootViewController {
+                                        root.present(alert, animated: true)
+                                    }
+                                } catch {
+                                    print("❌ Failed to delete email: \(error.localizedDescription)")
+                                }
+                            }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
                 }
             }
+            .padding(.top, 8)
+            .padding(.bottom, 100) // Extra bottom padding for safe scrolling
         }
         .refreshable {
-            await viewModel.refresh()
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+            await performEnhancedRefresh()
+        }
+    }
+    
+    private func performEnhancedRefresh() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await viewModel.refresh()
+            }
+            
+            // Add a small delay to ensure smooth animation
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            }
+            
+            await group.waitForAll()
+        }
+        
+        // Update cached emails after refresh
+        await MainActor.run {
+            updateCachedEmails()
         }
     }
     
@@ -147,8 +225,9 @@ struct ImportantEmailsView: View {
     
     private var loadingView: some View {
         VStack(spacing: DesignSystem.Spacing.lg) {
-            ForEach(0..<5, id: \.self) { _ in
+            ForEach(0..<5, id: \.self) { index in
                 SkeletonEmailRow()
+                    .animatedSlideIn(from: .bottom, delay: Double(index) * 0.1)
             }
         }
         .padding(DesignSystem.Spacing.lg)
@@ -157,36 +236,40 @@ struct ImportantEmailsView: View {
     // MARK: - Empty State
     
     private var emptyStateView: some View {
-        VStack(spacing: DesignSystem.Spacing.lg) {
+        VStack(spacing: 24) {
             ZStack {
                 Circle()
-                    .fill(.red.opacity(0.1))
+                    .fill(Color.black.opacity(0.05))
                     .frame(width: 80, height: 80)
-                
-                Image(systemName: "exclamationmark.circle")
-                    .font(.system(size: 40))
-                    .foregroundColor(.red.opacity(0.6))
+                    .animatedScaleIn(delay: 0.1)
+
+                Image(systemName: "star.circle")
+                    .font(.system(size: 40, weight: .regular))
+                    .foregroundColor(.black.opacity(0.7))
+                    .animatedScaleIn(delay: 0.3)
             }
-            
-            VStack(spacing: DesignSystem.Spacing.sm) {
+
+            VStack(spacing: 12) {
                 Text("No Important Emails")
-                    .font(DesignSystem.Typography.title3)
-                    .primaryText()
-                
-                Text("Important emails will appear here when you receive them")
-                    .font(DesignSystem.Typography.body)
-                    .secondaryText()
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .animatedSlideIn(from: .bottom, delay: 0.4)
+
+                Text("Important emails and updates will appear here")
+                    .font(.system(size: 15, weight: .regular, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
                     .multilineTextAlignment(.center)
+                    .animatedSlideIn(from: .bottom, delay: 0.5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(DesignSystem.Spacing.lg)
+        .padding(24)
     }
 }
 
 // MARK: - Important Email Row
 
-struct ImportantEmailRow: View {
+struct CleanEmailRow: View {
     let email: Email
     let onTap: () -> Void
     
@@ -194,106 +277,66 @@ struct ImportantEmailRow: View {
     
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: DesignSystem.Spacing.md) {
-                // Priority indicator and avatar
+            HStack(spacing: 12) {
+                // Simple avatar
                 ZStack {
                     Circle()
-                        .fill(priorityColor.opacity(0.1))
-                        .frame(width: 50, height: 50)
-                        .overlay(
-                            Circle()
-                                .stroke(priorityColor.opacity(0.3), lineWidth: 2)
-                        )
-                    
-                    if !email.isRead {
-                        // Unread indicator
-                        Circle()
-                            .fill(DesignSystem.Colors.accent)
-                            .frame(width: 12, height: 12)
-                            .offset(x: 15, y: -15)
-                    }
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(width: 44, height: 44)
                     
                     Text(String(email.sender.displayName.prefix(1).uppercased()))
-                        .font(DesignSystem.Typography.bodyMedium)
-                        .foregroundColor(priorityColor)
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                    
+                    // Unread indicator
+                    if !email.isRead {
+                        Circle()
+                            .fill(DesignSystem.Colors.accent)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 16, y: -16)
+                    }
                 }
                 
-                // Email content
-                VStack(alignment: .leading, spacing: 6) {
-                    // Header row
+                // Email info
+                VStack(alignment: .leading, spacing: 4) {
+                    // Sender and time
                     HStack {
                         Text(email.sender.displayName)
-                            .font(email.isRead ? DesignSystem.Typography.body : DesignSystem.Typography.bodyMedium)
-                            .primaryText()
+                            .font(.system(size: email.isRead ? 15 : 16, weight: email.isRead ? .regular : .semibold, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.textPrimary)
                             .lineLimit(1)
                         
                         Spacer()
                         
-                        // Priority and time
-                        HStack(spacing: DesignSystem.Spacing.xs) {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .font(.caption)
-                                .foregroundColor(priorityColor)
-                            
-                            Text(RelativeDateTimeFormatter().localizedString(for: email.date, relativeTo: Date()))
-                                .font(DesignSystem.Typography.caption)
-                                .secondaryText()
-                        }
+                        Text(formatEmailTime(email.date))
+                            .font(.system(size: 13, weight: .regular, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
                     }
                     
-                    // Subject
+                    // Subject only
                     Text(email.subject)
-                        .font(email.isRead ? DesignSystem.Typography.subheadline : DesignSystem.Typography.callout)
-                        .foregroundColor(email.isRead ? DesignSystem.Colors.systemTextSecondary : DesignSystem.Colors.systemTextPrimary)
+                        .font(.system(size: email.isRead ? 14 : 15, weight: email.isRead ? .regular : .medium, design: .rounded))
+                        .foregroundColor(email.isRead ? DesignSystem.Colors.textSecondary : DesignSystem.Colors.textPrimary)
                         .lineLimit(1)
-                    
-                    // Preview with highlighting for urgent keywords
-                    Text(highlightUrgentKeywords(in: email.body))
-                        .font(DesignSystem.Typography.footnote)
-                        .secondaryText()
-                        .lineLimit(2)
-                    
-                    // Metadata
-                    HStack(spacing: DesignSystem.Spacing.md) {
-                        if !email.attachments.isEmpty {
-                            Label("\(email.attachments.count)", systemImage: "paperclip")
-                                .font(DesignSystem.Typography.caption2)
-                                .foregroundColor(DesignSystem.Colors.systemTextSecondary)
-                        }
-                        
-                        if email.hasCalendarEvent {
-                            Label("Meeting", systemImage: "calendar")
-                                .font(DesignSystem.Typography.caption2)
-                                .foregroundColor(DesignSystem.Colors.accent)
-                        }
-                        
-                        Spacer()
-                        
-                        // Urgency indicator
-                        Text(urgencyLevel)
-                            .font(DesignSystem.Typography.caption2)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(priorityColor.gradient)
-                            )
-                    }
+                        .multilineTextAlignment(.leading)
                 }
                 
-                // Action indicator
+                // Simple chevron
                 Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(DesignSystem.Colors.systemTextSecondary)
-                    .scaleEffect(isPressed ? 1.2 : 1.0)
-                    .animation(.easeInOut(duration: 0.1), value: isPressed)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.6))
             }
-            .padding(DesignSystem.Spacing.lg)
-            .background(DesignSystem.Colors.systemBackground)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.clear)
+            .overlay(
+                Rectangle()
+                    .frame(height: 0.5)
+                    .foregroundColor(Color.white.opacity(0.3))
+                    .padding(.horizontal, 16),
+                alignment: .bottom
+            )
             .scaleEffect(isPressed ? 0.98 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: isPressed)
         }
         .buttonStyle(PlainButtonStyle())
         .onLongPressGesture(minimumDuration: 0.0, maximumDistance: .infinity) {
@@ -302,64 +345,28 @@ struct ImportantEmailRow: View {
             isPressed = pressing
         }
     }
-    
-    private var priorityColor: Color {
-        if urgencyLevel == "URGENT" {
-            return .red
-        } else if urgencyLevel == "HIGH" {
-            return .orange
+    private func formatEmailTime(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        if calendar.isDateInToday(date) {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        } else if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        } else if calendar.dateInterval(of: .weekOfYear, for: now)?.contains(date) == true {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE" // Day name
+            return formatter.string(from: date)
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d" // Month day
+            return formatter.string(from: date)
         } else {
-            return .yellow
-        }
-    }
-    
-    private var urgencyLevel: String {
-        let urgentKeywords = ["urgent", "asap", "emergency", "critical", "deadline"]
-        let highKeywords = ["important", "priority", "meeting", "action required"]
-        
-        let content = (email.subject + " " + email.body).lowercased()
-        
-        if urgentKeywords.contains(where: { content.contains($0) }) {
-            return "URGENT"
-        } else if highKeywords.contains(where: { content.contains($0) }) {
-            return "HIGH"
-        } else {
-            return "NORMAL"
-        }
-    }
-    
-    private func highlightUrgentKeywords(in text: String) -> AttributedString {
-        var attributedString = AttributedString(text)
-        let urgentKeywords = ["urgent", "asap", "emergency", "critical", "deadline", "important"]
-        
-        for keyword in urgentKeywords {
-            if let range = attributedString.range(of: keyword, options: .caseInsensitive) {
-                attributedString[range].foregroundColor = .red
-                attributedString[range].font = .system(size: 13, weight: .semibold)
-            }
-        }
-        
-        return attributedString
-    }
-}
-
-// MARK: - Stat Item
-
-struct StatItem: View {
-    let value: Int
-    let label: String
-    let color: Color
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(value)")
-                .font(DesignSystem.Typography.title3)
-                .fontWeight(.bold)
-                .foregroundColor(color)
-            
-            Text(label)
-                .font(DesignSystem.Typography.caption)
-                .secondaryText()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d, yyyy" // Month day, year
+            return formatter.string(from: date)
         }
     }
 }
@@ -368,72 +375,75 @@ struct StatItem: View {
 
 struct SkeletonEmailRow: View {
     @State private var animateGradient = false
-    
+
     var body: some View {
-        HStack(spacing: DesignSystem.Spacing.md) {
-            // Skeleton avatar
+        HStack(spacing: 16) {
+            // Skeleton avatar (minimalist black style)
             Circle()
                 .fill(shimmerGradient)
-                .frame(width: 50, height: 50)
-            
+                .frame(width: 48, height: 48)
+
             // Skeleton content
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Rectangle()
                         .fill(shimmerGradient)
                         .frame(width: 120, height: 16)
                         .cornerRadius(4)
-                    
+
                     Spacer()
-                    
+
                     Rectangle()
                         .fill(shimmerGradient)
                         .frame(width: 40, height: 12)
                         .cornerRadius(4)
                 }
-                
+
                 Rectangle()
                     .fill(shimmerGradient)
                     .frame(height: 14)
                     .cornerRadius(4)
-                
+
                 Rectangle()
                     .fill(shimmerGradient)
                     .frame(width: 200, height: 12)
                     .cornerRadius(4)
-                
+
                 HStack {
                     Rectangle()
                         .fill(shimmerGradient)
-                        .frame(width: 60, height: 10)
+                        .frame(width: 40, height: 10)
                         .cornerRadius(4)
-                    
+
                     Spacer()
-                    
-                    Capsule()
+
+                    Rectangle()
                         .fill(shimmerGradient)
-                        .frame(width: 50, height: 16)
+                        .frame(width: 12, height: 12)
+                        .cornerRadius(6)
                 }
             }
-            
+
+            // Minimalist arrow
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(DesignSystem.Colors.systemBorder)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(Color.black.opacity(0.2))
         }
-        .padding(DesignSystem.Spacing.lg)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
                 animateGradient.toggle()
             }
         }
     }
-    
+
     private var shimmerGradient: LinearGradient {
         LinearGradient(
             colors: [
-                DesignSystem.Colors.systemBorder,
-                DesignSystem.Colors.systemBorder.opacity(0.5),
-                DesignSystem.Colors.systemBorder
+                Color.black.opacity(0.1),
+                Color.black.opacity(0.05),
+                Color.black.opacity(0.1)
             ],
             startPoint: animateGradient ? .leading : .trailing,
             endPoint: animateGradient ? .trailing : .leading

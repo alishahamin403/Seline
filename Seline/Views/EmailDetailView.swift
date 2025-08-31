@@ -10,7 +10,7 @@ import SwiftUI
 struct EmailDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let email: Email
-    @StateObject private var viewModel = ContentViewModel()
+    @ObservedObject var viewModel: ContentViewModel
     @State private var showingReplyComposer = false
     @State private var showingForwardComposer = false
     @State private var isMarkedAsRead = false
@@ -18,10 +18,16 @@ struct EmailDetailView: View {
     @State private var showingAttachmentPreview = false
     @State private var selectedAttachment: EmailAttachment?
     @State private var scrollOffset: CGFloat = 0
+    @State private var showingDeleteConfirmation = false
+    @State private var showingError = false
+    @State private var aiSummary: String = ""
+    @State private var isLoadingSummary = false
+    @StateObject private var openAIService = OpenAIService.shared
     @State private var contentStructure = EmailContentStructure()
     
     var body: some View {
-        NavigationView {
+        // Removed NavigationView to avoid conflicts when presented as sheet
+        VStack {
             GeometryReader { geometry in
                 ScrollView {
                     VStack(spacing: 0) {
@@ -51,32 +57,41 @@ struct EmailDetailView: View {
                     scrollOffset = value
                 }
             }
-            .designSystemBackground()
-            .navigationTitle("Email")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Back") {
+            .linearBackground()
+            // Custom header instead of navigation title
+            .overlay(alignment: .top) {
+                HStack {
+                    Button(action: {
                         dismiss()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "chevron.left")
+                                .font(.title2)
+                            Text("Back")
+                                .font(.system(size: 16, weight: .medium))
+                        }
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
                     }
-                    .font(DesignSystem.Typography.body)
-                    .accentColor()
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
+                    
+                    Spacer()
+                    
+                    Text("Email")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                    
+                    Spacer()
+                    
                     HStack(spacing: DesignSystem.Spacing.sm) {
                         // Mark as important
                         Button(action: toggleImportant) {
                             Image(systemName: isMarkedAsImportant ? "exclamationmark.circle.fill" : "exclamationmark.circle")
                                 .font(.title3)
-                                .foregroundColor(isMarkedAsImportant ? .red : DesignSystem.Colors.systemTextSecondary)
+                                .foregroundColor(isMarkedAsImportant ? .red : DesignSystem.Colors.textSecondary)
                         }
                         
                         // More actions menu
                         Menu {
-                            Button(action: {
-                                // Archive action
-                            }) {
+                            Button(action: archiveEmail) {
                                 Label("Archive", systemImage: "archivebox")
                             }
                             
@@ -94,18 +109,20 @@ struct EmailDetailView: View {
                             
                             Divider()
                             
-                            Button(role: .destructive, action: {
-                                // Delete action
-                            }) {
+                            Button(role: .destructive, action: deleteEmail) {
                                 Label("Delete", systemImage: "trash")
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
                                 .font(.title3)
-                                .foregroundColor(DesignSystem.Colors.systemTextSecondary)
+                                .foregroundColor(DesignSystem.Colors.textSecondary)
                         }
                     }
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+                .background(DesignSystem.Colors.surface)
             }
             .safeAreaInset(edge: .bottom) {
                 quickActionBar
@@ -120,13 +137,57 @@ struct EmailDetailView: View {
         .sheet(item: $selectedAttachment) { attachment in
             AttachmentPreviewView(attachment: attachment)
         }
+        .alert("Delete Email", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                confirmDelete()
+            }
+        } message: {
+            Text("Are you sure you want to delete this email? This action cannot be undone.")
+        }
+        .alert("Error", isPresented: $showingError, presenting: viewModel.errorMessage) { _ in
+            Button("OK") {
+                viewModel.errorMessage = nil
+            }
+        } message: { errorMessage in
+            Text(errorMessage)
+        }
+        .onChange(of: viewModel.errorMessage) { errorMessage in
+            if errorMessage != nil {
+                showingError = true
+            }
+        }
         .onAppear {
+            print("📧 EmailDetailView appeared for email: \(email.id)")
+            print("  - Subject: \(email.subject)")
+            print("  - Sender: \(email.sender.displayName)")
+            print("  - Date: \(email.date)")
+            print("  - IsRead: \(email.isRead)")
+            print("  - IsImportant: \(email.isImportant)")
+            print("  - Body length: \(email.body.count) characters")
+            print("  - Recipients count: \(email.recipients.count)")
+            print("  - Attachments count: \(email.attachments.count)")
+            
+            // Validate email data
+            if email.subject.isEmpty {
+                print("  ⚠️ Warning: Email subject is empty")
+            }
+            if email.sender.displayName.isEmpty {
+                print("  ⚠️ Warning: Sender display name is empty")
+            }
+            if email.body.isEmpty {
+                print("  ⚠️ Warning: Email body is empty")
+            }
+            
             isMarkedAsRead = email.isRead
             isMarkedAsImportant = email.isImportant
             
             // Mark as read when opened
             if !email.isRead {
+                print("  - Marking email as read...")
                 markAsRead()
+            } else {
+                print("  - Email already marked as read")
             }
         }
     }
@@ -180,21 +241,21 @@ struct EmailDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(email.sender.displayName)
                         .font(DesignSystem.Typography.headline)
-                        .primaryText()
+                        .textPrimary()
                     
                     Text(email.sender.email)
                         .font(DesignSystem.Typography.subheadline)
-                        .secondaryText()
+                        .textSecondary()
                     
                     HStack(spacing: DesignSystem.Spacing.sm) {
                         Text(formatDate(email.date))
                             .font(DesignSystem.Typography.caption)
-                            .secondaryText()
+                            .textSecondary()
                         
                         if email.hasCalendarEvent {
                             Label("Meeting", systemImage: "calendar")
                                 .font(DesignSystem.Typography.caption2)
-                                .foregroundColor(DesignSystem.Colors.notionBlue)
+                                .foregroundColor(DesignSystem.Colors.accent)
                         }
                         
                         if email.isPromotional {
@@ -214,7 +275,7 @@ struct EmailDetailView: View {
                     Text("Subject")
                         .font(DesignSystem.Typography.caption)
                         .fontWeight(.medium)
-                        .secondaryText()
+                        .textSecondary()
                     
                     Spacer()
                 }
@@ -222,7 +283,7 @@ struct EmailDetailView: View {
                 Text(email.subject)
                     .font(DesignSystem.Typography.title3)
                     .fontWeight(.semibold)
-                    .primaryText()
+                    .textPrimary()
                     .fixedSize(horizontal: false, vertical: true)
             }
             
@@ -233,14 +294,14 @@ struct EmailDetailView: View {
                         Text("To:")
                             .font(DesignSystem.Typography.caption)
                             .fontWeight(.medium)
-                            .secondaryText()
+                            .textSecondary()
                         
                         Spacer()
                     }
                     
                     Text(email.recipients.map { $0.displayName }.joined(separator: ", "))
                         .font(DesignSystem.Typography.subheadline)
-                        .secondaryText()
+                        .textSecondary()
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -248,10 +309,10 @@ struct EmailDetailView: View {
         .padding(DesignSystem.Spacing.lg)
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                .fill(DesignSystem.Colors.systemSecondaryBackground)
+                .fill(DesignSystem.Colors.surfaceSecondary)
                 .overlay(
                     RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                        .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
+                        .stroke(DesignSystem.Colors.border, lineWidth: 1)
                 )
         )
         .padding(.horizontal, DesignSystem.Spacing.lg)
@@ -267,14 +328,14 @@ struct EmailDetailView: View {
                 Text("Message")
                     .font(DesignSystem.Typography.bodyMedium)
                     .fontWeight(.semibold)
-                    .primaryText()
+                    .textPrimary()
                 
                 Spacer()
                 
                 HStack(spacing: DesignSystem.Spacing.sm) {
                     Text("\(email.body.count) characters")
                         .font(DesignSystem.Typography.caption)
-                        .secondaryText()
+                        .textSecondary()
                     
                     if contentStructure.meetingInfo != nil {
                         Label("Meeting", systemImage: "video")
@@ -299,45 +360,27 @@ struct EmailDetailView: View {
                     // Meeting information card (if detected)
                     if let meetingInfo = contentStructure.meetingInfo {
                         MeetingInfoCard(meetingInfo: meetingInfo)
-                            .animatedScaleIn(delay: 0.1)
                     }
                     
-                    // Action items section
-                    if !contentStructure.actionItems.isEmpty {
-                        ActionItemsSection(actionItems: contentStructure.actionItems)
-                            .animatedScaleIn(delay: 0.2)
+                    // Action items section (with safety check)
+                    if !contentStructure.actionItems.isEmpty && contentStructure.actionItems.count > 0 {
+                        ActionItemsSection(actionItems: Array(contentStructure.actionItems.prefix(5).map { $0.text }))
                     }
                     
-                    // Important dates
-                    if !contentStructure.dates.isEmpty {
-                        ImportantDatesSection(dates: contentStructure.dates)
-                            .animatedScaleIn(delay: 0.3)
+                    // Important dates (with safety check)
+                    if !contentStructure.dates.isEmpty && contentStructure.dates.count > 0 {
+                        ImportantDatesSection(dates: Array(contentStructure.dates.prefix(5).map { $0.description }))
                     }
                     
-                    // Extract and display links with enhanced previews
-                    if !extractedLinks.isEmpty {
-                        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
-                            Text("Links")
-                                .font(DesignSystem.Typography.bodyMedium)
-                                .fontWeight(.semibold)
-                                .primaryText()
-                            
-                            ForEach(extractedLinks, id: \.self) { link in
-                                EnhancedLinkPreviewCard(url: link)
-                                    .animatedSlideIn(delay: 0.1)
-                            }
-                        }
-                        .animatedScaleIn(delay: 0.4)
-                    }
                 }
                 .padding(DesignSystem.Spacing.lg)
             }
             .background(
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                    .fill(DesignSystem.Colors.systemBackground)
+                    .fill(DesignSystem.Colors.surface)
                     .overlay(
                         RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                            .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
                     )
             )
             .frame(minHeight: 200)
@@ -345,10 +388,16 @@ struct EmailDetailView: View {
         .padding(.horizontal, DesignSystem.Spacing.lg)
         .padding(.top, DesignSystem.Spacing.md)
         .onAppear {
-            // Parse content structure with animation
+            // Parse content structure
+            print("📧 EmailDetailView: Parsing content structure for email body (\(email.body.count) characters)")
+            let parsedStructure = EnhancedTextRenderer.extractContentStructure(from: email.body)
+            
+            // Apply with animation
             withAnimation(AnimationSystem.Curves.smooth.delay(0.3)) {
-                contentStructure = EnhancedTextRenderer.extractContentStructure(from: email.body)
+                contentStructure = parsedStructure
             }
+            
+            print("✅ Content structure parsed - Action items: \(parsedStructure.actionItems.count), Dates: \(parsedStructure.dates.count)")
         }
     }
     
@@ -360,13 +409,13 @@ struct EmailDetailView: View {
                 Text("Attachments")
                     .font(DesignSystem.Typography.bodyMedium)
                     .fontWeight(.semibold)
-                    .primaryText()
+                    .textPrimary()
                 
                 Spacer()
                 
                 Text("\(email.attachments.count) file\(email.attachments.count == 1 ? "" : "s")")
                     .font(DesignSystem.Typography.caption)
-                    .secondaryText()
+                    .textSecondary()
             }
             
             LazyVGrid(columns: [
@@ -393,7 +442,7 @@ struct EmailDetailView: View {
                 Text("Related Emails")
                     .font(DesignSystem.Typography.bodyMedium)
                     .fontWeight(.semibold)
-                    .primaryText()
+                    .textPrimary()
                 
                 Spacer()
                 
@@ -401,7 +450,7 @@ struct EmailDetailView: View {
                     // Show related emails
                 }
                 .font(DesignSystem.Typography.caption)
-                .accentColor()
+                .textAccent()
             }
             
             // Mock related emails - in real app would fetch from same sender or thread
@@ -424,96 +473,127 @@ struct EmailDetailView: View {
         .padding(.bottom, 100) // Space for action bar
     }
     
-    // MARK: - Quick Action Bar
+    // MARK: - Enhanced Quick Action Bar
     
     private var quickActionBar: some View {
         HStack(spacing: DesignSystem.Spacing.lg) {
-            // Reply
-            Button(action: {
-                showingReplyComposer = true
-            }) {
+            // Reply - Primary action
+            Button(action: replyToEmail) {
                 VStack(spacing: DesignSystem.Spacing.xs) {
-                    Image(systemName: "arrowshape.turn.up.left")
+                    Image(systemName: "arrowshape.turn.up.left.fill")
                         .font(.title2)
+                        .fontWeight(.semibold)
                     Text("Reply")
                         .font(DesignSystem.Typography.caption)
+                        .fontWeight(.semibold)
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(DesignSystem.Spacing.md)
-                .background(DesignSystem.Colors.accent)
-                .cornerRadius(DesignSystem.CornerRadius.md)
-            }
-            
-            // Forward
-            Button(action: {
-                showingForwardComposer = true
-            }) {
-                VStack(spacing: DesignSystem.Spacing.xs) {
-                    Image(systemName: "arrowshape.turn.up.right")
-                        .font(.title2)
-                    Text("Forward")
-                        .font(DesignSystem.Typography.caption)
-                }
-                .foregroundColor(DesignSystem.Colors.systemTextPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(DesignSystem.Spacing.md)
-                .background(DesignSystem.Colors.systemSecondaryBackground)
-                .cornerRadius(DesignSystem.CornerRadius.md)
-                .overlay(
+                .padding(.vertical, DesignSystem.Spacing.md)
+                .background(
                     RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                        .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
+                        .fill(DesignSystem.Colors.accent.gradient)
+                        .shadow(
+                            color: DesignSystem.Colors.accent.opacity(0.3),
+                            radius: 8,
+                            x: 0,
+                            y: 3
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
+                                .stroke(.white.opacity(0.2), lineWidth: 1)
+                        )
                 )
             }
+            .buttonStyle(FloatingButtonStyle())
             
-            // Archive
-            Button(action: {
-                // Archive email
-            }) {
-                VStack(spacing: DesignSystem.Spacing.xs) {
-                    Image(systemName: "archivebox")
-                        .font(.title2)
-                    Text("Archive")
-                        .font(DesignSystem.Typography.caption)
+            // Secondary actions
+            HStack(spacing: DesignSystem.Spacing.sm) {
+                // Forward
+                Button(action: forwardEmail) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "arrowshape.turn.up.right")
+                            .font(.title3)
+                        Text("Forward")
+                            .font(DesignSystem.Typography.caption2)
+                    }
+                    .textPrimary()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                            .fill(DesignSystem.Colors.surfaceSecondary)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                                    .stroke(DesignSystem.Colors.border, lineWidth: 1)
+                            )
+                    )
                 }
-                .foregroundColor(DesignSystem.Colors.systemTextPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(DesignSystem.Spacing.md)
-                .background(DesignSystem.Colors.systemSecondaryBackground)
-                .cornerRadius(DesignSystem.CornerRadius.md)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                        .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
-                )
-            }
-            
-            // Delete
-            Button(action: {
-                // Delete email
-            }) {
-                VStack(spacing: DesignSystem.Spacing.xs) {
-                    Image(systemName: "trash")
-                        .font(.title2)
-                    Text("Delete")
-                        .font(DesignSystem.Typography.caption)
+                .buttonStyle(AnimatedButtonStyle())
+                
+                // Archive
+                Button(action: archiveEmail) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "archivebox")
+                            .font(.title3)
+                        Text("Archive")
+                            .font(DesignSystem.Typography.caption2)
+                    }
+                    .foregroundColor(DesignSystem.Colors.success)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                            .fill(DesignSystem.Colors.success.opacity(0.1))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                                    .stroke(DesignSystem.Colors.success.opacity(0.3), lineWidth: 1)
+                            )
+                    )
                 }
-                .foregroundColor(.red)
-                .frame(maxWidth: .infinity)
-                .padding(DesignSystem.Spacing.md)
-                .background(Color.red.opacity(0.1))
-                .cornerRadius(DesignSystem.CornerRadius.md)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                        .stroke(Color.red.opacity(0.3), lineWidth: 1)
-                )
+                .buttonStyle(AnimatedButtonStyle())
+                
+                // Delete
+                Button(action: deleteEmail) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.title3)
+                        Text("Delete")
+                            .font(DesignSystem.Typography.caption2)
+                    }
+                    .foregroundColor(.red)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                            .fill(Color.red.opacity(0.1))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                                    .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                            )
+                    )
+                }
+                .buttonStyle(AnimatedButtonStyle())
             }
+            .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)
-        .padding(.vertical, DesignSystem.Spacing.md)
+        .padding(.vertical, DesignSystem.Spacing.lg)
         .background(
             Rectangle()
-                .fill(DesignSystem.Colors.systemBackground)
-                .shadow(color: DesignSystem.Shadow.medium, radius: 8, x: 0, y: -2)
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 12,
+                    x: 0,
+                    y: -4
+                )
+                .overlay(
+                    Rectangle()
+                        .fill(DesignSystem.Colors.border)
+                        .frame(height: 1),
+                    alignment: .top
+                )
         )
     }
     
@@ -521,7 +601,9 @@ struct EmailDetailView: View {
     
     private var senderColor: Color {
         let colors: [Color] = [.blue, .green, .orange, .purple, .red, .pink]
-        return colors[email.sender.email.hash % colors.count]
+        // FIX: avoid negative index from hash
+        let index = abs(email.sender.email.hashValue) % colors.count
+        return colors[index]
     }
     
     private var extractedLinks: [String] {
@@ -545,10 +627,7 @@ struct EmailDetailView: View {
     // MARK: - Helper Methods
     
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return EmailFormatters.formatFullDate(date)
     }
     
     private func formatEmailBody(_ body: String) -> AttributedString {
@@ -572,11 +651,58 @@ struct EmailDetailView: View {
     }
     
     private func toggleImportant() {
-        viewModel.markEmailAsImportant(email.id)
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
         isMarkedAsImportant.toggle()
+        viewModel.markEmailAsImportant(email.id)
+    }
+    
+    private func toggleReadStatus() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        
+        isMarkedAsRead.toggle()
+        viewModel.toggleReadStatus(email.id, isRead: email.isRead)
+    }
+    
+    private func archiveEmail() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
+        viewModel.archiveEmail(email.id)
+        dismiss()
+    }
+    
+    private func deleteEmail() {
+        showingDeleteConfirmation = true
+    }
+    
+    private func confirmDelete() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
+        impactFeedback.impactOccurred()
+        
+        viewModel.deleteEmail(email.id)
+        dismiss()
+    }
+    
+    private func replyToEmail() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
+        showingReplyComposer = true
+    }
+    
+    private func forwardEmail() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
+        showingForwardComposer = true
     }
 }
 
+// MARK: - Enhanced Supporting Views
+// ... rest of file unchanged ...
 // MARK: - Enhanced Supporting Views
 
 struct MeetingInfoCard: View {
@@ -598,12 +724,12 @@ struct MeetingInfoCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Meeting Detected")
                             .font(DesignSystem.Typography.bodyMedium)
-                            .primaryText()
+                            .textPrimary()
                         
                         if let title = meetingInfo.title {
                             Text(title)
                                 .font(DesignSystem.Typography.subheadline)
-                                .secondaryText()
+                                .textSecondary()
                                 .lineLimit(1)
                         }
                     }
@@ -612,7 +738,7 @@ struct MeetingInfoCard: View {
                     
                     Image(systemName: "chevron.down")
                         .font(.caption)
-                        .foregroundColor(DesignSystem.Colors.systemTextSecondary)
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                         .animation(AnimationSystem.Curves.easeInOut, value: isExpanded)
                 }
@@ -624,7 +750,7 @@ struct MeetingInfoCard: View {
                     if let time = meetingInfo.time {
                         Label(time, systemImage: "clock")
                             .font(DesignSystem.Typography.subheadline)
-                            .foregroundColor(DesignSystem.Colors.systemTextPrimary)
+                            .foregroundColor(DesignSystem.Colors.textPrimary)
                     }
                     
                     if let joinUrl = meetingInfo.joinUrl {
@@ -677,7 +803,7 @@ struct ActionItemsSection: View {
                 Text("Action Items")
                     .font(DesignSystem.Typography.bodyMedium)
                     .fontWeight(.semibold)
-                    .primaryText()
+                    .textPrimary()
             }
             
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
@@ -690,7 +816,7 @@ struct ActionItemsSection: View {
                         
                         Text(item)
                             .font(DesignSystem.Typography.subheadline)
-                            .primaryText()
+                            .textPrimary()
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .animatedSlideIn(from: .leading, delay: Double(index) * 0.1)
@@ -722,7 +848,7 @@ struct ImportantDatesSection: View {
                 Text("Important Dates")
                     .font(DesignSystem.Typography.bodyMedium)
                     .fontWeight(.semibold)
-                    .primaryText()
+                    .textPrimary()
             }
             
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
@@ -734,7 +860,7 @@ struct ImportantDatesSection: View {
                         
                         Text(date)
                             .font(DesignSystem.Typography.subheadline)
-                            .primaryText()
+                            .textPrimary()
                     }
                     .animatedSlideIn(from: .trailing, delay: Double(index) * 0.1)
                 }
@@ -776,12 +902,12 @@ struct EnhancedLinkPreviewCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(linkTitle)
                         .font(DesignSystem.Typography.bodyMedium)
-                        .primaryText()
+                        .textPrimary()
                         .lineLimit(1)
                     
                     Text(url)
                         .font(DesignSystem.Typography.caption)
-                        .secondaryText()
+                        .textSecondary()
                         .lineLimit(1)
                 }
                 
@@ -796,10 +922,10 @@ struct EnhancedLinkPreviewCard: View {
             .padding(DesignSystem.Spacing.md)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
-                    .fill(DesignSystem.Colors.systemSecondaryBackground)
+                    .fill(DesignSystem.Colors.surfaceSecondary)
                     .overlay(
                         RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
-                            .stroke(isHovered ? linkColor.opacity(0.3) : DesignSystem.Colors.systemBorder, lineWidth: 1)
+                            .stroke(isHovered ? linkColor.opacity(0.3) : DesignSystem.Colors.border, lineWidth: 1)
                     )
             )
             .hoverAnimation(isHovered: isHovered)
@@ -869,22 +995,22 @@ struct AttachmentCard: View {
                 Text(attachment.filename)
                     .font(DesignSystem.Typography.caption)
                     .fontWeight(.medium)
-                    .primaryText()
+                    .textPrimary()
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                 
                 Text(formatFileSize(attachment.size))
                     .font(DesignSystem.Typography.caption2)
-                    .secondaryText()
+                    .textSecondary()
             }
             .padding(DesignSystem.Spacing.md)
             .frame(minHeight: 80)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                    .fill(DesignSystem.Colors.systemSecondaryBackground)
+                    .fill(DesignSystem.Colors.surfaceSecondary)
                     .overlay(
                         RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                            .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
                     )
             )
         }
@@ -916,10 +1042,7 @@ struct AttachmentCard: View {
     }
     
     private func formatFileSize(_ size: Int) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(size))
+        return EmailFormatters.formatFileSize(size)
     }
 }
 
@@ -935,11 +1058,11 @@ struct LinkPreviewCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(linkTitle)
                     .font(DesignSystem.Typography.bodyMedium)
-                    .primaryText()
+                    .textPrimary()
                 
                 Text(url)
                     .font(DesignSystem.Typography.caption)
-                    .secondaryText()
+                    .textSecondary()
                     .lineLimit(1)
             }
             
@@ -949,15 +1072,15 @@ struct LinkPreviewCard: View {
                 // Open link
             }
             .font(DesignSystem.Typography.caption)
-            .accentColor()
+            .textAccent()
         }
         .padding(DesignSystem.Spacing.md)
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
-                .fill(DesignSystem.Colors.systemSecondaryBackground)
+                .fill(DesignSystem.Colors.surfaceSecondary)
                 .overlay(
                     RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
-                        .stroke(DesignSystem.Colors.systemBorder, lineWidth: 1)
+                        .stroke(DesignSystem.Colors.border, lineWidth: 1)
                 )
         )
     }
@@ -1005,22 +1128,22 @@ struct RelatedEmailRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(subject)
                     .font(DesignSystem.Typography.subheadline)
-                    .primaryText()
+                    .textPrimary()
                     .lineLimit(1)
                 
                 Text("From: \(sender)")
                     .font(DesignSystem.Typography.caption)
-                    .secondaryText()
+                    .textSecondary()
             }
             
             Spacer()
             
             Text(RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date()))
                 .font(DesignSystem.Typography.caption)
-                .secondaryText()
+                .textSecondary()
         }
         .padding(DesignSystem.Spacing.sm)
-        .background(DesignSystem.Colors.systemSecondaryBackground)
+        .background(DesignSystem.Colors.surfaceSecondary)
         .cornerRadius(DesignSystem.CornerRadius.sm)
     }
 }
@@ -1044,7 +1167,7 @@ struct EmailComposerView: View {
     var body: some View {
         Text("Email Composer (Coming Soon)")
             .font(DesignSystem.Typography.title2)
-            .primaryText()
+            .textPrimary()
     }
 }
 
@@ -1054,7 +1177,7 @@ struct AttachmentPreviewView: View {
     var body: some View {
         Text("Attachment Preview: \(attachment.filename)")
             .font(DesignSystem.Typography.title2)
-            .primaryText()
+            .textPrimary()
     }
 }
 
@@ -1071,19 +1194,22 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 
 struct EmailDetailView_Previews: PreviewProvider {
     static var previews: some View {
-        EmailDetailView(email: Email(
-            id: "preview_1",
-            subject: "Important Meeting Tomorrow",
-            sender: EmailContact(name: "John Doe", email: "john@company.com"),
-            recipients: [EmailContact(name: "You", email: "you@company.com")],
-            body: "Hi there, I wanted to remind you about our important meeting scheduled for tomorrow at 10 AM. Please make sure to review the attached documents beforehand. The meeting will cover our quarterly goals and the upcoming project timeline. Looking forward to seeing you there!",
-            date: Date(),
-            isRead: false,
-            isImportant: true,
-            labels: ["INBOX", "IMPORTANT"],
-            attachments: [
-                EmailAttachment(filename: "Meeting_Agenda.pdf", mimeType: "application/pdf", size: 245760)
-            ]
-        ))
+        EmailDetailView(
+            email: Email(
+                id: "preview_1",
+                subject: "Important Meeting Tomorrow",
+                sender: EmailContact(name: "John Doe", email: "john@company.com"),
+                recipients: [EmailContact(name: "You", email: "you@company.com")],
+                body: "Hi there, I wanted to remind you about our important meeting scheduled for tomorrow at 10 AM. Please make sure to review the attached documents beforehand. The meeting will cover our quarterly goals and the upcoming project timeline. Looking forward to seeing you there!",
+                date: Date(),
+                isRead: false,
+                isImportant: true,
+                labels: ["INBOX", "IMPORTANT"],
+                attachments: [
+                    EmailAttachment(filename: "Meeting_Agenda.pdf", mimeType: "application/pdf", size: 245760)
+                ]
+            ),
+            viewModel: ContentViewModel()
+        )
     }
 }

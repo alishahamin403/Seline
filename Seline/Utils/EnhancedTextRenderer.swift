@@ -13,29 +13,20 @@ struct EnhancedTextRenderer {
     // MARK: - Rich Text Formatting
     
     static func formatEmailBody(_ body: String) -> AttributedString {
-        var attributedString = AttributedString(body)
+        // First, clean the HTML/CSS and extract meaningful text
+        let cleanedBody = cleanHTMLContent(body)
+        
+        var attributedString = AttributedString(cleanedBody)
         
         // Apply base styling
         attributedString.font = DesignSystem.Typography.body
-        attributedString.foregroundColor = DesignSystem.Colors.systemTextPrimary
-        
-        // Format URLs
-        formatURLs(in: &attributedString)
-        
-        // Format email addresses
-        formatEmailAddresses(in: &attributedString)
-        
-        // Format phone numbers
-        formatPhoneNumbers(in: &attributedString)
+        attributedString.foregroundColor = DesignSystem.Colors.textPrimary
         
         // Format bold text (simple markdown-like)
         formatBoldText(in: &attributedString)
         
         // Format italic text
         formatItalicText(in: &attributedString)
-        
-        // Format meeting links with special styling
-        formatMeetingLinks(in: &attributedString)
         
         return attributedString
     }
@@ -48,14 +39,23 @@ struct EnhancedTextRenderer {
             let matches = regex.matches(in: string, range: NSRange(location: 0, length: string.count))
             
             for match in matches.reversed() {
-                if let range = Range(match.range, in: string) {
-                    let urlString = String(string[range])
-                    if let attributedRange = attributedString.range(of: urlString) {
-                        attributedString[attributedRange].foregroundColor = DesignSystem.Colors.accent
-                        attributedString[attributedRange].underlineStyle = .single
-                        if let url = URL(string: urlString) {
-                            attributedString[attributedRange].link = url
-                        }
+                // Safety check for match range
+                guard match.range.location != NSNotFound, 
+                      match.range.location >= 0,
+                      match.range.location + match.range.length <= string.count,
+                      let range = Range(match.range, in: string) else {
+                    print("⚠️ Warning: Invalid range in formatURLs, skipping")
+                    continue
+                }
+                
+                let urlString = String(string[range])
+                
+                // Find the range in the attributed string safely
+                if let attributedRange = attributedString.range(of: urlString) {
+                    attributedString[attributedRange].foregroundColor = DesignSystem.Colors.accent
+                    attributedString[attributedRange].underlineStyle = .single
+                    if let url = URL(string: urlString) {
+                        attributedString[attributedRange].link = url
                     }
                 }
             }
@@ -70,13 +70,20 @@ struct EnhancedTextRenderer {
             let matches = regex.matches(in: string, range: NSRange(location: 0, length: string.count))
             
             for match in matches.reversed() {
-                if let range = Range(match.range, in: string) {
-                    let emailString = String(string[range])
-                    if let attributedRange = attributedString.range(of: emailString) {
-                        attributedString[attributedRange].foregroundColor = DesignSystem.Colors.accent
-                        if let url = URL(string: "mailto:\(emailString)") {
-                            attributedString[attributedRange].link = url
-                        }
+                // Safety check for match range
+                guard match.range.location != NSNotFound, 
+                      match.range.location >= 0,
+                      match.range.location + match.range.length <= string.count,
+                      let range = Range(match.range, in: string) else {
+                    print("⚠️ Warning: Invalid range in formatEmailAddresses, skipping")
+                    continue
+                }
+                
+                let emailString = String(string[range])
+                if let attributedRange = attributedString.range(of: emailString) {
+                    attributedString[attributedRange].foregroundColor = DesignSystem.Colors.accent
+                    if let url = URL(string: "mailto:\(emailString)") {
+                        attributedString[attributedRange].link = url
                     }
                 }
             }
@@ -176,10 +183,20 @@ struct EnhancedTextRenderer {
         structure.meetingInfo = extractMeetingInfo(from: body)
         
         // Extract action items
-        structure.actionItems = extractActionItems(from: body)
+        let actionItemStrings = extractActionItems(from: body)
+        structure.actionItems = actionItemStrings.map { ActionItem(text: $0) }
         
         // Extract important dates
-        structure.dates = extractDates(from: body)
+        let dateStrings = extractDates(from: body)
+        structure.dates = dateStrings.compactMap { dateString in
+            // Simple date parsing - in a real implementation you'd want more robust parsing
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            if let date = formatter.date(from: dateString) {
+                return ImportantDate(date: date, description: dateString)
+            }
+            return nil
+        }
         
         // Extract contact information
         structure.contacts = extractContacts(from: body)
@@ -296,19 +313,125 @@ struct EnhancedTextRenderer {
         
         return []
     }
-}
-
-// MARK: - Supporting Models
-
-struct EmailContentStructure {
-    var meetingInfo: MeetingInfo?
-    var actionItems: [String] = []
-    var dates: [String] = []
-    var contacts: [String] = []
-}
-
-struct MeetingInfo {
-    var title: String?
-    var time: String?
-    var joinUrl: String?
+    
+    // MARK: - HTML Content Cleaning
+    
+    static func cleanHTMLContent(_ htmlString: String) -> String {
+        var cleanedString = htmlString
+        
+        // Remove HTML comments, script tags, and style blocks using NSRegularExpression
+        let patterns = [
+            "<!--.*?-->",  // HTML comments
+            "<script[^>]*>.*?</script>",  // Script tags
+            "<style[^>]*>.*?</style>"     // Style tags
+        ]
+        
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) {
+                let range = NSRange(location: 0, length: cleanedString.utf16.count)
+                cleanedString = regex.stringByReplacingMatches(in: cleanedString, options: [], range: range, withTemplate: "")
+            }
+        }
+        
+        // Remove HTML tags but preserve some structure
+        cleanedString = cleanedString.replacingOccurrences(of: "<br[^>]*>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        cleanedString = cleanedString.replacingOccurrences(of: "</p>", with: "\n\n", options: .caseInsensitive)
+        cleanedString = cleanedString.replacingOccurrences(of: "</div>", with: "\n", options: .caseInsensitive)
+        cleanedString = cleanedString.replacingOccurrences(of: "</h[1-6]>", with: "\n\n", options: [.regularExpression, .caseInsensitive])
+        
+        // Remove all remaining HTML tags
+        cleanedString = cleanedString.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        
+        // Remove inline CSS and HTML attributes
+        cleanedString = cleanedString.replacingOccurrences(of: "style\\s*=\\s*[\"'][^\"']*[\"']", with: "", options: .regularExpression)
+        
+        // Remove common CSS properties and selectors that might appear as plain text
+        let cssPatterns = [
+            "\\{[^}]*\\}",  // Remove CSS rule blocks
+            "body\\s*\\{[^}]*\\}",
+            "font-family:\\s*[^;]+;?",
+            "padding:\\s*[^;]+;?",
+            "margin:\\s*[^;]+;?",
+            "color:\\s*[^;]+;?",
+            "background[^:]*:\\s*[^;]+;?",
+            "border[^:]*:\\s*[^;]+;?",
+            "text-align:\\s*[^;]+;?",
+            "font-size:\\s*[^;]+;?",
+            "line-height:\\s*[^;]+;?",
+            "width:\\s*[^;]+;?",
+            "height:\\s*[^;]+;?",
+            "display:\\s*[^;]+;?",
+            "max-width:\\s*[^;]+;?",
+            "\\.\\w+\\s*\\{[^}]*\\}",  // CSS class selectors
+            "#\\w+\\s*\\{[^}]*\\}",   // CSS ID selectors
+            "@media[^{]*\\{[^}]*\\}", // Media queries
+        ]
+        
+        for pattern in cssPatterns {
+            cleanedString = cleanedString.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        
+        // Decode HTML entities
+        let htmlEntities = [
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&apos;": "'",
+            "&nbsp;": " ",
+            "&#39;": "'",
+            "&hellip;": "...",
+        ]
+        
+        for (entity, replacement) in htmlEntities {
+            cleanedString = cleanedString.replacingOccurrences(of: entity, with: replacement)
+        }
+        
+        // Remove URLs and links as requested
+        let urlPattern = #"https?://[^\s<>"{}|\\^`[\]]+"#
+        cleanedString = cleanedString.replacingOccurrences(of: urlPattern, with: "", options: .regularExpression)
+        
+        // Remove email addresses to simplify content
+        let emailPattern = #"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#
+        cleanedString = cleanedString.replacingOccurrences(of: emailPattern, with: "", options: .regularExpression)
+        
+        // Clean up whitespace and formatting
+        // Replace multiple whitespace with single space
+        cleanedString = cleanedString.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        
+        // Remove excessive line breaks (more than 2 consecutive)
+        cleanedString = cleanedString.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        
+        // Trim whitespace
+        cleanedString = cleanedString.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // If the result is still mostly CSS/HTML gibberish, try to extract meaningful content
+        if cleanedString.contains("{") || cleanedString.contains("}") || cleanedString.count < 10 {
+            // Try to find meaningful sentences or phrases
+            let sentences = cleanedString.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
+            let meaningfulSentences = sentences.filter { sentence in
+                let trimmed = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.count > 15 && 
+                       !trimmed.contains("{") && 
+                       !trimmed.contains("}") && 
+                       !trimmed.contains("px") &&
+                       !trimmed.lowercased().contains("font-family") &&
+                       !trimmed.lowercased().contains("background")
+            }
+            
+            if !meaningfulSentences.isEmpty {
+                cleanedString = meaningfulSentences.joined(separator: ". ").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleanedString.isEmpty && !cleanedString.hasSuffix(".") && !cleanedString.hasSuffix("!") && !cleanedString.hasSuffix("?") {
+                    cleanedString += "."
+                }
+            }
+        }
+        
+        // Final fallback - if still no meaningful content, return a user-friendly message
+        if cleanedString.isEmpty || cleanedString.count < 3 {
+            return "This email contains formatting that cannot be displayed as plain text."
+        }
+        
+        return cleanedString
+    }
 }

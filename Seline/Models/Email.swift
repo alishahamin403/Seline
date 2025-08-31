@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Email: Identifiable, Codable {
+struct Email: Identifiable, Codable, Equatable {
     let id: String
     let subject: String
     let sender: EmailContact
@@ -18,17 +18,28 @@ struct Email: Identifiable, Codable {
     let isImportant: Bool
     let labels: [String]
     let attachments: [EmailAttachment]
+    let isPromotional: Bool
+    let hasCalendarEvent: Bool
     
-    var isPromotional: Bool {
-        labels.contains("CATEGORY_PROMOTIONS")
-    }
-    
-    var hasCalendarEvent: Bool {
-        labels.contains("CALENDAR") || body.contains("calendar") || body.contains("meeting")
+    // Convenience initializer for backward compatibility
+    init(id: String, subject: String, sender: EmailContact, recipients: [EmailContact], body: String, date: Date, isRead: Bool, isImportant: Bool, labels: [String], attachments: [EmailAttachment] = [], isPromotional: Bool? = nil, hasCalendarEvent: Bool? = nil) {
+        self.id = id
+        self.subject = subject
+        self.sender = sender
+        self.recipients = recipients
+        self.body = body
+        self.date = date
+        self.isRead = isRead
+        self.isImportant = isImportant
+        self.labels = labels
+        // Safe array access for attachments and labels
+        self.attachments = attachments.isEmpty ? [] : attachments
+        self.isPromotional = isPromotional ?? (labels.isEmpty ? false : labels.contains("CATEGORY_PROMOTIONS"))
+        self.hasCalendarEvent = hasCalendarEvent ?? (labels.isEmpty ? false : (labels.contains("CALENDAR") || body.contains("calendar") || body.contains("meeting")))
     }
 }
 
-struct EmailContact: Identifiable, Codable {
+struct EmailContact: Identifiable, Codable, Equatable {
     let id: UUID
     let name: String?
     let email: String
@@ -44,7 +55,7 @@ struct EmailContact: Identifiable, Codable {
     }
 }
 
-struct EmailAttachment: Identifiable, Codable {
+struct EmailAttachment: Identifiable, Codable, Equatable {
     let id: UUID
     let filename: String
     let mimeType: String
@@ -54,6 +65,47 @@ struct EmailAttachment: Identifiable, Codable {
         self.id = UUID()
         self.filename = filename
         self.mimeType = mimeType
-        self.size = size
+        self.size = max(0, size) // Ensure size is never negative
+    }
+}
+
+// MARK: - Email Safe Array Extensions
+
+extension Email {
+    /// Safe access to recipients array
+    var safeRecipients: [EmailContact] {
+        guard !recipients.isEmpty else {
+            print("🔍 Email.safeRecipients: No recipients for email \(id)")
+            return []
+        }
+        return recipients
+    }
+    
+    /// Safe access to labels array
+    var safeLabels: [String] {
+        guard !labels.isEmpty else {
+            print("🔍 Email.safeLabels: No labels for email \(id)")
+            return []
+        }
+        return labels
+    }
+    
+    /// Safe access to attachments array
+    var safeAttachments: [EmailAttachment] {
+        guard !attachments.isEmpty else {
+            print("🔍 Email.safeAttachments: No attachments for email \(id)")
+            return []
+        }
+        return attachments
+    }
+    
+    /// Safe access to first recipient
+    var primaryRecipient: EmailContact? {
+        return recipients.safeElement(at: 0)
+    }
+    
+    /// Safe attachment count
+    var safeAttachmentCount: Int {
+        return max(0, attachments.count)
     }
 }

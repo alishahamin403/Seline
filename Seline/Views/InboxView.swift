@@ -6,94 +6,180 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct InboxView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ContentViewModel()
     @State private var selectedFilter: InboxFilter = .all
+    @State private var selectedEmail: Email?
+    @State private var isShowingEmailDetail = false
+    @State private var useFullScreenCover = false
+    @State private var cachedFilteredEmails: [Email] = []
+    @State private var searchText = ""
+    @State private var isSearching = false
     
     var body: some View {
-        NavigationView {
+        // Snapshot once per body evaluation for stability
+        let emailsSnapshot = filteredEmailsForSearch
+        
+        ZStack {
+            // Consistent background from design system
+            DesignSystem.Colors.background
+                .ignoresSafeArea()
+            
             VStack(spacing: 0) {
-                // Filter tabs
-                filterTabs
+                // Header with back button and search
+                headerSection
                 
                 // Email list
                 if viewModel.isLoading {
                     loadingView
-                } else if viewModel.emails.isEmpty {
+                } else if let errorMessage = viewModel.errorMessage {
+                    errorStateView(errorMessage)
+                } else if emailsSnapshot.isEmpty {
                     emptyStateView
                 } else {
-                    emailList
+                    emailListSection(emailsSnapshot: emailsSnapshot)
                 }
             }
-            .designSystemBackground()
-            .navigationTitle("Inbox")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .accentColor()
+            
+            // Compose button
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    composeButton
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 20)
                 }
             }
+        }
+        .fullScreenCover(item: $selectedEmail) { email in
+            NavigationView {
+                GmailStyleEmailDetailView(email: email, viewModel: viewModel)
+                    .navigationBarHidden(true)
+            }
+            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
+        }
+        .onChange(of: selectedEmail) { email in
+            if email != nil {
+                print("🔄 InboxView: selectedEmail changed to \(email?.id ?? "nil")")
+                isShowingEmailDetail = true
+            } else {
+                print("🔄 InboxView: selectedEmail cleared")
+                isShowingEmailDetail = false
+            }
+        }
+        .onChange(of: selectedFilter) { _ in
+            updateCachedFilteredEmails()
+        }
+        .onChange(of: viewModel.emails) { _ in
+            updateCachedFilteredEmails()
+        }
+        .onChange(of: viewModel.importantEmails) { _ in
+            updateCachedFilteredEmails()
+        }
+        .onChange(of: viewModel.calendarEmails) { _ in
+            updateCachedFilteredEmails()
         }
         .onAppear {
             Task {
                 await viewModel.loadEmails()
+                await MainActor.run {
+                    updateCachedFilteredEmails()
+                }
             }
         }
     }
     
-    // MARK: - Filter Tabs
+    // MARK: - Header Section
     
-    private var filterTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DesignSystem.Spacing.sm) {
-                ForEach(InboxFilter.allCases, id: \.self) { filter in
-                    FilterTab(
-                        filter: filter,
-                        isSelected: selectedFilter == filter,
-                        count: getCount(for: filter)
-                    ) {
-                        selectedFilter = filter
+    private var headerSection: some View {
+        VStack(spacing: 12) {
+            // Top header with back button and profile
+            HStack {
+                Button(action: {
+                    dismiss()
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                            .font(.title2)
+                        Text("Back")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                }
+                
+                Spacer()
+                
+                // Profile avatar
+                Button(action: {}) {
+                    Circle()
+                        .fill(Color.purple)
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Text("A")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(DesignSystem.Colors.textPrimary)
+                        )
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+            
+            // Search bar
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                
+                TextField("Search in mail", text: $searchText)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .onTapGesture {
+                        isSearching = true
+                    }
+                
+                if !searchText.isEmpty {
+                    Button(action: {
+                        searchText = ""
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
                     }
                 }
             }
-            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(25)
+            .padding(.horizontal, 20)
+            
+            // Section header
+            HStack {
+                Text("All inboxes")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
         }
-        .padding(.vertical, DesignSystem.Spacing.sm)
-        .background(DesignSystem.Colors.systemSecondaryBackground)
+        .background(DesignSystem.Colors.background)
     }
     
-    private func getCount(for filter: InboxFilter) -> Int {
-        switch filter {
-        case .all:
-            return viewModel.emails.count
-        case .unread:
-            return viewModel.emails.filter { !$0.isRead }.count
-        case .important:
-            return viewModel.importantEmails.count
-        case .promotional:
-            return viewModel.promotionalEmails.count
-        case .calendar:
-            return viewModel.calendarEmails.count
-        }
-    }
     
     // MARK: - Loading View
     
     private var loadingView: some View {
-        VStack(spacing: DesignSystem.Spacing.lg) {
+        VStack(spacing: 20) {
             ProgressView()
                 .scaleEffect(1.2)
-                .tint(DesignSystem.Colors.accent)
+                .tint(DesignSystem.Colors.textPrimary)
             
             Text("Loading emails...")
-                .font(DesignSystem.Typography.body)
-                .secondaryText()
+                .font(.system(size: 16))
+                .foregroundColor(DesignSystem.Colors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -101,55 +187,188 @@ struct InboxView: View {
     // MARK: - Empty State View
     
     private var emptyStateView: some View {
-        VStack(spacing: DesignSystem.Spacing.lg) {
+        VStack(spacing: 20) {
             Image(systemName: "tray")
                 .font(.system(size: 60))
-                .foregroundColor(DesignSystem.Colors.systemTextSecondary)
+                .foregroundColor(.gray)
             
-            VStack(spacing: DesignSystem.Spacing.sm) {
+            VStack(spacing: 8) {
                 Text("No emails found")
-                    .font(DesignSystem.Typography.title3)
-                    .primaryText()
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
                 
                 Text("Your inbox is empty or all emails have been read")
-                    .font(DesignSystem.Typography.body)
-                    .secondaryText()
+                    .font(.system(size: 16))
+                    .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(DesignSystem.Spacing.lg)
+        .padding(20)
     }
     
-    // MARK: - Email List
+    // MARK: - Email List Section
     
-    private var emailList: some View {
+    private func emailListSection(emailsSnapshot: [Email]) -> some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(filteredEmails) { email in
-                    EmailRow(email: email) {
-                        // Handle email tap
+                // Iterate over a stable snapshot with stable IDs (no enumerated indexing)
+                ForEach(emailsSnapshot, id: \.id) { email in
+                    ModernEmailRow(email: email) {
+                        // Add haptic feedback
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                        impactFeedback.impactOccurred()
+                        
+                        // Preload email content in background for smooth opening
+                        Task {
+                            _ = await viewModel.preloadEmailContent(for: email.id)
+                        }
+                        
+                        // Force update with animation to ensure state change is detected
+                        withAnimation(.easeInOut(duration: 0.1)) {
+                            selectedEmail = email
+                        }
                     }
-                    
-                    Divider()
-                        .padding(.leading, DesignSystem.Spacing.lg)
+                    .onAppear {
+                        // Preload email content when it appears on screen for smoother opening
+                        Task {
+                            _ = await viewModel.preloadEmailContent(for: email.id)
+                        }
+                    }
+                }
+                
+                // Load More button
+                if viewModel.hasMoreEmails && !viewModel.isLoadingMore && !emailsSnapshot.isEmpty {
+                    loadMoreButton
                 }
             }
+        }
+        .refreshable {
+            await viewModel.refresh()
+            updateCachedFilteredEmails()
+        }
+        .onAppear {
+            updateCachedFilteredEmails()
+            let visibleEmailIds = Array(emailsSnapshot.prefix(10).map { $0.id })
+            viewModel.preloadEmailsInBackground(for: visibleEmailIds, priority: .utility)
         }
     }
     
     private var filteredEmails: [Email] {
+        let allEmails = viewModel.emails
+        ArrayBoundsLogger.logArrayAccess(arrayName: "allEmails", count: allEmails.count)
+        
+        let filtered: [Email]
         switch selectedFilter {
         case .all:
-            return viewModel.emails
+            filtered = allEmails
         case .unread:
-            return viewModel.emails.filter { !$0.isRead }
+            filtered = allEmails.safeFilter { !$0.isRead }
         case .important:
-            return viewModel.importantEmails
-        case .promotional:
-            return viewModel.promotionalEmails
+            let importantEmails = viewModel.importantEmails
+            ArrayBoundsLogger.logArrayAccess(arrayName: "importantEmails", count: importantEmails.count)
+            filtered = importantEmails
         case .calendar:
-            return viewModel.calendarEmails
+            let calendarEmails = viewModel.calendarEmails
+            ArrayBoundsLogger.logArrayAccess(arrayName: "calendarEmails", count: calendarEmails.count)
+            filtered = calendarEmails
+        }
+        
+        ArrayBoundsLogger.logArrayOperation(operation: "Filter", arrayName: "emails", originalCount: allEmails.count, resultCount: filtered.count)
+        print("📬 InboxView filteredEmails: \(allEmails.count) total -> \(filtered.count) filtered (filter: \(selectedFilter))")
+        return filtered
+    }
+    
+    private func updateCachedFilteredEmails() {
+        let filtered = filteredEmails
+        ArrayBoundsLogger.logArrayOperation(operation: "Cache Update", arrayName: "filteredEmails", originalCount: cachedFilteredEmails.count, resultCount: filtered.count)
+        cachedFilteredEmails = filtered
+        print("📦 InboxView: Cached \(filtered.count) filtered emails (filter: \(selectedFilter))")
+    }
+    
+    // MARK: - Search Functionality
+    
+    private var filteredEmailsForSearch: [Email] {
+        if searchText.isEmpty {
+            return cachedFilteredEmails
+        } else {
+            return cachedFilteredEmails.filter { email in
+                email.subject.localizedCaseInsensitiveContains(searchText) ||
+                email.body.localizedCaseInsensitiveContains(searchText) ||
+                email.sender.displayName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
+    
+    // MARK: - UI Components
+    
+    private func errorStateView(_ errorMessage: String) -> some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 50))
+                .foregroundColor(.orange)
+            
+            Text("Error Loading Emails")
+                .font(.headline)
+                .foregroundColor(DesignSystem.Colors.textPrimary)
+            
+            Text(errorMessage)
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+            
+            Button("Retry") {
+                Task {
+                    await viewModel.loadEmails()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+    
+    private var loadMoreButton: some View {
+        Button(action: {
+            Task {
+                await viewModel.loadMoreEmails()
+            }
+        }) {
+            HStack {
+                if viewModel.isLoadingMore {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .tint(DesignSystem.Colors.textPrimary)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                }
+                
+                Text(viewModel.isLoadingMore ? "Loading..." : "Load More")
+                    .font(.system(size: 16, weight: .medium))
+            }
+            .foregroundColor(.white)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+        }
+        .disabled(viewModel.isLoadingMore)
+    }
+    
+    private var composeButton: some View {
+        Button(action: {
+            // Handle compose action
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 18, weight: .medium))
+                Text("Compose")
+                    .font(.system(size: 16, weight: .medium))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color.blue)
+            .cornerRadius(25)
         }
     }
 }
@@ -160,7 +379,6 @@ enum InboxFilter: String, CaseIterable {
     case all = "All"
     case unread = "Unread"
     case important = "Important"
-    case promotional = "Promotional"
     case calendar = "Calendar"
     
     var icon: String {
@@ -171,113 +389,140 @@ enum InboxFilter: String, CaseIterable {
             return "envelope.fill"
         case .important:
             return "exclamationmark.circle.fill"
-        case .promotional:
-            return "tag.fill"
         case .calendar:
             return "calendar.circle.fill"
         }
     }
 }
 
-// MARK: - Filter Tab
 
-struct FilterTab: View {
-    let filter: InboxFilter
-    let isSelected: Bool
-    let count: Int
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: DesignSystem.Spacing.xs) {
-                Image(systemName: filter.icon)
-                    .font(.caption)
-                
-                Text(filter.rawValue)
-                    .font(DesignSystem.Typography.subheadline)
-                
-                if count > 0 {
-                    Text("\(count)")
-                        .font(DesignSystem.Typography.caption2)
-                        .foregroundColor(isSelected ? .white : DesignSystem.Colors.systemTextSecondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(isSelected ? Color.white.opacity(0.3) : DesignSystem.Colors.systemBorder)
-                        .cornerRadius(8)
-                }
-            }
-            .foregroundColor(isSelected ? .white : DesignSystem.Colors.systemTextPrimary)
-            .padding(.horizontal, DesignSystem.Spacing.md)
-            .padding(.vertical, DesignSystem.Spacing.sm)
-            .background(isSelected ? DesignSystem.Colors.accent : Color.clear)
-            .cornerRadius(DesignSystem.CornerRadius.sm)
-        }
-    }
-}
+// MARK: - Modern Email Row
 
-// MARK: - Email Row
-
-struct EmailRow: View {
+struct ModernEmailRow: View {
     let email: Email
     let onTap: () -> Void
     
+    private var avatarColor: Color {
+        let colors: [Color] = [.blue, .purple, .green, .orange, .red, .pink, .indigo]
+        let index = abs(email.sender.displayName.hashValue) % colors.count
+        return colors[index]
+    }
+    
+    private var isImportant: Bool {
+        email.isImportant || email.subject.lowercased().contains("urgent") || email.subject.lowercased().contains("important")
+    }
+    
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: DesignSystem.Spacing.md) {
-                // Sender avatar
+            HStack(spacing: 12) {
+                // Avatar with letter
                 Circle()
-                    .fill(DesignSystem.Colors.accent.opacity(0.1))
-                    .frame(width: 40, height: 40)
+                    .fill(avatarColor)
+                    .frame(width: 48, height: 48)
                     .overlay(
                         Text(String(email.sender.displayName.prefix(1).uppercased()))
-                            .font(DesignSystem.Typography.bodyMedium)
-                            .foregroundColor(DesignSystem.Colors.accent)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(DesignSystem.Colors.textPrimary)
                     )
                 
-                // Email content
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
+                    // First row: Important indicator + Sender + Date
+                    HStack(spacing: 4) {
+                        if isImportant {
+                            Image(systemName: "chevron.right.2")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.yellow)
+                        }
+                        
                         Text(email.sender.displayName)
-                            .font(email.isRead ? DesignSystem.Typography.body : DesignSystem.Typography.bodyMedium)
-                            .primaryText()
+                            .font(.system(size: 16, weight: email.isRead ? .regular : .semibold))
+                            .foregroundColor(DesignSystem.Colors.textPrimary)
                             .lineLimit(1)
                         
                         Spacer()
                         
-                        Text(RelativeDateTimeFormatter().localizedString(for: email.date, relativeTo: Date()))
-                            .font(DesignSystem.Typography.caption)
-                            .secondaryText()
+                        Text(formatDate(email.date))
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
                     }
                     
+                    // Subject line
                     Text(email.subject)
-                        .font(email.isRead ? DesignSystem.Typography.subheadline : DesignSystem.Typography.callout)
-                        .foregroundColor(email.isRead ? DesignSystem.Colors.systemTextSecondary : DesignSystem.Colors.systemTextPrimary)
+                        .font(.system(size: 15, weight: email.isRead ? .regular : .medium))
+                        .foregroundColor(email.isRead ? .gray : .white)
                         .lineLimit(1)
                     
+                    // Preview text
                     Text(email.body)
-                        .font(DesignSystem.Typography.footnote)
-                        .secondaryText()
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
                         .lineLimit(2)
+                    
+                    // Attachments row
+                    if !email.attachments.isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(email.attachments.prefix(2), id: \.id) { attachment in
+                                HStack(spacing: 4) {
+                                    Image(systemName: "doc.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.red)
+                                    Text(attachmentName(attachment))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.gray.opacity(0.3))
+                                        .cornerRadius(12)
+                                }
+                            }
+                            
+                            if email.attachments.count > 2 {
+                                Text("...")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+                            
+                            Spacer()
+                        }
+                        .padding(.top, 4)
+                    }
                 }
                 
-                // Status indicators
+                // Star indicator
                 VStack {
-                    if !email.isRead {
-                        Circle()
-                            .fill(DesignSystem.Colors.accent)
-                            .frame(width: 8, height: 8)
+                    Button(action: {
+                        // Handle star toggle
+                    }) {
+                        Image(systemName: email.isImportant ? "star.fill" : "star")
+                            .font(.system(size: 18))
+                            .foregroundColor(email.isImportant ? .yellow : .gray)
                     }
                     
-                    if email.isImportant {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
+                    Spacer()
                 }
             }
-            .padding(DesignSystem.Spacing.lg)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.dateTimeStyle = .named
+        let relative = formatter.localizedString(for: date, relativeTo: Date())
+        
+        if relative.contains("day") {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "MMM d"
+            return dayFormatter.string(from: date)
+        }
+        
+        return relative
+    }
+    
+    private func attachmentName(_ attachment: EmailAttachment) -> String {
+        return attachment.filename
     }
 }
 

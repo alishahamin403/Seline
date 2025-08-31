@@ -4,21 +4,30 @@
 <dict>
 	<key>CFBundleDisplayName</key>
 	<string>Seline</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>Seline</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.seline.app</string>
-	<key>CFBundleVersion</key>
-	<string>1.0.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>UILaunchScreen</key>
-	<dict/>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>armv7</string>
+	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
@@ -36,7 +45,8 @@
 			<string>com.seline.app.oauth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.YOUR_CLIENT_ID_HERE</string>
+				<string>com.googleusercontent.apps.729504866074-jp0dk33q729oh942d70fl7nu68ofnff3</string>
+				<string>com.seline.app</string>
 			</array>
 		</dict>
 	</array>
@@ -58,7 +68,45 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>UILaunchScreen</key>
+	<dict/>
+	
+	<!-- Privacy Usage Descriptions -->
+	<key>NSContactsUsageDescription</key>
+	<string>Seline accesses your contacts to help organize and display email sender information more effectively.</string>
+	
+	<key>NSCalendarsUsageDescription</key>
+	<string>Seline accesses your calendar to identify and organize calendar invitations and meeting requests from your emails.</string>
+	
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Seline may access your photo library to save email attachments or screenshots for your convenience.</string>
+	
+	<key>NSCameraUsageDescription</key>
+	<string>Seline uses the camera to scan documents or QR codes that may be shared via email attachments.</string>
+	
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Seline may use your location to provide relevant context for location-based email content and events.</string>
+	
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This helps us improve Seline by understanding how you use the app, while keeping your email content completely private.</string>
+	
+	<!-- Voice Recording Privacy Descriptions -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Seline uses speech recognition to convert your voice into text for creating todos and reminders. Your voice data is processed on-device and with secure AI services.</string>
+	
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Seline needs microphone access to record your voice when creating voice todos and reminders. This makes it quick and easy to capture tasks hands-free.</string>
+	
+	<!-- App Store Required Keys -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	
+	<!-- Capabilities -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>background-fetch</string>
+		<string>background-processing</string>
+	</array>
+	
 </dict>
 </plist>
