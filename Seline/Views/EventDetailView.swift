@@ -18,202 +18,53 @@ struct EventDetailView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Event Title
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Event Details")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                            .textCase(.uppercase)
-                            .tracking(0.5)
-                        
-                        Text(event.title)
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
-                            .lineLimit(nil)
-                    }
+                VStack(spacing: 0) {
+                    // Header with event title
+                    headerSection
                     
-                    // Time & Date
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 16))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(width: 24)
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(formatDate(event.startDate))
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textPrimary)
-                                
-                                if event.isAllDay {
-                                    Text("All day")
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundColor(DesignSystem.Colors.textSecondary)
-                                } else {
-                                    Text("\(formatTime(event.startDate)) - \(formatTime(event.endDate))")
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundColor(DesignSystem.Colors.textSecondary)
-                                }
-                            }
+                    // Main content
+                    VStack(spacing: 24) {
+                        // Time & Date Card
+                        dateTimeCard
+                        
+                        // Location Card (if available)
+                        if let location = event.location, !location.isEmpty {
+                            locationCard(location: location)
                         }
                         
-                        // Duration
-                        if !event.isAllDay {
-                            HStack(spacing: 12) {
-                                Image(systemName: "clock")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(DesignSystem.Colors.accent)
-                                    .frame(width: 24)
-                                
-                                Text(formatDuration(event.duration))
-                                    .font(.system(size: 16, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textPrimary)
-                            }
+                        // Description Card (if available)
+                        if let description = event.description, !description.isEmpty {
+                            descriptionCard(description: description)
+                        }
+                        
+                        // Meeting Link Card (if available)
+                        if let meetingLink = event.meetingLink, !meetingLink.isEmpty {
+                            meetingLinkCard(link: meetingLink)
+                        }
+                        
+                        // Attendees Card (if available)
+                        if !event.attendees.isEmpty {
+                            attendeesCard
                         }
                     }
-                    
-                    // Location
-                    if let location = event.location, !location.isEmpty {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "location")
-                                .font(.system(size: 16))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(width: 24)
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Location")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textSecondary)
-                                
-                                Text(location)
-                                    .font(.system(size: 16, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textPrimary)
-                                    .lineLimit(nil)
-                            }
-                        }
-                    }
-                    
-                    // Description
-                    if let description = event.description, !description.isEmpty {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "text.alignleft")
-                                .font(.system(size: 16))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(width: 24)
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Description")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textSecondary)
-                                
-                                Text(description)
-                                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textPrimary)
-                                    .lineLimit(nil)
-                            }
-                        }
-                    }
-                    
-                    // Attendees
-                    if !event.attendees.isEmpty {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "person.2")
-                                .font(.system(size: 16))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(width: 24)
-                            
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Attendees (\(event.attendees.count))")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textSecondary)
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(event.attendees) { attendee in
-                                        HStack(spacing: 8) {
-                                            Circle()
-                                                .fill(DesignSystem.Colors.accent.opacity(0.2))
-                                                .frame(width: 6, height: 6)
-                                            
-                                            Text(attendee.name ?? attendee.email)
-                                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                                .foregroundColor(DesignSystem.Colors.textPrimary)
-                                            
-                                            if attendee.name != nil {
-                                                Text("(\(attendee.email))")
-                                                    .font(.system(size: 12, weight: .regular, design: .rounded))
-                                                    .foregroundColor(DesignSystem.Colors.textSecondary)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Meeting Link
-                    if let meetingLink = event.meetingLink, !meetingLink.isEmpty {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "video")
-                                .font(.system(size: 16))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(width: 24)
-                            
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Meeting Link")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.textSecondary)
-                                
-                                Button(action: {
-                                    if let url = URL(string: meetingLink) {
-                                        UIApplication.shared.open(url)
-                                    }
-                                }) {
-                                    Text("Join Meeting")
-                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(DesignSystem.Colors.accent)
-                                        )
-                                }
-                            }
-                        }
-                    }
-                    
-                    Spacer(minLength: 50)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 40)
                 }
-                .padding(24)
             }
             .navigationBarHidden(true)
+            .background(DesignSystem.Colors.background)
             .overlay(
-                // Custom header
+                // Custom navigation bar
                 VStack {
-                    HStack {
-                        Button("Close") {
-                            dismiss()
-                        }
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.textSecondary)
-                        
-                        Spacer()
-                        
-                        Button(action: {
-                            showingDeleteAlert = true
-                        }) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 16))
-                                .foregroundColor(.red)
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                    
+                    customNavigationBar
                     Spacer()
                 }
             )
+        }
+
+            }
+            .navigationBarHidden(true)
+
         }
         .alert("Delete Event", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
@@ -233,8 +84,416 @@ struct EventDetailView: View {
         } message: {
             Text(permissionAlertMessage)
         }
-        .linearBackground()
     }
+    
+    // MARK: - Header Section
+    
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Category label
+            Text("EVENT DETAILS")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.textSecondary)
+                .tracking(1.2)
+            
+            // Event title
+            Text(event.title)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.textPrimary)
+                .lineLimit(nil)
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, 80)
+        .padding(.bottom, 32)
+    }
+    
+    // MARK: - Custom Navigation Bar
+    
+    private var customNavigationBar: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Close")
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(DesignSystem.Colors.textSecondary)
+            }
+            
+            Spacer()
+            
+            Button(action: { showingDeleteAlert = true }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.danger)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .background(
+            DesignSystem.Colors.background
+                .opacity(0.95)
+                .blur(radius: 10)
+        )
+    }
+    
+    // MARK: - Content Cards
+    
+    private var dateTimeCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Date
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(DesignSystem.Colors.primaryGradient)
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "calendar")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(formatDate(event.startDate))
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                    
+                    if event.isAllDay {
+                        Text("All day")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                    } else {
+                        Text("\(formatTime(event.startDate)) - \(formatTime(event.endDate))")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                
+                Spacer()
+            }
+            
+            // Duration (if not all day)
+            if !event.isAllDay {
+                HStack(spacing: 16) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(DesignSystem.Colors.surfaceSecondary)
+                            .frame(width: 48, height: 48)
+                        
+                        Image(systemName: "clock")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Duration")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                        
+                        Text(formatDuration(event.duration))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.textPrimary)
+                    }
+                    
+                    Spacer()
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+        )
+    }
+    
+    private func locationCard(location: String) -> some View {
+        HStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(DesignSystem.Colors.secondaryGradient)
+                    .frame(width: 48, height: 48)
+                
+                Image(systemName: "location")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(
+                        Color(UIColor { traitCollection in
+                            traitCollection.userInterfaceStyle == .dark ? 
+                            UIColor.black : UIColor.white
+                        })
+                    )
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Location")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                
+                Text(location)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .lineLimit(nil)
+            }
+            
+            Spacer()
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+        )
+    }
+    
+    private func descriptionCard(description: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(DesignSystem.Colors.tertiaryGradient)
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Description")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    
+                    Text("Event details and information")
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
+                
+                Spacer()
+            }
+            
+            Text(description)
+                .font(.system(size: 15, weight: .regular, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.textPrimary)
+                .lineLimit(nil)
+                .lineSpacing(4)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+        )
+    }
+    
+    private func meetingLinkCard(link: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(DesignSystem.Colors.primaryGradient)
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "video")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Video Meeting")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    
+                    Text("Join the online meeting")
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
+                
+                Spacer()
+            }
+            
+            Button(action: {
+                if let url = URL(string: link) {
+                    UIApplication.shared.open(url)
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Join Meeting")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(DesignSystem.Colors.accent)
+                )
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+        )
+    }
+    
+    private var attendeesCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(DesignSystem.Colors.secondaryGradient)
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "person.2")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Attendees")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    
+                    Text("\(event.attendees.count) \(event.attendees.count == 1 ? "person" : "people")")
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
+                
+                Spacer()
+            }
+            
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(event.attendees) { attendee in
+                    HStack(spacing: 12) {
+                        // Avatar placeholder
+                        ZStack {
+                            Circle()
+                                .fill(DesignSystem.Colors.surfaceSecondary)
+                                .frame(width: 36, height: 36)
+                            
+                            Text(String(attendee.name?.first ?? attendee.email.first ?? "?").uppercased())
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(DesignSystem.Colors.textSecondary)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(attendee.name ?? attendee.email)
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(DesignSystem.Colors.textPrimary)
+                            
+                            if attendee.name != nil {
+                                Text(attendee.email)
+                                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Response status indicator
+                        statusIndicator(for: attendee.responseStatus)
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: DesignSystem.Colors.shadow,
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+        )
+    }
+    
+    private func statusIndicator(for status: EventAttendee.ResponseStatus) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(statusColor(for: status))
+                .frame(width: 8, height: 8)
+            
+            Text(statusText(for: status))
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.textTertiary)
+        }
+    }
+    
+    private func statusColor(for status: EventAttendee.ResponseStatus) -> Color {
+        switch status {
+        case .accepted:
+            return DesignSystem.Colors.success
+        case .declined:
+            return DesignSystem.Colors.danger
+        case .tentative:
+            return DesignSystem.Colors.warning
+        case .needsAction:
+            return DesignSystem.Colors.textTertiary
+        }
+    }
+    
+    private func statusText(for status: EventAttendee.ResponseStatus) -> String {
+        switch status {
+        case .accepted:
+            return "Going"
+        case .declined:
+            return "Not going"
+        case .tentative:
+            return "Maybe"
+        case .needsAction:
+            return "Pending"
+        }
+    }
+    
+    // MARK: - Helper Methods
     
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
