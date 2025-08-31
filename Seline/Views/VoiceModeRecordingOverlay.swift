@@ -44,7 +44,7 @@ struct VoiceModeRecordingOverlay: View {
             .padding(.horizontal, 24)
         }
         .transition(.asymmetric(
-            insertion: .opacity.combined(with: .scale(scale: 0.8)).combined(with: ),
+            insertion: .opacity.combined(with: .scale(scale: 0.8)),
             removal: .opacity.combined(with: .scale(scale: 0.9))
         ))
         .alert("Open Settings", isPresented: $showingPermissionAlert) {
