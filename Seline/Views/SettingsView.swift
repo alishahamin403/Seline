@@ -714,15 +714,20 @@ struct SettingsRow<Content: View>: View {
             action?()
         }) {
             HStack(spacing: 16) {
-                // Icon
+                // Icon with adaptive black & white theme
                 ZStack {
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(iconColor)
+                        .fill(DesignSystem.Colors.primaryGradient)
                         .frame(width: 32, height: 32)
                     
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
                 }
                 
                 // Content

@@ -636,18 +636,17 @@ struct CategoryCard: View {
                 // Modern gradient icon
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [color.opacity(0.8), color.opacity(0.6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(DesignSystem.Colors.primaryGradient)
                         .frame(width: 48, height: 48)
 
                     Image(systemName: icon)
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(
+                            Color(UIColor { traitCollection in
+                                traitCollection.userInterfaceStyle == .dark ? 
+                                UIColor.black : UIColor.white
+                            })
+                        )
                 }
 
                 // Content
@@ -881,18 +880,17 @@ struct ExpandableEventsSection: View {
                     // Modern gradient icon
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.blue.opacity(0.8), Color.blue.opacity(0.6)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                            .fill(DesignSystem.Colors.secondaryGradient)
                             .frame(width: 48, height: 48)
                         
                         Image(systemName: "calendar")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(.white)
+                            .foregroundColor(
+                                Color(UIColor { traitCollection in
+                                    traitCollection.userInterfaceStyle == .dark ? 
+                                    UIColor.black : UIColor.white
+                                })
+                            )
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
@@ -997,18 +995,17 @@ struct ExpandableTodosSection: View {
                     // Modern gradient icon
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.green.opacity(0.8), Color.green.opacity(0.6)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                            .fill(DesignSystem.Colors.tertiaryGradient)
                             .frame(width: 48, height: 48)
                         
                         Image(systemName: "checklist")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(.white)
+                            .foregroundColor(
+                                Color(UIColor { traitCollection in
+                                    traitCollection.userInterfaceStyle == .dark ? 
+                                    UIColor.black : UIColor.white
+                                })
+                            )
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {

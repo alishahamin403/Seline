@@ -9,37 +9,37 @@ import SwiftUI
 
 struct DesignSystem {
     
-    // MARK: - Linear-Inspired Colors
+    // MARK: - Black & White Theme Colors
     struct Colors {
         
-        // MARK: - Accent Colors
-        static let accent = Color(hex: "#5E6AD2") // Linear's signature purple
-        static let accentSecondary = Color(hex: "#8B92E6")
-        static let success = Color(hex: "#00C896")
-        static let warning = Color(hex: "#FF8C42")
-        static let danger = Color(hex: "#FF6B6B")
+        // MARK: - Accent Colors (Black & White Theme)
+        static let accent = Color.primary // Uses system primary (black in light, white in dark)
+        static let accentSecondary = Color.secondary
+        static let success = Color.green
+        static let warning = Color.orange
+        static let danger = Color.red
         
-        // MARK: - Light Mode Colors (Linear-inspired)
-        private static let backgroundLight = Color(hex: "#FFFFFF")
-        private static let surfaceLight = Color(hex: "#FAFAFA") // Subtle gray for cards/surfaces
-        private static let surfaceSecondaryLight = Color(hex: "#F5F5F5") // Even subtler for secondary surfaces
-        private static let textPrimaryLight = Color(hex: "#1B1B1B") // Dark text for excellent contrast
-        private static let textSecondaryLight = Color(hex: "#6B6B6B") // Medium gray for secondary text
-        private static let textTertiaryLight = Color(hex: "#9B9B9B") // Light gray for tertiary text
-        private static let borderLight = Color(hex: "#E5E5E5") // Subtle borders
-        private static let borderSecondaryLight = Color(hex: "#F0F0F0") // Even subtler borders
-        private static let shadowLight = Color.black.opacity(0.04) // Subtle shadows
+        // MARK: - Light Mode Colors (Pure Black & White)
+        private static let backgroundLight = Color.white // Pure white background
+        private static let surfaceLight = Color(hex: "#FAFAFA") // Very subtle off-white for cards
+        private static let surfaceSecondaryLight = Color(hex: "#F8F8F8") // Even subtler for secondary surfaces
+        private static let textPrimaryLight = Color.black // Pure black text
+        private static let textSecondaryLight = Color(hex: "#666666") // Dark gray for secondary text
+        private static let textTertiaryLight = Color(hex: "#999999") // Medium gray for tertiary text
+        private static let borderLight = Color(hex: "#E0E0E0") // Light gray borders
+        private static let borderSecondaryLight = Color(hex: "#F0F0F0") // Very light borders
+        private static let shadowLight = Color.black.opacity(0.08) // Subtle black shadows
         
-        // MARK: - Dark Mode Colors (Linear-inspired)
-        private static let backgroundDark = Color(hex: "#1A1A1A") // True Linear dark
-        private static let surfaceDark = Color(hex: "#2A2A2A") // Dark surfaces
-        private static let surfaceSecondaryDark = Color(hex: "#333333") // Secondary dark surfaces
-        private static let textPrimaryDark = Color(hex: "#FFFFFF") // Pure white text
-        private static let textSecondaryDark = Color(hex: "#B8B8B8") // Light gray for secondary
-        private static let textTertiaryDark = Color(hex: "#8A8A8A") // Medium gray for tertiary
-        private static let borderDark = Color(hex: "#404040") // Subtle dark borders
-        private static let borderSecondaryDark = Color(hex: "#353535") // Even subtler dark borders
-        private static let shadowDark = Color.black.opacity(0.2) // Stronger shadows for dark mode
+        // MARK: - Dark Mode Colors (Pure Black & White)
+        private static let backgroundDark = Color.black // Pure black background
+        private static let surfaceDark = Color(hex: "#1A1A1A") // Dark gray for cards
+        private static let surfaceSecondaryDark = Color(hex: "#2A2A2A") // Lighter dark gray for secondary surfaces
+        private static let textPrimaryDark = Color.white // Pure white text
+        private static let textSecondaryDark = Color(hex: "#CCCCCC") // Light gray for secondary text
+        private static let textTertiaryDark = Color(hex: "#999999") // Medium gray for tertiary text
+        private static let borderDark = Color(hex: "#333333") // Dark borders
+        private static let borderSecondaryDark = Color(hex: "#2A2A2A") // Subtle dark borders
+        private static let shadowDark = Color.white.opacity(0.05) // Subtle white shadows for dark mode
         
         // MARK: - Adaptive Colors (Auto Light/Dark)
         static var background: Color {
@@ -94,6 +94,58 @@ struct DesignSystem {
             Color(UIColor { traitCollection in
                 traitCollection.userInterfaceStyle == .dark ? UIColor(shadowDark) : UIColor(shadowLight)
             })
+        }
+        
+        // MARK: - Black & White Gradients for Icons
+        static var primaryGradient: LinearGradient {
+            LinearGradient(
+                colors: [
+                    Color(UIColor { traitCollection in
+                        traitCollection.userInterfaceStyle == .dark ? 
+                        UIColor.white : UIColor.black
+                    }),
+                    Color(UIColor { traitCollection in
+                        traitCollection.userInterfaceStyle == .dark ? 
+                        UIColor(white: 0.8, alpha: 1.0) : UIColor(white: 0.4, alpha: 1.0)
+                    })
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        
+        static var secondaryGradient: LinearGradient {
+            LinearGradient(
+                colors: [
+                    Color(UIColor { traitCollection in
+                        traitCollection.userInterfaceStyle == .dark ? 
+                        UIColor(white: 0.9, alpha: 1.0) : UIColor(white: 0.2, alpha: 1.0)
+                    }),
+                    Color(UIColor { traitCollection in
+                        traitCollection.userInterfaceStyle == .dark ? 
+                        UIColor(white: 0.7, alpha: 1.0) : UIColor(white: 0.5, alpha: 1.0)
+                    })
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        
+        static var tertiaryGradient: LinearGradient {
+            LinearGradient(
+                colors: [
+                    Color(UIColor { traitCollection in
+                        traitCollection.userInterfaceStyle == .dark ? 
+                        UIColor(white: 0.8, alpha: 1.0) : UIColor(white: 0.3, alpha: 1.0)
+                    }),
+                    Color(UIColor { traitCollection in
+                        traitCollection.userInterfaceStyle == .dark ? 
+                        UIColor(white: 0.6, alpha: 1.0) : UIColor(white: 0.6, alpha: 1.0)
+                    })
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
         
     }
