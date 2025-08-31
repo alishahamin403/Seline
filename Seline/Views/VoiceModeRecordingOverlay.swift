@@ -44,7 +44,7 @@ struct VoiceModeRecordingOverlay: View {
             .padding(.horizontal, 24)
         }
         .transition(.asymmetric(
-            insertion: .opacity.combined(with: .scale(scale: 0.8)).combined(with: .blur(radius: 10)),
+            insertion: .opacity.combined(with: .scale(scale: 0.8)).combined(with: ),
             removal: .opacity.combined(with: .scale(scale: 0.9))
         ))
         .alert("Open Settings", isPresented: $showingPermissionAlert) {
@@ -215,7 +215,7 @@ struct VoiceModeRecordingOverlay: View {
             }
             .onTapGesture {
                 if !voiceService.isRecording && !voiceService.isProcessing {
-                    voiceService.startRecording()
+                    Task { await voiceService.startRecording() }
                 } else if voiceService.isRecording {
                     voiceService.stopRecording(userInitiated: true)
                 }
