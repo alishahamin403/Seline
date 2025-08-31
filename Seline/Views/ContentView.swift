@@ -618,7 +618,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Category Card Component
+// MARK: - Modern Category Card Component
 
 struct CategoryCard: View {
     let title: String
@@ -633,15 +633,21 @@ struct CategoryCard: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
-                // Icon with theme-aware design
+                // Modern gradient icon
                 ZStack {
-                    Circle()
-                        .fill(DesignSystem.Colors.textPrimary.opacity(0.1))
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                colors: [color.opacity(0.8), color.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .frame(width: 48, height: 48)
 
                     Image(systemName: icon)
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                        .foregroundColor(.white)
                 }
 
                 // Content
@@ -657,39 +663,44 @@ struct CategoryCard: View {
 
                 Spacer()
 
-                // Minimalist arrow
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                // Modern arrow with subtle background
+                ZStack {
+                    Circle()
+                        .fill(DesignSystem.Colors.surfaceSecondary)
+                        .frame(width: 28, height: 28)
+                    
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                }
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .padding(.vertical, 18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(
-                                colorScheme == .light ? Color.blue : Color.white.opacity(0.8),
-                                lineWidth: colorScheme == .light ? 0.8 : 1.5
-                            )
+                    .fill(DesignSystem.Colors.surface)
+                    .shadow(
+                        color: colorScheme == .light ? Color.black.opacity(0.06) : Color.clear,
+                        radius: 8,
+                        x: 0,
+                        y: 2
                     )
             )
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(ModernCardButtonStyle())
     }
 }
 
-// MARK: - Category Card Button Style
+// MARK: - Modern Card Button Style
 
-struct CategoryCardButtonStyle: ButtonStyle {
+struct ModernCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.99 : 1.0)
-            .brightness(configuration.isPressed ? -0.05 : 0)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
@@ -856,33 +867,36 @@ struct ExpandableEventsSection: View {
     }
     
     private var displayEvents: [CalendarEvent] {
-        if isExpanded {
-            return Array(events.prefix(5))
-        } else {
-            return Array(sameDayEvents.prefix(3))
-        }
+        return Array(sameDayEvents.prefix(isExpanded ? 5 : 3))
     }
     
     private var totalCount: Int {
-        isExpanded ? events.count : sameDayEvents.count
+        return sameDayEvents.count
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 HStack(spacing: 16) {
+                    // Modern gradient icon
                     ZStack {
-                        Circle()
-                            .fill(DesignSystem.Colors.textPrimary.opacity(0.1))
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.8), Color.blue.opacity(0.6)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                             .frame(width: 48, height: 48)
                         
-                        Image(systemName: "calendar.circle.fill")
+                        Image(systemName: "calendar")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
+                            .foregroundColor(.white)
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(isExpanded ? "Upcoming Events" : "Today's Events")
+                        Text("Today's Events")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
                             .foregroundColor(DesignSystem.Colors.textPrimary)
                         
@@ -894,24 +908,15 @@ struct ExpandableEventsSection: View {
                 
                 Spacer()
                 
-                HStack(spacing: 8) {
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            isExpanded.toggle()
-                        }
-                    }) {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
+                // Modern arrow with subtle background
+                ZStack {
+                    Circle()
+                        .fill(DesignSystem.Colors.surfaceSecondary)
+                        .frame(width: 28, height: 28)
                     
-                    if totalCount > 0 {
-                        Button(action: onViewAll) {
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(DesignSystem.Colors.textSecondary)
-                        }
-                    }
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
                 }
             }
             .padding(.horizontal, 20)
@@ -948,15 +953,17 @@ struct ExpandableEventsSection: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            colorScheme == .light ? Color.blue : Color.white.opacity(0.8),
-                            lineWidth: colorScheme == .light ? 0.8 : 1.5
-                        )
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: colorScheme == .light ? Color.black.opacity(0.06) : Color.clear,
+                    radius: 8,
+                    x: 0,
+                    y: 2
                 )
         )
+        .onTapGesture {
+            onViewAll()
+        }
     }
 }
 
@@ -976,33 +983,36 @@ struct ExpandableTodosSection: View {
     }
     
     private var displayTodos: [TodoItem] {
-        if isExpanded {
-            return Array(todos.prefix(5))
-        } else {
-            return Array(sameDayTodos.prefix(3))
-        }
+        return Array(sameDayTodos.prefix(isExpanded ? 5 : 3))
     }
     
     private var totalCount: Int {
-        isExpanded ? todos.count : sameDayTodos.count
+        return sameDayTodos.count
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 HStack(spacing: 16) {
+                    // Modern gradient icon
                     ZStack {
-                        Circle()
-                            .fill(DesignSystem.Colors.textPrimary.opacity(0.1))
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.green.opacity(0.8), Color.green.opacity(0.6)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                             .frame(width: 48, height: 48)
                         
                         Image(systemName: "checklist")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
+                            .foregroundColor(.white)
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(isExpanded ? "Upcoming Todos" : "Today's Todos")
+                        Text("Today's Todos")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
                             .foregroundColor(DesignSystem.Colors.textPrimary)
                         
@@ -1015,38 +1025,32 @@ struct ExpandableTodosSection: View {
                 Spacer()
                 
                 HStack(spacing: 8) {
+                    // Modern Add button
                     Button(action: onAddTodo) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 11, weight: .semibold))
                             Text("Add")
-                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
                         }
-                        .foregroundColor(DesignSystem.Colors.accent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(DesignSystem.Colors.accent.opacity(0.1))
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(DesignSystem.Colors.accent)
                         )
                     }
                     
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            isExpanded.toggle()
-                        }
-                    }) {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 14, weight: .medium))
+                    // Modern arrow with subtle background
+                    ZStack {
+                        Circle()
+                            .fill(DesignSystem.Colors.surfaceSecondary)
+                            .frame(width: 28, height: 28)
+                        
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                    
-                    if totalCount > 0 {
-                        Button(action: onViewAll) {
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(DesignSystem.Colors.textSecondary)
-                        }
                     }
                 }
             }
@@ -1059,13 +1063,19 @@ struct ExpandableTodosSection: View {
                         TodoPreviewRow(todo: todo)
                     }
                     
-                    if todos.count > displayTodos.count {
+                    if sameDayTodos.count > displayTodos.count {
                         Button(action: onViewAll) {
-                            Text("View all \(todos.count) todos")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
+                            HStack {
+                                Text("View all \(sameDayTodos.count) todos")
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                                
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
                         }
                     }
                 }
@@ -1073,26 +1083,31 @@ struct ExpandableTodosSection: View {
                 .padding(.bottom, 16)
             } else {
                 VStack(spacing: 8) {
-                    Text(isExpanded ? "No upcoming todos" : "No todos today")
+                    Image(systemName: "checkmark.circle.badge.xmark")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.5))
+                    
+                    Text("No todos today")
                         .font(.system(size: 14, weight: .regular, design: .rounded))
                         .foregroundColor(DesignSystem.Colors.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
                 }
-                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
             }
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            colorScheme == .light ? Color.blue : Color.white.opacity(0.8),
-                            lineWidth: colorScheme == .light ? 0.8 : 1.5
-                        )
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: colorScheme == .light ? Color.black.opacity(0.06) : Color.clear,
+                    radius: 8,
+                    x: 0,
+                    y: 2
                 )
         )
+        .onTapGesture {
+            onViewAll()
+        }
     }
 }
 
@@ -1202,13 +1217,12 @@ struct TodoListPreview: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            colorScheme == .light ? Color.blue : Color.white.opacity(0.8),
-                            lineWidth: colorScheme == .light ? 0.8 : 1.5
-                        )
+                .fill(DesignSystem.Colors.surface)
+                .shadow(
+                    color: colorScheme == .light ? Color.black.opacity(0.06) : Color.clear,
+                    radius: 8,
+                    x: 0,
+                    y: 2
                 )
         )
     }
