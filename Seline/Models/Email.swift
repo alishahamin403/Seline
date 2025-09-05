@@ -9,12 +9,13 @@ import Foundation
 
 struct Email: Identifiable, Codable, Equatable {
     let id: String
+    let threadId: String?
     let subject: String
     let sender: EmailContact
     let recipients: [EmailContact]
     let body: String
     let date: Date
-    let isRead: Bool
+    var isRead: Bool
     let isImportant: Bool
     let labels: [String]
     let attachments: [EmailAttachment]
@@ -22,8 +23,9 @@ struct Email: Identifiable, Codable, Equatable {
     let hasCalendarEvent: Bool
     
     // Convenience initializer for backward compatibility
-    init(id: String, subject: String, sender: EmailContact, recipients: [EmailContact], body: String, date: Date, isRead: Bool, isImportant: Bool, labels: [String], attachments: [EmailAttachment] = [], isPromotional: Bool? = nil, hasCalendarEvent: Bool? = nil) {
+    init(id: String, threadId: String? = nil, subject: String, sender: EmailContact, recipients: [EmailContact], body: String, date: Date, isRead: Bool, isImportant: Bool, labels: [String], attachments: [EmailAttachment] = [], isPromotional: Bool? = nil, hasCalendarEvent: Bool? = nil) {
         self.id = id
+        self.threadId = threadId
         self.subject = subject
         self.sender = sender
         self.recipients = recipients
@@ -35,7 +37,30 @@ struct Email: Identifiable, Codable, Equatable {
         // Safe array access for attachments and labels
         self.attachments = attachments.isEmpty ? [] : attachments
         self.isPromotional = isPromotional ?? (labels.isEmpty ? false : labels.contains("CATEGORY_PROMOTIONS"))
-        self.hasCalendarEvent = hasCalendarEvent ?? (labels.isEmpty ? false : (labels.contains("CALENDAR") || body.contains("calendar") || body.contains("meeting")))
+        // Detect calendar events from content if not explicitly provided
+        self.hasCalendarEvent = hasCalendarEvent ?? Email.detectCalendarEvent(from: body, labels: labels)
+    }
+    
+    // Helper function to detect calendar events in email content
+    private static func detectCalendarEvent(from body: String, labels: [String]) -> Bool {
+        // Check if email contains calendar-related keywords
+        let calendarKeywords = ["meeting", "appointment", "calendar", "schedule", "invite", "event", "zoom", "teams", "conference", "call"]
+        let lowercaseBody = body.lowercased()
+        let hasCalendarKeywords = calendarKeywords.contains { keyword in
+            lowercaseBody.contains(keyword)
+        }
+        
+        // Check if email has calendar-related labels
+        let hasCalendarLabel = labels.contains { label in
+            label.lowercased().contains("calendar") || label.lowercased().contains("event")
+        }
+        
+        return hasCalendarKeywords || hasCalendarLabel
+    }
+    
+    /// Computed property to check if email has attachments
+    var hasAttachments: Bool {
+        return !attachments.isEmpty
     }
 }
 

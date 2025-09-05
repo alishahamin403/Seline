@@ -46,7 +46,6 @@ CREATE TABLE IF NOT EXISTS emails (
     is_read BOOLEAN DEFAULT FALSE,
     is_important BOOLEAN DEFAULT FALSE,
     is_promotional BOOLEAN DEFAULT FALSE,
-    has_calendar_event BOOLEAN DEFAULT FALSE,
     labels JSONB DEFAULT '[]',
     gmail_labels JSONB DEFAULT '[]', -- Original Gmail labels
     attachments_count INTEGER DEFAULT 0,

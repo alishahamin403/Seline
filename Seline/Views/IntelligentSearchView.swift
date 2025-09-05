@@ -11,10 +11,10 @@ import Foundation
 struct IntelligentSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ContentViewModel
+    @ObservedObject var openAIService: OpenAIService
     @State var searchQuery: String
     @State private var selectedEmail: Email?
     @State private var isShowingEmailDetail = false
-    @State private var recentSearches: [String] = []
     @FocusState private var isSearchFieldFocused: Bool
     @State private var showingFollowUp = false
     @State private var followUpContext = ""
@@ -55,7 +55,6 @@ struct IntelligentSearchView: View {
             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
         }
         .onAppear {
-            loadRecentSearches()
             isSearchFieldFocused = true
             if !searchQuery.isEmpty {
                 performSearch()
@@ -69,8 +68,6 @@ struct IntelligentSearchView: View {
             if newQuery.isEmpty {
                 viewModel.searchResults = []
                 viewModel.currentSearchResult = nil
-            } else {
-                performSearchWithDelay(newQuery)
             }
         }
     }
@@ -82,8 +79,6 @@ struct IntelligentSearchView: View {
             // Top navigation
             HStack {
                 Button(action: {
-                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                    impactFeedback.impactOccurred()
                     dismiss()
                 }) {
                     Image(systemName: "arrow.left")
@@ -122,7 +117,6 @@ struct IntelligentSearchView: View {
                     .focused($isSearchFieldFocused)
                     .onSubmit {
                         if !searchQuery.isEmpty {
-                            addToRecentSearches(searchQuery)
                             performSearch()
                         }
                     }
@@ -177,7 +171,7 @@ struct IntelligentSearchView: View {
                                 
                                 Spacer()
                                 
-                                Text("\\(searchResult.emails.count) emails")
+                                Text("\(searchResult.emails.count) emails")
                                     .font(.system(size: 14, weight: .medium, design: .rounded))
                                     .foregroundColor(DesignSystem.Colors.textSecondary)
                             }
@@ -352,7 +346,7 @@ struct IntelligentSearchView: View {
             Spacer()
             
             // Clean recent searches section (only show if exists)
-            if !recentSearches.isEmpty {
+            if !viewModel.searchHistory.isEmpty {
                 VStack(spacing: 16) {
                     HStack {
                         Text("Recent")
@@ -362,14 +356,14 @@ struct IntelligentSearchView: View {
                         Spacer()
                         
                         Button("Clear") {
-                            clearRecentSearches()
+                            viewModel.clearSearchHistory()
                         }
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundColor(DesignSystem.Colors.accent)
                     }
                     
                     VStack(spacing: 8) {
-                        ForEach(recentSearches.prefix(4), id: \.self) { search in
+                        ForEach(viewModel.searchHistory.prefix(4), id: \.self) { search in
                             Button(action: {
                                 searchQuery = search
                                 isSearchFieldFocused = false
@@ -457,52 +451,14 @@ struct IntelligentSearchView: View {
         }
         
         Task {
-            await viewModel.performSearch(query: searchQuery)
-        }
-    }
-    
-    private func performSearchWithDelay(_ query: String) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if searchQuery == query {
-                performSearch()
-            }
+            await viewModel.performSearchWithHistory(query: searchQuery)
         }
     }
     
     private func performRefreshSearch() async {
         if !searchQuery.isEmpty {
-            await viewModel.performSearch(query: searchQuery)
+            await viewModel.performSearchWithHistory(query: searchQuery)
         }
-    }
-    
-    // MARK: - Recent Searches Management
-    
-    private func loadRecentSearches() {
-        recentSearches = UserDefaults.standard.stringArray(forKey: "IntelligentRecentSearches") ?? []
-    }
-    
-    private func addToRecentSearches(_ search: String) {
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        
-        recentSearches.removeAll { $0 == trimmed }
-        recentSearches.insert(trimmed, at: 0)
-        
-        if recentSearches.count > 10 {
-            recentSearches = Array(recentSearches.prefix(10))
-        }
-        
-        UserDefaults.standard.set(recentSearches, forKey: "IntelligentRecentSearches")
-    }
-    
-    private func removeFromRecentSearches(_ search: String) {
-        recentSearches.removeAll { $0 == search }
-        UserDefaults.standard.set(recentSearches, forKey: "IntelligentRecentSearches")
-    }
-    
-    private func clearRecentSearches() {
-        recentSearches.removeAll()
-        UserDefaults.standard.removeObject(forKey: "IntelligentRecentSearches")
     }
 }
 
@@ -539,7 +495,7 @@ struct IntelligentSearchResultRow: View {
                         .overlay(
                             Image(systemName: "brain.head.profile")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                         )
                         .offset(x: 18, y: -18)
                 }
@@ -576,7 +532,7 @@ struct IntelligentSearchResultRow: View {
                             .foregroundColor(.blue)
                         
                         if !email.attachments.isEmpty {
-                            Label("\\(email.attachments.count)", systemImage: "paperclip")
+                            Label("\(email.attachments.count)", systemImage: "paperclip")
                                 .font(.system(size: 11, weight: .regular, design: .rounded))
                                 .foregroundColor(DesignSystem.Colors.textSecondary)
                         }
@@ -644,6 +600,6 @@ struct IntelligentSearchResultRow: View {
 
 struct IntelligentSearchView_Previews: PreviewProvider {
     static var previews: some View {
-        IntelligentSearchView(viewModel: ContentViewModel(), searchQuery: "")
+        IntelligentSearchView(viewModel: ContentViewModel(), openAIService: OpenAIService.shared, searchQuery: "")
     }
 }

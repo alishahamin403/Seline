@@ -69,13 +69,9 @@ struct GmailStyleEmailDetailView: View {
             Button(action: {
                 dismiss()
             }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.left")
-                        .font(.title2)
-                    Text("Back")
-                        .font(.system(size: 16, weight: .medium))
-                }
-                .foregroundColor(DesignSystem.Colors.textPrimary)
+                Image(systemName: "chevron.left")
+                    .font(.title2)
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
             }
             
             Spacer()
@@ -417,8 +413,10 @@ struct GmailStyleEmailDetailView: View {
     
     private func markAsRead() {
         if !email.isRead {
-            // Mark as read logic
-            isMarkedAsRead = true
+            Task {
+                await viewModel.markEmailAsRead(email.id)
+                isMarkedAsRead = true
+            }
         }
     }
     
@@ -451,34 +449,9 @@ struct GmailStyleEmailDetailView: View {
     
     private func deleteEmail() {
         Task {
-            do {
-                try await GmailService.shared.deleteEmail(emailId: email.id)
-                await MainActor.run {
-                    // Provide user feedback
-                    let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
-                    impactFeedback.impactOccurred()
-                    
-                    // Refresh the email list and dismiss
-                    Task {
-                        await viewModel.refresh()
-                    }
-                    dismiss()
-                }
-            } catch GmailError.insufficientPermissions {
-                await MainActor.run {
-                    let alert = UIAlertController(
-                        title: "Permission Required",
-                        message: "To delete emails, Seline needs Gmail modify permission. Please sign out and sign in again when prompted to grant the new permission.",
-                        preferredStyle: .alert)
-                    alert.addAction(UIAlertAction(title: "OK", style: .default))
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let window = scene.windows.first,
-                       let root = window.rootViewController {
-                        root.present(alert, animated: true)
-                    }
-                }
-            } catch {
-                print("❌ Failed to delete email: \(error)")
+            await viewModel.deleteEmail(email.id)
+            await MainActor.run {
+                dismiss()
             }
         }
     }

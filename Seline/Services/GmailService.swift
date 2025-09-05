@@ -9,11 +9,11 @@ import Foundation
 
 protocol GmailServiceProtocol {
     func fetchTodaysUnreadEmails() async throws -> [Email]
+    func fetchTodaysEmailsOnly() async throws -> [Email] // Optimized for today's view
     func fetchMoreEmails(after lastEmail: Email) async throws -> [Email] // New pagination method
     func searchEmails(query: String) async throws -> [Email]
     func fetchImportantEmails() async throws -> [Email]
     func fetchPromotionalEmails() async throws -> [Email]
-    func fetchCalendarEmails() async throws -> [Email]
     func fetchFullEmailContent(emailId: String) async throws -> Email // New method for on-demand content
     func markAsRead(emailId: String) async throws
     func markAsUnread(emailId: String) async throws
@@ -22,12 +22,17 @@ protocol GmailServiceProtocol {
     func deleteEmail(emailId: String) async throws
 }
 
+@MainActor
 class GmailService: GmailServiceProtocol {
     static let shared = GmailService()
     
     private let authService = AuthenticationService.shared
     private let quotaManager = GmailQuotaManager.shared
     private let cacheManager = EmailCacheManager.shared
+    
+    // Fetch deduplication to prevent redundant API calls
+    private var activeFetches: Set<String> = []
+    
     
     // Pagination state
     private var nextPageToken: String?
@@ -44,10 +49,31 @@ class GmailService: GmailServiceProtocol {
     // MARK: - Public API Methods
     
     func fetchTodaysUnreadEmails() async throws -> [Email] {
+        // Check for active fetch to prevent duplicates
+        let fetchKey = "todaysUnread"
+        guard canStartFetch(for: fetchKey) else {
+            #if DEBUG
+            print("DEBUG: Skipping duplicate fetch for todaysUnread")
+            #endif
+            return []
+        }
+        
+        startFetch(for: fetchKey)
+        defer { finishFetch(for: fetchKey) }
+        
+        let startTime = Date()
         // Use quota-aware configuration
         let config = EmailFetchConfig.forInbox(quotaManager: quotaManager)
         
         return try await quotaManager.executeWithQuotaControl(operation: "fetch_inbox") {
+            // Check for valid token before attempting refresh
+            guard await self.hasValidAccessToken() else {
+                #if DEBUG
+                ProductionLogger.debug("⚠️ No valid access token for inbox")
+                #endif
+                return [] // Return empty array to prevent cascading errors
+            }
+            
             do {
                 try await self.refreshTokenIfNeeded()
             } catch {
@@ -62,11 +88,95 @@ class GmailService: GmailServiceProtocol {
                 // Cache the results for future requests
                 self.cacheManager.cacheEmails(emails, includeFullBody: false)
                 
+                // Sync metadata to Supabase for cross-device access
+                await self.syncEmailMetadataToSupabase(emails: emails)
+                
+                // Filter out emails that have already been notified
+                let newEmails = emails.filter { !NotifiedEmailTracker.shared.hasBeenNotified(id: $0.id) }
+                
+                // Notify the user about the new emails
+                if !newEmails.isEmpty {
+                    NotificationManager.shared.notifyNewEmails(newEmails)
+                    // Add the new email IDs to the tracker
+                    for email in newEmails {
+                        NotifiedEmailTracker.shared.addNotifiedEmail(id: email.id)
+                    }
+                }
+                
                 ProductionLogger.logEmailLoad("inbox emails", count: emails.count)
+                #if DEBUG
+                print("DEBUG: fetchTodaysUnreadEmails took \(Date().timeIntervalSince(startTime)) seconds")
+                #endif
                 return emails
             } catch {
                 ProductionLogger.logEmailError(error, operation: "fetch_inbox_real")
                 // No mock fallback
+                return []
+            }
+        }
+    }
+    
+    func fetchTodaysEmailsOnly() async throws -> [Email] {
+        // Check cache first to avoid unnecessary fetches
+        let cachedEmails = cacheManager.getCachedEmailsForCategory(.all)
+        let todaysCachedEmails = cachedEmails.filter { Calendar.current.isDateInToday($0.date) }
+
+        if !todaysCachedEmails.isEmpty {
+            ProductionLogger.logEmailOperation("Loaded today's emails from cache", count: todaysCachedEmails.count)
+            return todaysCachedEmails
+        }
+
+        // Check for active fetch to prevent duplicates
+        let fetchKey = "todaysOnly"
+        guard canStartFetch(for: fetchKey) else {
+            #if DEBUG
+            print("DEBUG: Skipping duplicate fetch for todaysOnly")
+            #endif
+            return []
+        }
+        
+        startFetch(for: fetchKey)
+        defer { finishFetch(for: fetchKey) }
+        
+        let startTime = Date()
+        // Use optimized today-only configuration
+        let config = EmailFetchConfig.forTodayOnly(quotaManager: quotaManager)
+        
+        return try await quotaManager.executeWithQuotaControl(operation: "fetch_today_only") {
+            // Check for valid token before attempting refresh
+            guard await self.hasValidAccessToken() else {
+                #if DEBUG
+                ProductionLogger.debug("⚠️ No valid access token for today's emails")
+                #endif
+                return [] // Return empty array to prevent cascading errors
+            }
+            
+            do {
+                try await self.refreshTokenIfNeeded()
+            } catch {
+                return []
+            }
+            
+            do {
+                let emails = try await self.fetchRealEmails(query: config.query, maxResults: config.maxResults)
+                
+                // Filter to today only at client level as additional safety
+                let today = Calendar.current
+                let todaysEmails = emails.filter { today.isDateInToday($0.date) }
+                
+                // Cache the results
+                self.cacheManager.cacheEmails(todaysEmails, includeFullBody: false)
+                
+                // Sync metadata to Supabase
+                await self.syncEmailMetadataToSupabase(emails: todaysEmails)
+                
+                ProductionLogger.logEmailLoad("today emails", count: todaysEmails.count)
+                #if DEBUG
+                print("DEBUG: fetchTodaysEmailsOnly took \(Date().timeIntervalSince(startTime)) seconds")
+                #endif
+                return todaysEmails
+            } catch {
+                ProductionLogger.logEmailError(error, operation: "fetch_today_only")
                 return []
             }
         }
@@ -78,6 +188,14 @@ class GmailService: GmailServiceProtocol {
         let config = EmailFetchConfig.forSearch(query: query, quotaManager: quotaManager)
         
         return try await quotaManager.executeWithQuotaControl(operation: "search_emails") {
+            // Check for valid token before attempting refresh
+            guard await self.hasValidAccessToken() else {
+                #if DEBUG
+                ProductionLogger.debug("⚠️ No valid access token for email search")
+                #endif
+                return [] // Return empty array to prevent cascading errors
+            }
+            
             try await self.refreshTokenIfNeeded()
             
             let emails = try await self.fetchRealEmails(query: config.query, maxResults: config.maxResults)
@@ -91,6 +209,14 @@ class GmailService: GmailServiceProtocol {
         let config = EmailFetchConfig.forCategory(type: .important, quotaManager: quotaManager)
         
         return try await quotaManager.executeWithQuotaControl(operation: "fetch_important") {
+            // Check for valid token before attempting refresh
+            guard await self.hasValidAccessToken() else {
+                #if DEBUG
+                ProductionLogger.debug("⚠️ No valid access token for important emails")
+                #endif
+                return [] // Return empty array to prevent cascading errors
+            }
+            
             do {
                 try await self.refreshTokenIfNeeded()
             } catch {
@@ -106,7 +232,7 @@ class GmailService: GmailServiceProtocol {
                 let todays = emails.filter { today.isDateInToday($0.date) }
                 
                 // Cache the results
-                self.cacheManager.cacheEmailsByCategory(todays, category: .important)
+                self.cacheManager.cacheEmailsByCategory(todays, category: EmailCategoryType.important)
                 
                 ProductionLogger.logEmailLoad("important emails", count: todays.count)
                 return todays
@@ -120,7 +246,7 @@ class GmailService: GmailServiceProtocol {
     
     func fetchPromotionalEmails() async throws -> [Email] {
         // Check cache first
-        let cachedEmails = cacheManager.getCachedEmailsForCategory(.promotional)
+        let cachedEmails = cacheManager.getCachedEmailsForCategory(EmailCategoryType.promotional)
         if !cachedEmails.isEmpty {
             ProductionLogger.logEmailOperation("Loaded promotional emails from cache", count: cachedEmails.count)
             return cachedEmails
@@ -130,6 +256,14 @@ class GmailService: GmailServiceProtocol {
         let config = EmailFetchConfig.forCategory(type: .promotional, quotaManager: quotaManager)
         
         return try await quotaManager.executeWithQuotaControl(operation: "fetch_promotional") {
+            // Check for valid token before attempting refresh
+            guard await self.hasValidAccessToken() else {
+                #if DEBUG
+                ProductionLogger.debug("⚠️ No valid access token for promotional emails")
+                #endif
+                return try await self.fetchMockPromotionalEmails() // Fallback to mock data
+            }
+            
             do {
                 try await self.refreshTokenIfNeeded()
             } catch {
@@ -141,7 +275,10 @@ class GmailService: GmailServiceProtocol {
                 let emails = try await self.fetchRealEmails(query: config.query, maxResults: config.maxResults)
                 
                 // Cache the results
-                self.cacheManager.cacheEmailsByCategory(emails, category: .promotional)
+                self.cacheManager.cacheEmailsByCategory(emails, category: EmailCategoryType.promotional)
+                
+                // Sync metadata to Supabase
+                await self.syncEmailMetadataToSupabase(emails: emails)
                 
                 ProductionLogger.logEmailLoad("promotional emails", count: emails.count)
                 return emails
@@ -152,52 +289,30 @@ class GmailService: GmailServiceProtocol {
         }
     }
     
-    func fetchCalendarEmails() async throws -> [Email] {
-        // Check cache first
-        let cachedEmails = cacheManager.getCachedEmailsForCategory(.calendar)
-        if !cachedEmails.isEmpty {
-            ProductionLogger.logEmailOperation("Loaded calendar emails from cache", count: cachedEmails.count)
-            return cachedEmails
-        }
-        
-        // Use quota-aware configuration
-        let config = EmailFetchConfig.forCategory(type: .calendar, quotaManager: quotaManager)
-        
-        return try await quotaManager.executeWithQuotaControl(operation: "fetch_calendar") {
-            do {
-                try await self.refreshTokenIfNeeded()
-            } catch {
-                ProductionLogger.logAuthError(error, context: "token refresh")
-                return try await self.fetchMockCalendarEmails()
-            }
-            
-            do {
-                let emails = try await self.fetchRealEmails(query: config.query, maxResults: config.maxResults)
-                
-                // Cache the results
-                self.cacheManager.cacheEmailsByCategory(emails, category: .calendar)
-                
-                ProductionLogger.logEmailLoad("calendar emails", count: emails.count)
-                return emails
-            } catch {
-                ProductionLogger.logEmailError(error, operation: "fetch_calendar_real")
-                return try await self.fetchMockCalendarEmails()
-            }
-        }
-    }
+    
     
     func markAsRead(emailId: String) async throws {
         try await refreshTokenIfNeeded()
         
-        // TODO: Replace with actual Gmail API call
-        /*
-        let query = GTLRGmailQuery_UsersMessagesModify.query(withUserId: "me", identifier: emailId)
-        query.removeLabels = ["UNREAD"]
+        guard let accessToken = await getGoogleAccessToken() else {
+            throw GmailError.notAuthenticated
+        }
         
-        _ = try await executeQuery(query)
-        */
+        let url = URL(string: "https://www.googleapis.com/gmail/v1/users/me/messages/\(emailId)/modify")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        print("Mock: Marking email \(emailId) as read")
+        let body = ["removeLabelIds": ["UNREAD"]]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let session = NetworkManager.shared.createURLSession(timeout: 30)
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw GmailError.networkError
+        }
     }
     
     func markAsUnread(emailId: String) async throws {
@@ -210,8 +325,6 @@ class GmailService: GmailServiceProtocol {
         
         _ = try await executeQuery(query)
         */
-        
-        print("Mock: Marking email \(emailId) as unread")
     }
     
     func markAsImportant(emailId: String) async throws {
@@ -224,8 +337,6 @@ class GmailService: GmailServiceProtocol {
         
         _ = try await executeQuery(query)
         */
-        
-        print("Mock: Marking email \(emailId) as important")
     }
     
     func archiveEmail(emailId: String) async throws {
@@ -245,37 +356,46 @@ class GmailService: GmailServiceProtocol {
         let body = ["removeLabelIds": ["INBOX"]]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let session = NetworkManager.shared.createURLSession(timeout: 30)
+        let (_, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             throw GmailError.networkError
         }
         
-        print("✅ Successfully archived email \(emailId)")
     }
     
     func deleteEmail(emailId: String) async throws {
+        guard authService.isAuthenticated, authService.user != nil else {
+            throw GmailError.notAuthenticated
+        }
+        
         try await refreshTokenIfNeeded()
         
         guard let accessToken = await getGoogleAccessToken() else {
+            ProductionLogger.logAuthError(GmailError.notAuthenticated, context: "No access token for email deletion")
+            throw GmailError.notAuthenticated
+        }
+        
+        // Additional validation: Check token format
+        guard accessToken.count > 20 && !accessToken.contains(" ") else {
+            ProductionLogger.logAuthError(GmailError.notAuthenticated, context: "Invalid access token format")
             throw GmailError.notAuthenticated
         }
         
         // Use Trash endpoint; if it fails, try modify remove label as fallback
-        // Gmail IDs from local cache/CoreData are expected to be the Gmail message ID string.
-        // If we accidentally passed a thread ID or local UUID, the API returns 400 Invalid id value.
-        // Validate format (Gmail message IDs are base64url or hex-like strings without spaces)
         let trimmedID = emailId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedID.isEmpty else { throw GmailError.invalidResponse }
+        
         let url = URL(string: "https://www.googleapis.com/gmail/v1/users/me/messages/\(trimmedID)/trash")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let session = NetworkManager.shared.createURLSession(timeout: 30)
+        let (_, response) = try await session.data(for: request)
         if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-            print("✅ Successfully deleted (moved to trash) email \(emailId)")
             // Remove from local store immediately
             _ = CoreDataManager.shared.deleteEmailByGmailID(trimmedID)
             return
@@ -288,17 +408,15 @@ class GmailService: GmailServiceProtocol {
         modify.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         modify.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
-            // Also remove Promotions and Social if present
             "removeLabelIds": ["INBOX", "IMPORTANT", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL"]
         ]
         modify.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (modifyData, modifyResp) = try await URLSession.shared.data(for: modify)
+        let modifySession = NetworkManager.shared.createURLSession(timeout: 30)
+        let (_, modifyResp) = try await modifySession.data(for: modify)
         guard let modifyHTTP = modifyResp as? HTTPURLResponse, modifyHTTP.statusCode == 200 else {
-            let respStatus = (modifyResp as? HTTPURLResponse)?.statusCode ?? -1
-            print("❌ Delete failed. Status: \(respStatus). Body: \(String(data: modifyData, encoding: .utf8) ?? "")")
+            
             throw GmailError.insufficientPermissions
         }
-        print("✅ Fallback: removed INBOX/IMPORTANT labels for email \(emailId)")
         _ = CoreDataManager.shared.deleteEmailByGmailID(trimmedID)
     }
     
@@ -381,9 +499,8 @@ class GmailService: GmailServiceProtocol {
     
     private func getCachedInboxEmails() -> [Email] {
         // Try to get cached emails that match inbox criteria
-        let allCachedEmails = cacheManager.getCachedEmailsForCategory(.important) +
-                             cacheManager.getCachedEmailsForCategory(.promotional) +
-                             cacheManager.getCachedEmailsForCategory(.calendar)
+        let allCachedEmails = cacheManager.getCachedEmailsForCategory(EmailCategoryType.important) +
+                             cacheManager.getCachedEmailsForCategory(EmailCategoryType.promotional)
         
         // Return up to maxInitialEmails from cache
         let maxEmails = GmailQuotaManager.maxInitialEmails
@@ -392,9 +509,28 @@ class GmailService: GmailServiceProtocol {
     
     // MARK: - Helper Methods
     
+    /// Check if we have a valid access token without triggering refresh loops
+    private func hasValidAccessToken() async -> Bool {
+        guard let token = await GoogleOAuthService.shared.getValidAccessToken() else {
+            return false
+        }
+        return !token.isEmpty
+    }
+    
     private func refreshTokenIfNeeded() async throws {
-        if authService.user?.isTokenExpired == true {
-            await authService.refreshTokenIfNeeded()
+        guard let user = await authService.user else {
+            ProductionLogger.logAuthError(GmailError.notAuthenticated, context: "No authenticated user")
+            throw GmailError.notAuthenticated
+        }
+        
+        // Check if token is expired
+        if user.isTokenExpired {
+            do {
+                try await authService.refreshTokenIfNeeded()
+            } catch {
+                ProductionLogger.logAuthError(error, context: "Token refresh failed in GmailService")
+                throw GmailError.notAuthenticated
+            }
         }
         
         guard authService.isAuthenticated else {
@@ -404,6 +540,56 @@ class GmailService: GmailServiceProtocol {
         await setupAuthorizationIfNeeded()
     }
     
+    
+    // MARK: - Supabase Metadata Sync
+    
+    private func syncEmailMetadataToSupabase(emails: [Email]) async {
+        guard let user = await authService.user else {
+            return
+        }
+        
+        // Proceed with cloud sync
+        
+        guard !emails.isEmpty else {
+            return
+        }
+        
+        do {
+            // Check if Supabase is properly initialized before attempting sync
+            guard await SupabaseService.shared.isConnected else {
+                // Silently skip sync if Supabase is not initialized
+                return
+            }
+            
+            // Use the Supabase UUID from the user object
+            guard let userId = user.supabaseId else {
+                ProductionLogger.logError(NSError(domain: "GmailService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Supabase user ID not found for sync"]), context: "Supabase email sync")
+                return
+            }
+            
+            _ = try await SupabaseService.shared.syncEmailsToSupabase(emails, for: userId)
+            
+        } catch {
+            // Only log non-initialization errors
+            if !error.localizedDescription.contains("not initialized") {
+                ProductionLogger.logError(error as NSError, context: "Supabase email sync failed")
+            }
+        }
+    }
+    
+    // MARK: - Fetch Deduplication
+    
+    private func canStartFetch(for key: String) -> Bool {
+        return !activeFetches.contains(key)
+    }
+    
+    private func startFetch(for key: String) {
+        activeFetches.insert(key)
+    }
+    
+    private func finishFetch(for key: String) {
+        activeFetches.remove(key)
+    }
     
     // MARK: - Email Categorization Logic
     
@@ -437,14 +623,7 @@ class GmailService: GmailServiceProtocol {
         return promotionalKeywords.contains(where: { subjectLower.contains($0) || bodyLower.contains($0) })
     }
     
-    private func hasCalendarContent(subject: String, body: String) -> Bool {
-        let calendarKeywords = ["meeting", "calendar", "event", "appointment", "schedule", "invite", "zoom", "teams"]
-        
-        let subjectLower = subject.lowercased()
-        let bodyLower = body.lowercased()
-        
-        return calendarKeywords.contains(where: { subjectLower.contains($0) || bodyLower.contains($0) })
-    }
+    
     
     // MARK: - Date Helpers
     
@@ -464,74 +643,43 @@ class GmailService: GmailServiceProtocol {
     // MARK: - Real Gmail API Integration
     
     private func fetchRealEmails(query: String, maxResults: Int) async throws -> [Email] {
-        print("\n🌐 === FETCHING REAL GMAIL EMAILS ===")
-        print("🔍 Query: \(query)")
-        print("📊 Max results: \(maxResults)")
-        
+        let startTime = Date()
         guard let accessToken = await getGoogleAccessToken() else {
-            print("❌ No access token available")
             throw GmailServiceError.noAccessToken
         }
         
         // Step 1: Get list of message IDs
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         let listURL = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=\(encodedQuery)&maxResults=\(maxResults)"
-        print("🔗 API URL: \(listURL)")
         
         guard let url = URL(string: listURL) else {
-            print("❌ Invalid URL: \(listURL)")
             throw GmailServiceError.invalidURL
         }
         
         var request = URLRequest(url: url)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         
-        print("📡 Making API request...")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = NetworkManager.shared.createURLSession(timeout: 30)
+        let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            print("❌ Invalid HTTP response")
             throw GmailServiceError.apiError("Invalid HTTP response")
         }
         
-        print("📊 HTTP Status: \(httpResponse.statusCode)")
-        print("📦 Response size: \(data.count) bytes")
-        
-        // Log response body for debugging (first 500 chars)
-        if let responseString = String(data: data, encoding: .utf8) {
-            let preview = String(responseString.prefix(500))
-            print("📄 Response preview: \(preview)")
-            if responseString.count > 500 {
-                print("📄 (Response truncated - total length: \(responseString.count) characters)")
-            }
-        }
         
         guard httpResponse.statusCode == 200 else {
-            print("❌ API request failed with status \(httpResponse.statusCode)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("❌ Error response: \(responseString)")
-            }
             throw GmailServiceError.apiError("API request failed with status \(httpResponse.statusCode)")
         }
         
         do {
             let messageList = try JSONDecoder().decode(GmailMessageList.self, from: data)
-            print("✅ Successfully decoded message list")
-            print("📊 Result size estimate: \(messageList.resultSizeEstimate ?? 0)")
-            print("📎 Next page token: \(messageList.nextPageToken ?? "None")")
             
             // Check if there are any messages
             guard let messages = messageList.messages, !messages.isEmpty else {
-                print("📭 No messages found for query: \(query)")
                 return []
             }
             
-            print("📧 Found \(messages.count) messages, fetching details...")
         } catch {
-            print("❌ Failed to decode JSON response: \(error)")
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("📄 Raw response that failed to decode: \(responseString)")
-            }
             throw GmailServiceError.decodingError
         }
         
@@ -541,22 +689,19 @@ class GmailService: GmailServiceProtocol {
         // Step 2: Fetch full message details for each ID
         var emails: [Email] = []
         let messagesToFetch = Array(messages.prefix(maxResults))
-        print("📧 Fetching details for \(messagesToFetch.count) messages...")
         
-        for (index, message) in messagesToFetch.enumerated() {
-            print("🔄 [\(index + 1)/\(messagesToFetch.count)] Fetching message \(message.id)...")
-            
+        for (_, message) in messagesToFetch.enumerated() {
             do {
                 let email = try await fetchMessageDetails(messageId: message.id, accessToken: accessToken)
                 emails.append(email)
-                print("✅ [\(index + 1)/\(messagesToFetch.count)] Fetched email: '\(email.subject)' from \(email.sender.displayName)")
             } catch {
-                print("⚠️ [\(index + 1)/\(messagesToFetch.count)] Failed to fetch message \(message.id): \(error)")
                 // Continue with other messages
             }
         }
         
-        print("📬 Successfully fetched \(emails.count)/\(messagesToFetch.count) emails")
+        #if DEBUG
+        print("DEBUG: fetchRealEmails took \(Date().timeIntervalSince(startTime)) seconds for \(messagesToFetch.count) emails")
+        #endif
         return emails
     }
     
@@ -580,7 +725,8 @@ class GmailService: GmailServiceProtocol {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = NetworkManager.shared.createURLSession(timeout: 30)
+        let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw GmailServiceError.apiError("Invalid HTTP response")
@@ -618,6 +764,7 @@ class GmailService: GmailServiceProtocol {
     }
     
     private func fetchMessageDetails(messageId: String, accessToken: String) async throws -> Email {
+        let startTime = Date()
         let messageURL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(messageId)"
         
         guard let url = URL(string: messageURL) else {
@@ -630,19 +777,41 @@ class GmailService: GmailServiceProtocol {
         let (data, _) = try await URLSession.shared.data(for: request)
         let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
         
-        return convertGmailMessageToEmail(gmailMessage)
+        let email = convertGmailMessageToEmail(gmailMessage)
+        #if DEBUG
+        print("DEBUG: fetchMessageDetails for \(messageId) took \(Date().timeIntervalSince(startTime)) seconds")
+        #endif
+        return email
     }
     
     private func getGoogleAccessToken() async -> String? {
-        print("🔑 Getting Google access token...")
-        let token = await GoogleOAuthService.shared.getValidAccessToken()
-        if let token = token {
-            print("✅ Access token obtained (length: \(token.count))")
-            print("🔑 Token preview: \(String(token.prefix(20)))...")
-        } else {
-            print("❌ No access token available")
+        // 1. Try GoogleOAuthService first (recommended)
+        if let token = await GoogleOAuthService.shared.getValidAccessToken() {
+            return token
         }
-        return token
+        
+        // 2. Try SecureStorage directly
+        if let storedToken = SecureStorage.shared.getGoogleAccessToken() {
+            // Validate stored token format
+            if storedToken.count > 20 && !storedToken.contains(" ") {
+                return storedToken
+            }
+        }
+        
+        // 3. Try AuthenticationService user object
+        if let userToken = authService.user?.accessToken, !userToken.isEmpty {
+            // Store to SecureStorage for next time
+            _ = SecureStorage.shared.storeGoogleTokens(
+                accessToken: userToken,
+                refreshToken: authService.user?.refreshToken
+            )
+            
+            return userToken
+        }
+        
+        // 4. No token found anywhere
+        ProductionLogger.logAuthError(GmailError.notAuthenticated, context: "No access token available")
+        return nil
     }
     
     private func convertGmailMessageToEmail(_ gmailMessage: GmailMessage) -> Email {
@@ -681,7 +850,6 @@ class GmailService: GmailServiceProtocol {
             }
         }
         let isPromotional = gmailMessage.labelIds.contains("CATEGORY_PROMOTIONS")
-        let hasCalendarEvent = detectCalendarEvent(subject: subject, body: body, sender: sender)
         
         // Parse attachments
         let attachments = parseAttachments(from: gmailMessage.payload)
@@ -697,32 +865,11 @@ class GmailService: GmailServiceProtocol {
             isImportant: isImportant,
             labels: gmailMessage.labelIds,
             attachments: attachments,
-            isPromotional: isPromotional,
-            hasCalendarEvent: hasCalendarEvent
+            isPromotional: isPromotional
         )
     }
     
-    private func detectCalendarEvent(subject: String, body: String, sender: EmailContact) -> Bool {
-        let calendarKeywords = [
-            "meeting", "appointment", "event", "calendar", "invite", "invitation",
-            "scheduled", "rsvp", "agenda", "zoom", "conference", "call"
-        ]
-        
-        let subjectAndBody = (subject + " " + body).lowercased()
-        
-        // Check for calendar-related keywords
-        let hasCalendarKeywords = calendarKeywords.contains { keyword in
-            subjectAndBody.contains(keyword)
-        }
-        
-        // Check for calendar domains
-        let calendarDomains = ["calendar.google.com", "zoom.us", "teams.microsoft.com", "webex.com"]
-        let hasCalendarDomain = calendarDomains.contains { domain in
-            sender.email.lowercased().contains(domain) || body.lowercased().contains(domain)
-        }
-        
-        return hasCalendarKeywords || hasCalendarDomain
-    }
+    
     
     private func parseAttachments(from payload: GmailPayload) -> [EmailAttachment] {
         var attachments: [EmailAttachment] = []
@@ -821,9 +968,26 @@ class GmailService: GmailServiceProtocol {
     }
     
     private func parseDate(_ dateString: String) -> Date {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, d MMM yyyy HH:mm:ss Z"
-        return formatter.date(from: dateString) ?? Date()
+        let formatters = [
+            "EEE, d MMM yyyy HH:mm:ss Z",
+            "d MMM yyyy HH:mm:ss Z",
+            "EEE, d MMM yy HH:mm:ss Z",
+            "d MMM yy HH:mm:ss Z",
+            "yyyy-MM-dd'T'HH:mm:ssZ"
+        ].map { format -> DateFormatter in
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            return formatter
+        }
+        
+        for formatter in formatters {
+            if let date = formatter.date(from: dateString) {
+                return date
+            }
+        }
+        
+        return Date() // Fallback to current date
     }
     
     private func extractEmailBody(from payload: GmailPayload) -> String {
@@ -897,11 +1061,10 @@ class GmailService: GmailServiceProtocol {
     // MARK: - Mock Data (for development)
     
     private func fetchMockTodaysEmails() async throws -> [Email] {
-        print("🎭 Using mock today's emails data")
         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay to simulate network
         
         let today = Date()
-        let userEmail = authService.user?.email ?? "user@example.com"
+        let userEmail = await authService.user?.email ?? "user@example.com"
         
         return [
             Email(
@@ -931,18 +1094,6 @@ class GmailService: GmailServiceProtocol {
                 attachments: []
             ),
             Email(
-                id: "gmail_3",
-                subject: "Team Standup Meeting - Tomorrow 10 AM",
-                sender: EmailContact(name: "Sarah Johnson", email: "sarah.j@company.com"),
-                recipients: [EmailContact(name: "Dev Team", email: "dev-team@company.com")],
-                body: "Hi team, Just a reminder about our weekly standup meeting scheduled for tomorrow at 10 AM. We'll be discussing the sprint progress and upcoming deliverables. Zoom link: https://zoom.us/j/123456789",
-                date: Calendar.current.date(byAdding: .hour, value: -6, to: today) ?? today,
-                isRead: false,
-                isImportant: true,
-                labels: ["INBOX", "CALENDAR"],
-                attachments: []
-            ),
-            Email(
                 id: "gmail_4",
                 subject: "Your Monthly Statement is Ready",
                 sender: EmailContact(name: "Bank of America", email: "statements@bankofamerica.com"),
@@ -958,11 +1109,10 @@ class GmailService: GmailServiceProtocol {
     }
     
     private func fetchMockImportantEmails() async throws -> [Email] {
-        print("🎭 Using mock important emails data")
         try await Task.sleep(nanoseconds: 300_000_000)
         
         let today = Date()
-        let userEmail = authService.user?.email ?? "user@example.com"
+        let userEmail = await authService.user?.email ?? "user@example.com"
         
         return [
             Email(
@@ -995,11 +1145,10 @@ class GmailService: GmailServiceProtocol {
     }
     
     private func fetchMockPromotionalEmails() async throws -> [Email] {
-        print("🎭 Using mock promotional emails data")
         try await Task.sleep(nanoseconds: 300_000_000)
         
         let today = Date()
-        let userEmail = authService.user?.email ?? "user@example.com"
+        let userEmail = await authService.user?.email ?? "user@example.com"
         
         return [
             Email(
@@ -1013,8 +1162,7 @@ class GmailService: GmailServiceProtocol {
                 isImportant: false,
                 labels: ["CATEGORY_PROMOTIONS"],
                 attachments: [],
-                isPromotional: true,
-                hasCalendarEvent: false
+                isPromotional: true
             ),
             Email(
                 id: "promo_2",
@@ -1027,52 +1175,12 @@ class GmailService: GmailServiceProtocol {
                 isImportant: false,
                 labels: ["CATEGORY_PROMOTIONS"],
                 attachments: [],
-                isPromotional: true,
-                hasCalendarEvent: false
+                isPromotional: true
             )
         ]
     }
     
-    private func fetchMockCalendarEmails() async throws -> [Email] {
-        print("🎭 Using mock calendar emails data")
-        try await Task.sleep(nanoseconds: 300_000_000)
-        
-        let today = Date()
-        let userEmail = authService.user?.email ?? "user@example.com"
-        
-        return [
-            Email(
-                id: "calendar_1",
-                subject: "Invitation: Weekly Team Standup",
-                sender: EmailContact(name: "Google Calendar", email: "calendar-notification@google.com"),
-                recipients: [EmailContact(name: "Dev Team", email: "dev-team@company.com")],
-                body: "You have been invited to a meeting: Weekly Team Standup\n\nWhen: Tomorrow at 10:00 AM\nWhere: Conference Room A / Zoom\n\nJoin Zoom Meeting: https://zoom.us/j/123456789\n\nAgenda:\n- Sprint progress review\n- Blockers discussion\n- Next week planning",
-                date: Calendar.current.date(byAdding: .hour, value: -4, to: today) ?? today,
-                isRead: false,
-                isImportant: false,
-                labels: ["INBOX", "CALENDAR"],
-                attachments: [
-                    EmailAttachment(filename: "meeting.ics", mimeType: "text/calendar", size: 2048)
-                ],
-                isPromotional: false,
-                hasCalendarEvent: true
-            ),
-            Email(
-                id: "calendar_2",
-                subject: "Meeting Reminder: Client Presentation - Tomorrow 2 PM",
-                sender: EmailContact(name: "Project Manager", email: "pm@company.com"),
-                recipients: [EmailContact(name: "You", email: userEmail)],
-                body: "Hi team,\n\nJust a friendly reminder about our client presentation tomorrow at 2 PM. Please make sure you have:\n\n- Presentation slides ready\n- Demo environment tested\n- Backup plans prepared\n\nMeeting details:\nLocation: Client office / Teams backup\nDuration: 90 minutes\n\nLet me know if you have any questions!",
-                date: Calendar.current.date(byAdding: .hour, value: -6, to: today) ?? today,
-                isRead: true,
-                isImportant: true,
-                labels: ["INBOX", "IMPORTANT"],
-                attachments: [],
-                isPromotional: false,
-                hasCalendarEvent: true
-            )
-        ]
-    }
+    
 }
 
 // MARK: - Errors

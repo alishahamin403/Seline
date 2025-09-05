@@ -62,12 +62,7 @@ extension EmailEntity {
         return request
     }
     
-    static func fetchRequestForCalendar(_ user: UserEntity) -> NSFetchRequest<EmailEntity> {
-        let request = fetchRequest()
-        request.predicate = NSPredicate(format: "user == %@ AND hasCalendarEvent == YES", user)
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \EmailEntity.date, ascending: false)]
-        return request
-    }
+    
     
     static func fetchRequestForSearch(_ query: String, user: UserEntity) -> NSFetchRequest<EmailEntity> {
         let request = fetchRequest()

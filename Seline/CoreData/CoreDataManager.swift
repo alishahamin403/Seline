@@ -75,6 +75,30 @@ class CoreDataManager: ObservableObject {
                 for object in context.insertedObjects {
                     do {
                         try object.validateForInsert()
+                        
+                        // Additional check for relationship integrity
+                        if let userEntity = object as? UserEntity {
+                            // Ensure user relationships don't contain invalid objects
+                            validateUserRelationships(userEntity, in: context)
+                        } else if let syncStatus = object as? SyncStatusEntity {
+                            // Ensure sync status has a valid user
+                            if syncStatus.user?.isDeleted == true || syncStatus.user?.managedObjectContext == nil {
+                                ProductionLogger.logError(
+                                    NSError(domain: "CoreDataManager", code: -5, userInfo: [NSLocalizedDescriptionKey: "SyncStatusEntity has invalid user relationship"]), 
+                                    context: "Core Data validation sync status"
+                                )
+                                context.delete(object)
+                            }
+                        } else if let emailEntity = object as? EmailEntity {
+                            // Ensure email has a valid user
+                            if emailEntity.user?.isDeleted == true || emailEntity.user?.managedObjectContext == nil {
+                                ProductionLogger.logError(
+                                    NSError(domain: "CoreDataManager", code: -6, userInfo: [NSLocalizedDescriptionKey: "EmailEntity has invalid user relationship"]), 
+                                    context: "Core Data validation email"
+                                )
+                                context.delete(object)
+                            }
+                        }
                     } catch {
                         ProductionLogger.logError(error as NSError, context: "Core Data validation failed for insert")
                         context.delete(object)
@@ -258,7 +282,18 @@ class CoreDataManager: ObservableObject {
                     emailEntity.setValue(uuid, forKey: "id")
                 }
                 emailEntity.gmailID = email.id
-                emailEntity.user = user
+                
+                // Validate user before setting relationship
+                if !user.isDeleted && user.managedObjectContext == context {
+                    emailEntity.user = user
+                } else {
+                    ProductionLogger.logError(
+                        NSError(domain: "CoreDataManager", code: -3, userInfo: [NSLocalizedDescriptionKey: "Cannot set email user relationship - invalid user state"]), 
+                        context: "createOrUpdateEmailEntity"
+                    )
+                    context.delete(emailEntity)
+                    return nil
+                }
             }
             
             // Update email properties with nil safety
@@ -269,6 +304,7 @@ class CoreDataManager: ObservableObject {
             emailEntity.isImportant = email.isImportant
             emailEntity.isPromotional = email.isPromotional
             emailEntity.hasCalendarEvent = email.hasCalendarEvent
+            
             emailEntity.updatedAt = Date()
             
             // Safely encode complex objects as Data with nil checks
@@ -332,10 +368,11 @@ class CoreDataManager: ObservableObject {
             predicate = NSPredicate(format: "user == %@ AND isImportant == YES", user)
         case .promotional:
             predicate = NSPredicate(format: "user == %@ AND isPromotional == YES", user)
-        case .calendar:
-            predicate = NSPredicate(format: "user == %@ AND hasCalendarEvent == YES", user)
+        
         case .unread:
             predicate = NSPredicate(format: "user == %@ AND isRead == NO", user)
+        case .calendar:
+            predicate = NSPredicate(format: "user == %@ AND hasCalendarEvent == YES", user)
         case .all:
             break
         }
@@ -546,8 +583,19 @@ class CoreDataManager: ObservableObject {
                 syncStatus = SyncStatusEntity(context: context)
                 // Safely set the ID using KVC
                 syncStatus.setValue(UUID(), forKey: "id")
-                syncStatus.user = userInContext
                 syncStatus.syncType = type
+                
+                // Validate userInContext before setting relationship
+                if !userInContext.isDeleted && userInContext.managedObjectContext == context {
+                    syncStatus.user = userInContext
+                } else {
+                    ProductionLogger.logError(
+                        NSError(domain: "CoreDataManager", code: -4, userInfo: [NSLocalizedDescriptionKey: "Cannot set sync status user relationship - invalid user state"]), 
+                        context: "updateSyncStatus"
+                    )
+                    context.delete(syncStatus)
+                    return
+                }
             }
             
             syncStatus.lastSyncDate = date
@@ -646,6 +694,67 @@ class CoreDataManager: ObservableObject {
     @objc private func applicationDidEnterBackground(_ notification: Notification) {
         save()
     }
+    
+    // MARK: - Relationship Validation
+    
+    private func validateUserRelationships(_ userEntity: UserEntity, in context: NSManagedObjectContext) {
+        // Check emails relationship for invalid objects
+        if let emailsSet = userEntity.emails as? Set<EmailEntity> {
+            let invalidEmails = emailsSet.filter { email in
+                email.isDeleted || email.managedObjectContext == nil || email.managedObjectContext != context
+            }
+            
+            if !invalidEmails.isEmpty {
+                ProductionLogger.logError(
+                    NSError(domain: "CoreDataManager", code: -7, userInfo: [NSLocalizedDescriptionKey: "Found \(invalidEmails.count) invalid emails in user relationship"]), 
+                    context: "validateUserRelationships emails"
+                )
+                
+                // Remove invalid emails from the relationship
+                for invalidEmail in invalidEmails {
+                    userEntity.removeFromEmails(invalidEmail)
+                }
+            }
+        }
+        
+        // Check sync statuses relationship for invalid objects  
+        if let syncStatusSet = userEntity.syncStatuses as? Set<SyncStatusEntity> {
+            let invalidStatuses = syncStatusSet.filter { status in
+                status.isDeleted || status.managedObjectContext == nil || status.managedObjectContext != context
+            }
+            
+            if !invalidStatuses.isEmpty {
+                ProductionLogger.logError(
+                    NSError(domain: "CoreDataManager", code: -8, userInfo: [NSLocalizedDescriptionKey: "Found \(invalidStatuses.count) invalid sync statuses in user relationship"]), 
+                    context: "validateUserRelationships syncStatuses"
+                )
+                
+                // Remove invalid sync statuses from the relationship
+                for invalidStatus in invalidStatuses {
+                    userEntity.removeFromSyncStatuses(invalidStatus)
+                }
+            }
+        }
+        
+        // Check categories relationship for invalid objects
+        if let categoriesSet = userEntity.categories as? Set<CategoryEntity> {
+            let invalidCategories = categoriesSet.filter { category in
+                category.isDeleted || category.managedObjectContext == nil || category.managedObjectContext != context
+            }
+            
+            if !invalidCategories.isEmpty {
+                ProductionLogger.logError(
+                    NSError(domain: "CoreDataManager", code: -9, userInfo: [NSLocalizedDescriptionKey: "Found \(invalidCategories.count) invalid categories in user relationship"]), 
+                    context: "validateUserRelationships categories"
+                )
+                
+                // Remove invalid categories from the relationship
+                for invalidCategory in invalidCategories {
+                    userEntity.removeFromCategories(invalidCategory)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Email Category Enum
@@ -656,6 +765,7 @@ enum EmailCategory {
     case important
     case promotional
     case calendar
+    
 }
 
 // MARK: - Production Logger Extension

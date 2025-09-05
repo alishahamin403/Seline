@@ -7,9 +7,15 @@
 
 import Foundation
 import Combine
-// import GoogleSignIn
-// import GoogleAPIClientForREST
+import GoogleSignIn
 
+enum AuthError: Error {
+    case tokenRefreshFailed
+    case authenticationFailed
+    case userCancelled
+}
+
+@MainActor
 class AuthenticationService: ObservableObject {
     static let shared = AuthenticationService()
     
@@ -41,8 +47,6 @@ class AuthenticationService: ObservableObject {
     // MARK: - Authentication State Management
     
     private func loadAuthState() {
-        ProductionLogger.logAuthEvent("Loading authentication state")
-        
         let storedAuthState = userDefaults.bool(forKey: authStateKey)
         let completedOnboarding = userDefaults.bool(forKey: onboardingKey)
         
@@ -52,12 +56,11 @@ class AuthenticationService: ObservableObject {
                     self.user = decodedUser
                     self.hasCompletedOnboarding = completedOnboarding
                 }
-                ProductionLogger.logAuthEvent("User data loaded for: \(decodedUser.email)")
                 
                 // Check if token is expired (but be more lenient in development)
                 #if DEBUG
                 if decodedUser.isTokenExpired {
-                    ProductionLogger.logAuthEvent("⚠️ Token expired in dev mode, but keeping user signed in")
+                    print("⚠️ Token expired in dev mode, extending expiration")
                     // In development, extend the token expiration instead of clearing auth
                     let extendedUser = SelineUser(
                         id: decodedUser.id,
@@ -75,7 +78,6 @@ class AuthenticationService: ObservableObject {
                 }
                 #else
                 if decodedUser.isTokenExpired {
-                    ProductionLogger.logAuthEvent("Token expired, clearing auth state")
                     clearAuthState()
                     return
                 }
@@ -85,7 +87,6 @@ class AuthenticationService: ObservableObject {
                 if storedAuthState {
                     Task {
                         do {
-                            // In a real implementation, get user ID from Supabase
                             try await supabaseService.updateLastSignIn(userID: UUID())
                         } catch {
                             ProductionLogger.logError(error, context: "Updating last sign in")
@@ -102,14 +103,15 @@ class AuthenticationService: ObservableObject {
         // Set authentication state
         Task { @MainActor in
             self.isAuthenticated = storedAuthState && self.user != nil
-            // If we have user data stored (even if not currently authenticated), they've completed onboarding
             self.hasCompletedOnboarding = completedOnboarding || self.user != nil
-            ProductionLogger.logAuthEvent("Authentication state set: \(self.isAuthenticated), onboarding: \(self.hasCompletedOnboarding)")
+            
+            #if DEBUG
+            print("🔐 Auth state loaded: authenticated=\(self.isAuthenticated), onboarding=\(self.hasCompletedOnboarding)")
+            #endif
         }
     }
     
     private func clearAuthState() {
-        ProductionLogger.logAuthEvent("Clearing authentication state")
         Task { @MainActor in
             self.isAuthenticated = false
             self.user = nil
@@ -121,13 +123,28 @@ class AuthenticationService: ObservableObject {
     }
     
     private func saveAuthState() {
-        ProductionLogger.logAuthEvent("Saving authentication state")
         userDefaults.set(isAuthenticated, forKey: authStateKey)
         userDefaults.set(hasCompletedOnboarding, forKey: onboardingKey)
         if let user = user,
            let userData = try? JSONEncoder().encode(user) {
             userDefaults.set(userData, forKey: userKey)
-            ProductionLogger.logAuthEvent("✅ User data saved for: \(user.email) - Token expires: \(user.tokenExpirationDate?.description ?? "never")")
+            
+            #if DEBUG
+            print("💾 User data saved for: \(user.email)")
+            #endif
+            
+            // CRITICAL FIX: Synchronize tokens to secure storage when saving auth state
+            // This ensures GoogleOAuthService can find the tokens for API calls
+            if !user.accessToken.isEmpty {
+                let secureStorage = SecureStorage.shared
+                if secureStorage.storeGoogleTokens(accessToken: user.accessToken, refreshToken: user.refreshToken) {
+                    #if DEBUG
+                    print("✅ Tokens synchronized to secure storage")
+                    #endif
+                } else {
+                    ProductionLogger.logError(NSError(domain: "AuthenticationService", code: -2), context: "Failed to synchronize tokens to secure storage")
+                }
+            }
         }
         
         // Force synchronize to ensure data is written immediately
@@ -136,8 +153,55 @@ class AuthenticationService: ObservableObject {
     
     private func debugInitialState() {
         #if DEBUG
-        ProductionLogger.logAuthEvent("AuthenticationService initialized - isAuthenticated: \(isAuthenticated), user: \(user?.email ?? "nil")")
+        print("🔐 AuthenticationService initialized - authenticated: \(isAuthenticated), user: \(user?.email ?? "nil")")
         #endif
+    }
+    
+    // MARK: - Public Authentication Methods
+    
+    
+    /// Refresh token if needed and sync to storage
+    func refreshTokenIfNeeded() async throws {
+        guard let user = user else { return }
+        
+        // Check if token is expiring within next 5 minutes
+        let fiveMinutesFromNow = Date().addingTimeInterval(300)
+        if let expiration = user.tokenExpirationDate, expiration > fiveMinutesFromNow {
+            return
+        }
+        
+        print("🔄 Token expired, refreshing...")
+        
+        do {
+            // Use GoogleOAuthService for token refresh
+            if let newAccessToken = await GoogleOAuthService.shared.getValidAccessToken() {
+                let refreshedUser = SelineUser(
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    profileImageURL: user.profileImageURL,
+                    accessToken: newAccessToken,
+                    refreshToken: user.refreshToken,
+                    tokenExpirationDate: Date().addingTimeInterval(3600) // Google tokens typically last 1 hour
+                )
+                
+                await MainActor.run {
+                    self.user = refreshedUser
+                }
+                
+                saveAuthState()
+                print("✅ Token refreshed successfully")
+            } else {
+                // If refresh fails, user needs to re-authenticate
+                print("❌ Token refresh failed, user needs to re-authenticate")
+                await signOut()
+                throw AuthError.tokenRefreshFailed
+            }
+        } catch {
+            print("❌ Token refresh error: \(error)")
+            await signOut()
+            throw error
+        }
     }
     
     // MARK: - Google Sign-In
@@ -150,7 +214,9 @@ class AuthenticationService: ObservableObject {
         
         // Check if user is already authenticated and token is valid
         if isAuthenticated, let user = user, !user.isTokenExpired {
-            ProductionLogger.logAuthEvent("✅ User already authenticated and token is valid, skipping sign-in")
+            #if DEBUG
+            print("✅ User already authenticated, skipping sign-in")
+            #endif
             await MainActor.run {
                 isLoading = false
             }
@@ -194,8 +260,10 @@ class AuthenticationService: ObservableObject {
     }
     
     func signOut() async {
-        ProductionLogger.logAuthEvent("Sign out initiated")
         isLoading = true
+        
+        // Clean up Supabase session and real-time subscriptions
+        try? await SupabaseService.shared.signOut()
         
         // TODO: Replace with actual Google Sign-Out
         /*
@@ -211,7 +279,10 @@ class AuthenticationService: ObservableObject {
         
         // Clear local state
         clearAuthState()
-        ProductionLogger.logAuthEvent("Sign out completed")
+        
+        #if DEBUG
+        print("✅ Sign out completed")
+        #endif
         
         isLoading = false
     }
@@ -219,8 +290,37 @@ class AuthenticationService: ObservableObject {
     // MARK: - Debug Methods
     
     func forceSignOut() {
-        ProductionLogger.logAuthEvent("Force sign out executed")
+        #if DEBUG
+        print("🔐 Force sign out executed")
+        #endif
         clearAuthState()
+    }
+
+    /// Clears user authentication data from UserDefaults.
+    /// This is useful for debugging or forcing a fresh sign-in.
+    public func clearUserDataFromUserDefaults() {
+        userDefaults.removeObject(forKey: authStateKey)
+        userDefaults.removeObject(forKey: userKey)
+        userDefaults.removeObject(forKey: onboardingKey) // Also clear onboarding for a clean slate
+        userDefaults.removeObject(forKey: "current_user_email") // Clear the email used for API key scoping
+        userDefaults.synchronize() // Ensure changes are written immediately
+        
+        // Also clear any related secure storage data if necessary for a full reset
+        SecureStorage.shared.clearAllCredentials()
+        SecureStorage.shared.clearOpenAIKey() // Ensure OpenAI key is also cleared
+        
+        // Reset in-memory state
+        Task { @MainActor in
+            self.isAuthenticated = false
+            self.user = nil
+            self.hasCompletedOnboarding = false
+            self.authError = nil
+            self.isLoading = false
+        }
+        
+        #if DEBUG
+        print("🗑️ User data cleared from UserDefaults and SecureStorage.")
+        #endif
     }
     
     /// Check if user has valid persistent authentication
@@ -231,47 +331,22 @@ class AuthenticationService: ObservableObject {
         
         let isPersistent = hasValidUser && isCurrentlyAuthenticated && tokenNotExpired
         
-        ProductionLogger.logAuthEvent("🔍 Persistent auth check - Valid user: \(hasValidUser), Authenticated: \(isCurrentlyAuthenticated), Token valid: \(tokenNotExpired) = Result: \(isPersistent)")
+        #if DEBUG
+        print("🔍 Persistent auth check: \(isPersistent)")
+        #endif
         
         return isPersistent
     }
     
     func debugCurrentState() {
         #if DEBUG
-        ProductionLogger.logAuthEvent("Auth Debug - isAuthenticated: \(isAuthenticated), user: \(user?.email ?? "nil"), loading: \(isLoading)")
+        print("🔐 Auth Debug - authenticated: \(isAuthenticated), user: \(user?.email ?? "nil"), loading: \(isLoading)")
         if let user = user {
-            ProductionLogger.logAuthEvent("User details - ID: \(user.id), Name: \(user.name), Token expired: \(user.isTokenExpired)")
+            print("🔐 User: \(user.name) (ID: \(user.id)), Token expired: \(user.isTokenExpired)")
         }
         #endif
     }
     
-    func refreshTokenIfNeeded() async {
-        ProductionLogger.logAuthEvent("Checking token refresh needed")
-        
-        guard let currentUser = user, isAuthenticated else { 
-            ProductionLogger.logAuthEvent("Not authenticated or no user, skipping refresh")
-            return 
-        }
-        
-        if currentUser.isTokenExpired {
-            ProductionLogger.logAuthEvent("Token expired, clearing auth state")
-            clearAuthState()
-            return
-        }
-        
-        ProductionLogger.logAuthEvent("Token is still valid")
-        
-        // TODO: Implement token refresh logic
-        /*
-        do {
-            let currentUser = GoogleSignIn.sharedInstance.currentUser
-            try await currentUser?.refreshTokensIfNeeded()
-        } catch {
-            ProductionLogger.logAuthError(error, context: "Token refresh")
-            await signOut()
-        }
-        */
-    }
     
     // MARK: - Helper Methods
     
@@ -294,6 +369,8 @@ class AuthenticationService: ObservableObject {
             self.user = mockUser
             self.isAuthenticated = true
         }
+        // Set the current user's email in UserDefaults for API key scoping
+        userDefaults.set(mockUser.email, forKey: "current_user_email")
         // Store tokens in Keychain so Gmail/Calendar services can retrieve them
         _ = SecureStorage.shared.storeGoogleTokens(
             accessToken: mockUser.accessToken,
@@ -338,28 +415,50 @@ class AuthenticationService: ObservableObject {
     
     /// Set authenticated user data (for custom OAuth integration)
     public func setAuthenticatedUser(_ user: SelineUser) async {
-        ProductionLogger.logAuthEvent("Setting authenticated user: \(user.email)")
-        
         await MainActor.run {
             self.user = user
             self.isAuthenticated = true
             self.hasCompletedOnboarding = true
             self.authError = nil
         }
-        // Persist Google tokens to secure storage if provided
+        
+        // Set the current user's email in UserDefaults for API key scoping
+        userDefaults.set(user.email, forKey: "current_user_email")
+        
+        // CRITICAL: Store tokens in SecureStorage for Gmail operations
         if !user.accessToken.isEmpty || user.refreshToken != nil {
-            _ = SecureStorage.shared.storeGoogleTokens(
+            let tokenStored = SecureStorage.shared.storeGoogleTokens(
                 accessToken: user.accessToken,
                 refreshToken: user.refreshToken
             )
+            
+            #if DEBUG
+            print("🔐 Tokens stored in SecureStorage: \(tokenStored)")
+            #endif
+            
+            if !tokenStored {
+                ProductionLogger.logError(NSError(domain: "AuthenticationService", code: -3), context: "Failed to store tokens")
+            }
         }
         
-        // Persist user data to Supabase
+        // User successfully authenticated - proceed with sync
+        
+        // Integrate with Supabase for metadata storage (with consent)
         do {
-            let supabaseUser = try await supabaseService.upsertUser(selineUser: user)
-            ProductionLogger.logAuthEvent("User persisted to Supabase: \(supabaseUser.id)")
+            let supabaseUser = try await SupabaseService.shared.upsertUser(selineUser: user)
+            
+            await MainActor.run {
+                self.user?.supabaseId = supabaseUser.id
+            }
+
+            #if DEBUG
+            print("✅ User synchronized to Supabase: \(supabaseUser.id)")
+            #endif
+            
+            // User successfully synced to Supabase
+            
         } catch {
-            ProductionLogger.logError(error, context: "Persisting user to Supabase")
+            ProductionLogger.logError(error, context: "Supabase user sync")
             // Don't fail authentication if Supabase sync fails
         }
         
@@ -368,7 +467,9 @@ class AuthenticationService: ObservableObject {
         // Initialize local email service with authenticated user
         LocalEmailService.shared.setCurrentUser(user)
         
-        ProductionLogger.logAuthEvent("User authentication completed successfully")
+        #if DEBUG
+        print("✅ User authentication completed successfully")
+        #endif
     }
     
     /// Check if user exists in Supabase and is returning user
@@ -388,14 +489,18 @@ class AuthenticationService: ObservableObject {
             self.hasCompletedOnboarding = true
         }
         userDefaults.set(true, forKey: onboardingKey)
-        ProductionLogger.logAuthEvent("Onboarding marked as completed")
+        
+        #if DEBUG
+        print("🎯 Onboarding marked as completed")
+        #endif
     }
 }
 
 // MARK: - Models
 
 struct SelineUser: Codable {
-    let id: String
+    let id: String // Google ID
+    var supabaseId: UUID?
     let email: String
     let name: String
     let profileImageURL: String?

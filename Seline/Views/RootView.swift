@@ -89,14 +89,7 @@ struct SplashView: View {
     var body: some View {
         VStack(spacing: DesignSystem.Spacing.lg) {
             // App Icon
-            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                .fill(DesignSystem.Colors.accent.gradient)
-                .frame(width: 120, height: 120)
-                .overlay(
-                    Image(systemName: "envelope.fill")
-                        .font(.system(size: 50))
-                        .foregroundColor(.white)
-                )
+            SelineAppIcon(size: 120, cornerRadius: DesignSystem.CornerRadius.lg)
                 .scaleEffect(scale)
                 .opacity(opacity)
                 .shadow(color: DesignSystem.Shadow.medium, radius: 20, x: 0, y: 10)
@@ -160,7 +153,7 @@ struct SettingsView: View {
                             .overlay(
                                 Text(String(user.name.prefix(1)))
                                     .font(.title)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                             )
                         
                         VStack(spacing: 4) {

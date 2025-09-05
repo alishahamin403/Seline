@@ -18,7 +18,8 @@ struct FollowUpConversationView: View {
     @State private var isLoading = false
     @State private var showingError = false
     @State private var errorMessage: String = ""
-    @FocusState private var isTextFieldFocused: Bool
+        @FocusState private var isTextFieldFocused: Bool
+    @ObservedObject var voiceRecordingService = VoiceRecordingService.shared
     
     var body: some View {
         VStack(spacing: 0) {
@@ -181,7 +182,7 @@ struct FollowUpConversationView: View {
                 Button(action: sendFollowUp) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                         .frame(width: 32, height: 32)
                         .background(
                             Circle()
@@ -190,6 +191,19 @@ struct FollowUpConversationView: View {
                 }
                 .disabled(followUpText.isEmpty || isLoading)
                 .animation(.easeInOut(duration: 0.2), value: followUpText.isEmpty)
+
+                Button(action: toggleVoiceRecording) {
+                    Image(systemName: voiceRecordingService.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(voiceRecordingService.isRecording ? Color.red : DesignSystem.Colors.accent)
+                        )
+                }
+                .disabled(isLoading) // Disable while AI is thinking
+                .animation(.easeInOut(duration: 0.2), value: voiceRecordingService.isRecording)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
@@ -247,6 +261,22 @@ struct FollowUpConversationView: View {
     private func clearConversation() {
         conversationHistory = []
         setupInitialConversation()
+    }
+
+    private func toggleVoiceRecording() {
+        if voiceRecordingService.isRecording {
+            voiceRecordingService.stopRecording(userInitiated: true)
+        } else {
+            // Dismiss keyboard before starting recording
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            
+            voiceRecordingService.startOneShotTranscription(for: .search) { transcript in
+                if let text = transcript, !text.isEmpty {
+                    followUpText = text // Populate the text field with the transcription
+                    sendFollowUp() // Automatically send the follow-up question
+                }
+            }
+        }
     }
 }
 

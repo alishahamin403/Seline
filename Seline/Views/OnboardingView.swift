@@ -43,19 +43,21 @@ struct OnboardingView: View {
                 HStack(spacing: DesignSystem.Spacing.md) {
                     Image(systemName: "globe")
                         .font(.title2)
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                     
                     Text("Continue with Google")
                         .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black)
+                        .fill(DesignSystem.Colors.accent)
+                        .shadow(color: DesignSystem.Colors.accent.opacity(0.3), radius: 8, x: 0, y: 4)
                 )
             }
+            .buttonStyle(AnimatedButtonStyle())
             .disabled(isAuthenticating || googleAuth.isAuthenticating)
             .padding(.horizontal, DesignSystem.Spacing.xl)
             

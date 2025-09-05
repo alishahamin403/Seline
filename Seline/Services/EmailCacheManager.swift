@@ -139,7 +139,7 @@ class EmailCacheManager: ObservableObject {
         let preview = EmailPreview(
             id: email.id,
             subject: email.subject,
-            sender: email.sender,
+            sender: email.sender.displayName,
             date: email.date,
             isRead: email.isRead,
             isImportant: email.isImportant,
@@ -184,8 +184,10 @@ class EmailCacheManager: ObservableObject {
                         return email.isImportant
                     case .promotional:
                         return email.isPromotional
-                    case .calendar:
-                        return email.hasCalendarEvent
+                    case .all:
+                        return true
+                    case .unread:
+                        return !email.isRead
                     }
                 }
                 .sorted { $0.date > $1.date }
@@ -196,155 +198,105 @@ class EmailCacheManager: ObservableObject {
     
     // MARK: - Cache Management
     
-    /// Clear all cached data
-    func clearCache() {
-        cacheQueue.async { [weak self] in
-            self?.emailCache.removeAll()
-            self?.previewCache.removeAll()
-            self?.cacheAccessOrder.removeAll()
-            
-            DispatchQueue.main.async {
-                self?.currentCacheSize = 0
-                ProductionLogger.logEmailOperation("Cache cleared")
-            }
-        }
+    private func updateAccessOrder(id: String) {
+        cacheAccessOrder.removeAll { $0 == id }
+        cacheAccessOrder.append(id)
     }
-    
-    /// Clear expired cache entries
-    func clearExpiredEntries() {
-        cacheQueue.async { [weak self] in
-            guard let self = self else { return }
-            
-            var removedCount = 0
-            
-            // Remove expired emails
-            let expiredEmailIds = self.emailCache.compactMap { key, cached in
-                cached.isExpired ? key : nil
-            }
-            
-            for id in expiredEmailIds {
-                self.emailCache.removeValue(forKey: id)
-                self.cacheAccessOrder.removeAll { $0 == id }
-                removedCount += 1
-            }
-            
-            // Remove expired previews
-            let expiredPreviewIds = self.previewCache.compactMap { key, preview in
-                preview.isExpired ? key : nil
-            }
-            
-            for id in expiredPreviewIds {
-                self.previewCache.removeValue(forKey: id)
-                removedCount += 1
-            }
-            
-            DispatchQueue.main.async {
-                self.currentCacheSize = self.emailCache.count
-                if removedCount > 0 {
-                    ProductionLogger.logEmailOperation("Removed \(removedCount) expired cache entries")
-                }
-            }
-        }
-    }
-    
-    /// Pre-load email content for visible emails
-    func preloadEmailContent(for emailIds: [String], priority: TaskPriority = .medium) {
-        Task(priority: priority) {
-            for emailId in emailIds {
-                // Only preload if not already cached with full body
-                if let cached = getCachedEmail(id: emailId), !cached.body.isEmpty {
-                    continue // Already have full content
-                }
-                
-                // Request full email content in background
-                // This would integrate with GmailService to fetch full content
-                await preloadSingleEmail(id: emailId)
-            }
-        }
-    }
-    
-    // MARK: - Private Methods
     
     private func ensureCacheCapacity() {
         while emailCache.count >= maxCacheSize && !cacheAccessOrder.isEmpty {
-            // Remove least recently used email
-            let lruId = cacheAccessOrder.removeFirst()
-            emailCache.removeValue(forKey: lruId)
+            let oldestId = cacheAccessOrder.removeFirst()
+            emailCache.removeValue(forKey: oldestId)
         }
-    }
-    
-    private func updateAccessOrder(id: String) {
-        // Remove from current position
-        cacheAccessOrder.removeAll { $0 == id }
-        // Add to end (most recently used)
-        cacheAccessOrder.append(id)
     }
     
     private func recordCacheRequest(hit: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
             self.totalCacheRequests += 1
             if hit {
                 self.cacheHits += 1
             }
-            
-            self.cacheHitRate = self.totalCacheRequests > 0 ?
-                Double(self.cacheHits) / Double(self.totalCacheRequests) : 0.0
+            self.cacheHitRate = Double(self.cacheHits) / Double(self.totalCacheRequests)
         }
     }
     
     private func startPeriodicCleanup() {
-        // Clean up expired entries every 5 minutes
-        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
-            self?.cleanupQueue.async {
-                self?.clearExpiredEntries()
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.cleanupExpiredEntries()
+        }
+    }
+    
+    private func cleanupExpiredEntries() {
+        cleanupQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            var expiredIds: [String] = []
+            
+            for (id, cached) in self.emailCache {
+                if cached.isExpired {
+                    expiredIds.append(id)
+                }
+            }
+            
+            for id in expiredIds {
+                self.emailCache.removeValue(forKey: id)
+                self.cacheAccessOrder.removeAll { $0 == id }
+            }
+            
+            let expiredPreviews = self.previewCache.filter { $0.value.isExpired }.keys
+            for id in expiredPreviews {
+                self.previewCache.removeValue(forKey: id)
+            }
+            
+            DispatchQueue.main.async {
+                self.currentCacheSize = self.emailCache.count
+                ProductionLogger.logEmailOperation("Cleaned up expired cache entries", count: expiredIds.count)
+            }
+        }
+    }
+    
+    /// Clear all cache
+    func clearCache() {
+        cacheQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.emailCache.removeAll()
+            self.previewCache.removeAll()
+            self.cacheAccessOrder.removeAll()
+            
+            DispatchQueue.main.async {
+                self.currentCacheSize = 0
+                self.totalCacheRequests = 0
+                self.cacheHits = 0
+                self.cacheHitRate = 0.0
+                ProductionLogger.logEmailOperation("Cleared email cache")
             }
         }
     }
     
     deinit {
         cleanupTimer?.invalidate()
-        cleanupTimer = nil
-    }
-    
-    private func preloadSingleEmail(id: String) async {
-        // This would integrate with GmailService to fetch full email content
-        // For now, we'll just update the cache timestamp to indicate preloading attempt
-        cacheQueue.async { [weak self] in
-            guard let self = self else { return }
-            if var cached = self.emailCache[id] {
-                cached.lastAccessed = Date()
-                self.emailCache[id] = cached
-            }
-        }
     }
 }
 
-// MARK: - Supporting Types
+// MARK: - Supporting Structures
 
+/// Cached email with metadata
 private struct CachedEmail {
     let email: Email
     let timestamp: Date
     let hasFullBody: Bool
-    var lastAccessed: Date
-    
-    init(email: Email, timestamp: Date, hasFullBody: Bool) {
-        self.email = email
-        self.timestamp = timestamp
-        self.hasFullBody = hasFullBody
-        self.lastAccessed = timestamp
-    }
     
     var isExpired: Bool {
-        Date().timeIntervalSince(timestamp) > GmailQuotaManager.cacheExpirationInterval
+        Date().timeIntervalSince(timestamp) > (30 * 60) // 30 minutes
     }
 }
 
+/// Lightweight email preview for list display
 struct EmailPreview {
     let id: String
     let subject: String
-    let sender: EmailContact
+    let sender: String
     let date: Date
     let isRead: Bool
     let isImportant: Bool
@@ -353,9 +305,7 @@ struct EmailPreview {
     let timestamp: Date
     
     var isExpired: Bool {
-        Date().timeIntervalSince(timestamp) > GmailQuotaManager.cacheExpirationInterval
+        Date().timeIntervalSince(timestamp) > (30 * 60) // 30 minutes
     }
 }
 
-// Allow using this type inside @Sendable closures managed by dedicated queues
-extension EmailCacheManager: @unchecked Sendable {}

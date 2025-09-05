@@ -9,9 +9,6 @@ import SwiftUI
 import UIKit
 
 struct EmailActionButtons {
-    
-    // MARK: - Reply Actions
-    
     static func replyToEmail(_ email: Email) {
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
@@ -63,14 +60,7 @@ struct EmailActionButtons {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { _ in
             Task {
-                do {
-                    try await GmailService.shared.deleteEmail(emailId: email.id)
-                    await MainActor.run {
-                        viewModel.deleteEmail(email.id)
-                    }
-                } catch {
-                    ProductionLogger.logEmailError(error, operation: "delete_email")
-                }
+                await viewModel.deleteEmail(email.id)
             }
         })
         

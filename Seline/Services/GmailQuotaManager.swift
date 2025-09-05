@@ -15,7 +15,10 @@ class GmailQuotaManager: ObservableObject {
     // MARK: - Quota Configuration
     
     /// Maximum emails to fetch in initial load
-    static let maxInitialEmails = 50
+    static let maxInitialEmails = 15
+    
+    /// Optimized limit for today's emails only
+    static let todayEmailsLimit = 500
     
     /// Pagination size for "Load More"
     static let paginationSize = 25
@@ -46,9 +49,20 @@ class GmailQuotaManager: ObservableObject {
     private let rateLimitSemaphore = DispatchSemaphore(value: 10) // Max 10 concurrent requests
     private var dailyResetTimer: Timer?
     private var metricsUpdateTimer: Timer?
+    private var circuitBreakers: [String: CircuitBreaker] = [:]
     
     private init() {
         startQuotaMonitoring()
+    }
+    
+    private func getCircuitBreaker(for operation: String) -> CircuitBreaker {
+        if let breaker = circuitBreakers[operation] {
+            return breaker
+        } else {
+            let newBreaker = CircuitBreaker()
+            circuitBreakers[operation] = newBreaker
+            return newBreaker
+        }
     }
     
     // MARK: - Public API
@@ -105,6 +119,11 @@ class GmailQuotaManager: ObservableObject {
         maxRetries: Int = 3,
         request: @escaping () async throws -> T
     ) async throws -> T {
+        let circuitBreaker = getCircuitBreaker(for: operation)
+        guard circuitBreaker.canAttemptRequest() else {
+            throw GmailQuotaError.circuitBreakerOpen
+        }
+        
         guard canMakeRequest() else {
             throw GmailQuotaError.quotaExceeded
         }
@@ -129,9 +148,11 @@ class GmailQuotaManager: ObservableObject {
             do {
                 let result = try await request()
                 recordRequest()
+                circuitBreaker.recordSuccess()
                 return result
             } catch {
                 lastError = error
+                circuitBreaker.recordFailure()
                 
                 // Check if it's a quota-related error
                 if isQuotaError(error) {
@@ -258,6 +279,7 @@ enum GmailQuotaError: Error, LocalizedError {
     case rateLimitExceeded
     case maxRetriesExceeded
     case invalidResponse
+    case circuitBreakerOpen
     
     var errorDescription: String? {
         switch self {
@@ -269,6 +291,8 @@ enum GmailQuotaError: Error, LocalizedError {
             return "Maximum retry attempts exceeded."
         case .invalidResponse:
             return "Invalid response from Gmail API."
+        case .circuitBreakerOpen:
+            return "Circuit breaker is open. Please try again later."
         }
     }
 }
@@ -291,6 +315,16 @@ struct EmailFetchConfig {
         )
     }
     
+    static func forTodayOnly(quotaManager: GmailQuotaManager) -> EmailFetchConfig {
+        let todaysDate = EmailFetchConfig.todaysDateString()
+        return EmailFetchConfig(
+            maxResults: GmailQuotaManager.todayEmailsLimit,
+            query: "after:\(todaysDate)",
+            includeBody: false,
+            useCache: true
+        )
+    }
+    
     static func forCategory(type: EmailCategoryType, quotaManager: GmailQuotaManager) -> EmailFetchConfig {
         let baseQuery: String
         switch type {
@@ -300,8 +334,12 @@ struct EmailFetchConfig {
             baseQuery = "(label:IMPORTANT OR label:STARRED)"
         case .promotional:
             baseQuery = "category:promotions"
-        case .calendar:
-            baseQuery = "has:attachment filename:ics OR subject:(calendar OR meeting OR event)"
+        case .all:
+            baseQuery = "in:inbox"
+        case .unread:
+            baseQuery = "is:unread in:inbox"
+        @unknown default:
+            baseQuery = "in:inbox"
         }
         
         return EmailFetchConfig(
@@ -325,7 +363,8 @@ struct EmailFetchConfig {
 enum EmailCategoryType {
     case important
     case promotional
-    case calendar
+    case all
+    case unread
 }
 
 // MARK: - Helper Functions
@@ -335,6 +374,20 @@ private func sevenDaysAgoString() -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy/MM/dd"
     return formatter.string(from: sevenDaysAgo)
+}
+
+private func todaysDateString() -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy/MM/dd"
+    return formatter.string(from: Date())
+}
+
+extension EmailFetchConfig {
+    static func todaysDateString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy/MM/dd"
+        return formatter.string(from: Date())
+    }
 }
 
 // Allow using this type inside @Sendable closures managed by dedicated queues

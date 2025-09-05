@@ -18,18 +18,33 @@ extension UserEntity {
     }
     
     var emailsArray: [EmailEntity] {
-        let set = emails as? Set<EmailEntity> ?? []
-        return set.sorted { $0.date ?? Date.distantPast > $1.date ?? Date.distantPast }
+        guard let emailsSet = emails as? Set<EmailEntity> else { return [] }
+        // Filter out any nil or invalid objects that might have been added to the set
+        let validEmails = emailsSet.compactMap { email -> EmailEntity? in
+            guard !email.isDeleted, email.managedObjectContext != nil else { return nil }
+            return email
+        }
+        return validEmails.sorted { $0.date ?? Date.distantPast > $1.date ?? Date.distantPast }
     }
     
     var categoriesArray: [CategoryEntity] {
-        let set = categories as? Set<CategoryEntity> ?? []
-        return set.sorted { $0.name ?? "" < $1.name ?? "" }
+        guard let categoriesSet = categories as? Set<CategoryEntity> else { return [] }
+        // Filter out any nil or invalid objects that might have been added to the set
+        let validCategories = categoriesSet.compactMap { category -> CategoryEntity? in
+            guard !category.isDeleted, category.managedObjectContext != nil else { return nil }
+            return category
+        }
+        return validCategories.sorted { $0.name ?? "" < $1.name ?? "" }
     }
     
     var syncStatusesArray: [SyncStatusEntity] {
-        let set = syncStatuses as? Set<SyncStatusEntity> ?? []
-        return set.sorted { $0.lastSyncDate ?? Date.distantPast > $1.lastSyncDate ?? Date.distantPast }
+        guard let syncStatusSet = syncStatuses as? Set<SyncStatusEntity> else { return [] }
+        // Filter out any nil or invalid objects that might have been added to the set
+        let validSyncStatuses = syncStatusSet.compactMap { status -> SyncStatusEntity? in
+            guard !status.isDeleted, status.managedObjectContext != nil else { return nil }
+            return status
+        }
+        return validSyncStatuses.sorted { $0.lastSyncDate ?? Date.distantPast > $1.lastSyncDate ?? Date.distantPast }
     }
     
     // MARK: - Custom Fetch Requests
@@ -126,9 +141,7 @@ extension UserEntity {
         return safeEmailCount(predicate: "isPromotional == YES")
     }
     
-    var calendarEmailCount: Int {
-        return safeEmailCount(predicate: "hasCalendarEvent == YES")
-    }
+    
     
     private func safeEmailCount(predicate: String) -> Int {
         guard let managedObjectContext = managedObjectContext else { return 0 }
@@ -151,8 +164,7 @@ extension UserEntity {
                 return emailsSet.filter { $0.isImportant }.count
             case "isPromotional == YES":
                 return emailsSet.filter { $0.isPromotional }.count
-            case "hasCalendarEvent == YES":
-                return emailsSet.filter { $0.hasCalendarEvent }.count
+            
             default:
                 return emailsSet.count
             }
@@ -189,27 +201,61 @@ extension UserEntity {
     // MARK: - Sync Management
     
     func getLastSyncDate(for syncType: String) -> Date? {
-        guard let syncStatuses = syncStatuses as? Set<SyncStatusEntity> else { return nil }
-        return syncStatuses.first { $0.syncType == syncType }?.lastSyncDate
+        guard let syncStatusSet = syncStatuses as? Set<SyncStatusEntity> else { return nil }
+        
+        // Filter out any nil or invalid objects and find the matching sync type
+        let validSyncStatuses = syncStatusSet.compactMap { status -> SyncStatusEntity? in
+            guard !status.isDeleted, 
+                  status.managedObjectContext != nil,
+                  status.syncType == syncType else { return nil }
+            return status
+        }
+        
+        return validSyncStatuses.first?.lastSyncDate
     }
     
     func updateSyncDate(for syncType: String, date: Date, in context: NSManagedObjectContext) {
-        // Ensure relationship is created within the same context as 'self'
-        guard let selfContext = self.managedObjectContext else { return }
+        // Ensure self is valid and has a context
+        guard let selfContext = self.managedObjectContext,
+              !self.isDeleted,
+              self.objectID.isTemporaryID == false || selfContext.hasChanges else { 
+            ProductionLogger.logError(
+                NSError(domain: "UserEntity", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid UserEntity state for sync update"]), 
+                context: "updateSyncDate"
+            )
+            return 
+        }
+        
+        // Use the self's context to prevent cross-context issues
         let targetContext = selfContext
         
         let fetch: NSFetchRequest<SyncStatusEntity> = SyncStatusEntity.fetchRequest()
         fetch.predicate = NSPredicate(format: "user == %@ AND syncType == %@", self, syncType)
         fetch.fetchLimit = 1
         
-        if let existing = (try? targetContext.fetch(fetch))?.first {
-            existing.lastSyncDate = date
-        } else {
-            let status = SyncStatusEntity(context: targetContext)
-            status.setValue(UUID(), forKey: "id")
-            status.syncType = syncType
-            status.lastSyncDate = date
-            status.user = self
+        do {
+            if let existing = try targetContext.fetch(fetch).first {
+                existing.lastSyncDate = date
+            } else {
+                let status = SyncStatusEntity(context: targetContext)
+                status.setValue(UUID(), forKey: "id")
+                status.syncType = syncType
+                status.lastSyncDate = date
+                
+                // Additional validation before setting relationship
+                if !self.isDeleted && self.managedObjectContext == targetContext {
+                    status.user = self
+                } else {
+                    ProductionLogger.logError(
+                        NSError(domain: "UserEntity", code: -2, userInfo: [NSLocalizedDescriptionKey: "Cannot set user relationship - context mismatch or deleted object"]), 
+                        context: "updateSyncDate relationship"
+                    )
+                    targetContext.delete(status) // Clean up the orphaned status object
+                    return
+                }
+            }
+        } catch {
+            ProductionLogger.logError(error as NSError, context: "UserEntity updateSyncDate fetch")
         }
     }
 }

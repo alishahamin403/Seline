@@ -171,7 +171,7 @@ struct WelcomeStepView: View {
                         .overlay(
                             Image(systemName: "envelope.fill")
                                 .font(.system(size: 40, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                         )
                 }
                 .animatedScaleIn(delay: 0.1)
@@ -203,11 +203,11 @@ struct WelcomeStepView: View {
                 HStack(spacing: 12) {
                     Text("Get Started")
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                     
                     Image(systemName: "arrow.right")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
@@ -329,7 +329,7 @@ struct PrivacyStepView: View {
             }) {
                 Text("Continue")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
                     .background(
@@ -400,13 +400,7 @@ struct FeaturesStepView: View {
                 )
                 .animatedSlideIn(from: .leading, delay: 0.6)
                 
-                FeatureRow(
-                    icon: "calendar.circle.fill",
-                    iconColor: .orange,
-                    title: "Calendar Integration",
-                    description: "See meetings and events right in your email"
-                )
-                .animatedSlideIn(from: .leading, delay: 0.7)
+                
             }
             
             Spacer()
@@ -415,7 +409,7 @@ struct FeaturesStepView: View {
             Button(action: onNext) {
                 Text("Continue")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
                     .background(

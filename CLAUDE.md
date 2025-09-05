@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Seline** is a production-ready iOS email client app built with SwiftUI that provides AI-powered email organization and search capabilities. The app connects to Gmail API and uses Google OAuth for authentication, featuring smart categorization of emails (Important, Promotional, Calendar) and advanced search functionality.
+**Seline** is a production-ready iOS email client app built with SwiftUI that provides AI-powered email organization and search capabilities. The app connects to Gmail API and uses Google OAuth for authentication, featuring smart categorization of emails (Important, Promotional) and advanced search functionality.
 
 ## Build System & Commands
 
@@ -54,7 +54,7 @@ Seline/
 │   ├── AuthenticationService.swift # Google OAuth & auth state management
 │   ├── GmailService.swift         # Gmail API integration
 │   ├── SupabaseService.swift      # Cloud sync service
-│   ├── CalendarService.swift      # Calendar integration
+
 │   └── AISearchService.swift      # AI-powered search
 ├── ViewModels/                     # MVVM ViewModels
 │   └── ContentViewModel.swift     # Main content state management
@@ -78,13 +78,12 @@ Seline/
 ### Google OAuth Configuration
 - **GoogleService-Info.plist**: Contains OAuth client configuration
 - **URL Schemes**: Configured in Info.plist for OAuth callbacks
-- **Scopes**: Gmail readonly, Calendar readonly, User profile
+- **Scopes**: Gmail readonly, User profile
 
 ### Required OAuth Scopes
 ```swift
 private let scopes = [
     "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/calendar.readonly", 
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile"
 ]
@@ -147,6 +146,180 @@ private let scopes = [
 - Background sync to prevent UI blocking
 - Safe array access with bounds checking (`SafeArrayAccess.swift`)
 - Memory management with proper cleanup
+
+## Test-Driven Development (TDD) - MANDATORY
+
+### 🚨 CRITICAL: Test-First Development Policy
+
+**BEFORE implementing ANY new feature, component, or significant change, Claude MUST follow this TDD workflow:**
+
+#### 1. Write Tests FIRST (Red Phase)
+```swift
+// Example: Before implementing EmailValidator service
+class EmailValidatorTests: XCTestCase {
+    func testValidEmailAddress() {
+        let validator = EmailValidator()
+        XCTAssertTrue(validator.isValid("user@example.com"))
+    }
+    
+    func testInvalidEmailAddress() {
+        let validator = EmailValidator()
+        XCTAssertFalse(validator.isValid("invalid-email"))
+    }
+}
+```
+
+#### 2. Run Tests to Confirm Failure (Red)
+```bash
+# Tests should FAIL initially - this confirms they're working
+xcodebuild test -project Seline.xcodeproj -scheme Seline -destination 'platform=iOS Simulator'
+```
+
+#### 3. Implement Minimum Code (Green Phase)
+- Write the simplest code that makes tests pass
+- No over-engineering, no extra features
+
+#### 4. Refactor While Tests Pass (Refactor Phase)
+- Improve code quality while maintaining test passes
+- Add documentation and optimize performance
+
+### Testing Framework & Commands
+
+#### Test Structure
+```
+SelineTests/
+├── Unit/                           # Unit tests for individual components
+│   ├── Services/
+│   │   ├── AuthenticationServiceTests.swift
+│   │   ├── GmailServiceTests.swift
+│   │   └── CalendarServiceTests.swift
+│   ├── Models/
+│   │   ├── EmailTests.swift
+│   │   └── CalendarEventTests.swift
+│   └── Utils/
+│       ├── DesignSystemTests.swift
+│       └── EmailFormattersTests.swift
+├── Integration/                    # Integration tests
+│   ├── OAuthFlowTests.swift
+│   ├── EmailSyncTests.swift
+│   └── CoreDataIntegrationTests.swift
+└── UI/                            # UI and interaction tests
+    ├── ContentViewTests.swift
+    ├── OnboardingFlowTests.swift
+    └── CalendarViewTests.swift
+```
+
+#### Test Commands
+```bash
+# Run all tests
+xcodebuild test -project Seline.xcodeproj -scheme Seline -destination 'platform=iOS Simulator,name=iPhone 16'
+
+# Run specific test class
+xcodebuild test -project Seline.xcodeproj -scheme Seline -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:SelineTests/EmailServiceTests
+
+# Run tests with coverage report
+xcodebuild test -project Seline.xcodeproj -scheme Seline -destination 'platform=iOS Simulator,name=iPhone 16' -enableCodeCoverage YES
+```
+
+### Mandatory Testing Requirements
+
+#### For New Services/Components:
+1. **Unit Tests**: Test individual methods and edge cases
+2. **Mock Dependencies**: Use protocol-based dependency injection for testability
+3. **Error Handling Tests**: Test all error conditions and recovery paths
+4. **Performance Tests**: For critical paths (email loading, search, sync)
+
+#### For New UI Components:
+1. **ViewInspector Tests**: Test SwiftUI view structure and state
+2. **Interaction Tests**: Test user interactions and state changes
+3. **Accessibility Tests**: Verify VoiceOver and accessibility features
+4. **Snapshot Tests**: Visual regression testing for critical views
+
+#### For API Integration:
+1. **Network Mocking**: Mock HTTP responses for consistent testing
+2. **Error Scenarios**: Test network failures, timeouts, invalid responses
+3. **Authentication Tests**: Test OAuth flow, token refresh, logout scenarios
+4. **Rate Limiting Tests**: Test API quota and retry logic
+
+### Test Quality Standards
+
+#### Code Coverage Requirements:
+- **New Features**: Minimum 90% code coverage
+- **Critical Services**: 95% coverage (AuthenticationService, GmailService, CoreDataManager)
+- **UI Components**: 80% coverage (focus on business logic, not SwiftUI internals)
+
+#### Test Characteristics:
+- **Fast**: Unit tests should run in <50ms each
+- **Isolated**: No dependencies on external services, file system, or network
+- **Repeatable**: Same results every time, no flaky tests
+- **Self-Documenting**: Test names clearly describe what they verify
+
+### TDD Workflow for Claude Code
+
+**When Claude receives a request to add a new feature:**
+
+1. **📋 Create Test Plan**: 
+   - Identify what needs to be tested
+   - Define test cases covering happy path, edge cases, and error conditions
+
+2. **❌ Write Failing Tests**:
+   - Create test files following naming convention: `[ComponentName]Tests.swift`
+   - Write comprehensive test cases that FAIL initially
+   - Run tests to confirm they fail
+
+3. **✅ Implement Feature**:
+   - Write minimal code to make tests pass
+   - Follow existing architecture patterns
+   - Ensure all tests pass
+
+4. **🔄 Refactor & Improve**:
+   - Optimize code while tests remain green
+   - Add documentation and improve readability
+   - Verify no regressions in existing functionality
+
+5. **📊 Verify Coverage**:
+   - Run coverage report to ensure target coverage is met
+   - Add additional tests for uncovered scenarios
+
+### Testing Tools & Libraries
+
+#### Available Testing Frameworks:
+```swift
+import XCTest               // Built-in testing framework
+@testable import Seline     // Access internal implementation
+```
+
+#### Recommended Testing Patterns:
+```swift
+// Service testing with dependency injection
+protocol EmailServiceProtocol {
+    func fetchEmails() async throws -> [Email]
+}
+
+class MockEmailService: EmailServiceProtocol {
+    var shouldThrowError = false
+    var mockEmails: [Email] = []
+    
+    func fetchEmails() async throws -> [Email] {
+        if shouldThrowError {
+            throw EmailError.networkError
+        }
+        return mockEmails
+    }
+}
+
+// UI testing with ViewInspector
+import ViewInspector
+extension ContentView: Inspectable { }
+
+class ContentViewTests: XCTestCase {
+    func testInitialState() throws {
+        let view = ContentView()
+        let text = try view.inspect().find(text: "Seline")
+        XCTAssertEqual(try text.string(), "Seline")
+    }
+}
+```
 
 ## Testing & Debugging
 

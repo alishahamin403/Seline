@@ -216,7 +216,8 @@ class SecureStorage {
 
     // MARK: - User Scoping Helper
     private func scopedOpenAIKey() -> String {
-        if let email = AuthenticationService.shared.user?.email.lowercased(), !email.isEmpty {
+        // Use UserDefaults as a sync fallback for email scoping
+        if let email = UserDefaults.standard.string(forKey: "current_user_email")?.lowercased(), !email.isEmpty {
             return "\(KeychainKey.openAIAPIKey).user.\(email)"
         }
         return KeychainKey.openAIAPIKey

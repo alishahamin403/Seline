@@ -10,16 +10,18 @@ import Foundation
 /// Service for AI-powered search functionality
 @MainActor
 class AISearchService: ObservableObject {
-    static let shared = AISearchService()
+        static let shared = AISearchService(openAIService: OpenAIService.shared)
     
-    private let openAIService = OpenAIService.shared
+    private let openAIService: OpenAIService
     private let localEmailService = LocalEmailService.shared
     
     @Published var isSearching = false
     @Published var lastSearchResult: AISearchResult?
     @Published var searchError: String?
     
-    private init() {}
+    init(openAIService: OpenAIService) {
+        self.openAIService = openAIService
+    }
     
     // MARK: - Main Search Interface
     
@@ -180,13 +182,13 @@ class AISearchService: ObservableObject {
     private func getAllAvailableEmails() async -> [Email] {
         let inboxEmails = await localEmailService.getAllEmails()
         let importantEmails = await localEmailService.loadEmailsBy(category: .important)
-        let calendarEmails = await localEmailService.loadEmailsBy(category: .calendar)
+        
         
         // Combine and deduplicate
         var allEmails = inboxEmails
         let emailIds = Set(allEmails.map { $0.id })
         
-        for email in (importantEmails + calendarEmails) {
+        for email in (importantEmails) {
             if !emailIds.contains(email.id) {
                 allEmails.append(email)
             }

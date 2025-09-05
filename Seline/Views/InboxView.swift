@@ -55,12 +55,8 @@ struct InboxView: View {
                 }
             }
         }
-        .fullScreenCover(item: $selectedEmail) { email in
-            NavigationView {
-                GmailStyleEmailDetailView(email: email, viewModel: viewModel)
-                    .navigationBarHidden(true)
-            }
-            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
+        .sheet(item: $selectedEmail) { email in
+            GmailStyleEmailDetailView(email: email, viewModel: viewModel)
         }
         .onChange(of: selectedEmail) { email in
             if email != nil {
@@ -80,9 +76,7 @@ struct InboxView: View {
         .onChange(of: viewModel.importantEmails) { _ in
             updateCachedFilteredEmails()
         }
-        .onChange(of: viewModel.calendarEmails) { _ in
-            updateCachedFilteredEmails()
-        }
+        
         .onAppear {
             Task {
                 await viewModel.loadEmails()
@@ -102,13 +96,9 @@ struct InboxView: View {
                 Button(action: {
                     dismiss()
                 }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chevron.left")
-                            .font(.title2)
-                        Text("Back")
-                            .font(.system(size: 16, weight: .medium))
-                    }
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
                 }
                 
                 Spacer()
@@ -268,10 +258,7 @@ struct InboxView: View {
             let importantEmails = viewModel.importantEmails
             ArrayBoundsLogger.logArrayAccess(arrayName: "importantEmails", count: importantEmails.count)
             filtered = importantEmails
-        case .calendar:
-            let calendarEmails = viewModel.calendarEmails
-            ArrayBoundsLogger.logArrayAccess(arrayName: "calendarEmails", count: calendarEmails.count)
-            filtered = calendarEmails
+        
         }
         
         ArrayBoundsLogger.logArrayOperation(operation: "Filter", arrayName: "emails", originalCount: allEmails.count, resultCount: filtered.count)
@@ -347,7 +334,7 @@ struct InboxView: View {
                 Text(viewModel.isLoadingMore ? "Loading..." : "Load More")
                     .font(.system(size: 16, weight: .medium))
             }
-            .foregroundColor(.white)
+            .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity)
         }
@@ -364,7 +351,7 @@ struct InboxView: View {
                 Text("Compose")
                     .font(.system(size: 16, weight: .medium))
             }
-            .foregroundColor(.white)
+            .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(Color.blue)
@@ -379,7 +366,7 @@ enum InboxFilter: String, CaseIterable {
     case all = "All"
     case unread = "Unread"
     case important = "Important"
-    case calendar = "Calendar"
+    
     
     var icon: String {
         switch self {
@@ -389,8 +376,7 @@ enum InboxFilter: String, CaseIterable {
             return "envelope.fill"
         case .important:
             return "exclamationmark.circle.fill"
-        case .calendar:
-            return "calendar.circle.fill"
+        
         }
     }
 }

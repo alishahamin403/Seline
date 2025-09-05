@@ -11,7 +11,10 @@ import Network
 import UIKit
 import CoreData
 
+
+
 /// Manages cross-device synchronization using Supabase real-time features
+@MainActor
 class CrossDeviceSyncManager: ObservableObject {
     static let shared = CrossDeviceSyncManager()
     
@@ -78,7 +81,9 @@ class CrossDeviceSyncManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleRemoteEmailUpdate(notification)
+            Task { @MainActor in
+                self?.handleRemoteEmailUpdate(notification)
+            }
         }
         
         // Listen for sync status updates
@@ -87,7 +92,9 @@ class CrossDeviceSyncManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleRemoteSyncUpdate(notification)
+            Task { @MainActor in
+                self?.handleRemoteSyncUpdate(notification)
+            }
         }
     }
     
@@ -248,9 +255,9 @@ class CrossDeviceSyncManager: ObservableObject {
         let supabaseEmails = try await supabaseService.fetchEmailsFromSupabase(for: userID, limit: 100)
         
         // Convert to remote changes (this is simplified)
-        return supabaseEmails.compactMap { email in
-            let formatter = ISO8601DateFormatter()
-            guard let syncedAt = formatter.date(from: email.syncedAt) else { return nil }
+        return supabaseEmails.compactMap { email -> RemoteEmailChange? in
+            let syncedAtString = email.syncedAt
+            guard let syncedAt = ISO8601DateFormatter().date(from: syncedAtString) else { return nil }
             
             // Only include if modified after our last sync
             if let since = date, syncedAt <= since {

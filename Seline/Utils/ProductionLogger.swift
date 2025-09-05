@@ -1,3 +1,4 @@
+
 //
 //  ProductionLogger.swift
 //  Seline
@@ -13,6 +14,20 @@ import os.log
 struct ProductionLogger {
     
     private static let subsystem = "com.seline.app"
+    private static var lastLogTime = Date()
+    private static var logCounter = 0
+
+    private static func shouldLog() -> Bool {
+        let now = Date()
+        if now.timeIntervalSince(lastLogTime) > 2 {
+            lastLogTime = now
+            logCounter = 0
+            return true
+        }
+        
+        logCounter += 1
+        return logCounter <= 10
+    }
     
     /// Application lifecycle logger
     static let app = Logger(subsystem: subsystem, category: "app")
@@ -35,70 +50,92 @@ struct ProductionLogger {
     // MARK: - Logging Methods
     
     /// Log application lifecycle events
-    static func logAppEvent(_ message: String) {
-        app.info("\(message)")
+    static func logAppEvent(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        app.info("[\(fileName):\(line)] \(function) - \(message)")
     }
     
     /// Log authentication events (success/failure only)
-    static func logAuthEvent(_ message: String) {
-        auth.info("\(message)")
+    static func logAuthEvent(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        auth.info("[\(fileName):\(line)] \(function) - \(message)")
     }
     
     /// Log authentication errors
-    static func logAuthError(_ error: Error, context: String = "") {
-        auth.error("Auth error in \(context): \(error.localizedDescription)")
+    static func logAuthError(_ error: Error, context: String = "", file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        auth.error("[\(fileName):\(line)] \(function) - Auth error in \(context): \(error.localizedDescription)")
     }
     
     /// Log email operations (counts and errors only)
-    static func logEmailOperation(_ operation: String, count: Int? = nil) {
+    static func logEmailOperation(_ operation: String, count: Int? = nil, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
         if let count = count {
-            email.info("\(operation) - count: \(count)")
+            email.info("[\(fileName):\(line)] \(function) - \(operation) - count: \(count)")
         } else {
-            email.info("\(operation)")
+            email.info("[\(fileName):\(line)] \(function) - \(operation)")
         }
     }
     
     /// Log email errors
-    static func logEmailError(_ error: Error, operation: String) {
-        email.error("Email \(operation) failed: \(error.localizedDescription)")
+    static func logEmailError(_ error: Error, operation: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        email.error("[\(fileName):\(line)] \(function) - Email \(operation) failed: \(error.localizedDescription)")
     }
     
     /// Log network operations (essential only)
-    static func logNetworkOperation(_ operation: String, success: Bool) {
+    static func logNetworkOperation(_ operation: String, success: Bool, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
         if success {
-            network.info("\(operation) succeeded")
+            network.info("[\(fileName):\(line)] \(function) - \(operation) succeeded")
         } else {
-            network.error("\(operation) failed")
+            network.error("[\(fileName):\(line)] \(function) - \(operation) failed")
         }
     }
     
     /// Log network errors
-    static func logNetworkError(_ error: Error, request: String) {
-        network.error("Network request \(request) failed: \(error.localizedDescription)")
+    static func logNetworkError(_ error: Error, request: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        network.error("[\(fileName):\(line)] \(function) - Network request \(request) failed: \(error.localizedDescription)")
     }
     
     /// Log critical errors that need attention
-    static func logCriticalError(_ error: Error, context: String) {
-        self.error.fault("CRITICAL ERROR in \(context): \(error.localizedDescription)")
+    static func logCriticalError(_ error: Error, context: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        let callStack = Thread.callStackSymbols.joined(separator: "\n")
+        self.error.fault("[\(fileName):\(line)] \(function) - CRITICAL ERROR in \(context): \(error.localizedDescription)\nCall Stack:\n\(callStack)")
     }
     
     /// Log general errors
-    static func logError(_ error: Error, context: String) {
-        self.error.error("Error in \(context): \(error.localizedDescription)")
+    static func logError(_ error: Error, context: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        self.error.error("[\(fileName):\(line)] \(function) - Error in \(context): \(error.localizedDescription)")
     }
     
     /// Log UI errors (navigation, state issues)
-    static func logUIError(_ message: String) {
-        ui.error("UI Error: \(message)")
+    static func logUIError(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+        guard shouldLog() else { return }
+        let fileName = (file as NSString).lastPathComponent
+        ui.error("[\(fileName):\(line)] \(function) - UI Error: \(message)")
     }
     
     // MARK: - Development Helpers (Only in Debug)
     
     #if DEBUG
     /// Development-only logging for debugging
-    static func debug(_ message: String, category: String = "debug") {
+    static func debug(_ message: String, category: String = "debug", file: String = #file, function: String = #function, line: Int = #line) {
         let logger = Logger(subsystem: subsystem, category: category)
-        logger.debug("\(message)")
+        let fileName = (file as NSString).lastPathComponent
+        logger.debug("[\(fileName):\(line)] \(function) - \(message)")
     }
     #endif
 }
@@ -109,24 +146,25 @@ struct ProductionLogger {
 extension ProductionLogger {
     
     /// Log array bounds operations (production-safe)
-    static func logArrayBounds(_ operation: String, count: Int, context: String) {
+    static func logArrayBounds(_ operation: String, count: Int, context: String, file: String = #file, function: String = #function, line: Int = #line) {
         // Only log if there's an issue
         if count < 0 {
-            logError(NSError(domain: "ArrayBounds", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid array count: \(count)"]), context: "\(context) - \(operation)")
+            logError(NSError(domain: "ArrayBounds", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid array count: \(count)"]), context: "\(context) - \(operation)", file: file, function: function, line: line)
         }
     }
     
     /// Log email loading operations
-    static func logEmailLoad(_ phase: String, count: Int) {
-        logEmailOperation("Load \(phase)", count: count)
+    static func logEmailLoad(_ phase: String, count: Int, file: String = #file, function: String = #function, line: Int = #line) {
+        logEmailOperation("Load \(phase)", count: count, file: file, function: function, line: line)
     }
     
     /// Log refresh operations
-    static func logRefresh(_ component: String, success: Bool = true) {
+    static func logRefresh(_ component: String, success: Bool = true, file: String = #file, function: String = #function, line: Int = #line) {
+        let fileName = (file as NSString).lastPathComponent
         if success {
-            app.info("Refresh completed: \(component)")
+            app.info("[\(fileName):\(line)] \(function) - Refresh completed: \(component)")
         } else {
-            app.error("Refresh failed: \(component)")
+            app.error("[\(fileName):\(line)] \(function) - Refresh failed: \(component)")
         }
     }
 }

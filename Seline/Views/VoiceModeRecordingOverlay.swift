@@ -203,12 +203,12 @@ struct VoiceModeRecordingOverlay: View {
                 // Icon or loading indicator
                 if voiceService.isProcessing {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .progressViewStyle(CircularProgressViewStyle(tint: DesignSystem.Colors.buttonTextOnAccent))
                         .scaleEffect(1.4)
                 } else {
                     Image(systemName: voiceService.isRecording ? "mic.fill" : "mic")
                         .font(.system(size: 32, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                         .scaleEffect(voiceService.isRecording ? 1.1 : 1.0)
                         .animation(.easeInOut(duration: 0.3), value: voiceService.isRecording)
                 }

@@ -12,42 +12,31 @@ struct TodoListView: View {
     @StateObject private var todoManager = TodoManager.shared
     @State private var showingAllTodos = false
     @State private var editingTodo: TodoItem?
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        VStack(spacing: 16) {
-            // Header
-            HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: "checklist")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(DesignSystem.Colors.accent)
-                    
-                    Text("My Todos")
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.textPrimary)
-                }
+        NavigationView {
+            VStack(spacing: 0) {
+                // Header with close button
+                headerView
                 
-                Spacer()
-                
-                if !todoManager.upcomingTodos.isEmpty {
-                    Button(action: {
-                        showingAllTodos = true
-                    }) {
-                        Text("View All")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.accent)
+                // Content
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Todo Items
+                        if todoManager.upcomingTodos.isEmpty {
+                            emptyStateView
+                        } else {
+                            todoItemsView
+                        }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 20)
                 }
             }
-            
-            // Todo Items
-            if todoManager.upcomingTodos.isEmpty {
-                emptyStateView
-            } else {
-                todoItemsView
-            }
+            .background(DesignSystem.Colors.background)
+            .navigationBarHidden(true)
         }
-        .padding(.horizontal, 24)
         .fullScreenCover(isPresented: $showingAllTodos) {
             NavigationView {
                 AllTodosView()
@@ -61,6 +50,54 @@ struct TodoListView: View {
                 editingTodo = nil
             }
         }
+    }
+    
+    // MARK: - Header View
+    
+    private var headerView: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .medium))
+                    Text("Back")
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(DesignSystem.Colors.accent)
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 8) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(DesignSystem.Colors.accent)
+                
+                Text("My Todos")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+            }
+            
+            Spacer()
+            
+            if !todoManager.upcomingTodos.isEmpty {
+                Button(action: {
+                    showingAllTodos = true
+                }) {
+                    Text("View All")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(DesignSystem.Colors.accent)
+                }
+            } else {
+                // Invisible spacer to balance the layout
+                Text("View All")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.clear)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .background(DesignSystem.Colors.background)
     }
     
     // MARK: - Todo Items View

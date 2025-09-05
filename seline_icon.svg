@@ -1,0 +1,15 @@
+<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background (optional - can be transparent) -->
+  <rect width="1024" height="1024" fill="white"/>
+  
+  <!-- Main rounded rectangle border -->
+  <rect x="77" y="77" width="870" height="870" rx="154" ry="154" 
+        fill="none" stroke="black" stroke-width="77"/>
+  
+  <!-- Letter "S" in the center -->
+  <text x="512" y="680" font-family="Georgia, serif" font-size="435" 
+        font-weight="bold" text-anchor="middle" fill="black">S</text>
+  
+  <!-- Top-right indicator dot -->
+  <circle cx="768" cy="256" r="128" fill="black"/>
+</svg>

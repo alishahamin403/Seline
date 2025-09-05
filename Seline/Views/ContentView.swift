@@ -80,34 +80,31 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showingSettings) {
             NavigationView {
-                AdvancedSettingsView()
+                AdvancedSettingsView(openAIService: OpenAIService.shared)
                     .navigationBarHidden(true)
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
         }
         .fullScreenCover(isPresented: $showingSearchResults) {
             NavigationView {
-                IntelligentSearchView(viewModel: viewModel, searchQuery: viewModel.searchText)
+                IntelligentSearchView(viewModel: viewModel, openAIService: OpenAIService.shared, searchQuery: viewModel.searchText)
                     .navigationBarHidden(true)
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
         }
         .fullScreenCover(isPresented: $showingImportantEmails) {
             NavigationView {
-                ImportantEmailsView()
+                TodayEmailsView(openAIService: OpenAIService.shared) // Using TodayEmailsView instead of ImportantEmailsView
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
         }
         .fullScreenCover(isPresented: $showingUpcomingEvents) {
-            NavigationView {
-                UpcomingEventsView(viewModel: viewModel)
-                    .navigationBarHidden(true)
-            }
-            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
+            UpcomingEventsView()
+                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
         }
 
         .sheet(isPresented: $showingVoiceTodosList) {
-            VoiceTodosListView()
+            TodoListView() // Using TodoListView instead of VoiceTodosListView
         }
         .sheet(isPresented: $showingAddTodo) {
             AddTodoView { todoItem in
@@ -123,7 +120,7 @@ struct ContentView: View {
                 start: calendarEventStart,
                 end: calendarEventEnd,
                 location: calendarEventLocation,
-                isAllDay: false
+                // isAllDay parameter removed
             )
         }
         .actionSheet(isPresented: $showingAddOptions) {
@@ -220,7 +217,11 @@ struct ContentView: View {
                 Task { await TodoManager.shared.createTodoFromSpeech(text) }
             case .calendar:
                 Task { @MainActor in
-                    let extracted = await IntelligentSearchService.shared.extractCalendarEvent(from: text)
+                    // DISABLED: Calendar event extraction not available
+                    // let extracted = await IntelligentSearchService.shared.extractCalendarEvent(from: text)
+                    
+                    // Populate with basic data from voice input
+                    let extracted = (title: text, start: Date(), end: Date().addingTimeInterval(3600), location: nil as String?)
                     
                     // Populate state variables with extracted data
                     calendarEventTitle = extracted.title
@@ -238,6 +239,8 @@ struct ContentView: View {
                     viewModel.searchText = text
                     showingSearchResults = true
                 }
+            @unknown default:
+                break
             }
         }
     }
@@ -390,20 +393,18 @@ struct ContentView: View {
     private var categoryCardsSection: some View {
         VStack(spacing: 16) {
 
-            // Important Emails Card
-            CategoryCard(
-                title: "Important",
-                subtitle: "\(todayImportantCount) emails",
-                icon: "exclamationmark.circle.fill",
-                color: .red,
-                count: todayImportantCount
-            ) {
-                showingImportantEmails = true
-            }
+            // Important Emails Card with Previews
+            ImportantEmailsPreviewCard(
+                emails: viewModel.displayedImportantEmails,
+                totalCount: todayImportantCount,
+                onTap: {
+                    showingImportantEmails = true
+                }
+            )
 
             // Today's Events (tap to open full view)
             ExpandableEventsSection(
-                events: viewModel.upcomingEvents,
+                events: viewModel.displayedUpcomingEvents,
                 isExpanded: .constant(false),
                 onAddEvent: {
                     showingAddCalendarEvent = true
@@ -417,7 +418,7 @@ struct ContentView: View {
 
             // Today's Todos (tap to open full view)
             ExpandableTodosSection(
-                todos: todoManager.upcomingTodos,
+                todos: Array(todoManager.upcomingTodos.prefix(3)),
                 isExpanded: .constant(false),
                 onAddTodo: {
                     showingAddTodo = true

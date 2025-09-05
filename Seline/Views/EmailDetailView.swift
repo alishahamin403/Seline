@@ -252,11 +252,7 @@ struct EmailDetailView: View {
                             .font(DesignSystem.Typography.caption)
                             .textSecondary()
                         
-                        if email.hasCalendarEvent {
-                            Label("Meeting", systemImage: "calendar")
-                                .font(DesignSystem.Typography.caption2)
-                                .foregroundColor(DesignSystem.Colors.accent)
-                        }
+                        
                         
                         if email.isPromotional {
                             Label("Promo", systemImage: "tag")
@@ -646,8 +642,10 @@ struct EmailDetailView: View {
     }
     
     private func markAsRead() {
-        viewModel.markEmailAsRead(email.id)
-        isMarkedAsRead = true
+        Task {
+            await viewModel.markEmailAsRead(email.id)
+            isMarkedAsRead = true
+        }
     }
     
     private func toggleImportant() {
@@ -682,8 +680,10 @@ struct EmailDetailView: View {
         let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
         impactFeedback.impactOccurred()
         
-        viewModel.deleteEmail(email.id)
-        dismiss()
+        Task {
+            await viewModel.deleteEmail(email.id)
+            dismiss()
+        }
     }
     
     private func replyToEmail() {
@@ -835,48 +835,7 @@ struct ActionItemsSection: View {
     }
 }
 
-struct ImportantDatesSection: View {
-    let dates: [String]
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
-            HStack {
-                Image(systemName: "calendar.circle")
-                    .font(.title3)
-                    .foregroundColor(.orange)
-                
-                Text("Important Dates")
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .fontWeight(.semibold)
-                    .textPrimary()
-            }
-            
-            VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-                ForEach(Array(dates.enumerated()), id: \.offset) { index, date in
-                    HStack {
-                        Image(systemName: "calendar")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                        
-                        Text(date)
-                            .font(DesignSystem.Typography.subheadline)
-                            .textPrimary()
-                    }
-                    .animatedSlideIn(from: .trailing, delay: Double(index) * 0.1)
-                }
-            }
-        }
-        .padding(DesignSystem.Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                .fill(Color.orange.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-                )
-        )
-    }
-}
+
 
 struct EnhancedLinkPreviewCard: View {
     let url: String
@@ -939,8 +898,6 @@ struct EnhancedLinkPreviewCard: View {
     private var linkIcon: String {
         if url.contains("zoom") || url.contains("teams") || url.contains("meet") {
             return "video.fill"
-        } else if url.contains("calendar") || url.contains("cal.com") {
-            return "calendar"
         } else if url.contains("drive.google.com") || url.contains("dropbox") {
             return "folder.fill"
         } else {
@@ -951,8 +908,6 @@ struct EnhancedLinkPreviewCard: View {
     private var linkColor: Color {
         if url.contains("zoom") || url.contains("teams") || url.contains("meet") {
             return .blue
-        } else if url.contains("calendar") {
-            return .orange
         } else if url.contains("drive") || url.contains("dropbox") {
             return .green
         } else {
@@ -967,8 +922,6 @@ struct EnhancedLinkPreviewCard: View {
             return "Join Teams Meeting"
         } else if url.contains("meet") {
             return "Join Google Meet"
-        } else if url.contains("calendar") {
-            return "Calendar Event"
         } else if url.contains("drive") {
             return "Google Drive"
         } else if url.contains("dropbox") {

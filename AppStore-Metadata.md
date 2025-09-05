@@ -21,7 +21,7 @@ Transform your email experience with Seline, the intelligent email organizer tha
 **Key Features:**
 
 📧 **Smart Organization**
-• Automatically categorizes emails into Important, Promotional, and Calendar events
+• Automatically categorizes emails into Important and Promotional
 • Clean, distraction-free interface focused on what matters most
 • Advanced search with AI-powered suggestions
 
@@ -30,10 +30,7 @@ Transform your email experience with Seline, the intelligent email organizer tha
 • Search emails with powerful filters and instant results
 • Smart suggestions based on your email patterns
 
-📅 **Calendar Integration**
-• Automatically detects calendar invitations and meeting requests
-• View upcoming events directly from your email
-• Never miss important meetings or deadlines again
+
 
 🛡️ **Privacy First**
 • Your email data stays secure and private
@@ -50,13 +47,13 @@ Perfect for busy professionals, students, and anyone who wants to take control o
 **What's New in Version 1.0:**
 • Initial release with smart email categorization
 • AI-powered search and suggestions
-• Calendar event detection and organization
+
 • Privacy-focused design with secure authentication
 • Smooth, responsive interface optimized for iPhone
 
 ## Keywords
 
-email, gmail, productivity, organization, inbox, search, calendar, ai, smart, mail, messages, professional, business, assistant, manage
+email, gmail, productivity, organization, inbox, search, ai, smart, mail, messages, professional, business, assistant, manage
 
 ## App Store Screenshots
 
@@ -64,7 +61,7 @@ email, gmail, productivity, organization, inbox, search, calendar, ai, smart, ma
 1. Main dashboard showing categorized emails
 2. Important emails view with clean organization
 3. AI search interface with natural language query
-4. Calendar events view with upcoming meetings
+
 5. Email detail view with rich formatting
 6. Settings and privacy controls
 
@@ -94,7 +91,7 @@ Similar layout optimized for larger screen
 
 **Data Usage:**
 - Email data is used solely for organization and search features
-- Calendar information used only for event detection and reminders  
+  
 - Contact information used only for enhanced sender recognition
 - Location data (if requested) used only for location-based email context
 

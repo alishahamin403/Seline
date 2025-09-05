@@ -160,7 +160,7 @@ class ContentViewModel: ObservableObject {
             .store(in: &cancellables)
     }
     
-    private func loadInitialData() {
+    func loadInitialData() {
         Task {
             await loadEmails(forceSync: false)
             await loadCategoryEmails()
@@ -256,7 +256,8 @@ class ContentViewModel: ObservableObject {
                 // Update category emails with bounds checking
                 importantEmails = recentImportantEmails
                 calendarEmails = calendarResult
-                upcomingEvents = upcomingCalendarEvents
+                // Deduplicate calendar events before setting
+                upcomingEvents = removeDuplicateCalendarEvents(from: upcomingCalendarEvents)
                 
                 // Validate all array integrity
                 let safeImportantCount = max(0, importantEmails.count)
@@ -946,5 +947,37 @@ class ContentViewModel: ObservableObject {
                               (isFromPersonalDomain ? 1 : 0)
         
         return personalityScore >= 2
+    }
+    
+    // MARK: - Home Page Display Properties (Maximum 3 items each)
+    
+    /// Returns maximum 3 emails for home page display
+    var displayedImportantEmails: [Email] {
+        return Array(importantEmails.prefix(3))
+    }
+    
+    /// Returns maximum 3 calendar events for home page display (deduplicated)
+    var displayedUpcomingEvents: [CalendarEvent] {
+        return Array(upcomingEvents.prefix(3))
+    }
+    
+    /// Returns maximum 3 todos for home page display
+    var displayedTodos: [TodoItem] {
+        return Array(TodoManager.shared.todos.prefix(3))
+    }
+    
+    // MARK: - Calendar Event Deduplication
+    
+    /// Removes duplicate calendar events based on title, start date, and end date
+    private func removeDuplicateCalendarEvents(from events: [CalendarEvent]) -> [CalendarEvent] {
+        var seen = Set<String>()
+        return events.filter { event in
+            // Create a unique key combining title, start date, and end date
+            let startTime = event.startDate.timeIntervalSince1970
+            let endTime = event.endDate.timeIntervalSince1970
+            let key = "\(event.title.lowercased())-\(startTime)-\(endTime)"
+            
+            return seen.insert(key).inserted
+        }
     }
 }

@@ -10,17 +10,20 @@ import Foundation
 /// Unified search service that handles both general queries and intelligent email searches
 @MainActor
 class IntelligentSearchService: ObservableObject {
-    static let shared = IntelligentSearchService()
+        static let shared = IntelligentSearchService(openAIService: OpenAIService.shared)
     
-    private let openAIService = OpenAIService.shared
+    private let openAIService: OpenAIService
     private let localEmailService = LocalEmailService.shared
-    private let aiSearchService = AISearchService.shared
+    private let aiSearchService: AISearchService
     
     @Published var isSearching = false
     @Published var lastSearchResult: IntelligentSearchResult?
     @Published var searchError: String?
     
-    private init() {}
+    private init(openAIService: OpenAIService) {
+        self.openAIService = openAIService
+        self.aiSearchService = AISearchService(openAIService: openAIService)
+    }
     
     // MARK: - Main Search Interface
     
@@ -160,25 +163,7 @@ class IntelligentSearchService: ObservableObject {
     
     // MARK: - Email Data Preparation
     
-    private func getAllAvailableEmails() async -> [Email] {
-        // Get emails from all sources
-        let inboxEmails = await localEmailService.getAllEmails()
-        let importantEmails = await localEmailService.loadEmailsBy(category: .important)
-        let calendarEmails = await localEmailService.loadEmailsBy(category: .calendar)
-        
-        // Combine and deduplicate
-        var allEmails = inboxEmails
-        let emailIds = Set(allEmails.map { $0.id })
-        
-        for email in (importantEmails + calendarEmails) {
-            if !emailIds.contains(email.id) {
-                allEmails.append(email)
-            }
-        }
-        
-        // Sort by date (most recent first) and limit to reasonable number
-        return Array(allEmails.sorted { $0.date > $1.date }.prefix(100))
-    }
+    
     
     private func prepareEmailDataForAI(_ emails: [Email]) -> String {
         let emailSummaries = emails.enumerated().map { index, email in
@@ -292,51 +277,7 @@ class IntelligentSearchService: ObservableObject {
         return try await openAIService.performAISearch(followUpPrompt)
     }
 
-    // MARK: - Calendar Extraction
-    /// Extracts event fields from natural language and returns a tuple for pre-filling the calendar screen
-    func extractCalendarEvent(from text: String) async -> (title: String, start: Date?, end: Date?, location: String?) {
-        let now = Date()
-        let system = "You extract event details from natural language as JSON. Use 1-2 hour duration if unspecified."
-        let prompt = """
-        Task: Extract calendar event fields from the following request. Current time: \(now)
-        Text: "\(text)"
-        Respond ONLY with JSON in this format:
-        {
-          "title": "...",
-          "start": "YYYY-MM-DD HH:mm:ss or null",
-          "end": "YYYY-MM-DD HH:mm:ss or null",
-          "location": "... or null"
-        }
-        """
-        do {
-            let resp = try await openAIService.performAISearch("\(system)\n\n\(prompt)")
-            if let jsonData = extractJSON(from: resp).data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                let title = obj["title"] as? String ?? text
-                let start = (obj["start"] as? String).flatMap { parseDate($0) }
-                let end = (obj["end"] as? String).flatMap { parseDate($0) }
-                let location = obj["location"] as? String
-                return (title, start, end, location)
-            }
-        } catch { }
-        return (text, nil, nil, nil)
-    }
     
-    private func parseDate(_ dateString: String) -> Date? {
-        let fmts = ["yyyy-MM-dd HH:mm:ss","yyyy-MM-dd'T'HH:mm:ss","yyyy-MM-dd HH:mm","yyyy-MM-dd"]
-        for f in fmts {
-            let df = DateFormatter(); df.dateFormat = f
-            if let d = df.date(from: dateString) { return d }
-        }
-        return nil
-    }
-    
-    private func extractJSON(from text: String) -> String {
-        if let s = text.range(of: "{"), let e = text.range(of: "}", options: .backwards), s.lowerBound < e.upperBound {
-            return String(text[s.lowerBound...e.upperBound])
-        }
-        return text
-    }
     
     // MARK: - Utilities
     

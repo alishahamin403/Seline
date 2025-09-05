@@ -96,6 +96,20 @@ struct DesignSystem {
             })
         }
         
+        // MARK: - Button Text Colors
+        /// Adaptive text color for buttons on accent backgrounds
+        /// White text on light mode (accent is black), black text on dark mode (accent is white)
+        static var buttonTextOnAccent: Color {
+            Color(UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark ? UIColor.black : UIColor.white
+            })
+        }
+        
+        /// Always white color for specific use cases (e.g., progress indicators on dark backgrounds)
+        static var alwaysWhite: Color {
+            Color.white
+        }
+        
         // MARK: - Black & White Gradients for Icons
         static var primaryGradient: LinearGradient {
             LinearGradient(
@@ -326,5 +340,20 @@ extension View {
                             .stroke(DesignSystem.Colors.border, lineWidth: 1)
                     )
             )
+    }
+}
+
+// MARK: - Button Styles
+
+struct PrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(DesignSystem.Colors.accent)
+            .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
+            .cornerRadius(10)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }

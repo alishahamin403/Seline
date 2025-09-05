@@ -5,7 +5,7 @@
         <attribute name="body" optional="YES" attributeType="String"/>
         <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="gmailID" optional="YES" attributeType="String"/>
-        <attribute name="hasCalendarEvent" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="hasCalendarEvent" optional="YES" attributeType="Boolean" defaultValue="NO" usesScalarValueType="YES"/>
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="isImportant" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="isPromotional" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>

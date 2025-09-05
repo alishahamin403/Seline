@@ -12,20 +12,25 @@ struct AdvancedSettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var authService = AuthenticationService.shared
     @StateObject private var themeManager = ThemeManager.shared
+    @ObservedObject var openAIService: OpenAIService
     @State private var notificationsEnabled = true
     @State private var importantEmailsNotifications = true
     @State private var promotionalEmailsNotifications = true
-    @State private var calendarEmailsNotifications = true
+    
     @State private var emailSyncInterval = 15 // minutes
     @State private var showingEmailAccounts = false
     @State private var showingDataUsage = false
     @State private var showingAbout = false
+    @State private var showingHelpSheet = false
     @State private var hapticFeedbackEnabled = true
     @State private var smartCategorization = true
     @State private var readReceiptsEnabled = false
     @State private var openAIKeyInput = ""
     @State private var showingOpenAIAlert = false
     @State private var openAIAlertMessage = ""
+    @State private var showingAPIKeySetupGuide = false
+    
+    
     
     private let syncIntervals = [5, 15, 30, 60]
 
@@ -35,7 +40,7 @@ struct AdvancedSettingsView: View {
         notificationsEnabled = NotificationManager.shared.notificationsEnabled
         importantEmailsNotifications = NotificationManager.shared.importantEmailsEnabled
         promotionalEmailsNotifications = NotificationManager.shared.promotionalEmailsEnabled
-        calendarEmailsNotifications = NotificationManager.shared.calendarEmailsEnabled
+        
     }
     
     var body: some View {
@@ -58,6 +63,10 @@ struct AdvancedSettingsView: View {
                     // Email Settings
                     emailSettingsSection
                     
+                    
+                    
+                    
+                    
                     // Support & About
                     supportSection
                 }
@@ -76,6 +85,11 @@ struct AdvancedSettingsView: View {
         .sheet(isPresented: $showingAbout) {
             AboutView()
         }
+        .sheet(isPresented: $showingHelpSheet) {
+            HelpAndSupportView()
+        }
+        
+        
         .onAppear {
             loadNotificationSettings()
             // Preload existing OpenAI key state (masked)
@@ -94,9 +108,7 @@ struct AdvancedSettingsView: View {
         .onChange(of: promotionalEmailsNotifications) { newValue in
             NotificationManager.shared.promotionalEmailsEnabled = newValue
         }
-        .onChange(of: calendarEmailsNotifications) { newValue in
-            NotificationManager.shared.calendarEmailsEnabled = newValue
-        }
+        
     }
 
     // MARK: - AI & Search Settings Section
@@ -142,7 +154,25 @@ struct AdvancedSettingsView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     
-                    HStack(spacing: 12) {
+                    VStack(spacing: 12) {
+                        // Setup Guide Button
+                        Button(action: {
+                            showingAPIKeySetupGuide = true
+                        }) {
+                            HStack {
+                                Image(systemName: "questionmark.circle.fill")
+                                Text("Setup Guide")
+                            }
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(DesignSystem.Colors.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(DesignSystem.Colors.accent.opacity(0.1))
+                            )
+                        }
+
                         Button(action: {
                             Task {
                                 await saveOpenAIKey()
@@ -151,16 +181,13 @@ struct AdvancedSettingsView: View {
                             HStack {
                                 Image(systemName: "bolt.fill")
                                 Text(OpenAIService.shared.isConfigured ? "Update Key & Enable" : "Enable Real API")
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                             }
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(DesignSystem.Colors.accent)
-                            )
+                            .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(PrimaryButtonStyle())
 
                         if SecureStorage.shared.hasOpenAIKey() {
                             Button(action: {
@@ -173,8 +200,8 @@ struct AdvancedSettingsView: View {
                                     Text("Remove Key")
                                 }
                                 .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
+                                .foregroundColor(Color.white)
+                                .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10)
@@ -200,6 +227,21 @@ struct AdvancedSettingsView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(openAIAlertMessage)
+        }
+        .sheet(isPresented: $showingAPIKeySetupGuide) {
+            APIKeySetupGuideView(
+                openAIService: openAIService,
+                onComplete: {
+                    showingAPIKeySetupGuide = false
+                    // Refresh the UI state
+                    if SecureStorage.shared.hasOpenAIKey() {
+                        openAIKeyInput = "••••••••••••••••••••••••••"
+                    }
+                },
+                onDismiss: {
+                    showingAPIKeySetupGuide = false
+                }
+            )
         }
     }
     
@@ -229,17 +271,11 @@ struct AdvancedSettingsView: View {
     private var headerSection: some View {
         HStack {
             Button(action: {
-                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                impactFeedback.impactOccurred()
                 dismiss()
             }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.left")
-                        .font(.title2)
-                    Text("Back")
-                        .font(.system(size: 16, weight: .medium))
-                }
-                .foregroundColor(DesignSystem.Colors.textPrimary)
+                Image(systemName: "chevron.left")
+                    .font(.title2)
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
             }
             
             Spacer()
@@ -251,13 +287,9 @@ struct AdvancedSettingsView: View {
             Spacer()
             
             // Placeholder for right button to center title
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.left")
-                    .font(.title2)
-                Text("Back")
-                    .font(.system(size: 16, weight: .medium))
-            }
-            .foregroundColor(.clear)
+            Image(systemName: "chevron.left")
+                .font(.title2)
+                .foregroundColor(.clear)
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
@@ -286,7 +318,7 @@ struct AdvancedSettingsView: View {
                     
                     Text(userInitials)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
@@ -400,67 +432,17 @@ struct AdvancedSettingsView: View {
                     .padding(.leading, 56)
                 
                 // Email Notifications
-                VStack(spacing: 16) {
-                    // Main notifications toggle
-                    SettingsRow(
-                        icon: "bell.fill",
-                        title: "Email Notifications",
-                        subtitle: notificationsEnabled ? "Enabled" : "Disabled",
-                        iconColor: .red,
-                        showChevron: false
-                    ) {
-                        // No action needed
-                    } accessory: {
-                        Toggle("", isOn: $notificationsEnabled)
-                            .labelsHidden()
-                    }
-
-                    if notificationsEnabled {
-                        // Individual category toggles
-                        VStack(spacing: 12) {
-                            Divider()
-                                .padding(.leading, 56)
-
-                            SettingsRow(
-                                icon: "exclamationmark.circle.fill",
-                                title: "Important Emails",
-                                subtitle: importantEmailsNotifications ? "Enabled" : "Disabled",
-                                iconColor: .red,
-                                showChevron: false
-                            ) {
-                                // No action needed
-                            } accessory: {
-                                Toggle("", isOn: $importantEmailsNotifications)
-                                    .labelsHidden()
-                            }
-
-                            SettingsRow(
-                                icon: "tag.fill",
-                                title: "Promotional Emails",
-                                subtitle: promotionalEmailsNotifications ? "Enabled" : "Disabled",
-                                iconColor: .orange,
-                                showChevron: false
-                            ) {
-                                // No action needed
-                            } accessory: {
-                                Toggle("", isOn: $promotionalEmailsNotifications)
-                                    .labelsHidden()
-                            }
-
-                            SettingsRow(
-                                icon: "calendar",
-                                title: "Calendar Emails",
-                                subtitle: calendarEmailsNotifications ? "Enabled" : "Disabled",
-                                iconColor: .blue,
-                                showChevron: false
-                            ) {
-                                // No action needed
-                            } accessory: {
-                                Toggle("", isOn: $calendarEmailsNotifications)
-                                    .labelsHidden()
-                            }
-                        }
-                    }
+                SettingsRow(
+                    icon: "bell.fill",
+                    title: "Email Notifications",
+                    subtitle: notificationsEnabled ? "Enabled" : "Disabled",
+                    iconColor: .red,
+                    showChevron: false
+                ) {
+                    // No action needed
+                } accessory: {
+                    Toggle("", isOn: $notificationsEnabled)
+                        .labelsHidden()
                 }
             }
             .background(
@@ -481,54 +463,6 @@ struct AdvancedSettingsView: View {
             sectionHeader("Email")
             
             VStack(spacing: 0) {
-                // Smart Categorization
-                SettingsRow(
-                    icon: "brain.head.profile",
-                    title: "Smart Categorization",
-                    subtitle: smartCategorization ? "Enabled" : "Disabled",
-                    iconColor: .purple,
-                    showChevron: false
-                ) {
-                    // No action needed
-                } accessory: {
-                    Toggle("", isOn: $smartCategorization)
-                        .labelsHidden()
-                }
-                
-                Divider()
-                    .padding(.leading, 56)
-                
-                // Sync Interval
-                SettingsRow(
-                    icon: "arrow.clockwise",
-                    title: "Sync Interval",
-                    subtitle: "\(emailSyncInterval) minutes",
-                    iconColor: .green,
-                    action: {
-                        // Sync interval action
-                    }
-                )
-                
-                Divider()
-                    .padding(.leading, 56)
-                
-                // Read Receipts
-                SettingsRow(
-                    icon: "checkmark.circle.fill",
-                    title: "Read Receipts",
-                    subtitle: readReceiptsEnabled ? "Enabled" : "Disabled",
-                    iconColor: .blue,
-                    showChevron: false
-                ) {
-                    // No action needed
-                } accessory: {
-                    Toggle("", isOn: $readReceiptsEnabled)
-                        .labelsHidden()
-                }
-                
-                Divider()
-                    .padding(.leading, 56)
-                
                 // Email Accounts
                 SettingsRow(
                     icon: "person.crop.circle",
@@ -550,6 +484,10 @@ struct AdvancedSettingsView: View {
         }
     }
     
+    
+    
+    
+    
     // MARK: - Support Section
     
     private var supportSection: some View {
@@ -557,19 +495,6 @@ struct AdvancedSettingsView: View {
             sectionHeader("Support & Info")
             
             VStack(spacing: 0) {
-                // Data Usage
-                SettingsRow(
-                    icon: "chart.bar.fill",
-                    title: "Data Usage",
-                    subtitle: "View storage and bandwidth",
-                    iconColor: .cyan
-                ) {
-                    showingDataUsage = true
-                }
-                
-                Divider()
-                    .padding(.leading, 56)
-                
                 // About
                 SettingsRow(
                     icon: "info.circle.fill",
@@ -583,20 +508,6 @@ struct AdvancedSettingsView: View {
                 Divider()
                     .padding(.leading, 56)
                 
-                // Privacy Policy
-                SettingsRow(
-                    icon: "hand.raised.fill",
-                    title: "Privacy Policy",
-                    subtitle: "How we protect your data",
-                    iconColor: .indigo,
-                    action: {
-                        // Open privacy policy
-                    }
-                )
-                
-                Divider()
-                    .padding(.leading, 56)
-                
                 // Help & Support
                 SettingsRow(
                     icon: "questionmark.circle.fill",
@@ -604,7 +515,7 @@ struct AdvancedSettingsView: View {
                     subtitle: "Get help with Seline",
                     iconColor: .green,
                     action: {
-                        // Open help
+                        showingHelpSheet = true
                     }
                 )
                 
@@ -617,6 +528,7 @@ struct AdvancedSettingsView: View {
                     title: "Sign Out",
                     subtitle: "Sign out of your account",
                     iconColor: .red,
+                    textColor: .red,
                     showChevron: false,
                     action: {
                         Task {
@@ -687,6 +599,7 @@ struct SettingsRow<Content: View>: View {
     let title: String
     let subtitle: String
     let iconColor: Color
+    var textColor: Color = DesignSystem.Colors.textPrimary
     var showChevron: Bool = true
     let action: (() -> Void)?
     let accessory: () -> Content
@@ -696,6 +609,7 @@ struct SettingsRow<Content: View>: View {
         title: String,
         subtitle: String,
         iconColor: Color,
+        textColor: Color = DesignSystem.Colors.textPrimary,
         showChevron: Bool = true,
         action: (() -> Void)? = nil,
         @ViewBuilder accessory: @escaping () -> Content = { EmptyView() }
@@ -704,6 +618,7 @@ struct SettingsRow<Content: View>: View {
         self.title = title
         self.subtitle = subtitle
         self.iconColor = iconColor
+        self.textColor = textColor
         self.showChevron = showChevron
         self.action = action
         self.accessory = accessory
@@ -734,7 +649,7 @@ struct SettingsRow<Content: View>: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                        .foregroundColor(textColor)
                     
                     Text(subtitle)
                         .font(.system(size: 14, weight: .regular, design: .rounded))
@@ -944,7 +859,7 @@ struct DataUsageView: View {
                             Text("Clear Cache")
                                 .font(.system(size: 16, weight: .medium, design: .rounded))
                         }
-                        .foregroundColor(.white)
+                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                         .background(
@@ -1041,6 +956,6 @@ struct AboutView: View {
 
 struct AdvancedSettingsView_Previews: PreviewProvider {
     static var previews: some View {
-        AdvancedSettingsView()
+        AdvancedSettingsView(openAIService: OpenAIService.shared)
     }
 }

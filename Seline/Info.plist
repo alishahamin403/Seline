@@ -53,7 +53,7 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>googlegmail</string>
-		<string>googlecalendar</string>
+		
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
@@ -75,8 +75,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>Seline accesses your contacts to help organize and display email sender information more effectively.</string>
 	
-	<key>NSCalendarsUsageDescription</key>
-	<string>Seline accesses your calendar to identify and organize calendar invitations and meeting requests from your emails.</string>
+	
 	
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Seline may access your photo library to save email attachments or screenshots for your convenience.</string>
@@ -107,6 +106,9 @@
 		<string>background-fetch</string>
 		<string>background-processing</string>
 	</array>
-	
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.seline.email-sync</string>
+	</array>
 </dict>
 </plist>

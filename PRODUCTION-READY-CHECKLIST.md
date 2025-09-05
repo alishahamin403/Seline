@@ -40,7 +40,7 @@
 - [x] App version set to 1.0 (Build 1)
 - [x] Privacy usage descriptions added to Info.plist:
   - NSContactsUsageDescription
-  - NSCalendarsUsageDescription  
+    
   - NSPhotoLibraryUsageDescription
   - NSCameraUsageDescription
   - NSLocationWhenInUseUsageDescription
@@ -106,10 +106,10 @@
 
 ### Key Features for App Store
 - 🔍 AI-powered email search and organization
-- 📧 Smart categorization (Important, Promotional, Calendar)
+- 📧 Smart categorization (Important, Promotional)
 - 🔐 Privacy-first design with secure OAuth
 - ✨ Clean, modern iOS interface
-- 📅 Calendar event detection and management
+
 - 🛡️ No data mining or privacy violations
 
 ### Privacy & Security

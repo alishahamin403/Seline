@@ -1,0 +1,14 @@
+The app icon displayed on your iPhone's home screen, in folders, and in the App Library is a static image asset, not something rendered dynamically by the SwiftUI code within the app at runtime. When you build your app, Xcode takes the image files from your `Assets.xcassets/AppIcon.appiconset` folder and embeds them directly into the app's bundle. The operating system then uses these static images.
+
+Modifying `SelineAppIconStatic.swift` changes how the icon *would be generated* if you were using that SwiftUI code to create the PNG assets. It does *not* automatically update the actual PNG files that Xcode uses for the app icon.
+
+To fix the grayish color, you need to ensure that the PNG files themselves, located in `Seline/Assets.xcassets/AppIcon.appiconset/`, have the correct colors (pure black or pure white) and no unintended transparency or color profile issues. You would typically generate these PNGs using a tool (or manually) and then drag them into Xcode's asset catalog.
+
+**Here's what you need to do:**
+
+1.  **Regenerate/Update the PNGs:** If you have a tool that uses `SelineAppIconStatic.swift` to generate the app icon PNGs, run that tool again to create new PNGs with the pure black background. If you created them manually, ensure the background is pure black.
+2.  **Replace the PNGs in Xcode:** Drag the newly generated/corrected PNG files into `Seline/Assets.xcassets/AppIcon.appiconset/` in Xcode, replacing the existing ones.
+3.  **Clean Build Folder:** In Xcode, go to `Product > Clean Build Folder`. This is crucial to ensure Xcode doesn't use any cached versions of your old assets.
+4.  **Rebuild and Run:** Build and run your app on your device again.
+
+If the issue persists after these steps, it might indicate a more subtle problem with color profiles or transparency in the PNGs themselves, which would require inspecting the image files in an image editor.

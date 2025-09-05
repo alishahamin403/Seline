@@ -1,0 +1,21 @@
+That is indeed very unusual if the PNGs themselves appear correct in Xcode. This strongly suggests the issue is with how iOS is rendering or caching the icon on your device.
+
+To try and force your iPhone to use the correct, updated icon, please follow these steps very carefully:
+
+1.  **Clean Build Folder (Crucial Step):**
+    *   In Xcode, go to `Product` > `Clean Build Folder`.
+    *   Then, go to `Product` > `Clean` (this is a slightly different, older clean option that can sometimes help).
+
+2.  **Delete the App from your iPhone:**
+    *   On your iPhone, long-press the Seline app icon until it jiggles.
+    *   Tap the `X` or `Remove App` option and confirm you want to `Delete App` (not just remove from Home Screen).
+
+3.  **Restart your iPhone:**
+    *   Perform a full restart of your iPhone. This helps clear system-level caches.
+
+4.  **Rebuild and Reinstall:**
+    *   Connect your iPhone to Xcode.
+    *   In Xcode, select your iPhone as the target device.
+    *   Go to `Product` > `Run` to rebuild and reinstall the app onto your device.
+
+After these steps, check the app icon in your library again. If the grayish tint still persists, it would indicate a deeper issue, possibly related to the PNG's internal structure (e.g., alpha channel, color space) that isn't immediately visible in Xcode's preview, or a specific iOS rendering quirk for certain image properties. In that case, you might need to try regenerating the PNGs with a different image editor or different export settings, focusing on ensuring a completely opaque background and standard sRGB color profile.

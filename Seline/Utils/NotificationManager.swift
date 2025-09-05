@@ -20,7 +20,7 @@ class NotificationManager: NSObject {
     private let notificationsEnabledKey = "notificationsEnabled"
     private let importantEmailsEnabledKey = "importantEmailsNotifications"
     private let promotionalEmailsEnabledKey = "promotionalEmailsNotifications"
-    private let calendarEmailsEnabledKey = "calendarEmailsNotifications"
+    
 
     private override init() {
         super.init()
@@ -81,13 +81,7 @@ class NotificationManager: NSObject {
         }
     }
 
-    var calendarEmailsEnabled: Bool {
-        get { userDefaults.bool(forKey: calendarEmailsEnabledKey) }
-        set {
-            userDefaults.set(newValue, forKey: calendarEmailsEnabledKey)
-            ProductionLogger.logCoreDataEvent("Calendar email notifications \(newValue ? "enabled" : "disabled")")
-        }
-    }
+    
 
     private func setupDefaultSettings() {
         // Enable all notifications by default (user can disable in settings)
@@ -100,72 +94,10 @@ class NotificationManager: NSObject {
         if userDefaults.object(forKey: promotionalEmailsEnabledKey) == nil {
             promotionalEmailsEnabled = true
         }
-        if userDefaults.object(forKey: calendarEmailsEnabledKey) == nil {
-            calendarEmailsEnabled = true
-        }
+        
     }
 
-    // MARK: - Email Notification Triggers
-
-    /// Notify about new important emails
-    func notifyNewImportantEmails(_ emails: [Email]) {
-        guard notificationsEnabled && importantEmailsEnabled && !emails.isEmpty else { return }
-
-        let count = emails.count
-        let title = count == 1 ? "New Important Email" : "\(count) New Important Emails"
-        let body = count == 1
-            ? "From: \(emails[0].sender.displayName)"
-            : "\(count) important emails waiting"
-
-        scheduleNotification(
-            identifier: "important_emails_\(Date().timeIntervalSince1970)",
-            title: title,
-            body: body,
-            category: .importantEmails
-        )
-
-        ProductionLogger.logCoreDataEvent("Scheduled notification for \(count) important emails")
-    }
-
-    /// Notify about new promotional emails
-    func notifyNewPromotionalEmails(_ emails: [Email]) {
-        guard notificationsEnabled && promotionalEmailsEnabled && !emails.isEmpty else { return }
-
-        let count = emails.count
-        let title = count == 1 ? "New Promotional Email" : "\(count) New Promotional Emails"
-        let body = count == 1
-            ? "From: \(emails[0].sender.displayName)"
-            : "\(count) promotional emails received"
-
-        scheduleNotification(
-            identifier: "promotional_emails_\(Date().timeIntervalSince1970)",
-            title: title,
-            body: body,
-            category: .promotionalEmails
-        )
-
-        ProductionLogger.logCoreDataEvent("Scheduled notification for \(count) promotional emails")
-    }
-
-    /// Notify about new calendar emails
-    func notifyNewCalendarEmails(_ emails: [Email]) {
-        guard notificationsEnabled && calendarEmailsEnabled && !emails.isEmpty else { return }
-
-        let count = emails.count
-        let title = count == 1 ? "New Calendar Email" : "\(count) New Calendar Emails"
-        let body = count == 1
-            ? "From: \(emails[0].sender.displayName)"
-            : "\(count) calendar invites and events"
-
-        scheduleNotification(
-            identifier: "calendar_emails_\(Date().timeIntervalSince1970)",
-            title: title,
-            body: body,
-            category: .calendarEmails
-        )
-
-        ProductionLogger.logCoreDataEvent("Scheduled notification for \(count) calendar emails")
-    }
+    // MARK: - Notification Scheduling
 
     /// Notify about new unread emails (general)
     func notifyNewEmails(_ emails: [Email]) {
@@ -186,15 +118,30 @@ class NotificationManager: NSObject {
 
         ProductionLogger.logCoreDataEvent("Scheduled notification for \(count) new emails")
     }
-
-    // MARK: - Notification Scheduling
+    
+    func scheduleTodoNotification(for todo: TodoItem) {
+        guard notificationsEnabled, let reminderDate = todo.reminderDate else { return }
+        
+        let title = "Todo Reminder"
+        let body = todo.title
+        
+        scheduleNotification(
+            identifier: "todo_\(todo.id)",
+            title: title,
+            body: body,
+            category: .generalEmails,
+            scheduleDate: reminderDate
+        )
+    }
+    
+    
 
     private func scheduleNotification(
         identifier: String,
         title: String,
         body: String,
         category: EmailNotificationCategory,
-        timeInterval: TimeInterval = 1
+        scheduleDate: Date? = nil
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -209,7 +156,14 @@ class NotificationManager: NSObject {
             "timestamp": Date().timeIntervalSince1970
         ]
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+        let trigger: UNNotificationTrigger
+        if let scheduleDate = scheduleDate {
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: scheduleDate)
+            trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        } else {
+            trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        }
+        
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
 
         notificationCenter.add(request) { error in
@@ -218,6 +172,16 @@ class NotificationManager: NSObject {
             }
         }
     }
+
+    func cancelNotification(identifier: String) {
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: [identifier])
+    }
+
+    func cancelTodoNotification(for todo: TodoItem) {
+        cancelNotification(identifier: "todo_\(todo.id)")
+    }
+
+    
 
     // MARK: - Category Management
 
@@ -248,12 +212,7 @@ class NotificationManager: NSObject {
             options: .customDismissAction
         )
 
-        let calendarCategory = UNNotificationCategory(
-            identifier: EmailNotificationCategory.calendarEmails.rawValue,
-            actions: [viewAction],
-            intentIdentifiers: [],
-            options: .customDismissAction
-        )
+        
 
         let generalCategory = UNNotificationCategory(
             identifier: EmailNotificationCategory.generalEmails.rawValue,
@@ -265,7 +224,7 @@ class NotificationManager: NSObject {
         notificationCenter.setNotificationCategories([
             importantCategory,
             promotionalCategory,
-            calendarCategory,
+            
             generalCategory
         ])
     }
@@ -297,7 +256,7 @@ class NotificationManager: NSObject {
 enum EmailNotificationCategory: String {
     case importantEmails = "important_emails"
     case promotionalEmails = "promotional_emails"
-    case calendarEmails = "calendar_emails"
+    
     case generalEmails = "general_emails"
 }
 

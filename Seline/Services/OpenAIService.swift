@@ -12,6 +12,7 @@ import SwiftUI
 @MainActor
 class OpenAIService: ObservableObject {
     static let shared = OpenAIService()
+
     
     // MARK: - Configuration
     
@@ -28,6 +29,8 @@ class OpenAIService: ObservableObject {
     
     @Published var isConfigured: Bool = false
     @Published var lastError: OpenAIError?
+    @Published var hasPotentialChatGPTAccount: Bool = false
+    @Published var showAPIKeySetupGuide: Bool = false
     
     // MARK: - Private Properties
     
@@ -37,6 +40,7 @@ class OpenAIService: ObservableObject {
         self.isConfigured = secureStorage.hasOpenAIKey()
         
         setupConfigurationObserver()
+        detectPotentialChatGPTAccount()
     }
     
     // MARK: - Query Classification
@@ -166,12 +170,13 @@ class OpenAIService: ObservableObject {
     private func checkConfiguration() {
         let hasKey = secureStorage.hasOpenAIKey()
         isConfigured = hasKey
-        print("🤖 OpenAI configuration updated: isConfigured = \(isConfigured)")
     }
     
     /// Force immediate configuration refresh (used by development setup)
     func refreshConfiguration() {
         checkConfiguration()
+        detectPotentialChatGPTAccount()
+        
     }
     
     /// Configure OpenAI API key (typically called from settings)
@@ -235,12 +240,8 @@ class OpenAIService: ObservableObject {
     func performAISearch(_ query: String) async throws -> String {
         // Check if we should use real API or mock responses
         if configuration.useRealAPI && (isConfigured || secureStorage.hasOpenAIKey()) {
-            print("🤖 OpenAI: Using real API for query: \"\(query)\"")
-            print("🔑 OpenAI: API key configured: \(secureStorage.hasOpenAIKey())")
             return try await performRealAPISearch(query)
         } else {
-            print("🤖 OpenAI: Using mock response for query: \"\(query)\" (useRealAPI: \(configuration.useRealAPI), isConfigured: \(isConfigured))")
-            print("🔑 OpenAI: API key configured: \(secureStorage.hasOpenAIKey())")
             return generateMockResponse(for: query)
         }
     }
@@ -248,11 +249,9 @@ class OpenAIService: ObservableObject {
     /// Perform real OpenAI API search with retry logic
     private func performRealAPISearch(_ query: String) async throws -> String {
         guard let apiKey = secureStorage.getOpenAIKey() else {
-            print("❌ OpenAI: No API key found in secure storage")
             throw OpenAIError.noAPIKey
         }
         
-        print("🔑 OpenAI: API key found, length: \(apiKey.count)")
         
         return try await withRetry(maxRetries: configuration.maxRetries) {
             try await self.performSingleAPIRequest(query: query, apiKey: apiKey)
@@ -346,28 +345,23 @@ class OpenAIService: ObservableObject {
     private func performSingleAPIRequest(query: String, apiKey: String) async throws -> String {
         let request = try createAPIRequest(query: query, apiKey: apiKey)
         
-        print("🌐 OpenAI: Making HTTP request to: \(request.url?.absoluteString ?? "unknown URL")")
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("❌ OpenAI: Invalid HTTP response type")
                 throw OpenAIError.invalidResponse
             }
             
-            print("🌐 OpenAI: HTTP Response Status: \(httpResponse.statusCode)")
             
             try validateHTTPResponse(httpResponse)
             
             let openAIResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
             
             guard let firstChoice = openAIResponse.choices.first else {
-                print("❌ OpenAI: No choices in API response")
                 throw OpenAIError.noResponse
             }
             
-            print("✅ OpenAI: Successfully received response from API")
             return firstChoice.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
             
         } catch let error as OpenAIError {
@@ -546,6 +540,212 @@ struct OpenAIChoice: Codable {
     let message: OpenAIMessage
 }
 
+// MARK: - Email Summarization
+
+extension OpenAIService {
+    /// Generate AI summary for an email
+    func summarizeEmail(_ email: Email) async throws -> String {
+        // Check if we should use real API or mock responses
+        if configuration.useRealAPI && (isConfigured || secureStorage.hasOpenAIKey()) {
+            return try await performRealEmailSummarization(email)
+        } else {
+            return generateMockEmailSummary(for: email)
+        }
+    }
+    
+    /// Perform real OpenAI API email summarization
+    private func performRealEmailSummarization(_ email: Email) async throws -> String {
+        let summaryPrompt = createEmailSummaryPrompt(for: email)
+        
+        return try await withRetry(maxRetries: 3) {
+            guard let apiKey = secureStorage.getOpenAIKey() else {
+                throw OpenAIError.invalidAPIKey
+            }
+            let request = try createEmailSummaryRequest(prompt: summaryPrompt, apiKey: apiKey)
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw OpenAIError.invalidResponse
+            }
+            
+            try validateHTTPResponse(httpResponse)
+            
+            let openAIResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+            
+            guard let summary = openAIResponse.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw OpenAIError.invalidResponse
+            }
+            
+            return summary
+        }
+    }
+    
+    /// Create email summary prompt
+    private func createEmailSummaryPrompt(for email: Email) -> String {
+        let emailContent = [
+            "Subject: \(email.subject)",
+            "From: \(email.sender.displayName) <\(email.sender.email)>",
+            email.body.isEmpty ? "" : "Content: \(email.body)"
+        ].filter { !$0.isEmpty }.joined(separator: "\n")
+        
+        return """
+        Summarize this email in 2-3 concise sentences that capture the key points and any action items. 
+        Focus on what the recipient needs to know and any required actions.
+        Be direct and informative.
+        
+        Email:
+        \(emailContent)
+        
+        Summary:
+        """
+    }
+    
+    /// Create API request for email summarization
+    private func createEmailSummaryRequest(prompt: String, apiKey: String) throws -> URLRequest {
+        guard let url = URL(string: baseURL) else {
+            throw OpenAIError.invalidResponse
+        }
+        
+        let requestBody = OpenAIRequest(
+            model: "gpt-3.5-turbo",
+            messages: [
+                OpenAIMessage(
+                    role: "system",
+                    content: """
+                    You are an expert email summarizer. Your job is to create concise, actionable summaries.
+                    Keep summaries to 2-3 sentences maximum.
+                    Focus on key information and action items.
+                    Use clear, professional language.
+                    """
+                ),
+                OpenAIMessage(
+                    role: "user",
+                    content: prompt
+                )
+            ],
+            max_tokens: 150, // Shorter for summaries
+            temperature: 0.3 // More consistent for summaries
+        )
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("Seline/\(ConfigurationManager.shared.getAppVersion())", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = configuration.timeoutInterval
+        
+        do {
+            request.httpBody = try JSONEncoder().encode(requestBody)
+        } catch {
+            throw OpenAIError.encodingError
+        }
+        
+        return request
+    }
+    
+    /// Generate mock email summary
+    private func generateMockEmailSummary(for email: Email) -> String {
+        let subject = email.subject.lowercased()
+        let sender = email.sender.displayName
+        
+        // Generate contextual mock summaries based on email patterns
+        if subject.contains("meeting") || subject.contains("zoom") || subject.contains("call") {
+            return "Meeting invitation from \(sender). Review the agenda and confirm your attendance by the specified deadline."
+        }
+        
+        if subject.contains("invoice") || subject.contains("payment") || subject.contains("bill") {
+            return "Invoice or payment notification from \(sender). Review the amount and due date, then process payment if required."
+        }
+        
+        if subject.contains("urgent") || subject.contains("asap") || subject.contains("immediate") {
+            return "Urgent request from \(sender). This requires immediate attention and prompt response."
+        }
+        
+        if subject.contains("update") || subject.contains("status") || subject.contains("progress") {
+            return "Status update from \(sender). Review the progress details and note any changes affecting your work."
+        }
+        
+        if subject.contains("confirm") || subject.contains("verify") || subject.contains("approve") {
+            return "Confirmation or approval request from \(sender). Review the details and provide your response."
+        }
+        
+        if subject.contains("welcome") || subject.contains("getting started") {
+            return "Welcome message from \(sender). Contains important setup information and next steps to complete."
+        }
+        
+        // Default contextual summary based on email content analysis
+        let emailBody = email.body.lowercased()
+        
+        // Analyze email body for better context
+        if emailBody.contains("deadline") || emailBody.contains("due date") {
+            return "Time-sensitive message from \(sender). Contains deadline or due date information requiring prompt attention."
+        }
+        
+        if emailBody.contains("thank") || emailBody.contains("appreciate") {
+            return "Acknowledgment message from \(sender). Shows appreciation and may contain follow-up information."
+        }
+        
+        if emailBody.contains("question") || emailBody.contains("help") || emailBody.contains("support") {
+            return "Support or inquiry from \(sender). Contains questions that may require your expertise or assistance."
+        }
+        
+        // Enhanced default with email content hints
+        let preview = email.body.prefix(100).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if !preview.isEmpty {
+            return "Message from \(sender) about \(email.subject). \(preview.isEmpty ? "Review full content for details." : String(preview) + "...")"
+        }
+        
+        return "Message from \(sender) regarding \(email.subject). Review the details and respond if action is required."
+    }
+    
+    // MARK: - ChatGPT Account Detection
+    
+    /// Detect if user might have a ChatGPT account with the same email
+    private func detectPotentialChatGPTAccount() {
+        guard let userEmail = AuthenticationService.shared.user?.email else { return }
+        
+        // Check common email patterns that suggest ChatGPT usage
+        let commonChatGPTDomains = ["gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com"]
+        let emailDomain = String(userEmail.split(separator: "@").last ?? "")
+        
+        if commonChatGPTDomains.contains(emailDomain.lowercased()) {
+            self.hasPotentialChatGPTAccount = true
+            
+            // Show setup guide if no API key is configured
+            if !isConfigured {
+                self.showAPIKeySetupGuide = true
+            }
+            
+        }
+    }
+    
+    /// Get personalized setup message based on user's email
+    func getPersonalizedSetupMessage() -> String {
+        guard let userEmail = AuthenticationService.shared.user?.email else {
+            return "Set up your OpenAI API key to unlock AI-powered email summaries and search."
+        }
+        
+        if hasPotentialChatGPTAccount {
+            return "We detected you might have a ChatGPT account with \(userEmail). Connect your OpenAI API key to unlock powerful AI features in Seline!"
+        } else {
+            return "Connect your OpenAI API key to unlock AI-powered email summaries, smart search, and calendar processing."
+        }
+    }
+    
+    /// Get setup benefits based on current usage
+    func getSetupBenefits() -> [String] {
+        return [
+            "🤖 AI-powered email summaries in 2-3 sentences",
+            "🔍 Intelligent email search with natural language",
+            "📅 Smart calendar event detection and processing",
+            "⚡ Faster email triage with key insights highlighted",
+            "🎯 Personalized recommendations based on email content"
+        ]
+    }
+    
+}
+
 // MARK: - Error Types
 
 enum OpenAIError: LocalizedError {
@@ -614,6 +814,15 @@ enum OpenAIError: LocalizedError {
             return "This is a temporary issue. Please try again in a few minutes."
         default:
             return "Please try again. If the problem persists, contact support."
+        }
+    }
+    
+    var isConfigurationOrBillingError: Bool {
+        switch self {
+        case .noAPIKey, .invalidAPIKey, .quotaExceeded:
+            return true
+        default:
+            return false
         }
     }
     

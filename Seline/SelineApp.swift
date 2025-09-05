@@ -47,9 +47,11 @@ struct SelineApp: App {
         
         // Initialize Supabase connection
         Task {
+            // DISABLED: await SupabaseService.shared.initialize()
             // Test Supabase connection
             let supabaseService = SupabaseService.shared
-            print("🌐 Supabase connection status: \(supabaseService.isConnected ? "✅ Connected" : "❌ Disconnected")")
+            print("🌐 Supabase initialization status: \(supabaseService.isConnected ? "✅ Connected" : "❌ Not Connected")")
+            // DISABLED: Supabase initialization
             
             await DevelopmentConfiguration.shared.validateAPIKeys()
         }
