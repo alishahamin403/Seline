@@ -39,10 +39,9 @@ struct ContentView: View {
     @State private var actionCompleted = false
     
     private var todayImportantCount: Int {
-        let today = Calendar.current
-        return viewModel.importantEmails.filter { today.isDateInToday($0.date) }.count
+        viewModel.importantEmails.count
     }
-    
+
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
@@ -393,9 +392,9 @@ struct ContentView: View {
     private var categoryCardsSection: some View {
         VStack(spacing: 16) {
 
-            // Important Emails Card with Previews
-            ImportantEmailsPreviewCard(
-                emails: viewModel.displayedImportantEmails,
+            // Today's Emails Card with Previews
+            TodaysEmailsPreviewCard(
+                emails: viewModel.displayedTodaysEmails,
                 totalCount: todayImportantCount,
                 onTap: {
                     showingImportantEmails = true
@@ -409,6 +408,9 @@ struct ContentView: View {
                 onAddEvent: {
                     showingAddCalendarEvent = true
                 },
+                onAddEventWithVoice: {
+                    startVoiceRecording(for: .calendar)
+                },
                 onViewAll: {
                     showingUpcomingEvents = true
                 }
@@ -418,10 +420,13 @@ struct ContentView: View {
 
             // Today's Todos (tap to open full view)
             ExpandableTodosSection(
-                todos: Array(todoManager.upcomingTodos.prefix(3)),
+                todos: Array(todoManager.todayTodos.prefix(3)),
                 isExpanded: .constant(false),
                 onAddTodo: {
                     showingAddTodo = true
+                },
+                onAddTodoWithVoice: {
+                    startVoiceRecording(for: .todo)
                 },
                 onViewAll: {
                     showingVoiceTodosList = true
@@ -438,7 +443,7 @@ struct ContentView: View {
     private var bottomSearchSection: some View {
         VStack(spacing: 0) {
             // Search bar
-            HStack(spacing: 12) {
+            HStack(spacing: DesignSystem.Spacing.sm) {
                 Image(systemName: isSearchFocused ? "sparkles" : "magnifyingglass")
                     .font(.title3)
                     .foregroundColor(isSearchFocused ? DesignSystem.Colors.accent : DesignSystem.Colors.textSecondary)
@@ -855,282 +860,7 @@ struct SearchSuggestion {
 
 // MARK: - SearchType Extension (moved to OpenAIService.swift)
 
-// MARK: - Expandable Events Section
 
-struct ExpandableEventsSection: View {
-    let events: [CalendarEvent]
-    @Binding var isExpanded: Bool
-    let onAddEvent: () -> Void
-    let onViewAll: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var sameDayEvents: [CalendarEvent] {
-        let today = Date()
-        return events.filter { Calendar.current.isDate($0.startDate, inSameDayAs: today) }
-    }
-    
-    private var displayEvents: [CalendarEvent] {
-        return Array(sameDayEvents.prefix(isExpanded ? 5 : 3))
-    }
-    
-    private var totalCount: Int {
-        return sameDayEvents.count
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                HStack(spacing: 16) {
-                    // Modern gradient icon
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(DesignSystem.Colors.secondaryGradient)
-                            .frame(width: 48, height: 48)
-                        
-                        Image(systemName: "calendar")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(
-                                Color(UIColor { traitCollection in
-                                    traitCollection.userInterfaceStyle == .dark ? 
-                                    UIColor.black : UIColor.white
-                                })
-                            )
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Today's Events")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
-                        
-                        Text("\(totalCount) \(totalCount == 1 ? "event" : "events")")
-                            .font(.system(size: 13, weight: .regular, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                }
-                
-                Spacer()
-                
-                HStack(spacing: 8) {
-                    // Modern Add button
-                    Button(action: onAddEvent) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text("Add")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(DesignSystem.Colors.accent)
-                        )
-                    }
-                    
-                    // Modern arrow with subtle background
-                    ZStack {
-                        Circle()
-                            .fill(DesignSystem.Colors.surfaceSecondary)
-                            .frame(width: 28, height: 28)
-                        
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            
-            if totalCount > 0 {
-                VStack(spacing: 8) {
-                    ForEach(displayEvents, id: \.id) { event in
-                        EventPreviewRow(event: event)
-                    }
-                    
-                    if events.count > displayEvents.count {
-                        Button(action: onViewAll) {
-                            Text("View all \(events.count) events")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(DesignSystem.Colors.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 16)
-            } else {
-                VStack(spacing: 8) {
-                    Text(isExpanded ? "No upcoming events" : "No events today")
-                        .font(.system(size: 14, weight: .regular, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                }
-                .padding(.horizontal, 20)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(DesignSystem.Colors.surface)
-                .shadow(
-                    color: colorScheme == .light ? Color.black.opacity(0.06) : Color.clear,
-                    radius: 8,
-                    x: 0,
-                    y: 2
-                )
-        )
-        .onTapGesture {
-            onViewAll()
-        }
-    }
-}
-
-// MARK: - Expandable Todos Section
-
-struct ExpandableTodosSection: View {
-    let todos: [TodoItem]
-    @Binding var isExpanded: Bool
-    let onAddTodo: () -> Void
-    let onViewAll: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var sameDayTodos: [TodoItem] {
-        let today = Date()
-        return todos.filter { Calendar.current.isDate($0.dueDate, inSameDayAs: today) }
-    }
-    
-    private var displayTodos: [TodoItem] {
-        return Array(sameDayTodos.prefix(isExpanded ? 5 : 3))
-    }
-    
-    private var totalCount: Int {
-        return sameDayTodos.count
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                HStack(spacing: 16) {
-                    // Modern gradient icon
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(DesignSystem.Colors.tertiaryGradient)
-                            .frame(width: 48, height: 48)
-                        
-                        Image(systemName: "checklist")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(
-                                Color(UIColor { traitCollection in
-                                    traitCollection.userInterfaceStyle == .dark ? 
-                                    UIColor.black : UIColor.white
-                                })
-                            )
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Today's Todos")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
-                        
-                        Text("\(totalCount) \(totalCount == 1 ? "todo" : "todos")")
-                            .font(.system(size: 13, weight: .regular, design: .rounded))
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                }
-                
-                Spacer()
-                
-                HStack(spacing: 8) {
-                    // Modern Add button
-                    Button(action: onAddTodo) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text("Add")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(DesignSystem.Colors.accent)
-                        )
-                    }
-                    
-                    // Modern arrow with subtle background
-                    ZStack {
-                        Circle()
-                            .fill(DesignSystem.Colors.surfaceSecondary)
-                            .frame(width: 28, height: 28)
-                        
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            
-            if totalCount > 0 {
-                VStack(spacing: 8) {
-                    ForEach(displayTodos, id: \.id) { todo in
-                        TodoPreviewRow(todo: todo)
-                    }
-                    
-                    if sameDayTodos.count > displayTodos.count {
-                        Button(action: onViewAll) {
-                            HStack {
-                                Text("View all \(sameDayTodos.count) todos")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(DesignSystem.Colors.accent)
-                                
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(DesignSystem.Colors.accent)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 16)
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.badge.xmark")
-                        .font(.system(size: 24, weight: .light))
-                        .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.5))
-                    
-                    Text("No todos today")
-                        .font(.system(size: 14, weight: .regular, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.textSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(DesignSystem.Colors.surface)
-                .shadow(
-                    color: colorScheme == .light ? Color.black.opacity(0.06) : Color.clear,
-                    radius: 8,
-                    x: 0,
-                    y: 2
-                )
-        )
-        .onTapGesture {
-            onViewAll()
-        }
-    }
-}
 
 // MARK: - Event Preview Row
 

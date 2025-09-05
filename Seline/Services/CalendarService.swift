@@ -21,7 +21,7 @@ class CalendarService: ObservableObject {
     
     /// Fetches upcoming events from Google Calendar
     func getUpcomingEvents(days: Int = 14) async throws -> [CalendarEvent] {
-        return try await fetchUpcomingEvents(days: days)
+        return try await self.fetchUpcomingEvents(days: days)
     }
     
     /// Fetches upcoming events from Google Calendar API
@@ -99,12 +99,13 @@ class CalendarService: ObservableObject {
             return events
             
         } catch {
+            print("Error during calendar fetch: \(error)")
             if error is DecodingError {
                 throw CalendarError.decodingError
             } else if error is URLError {
                 throw CalendarError.networkError
             } else {
-                throw error
+                throw CalendarError.unknownError(error)
             }
         }
     }
@@ -136,9 +137,21 @@ class CalendarService: ObservableObject {
         guard authService.isAuthenticated, let accessToken = authService.user?.accessToken else {
             throw CalendarError.notAuthenticated
         }
-        
-        // For now, do nothing (placeholder)
-        // In a full implementation, this would DELETE from Google Calendar API
+
+        let urlString = "https://www.googleapis.com/calendar/v3/calendars/primary/events/\(id)"
+        guard let url = URL(string: urlString) else {
+            throw CalendarError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 204 {
+            throw CalendarError.apiError(httpResponse.statusCode)
+        }
     }
     
     /// Initializes the calendar service (sets up Google Calendar connection)
@@ -205,6 +218,7 @@ enum CalendarError: Error {
     case networkError
     case apiError(Int)
     case decodingError
+    case unknownError(Error)
 }
 
 // MARK: - Google Calendar API Models

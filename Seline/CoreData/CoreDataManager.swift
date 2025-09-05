@@ -57,7 +57,9 @@ class CoreDataManager: ObservableObject {
     }
     
     var backgroundContext: NSManagedObjectContext {
-        return persistentContainer.newBackgroundContext()
+        let context = persistentContainer.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        return context
     }
     
     private init() {

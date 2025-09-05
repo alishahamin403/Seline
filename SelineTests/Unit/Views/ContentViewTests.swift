@@ -20,7 +20,7 @@ class ContentViewTests: XCTestCase {
         viewModel.emails = mockEmails
         
         // When
-        let displayedEmails = viewModel.displayedImportantEmails
+        let displayedEmails = viewModel.displayedTodaysEmails
         
         // Then
         XCTAssertLessThanOrEqual(displayedEmails.count, 3, "Should show maximum 3 emails on home page")

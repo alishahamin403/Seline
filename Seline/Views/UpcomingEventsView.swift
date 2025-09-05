@@ -228,8 +228,26 @@ struct UpcomingEventsView: View {
             VStack(spacing: 12) {
                 ForEach(events.sorted(by: { $0.startDate < $1.startDate }), id: \.id) { event in
                     EventCard(event: event)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Task {
+                                    await deleteEvent(event)
+                                }
+                            } label: {
+                                Label("Delete Event", systemImage: "trash")
+                            }
+                        }
                 }
             }
+        }
+    }
+
+    private func deleteEvent(_ event: CalendarEvent) async {
+        do {
+            try await calendarService.deleteEvent(id: event.id)
+            events.removeAll { $0.id == event.id }
+        } catch {
+            errorMessage = getErrorMessage(for: error)
         }
     }
     
@@ -283,6 +301,7 @@ struct UpcomingEventsView: View {
             await MainActor.run {
                 errorMessage = getErrorMessage(for: error)
                 isLoading = false
+                print("Error loading events: \(error)")
             }
         }
     }
@@ -302,6 +321,8 @@ struct UpcomingEventsView: View {
                 } else {
                     return "Calendar service error (\(code))"
                 }
+            case .unknownError(let error):
+                return "An unknown error occurred: \(error.localizedDescription)"
             default:
                 return "Unable to load calendar events"
             }
@@ -342,7 +363,7 @@ struct EventCard: View {
             // Event details
             VStack(alignment: .leading, spacing: 4) {
                 Text(event.title)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundColor(DesignSystem.Colors.textPrimary)
                     .lineLimit(2)
                 

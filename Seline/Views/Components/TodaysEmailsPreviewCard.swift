@@ -1,5 +1,5 @@
 //
-//  ImportantEmailsPreviewCard.swift
+//  TodaysEmailsPreviewCard.swift
 //  Seline
 //
 //  Created by Claude Code on 2025-09-05.
@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct ImportantEmailsPreviewCard: View {
+struct TodaysEmailsPreviewCard: View {
     let emails: [Email]
     let totalCount: Int
     let onTap: () -> Void
@@ -26,10 +26,7 @@ struct ImportantEmailsPreviewCard: View {
                 emailPreviewsList
             }
             
-            // Footer with "See More" if there are more emails
-            if totalCount > emails.count {
-                footerView
-            }
+            
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
@@ -49,16 +46,13 @@ struct ImportantEmailsPreviewCard: View {
     // MARK: - Header View
     
     private var headerView: some View {
-        HStack(spacing: 12) {
-            // Icon
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundColor(.red)
+        HStack(spacing: DesignSystem.Spacing.sm) {
+            IconInBoxView(systemName: "envelope.fill")
             
             // Title and count
             VStack(alignment: .leading, spacing: 2) {
-                Text("Important")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                Text("Today's Emails")
+                    .font(DesignSystem.Typography.subheadline)
                     .foregroundColor(DesignSystem.Colors.textPrimary)
                 
                 Text("\(totalCount) email\(totalCount == 1 ? "" : "s")")
@@ -68,10 +62,7 @@ struct ImportantEmailsPreviewCard: View {
             
             Spacer()
             
-            // Chevron
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.6))
+            
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -85,7 +76,7 @@ struct ImportantEmailsPreviewCard: View {
                 .font(.system(size: 24, weight: .light))
                 .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.5))
             
-            Text("No important emails")
+            Text("No emails for today")
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundColor(DesignSystem.Colors.textSecondary)
         }
@@ -104,30 +95,7 @@ struct ImportantEmailsPreviewCard: View {
         .padding(.horizontal, 20)
     }
     
-    // MARK: - Footer View
     
-    private var footerView: some View {
-        HStack {
-            Spacer()
-            
-            Text("See \(totalCount - emails.count) more")
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundColor(DesignSystem.Colors.accent)
-            
-            Image(systemName: "arrow.right")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DesignSystem.Colors.accent)
-            
-            Spacer()
-        }
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(DesignSystem.Colors.accent.opacity(0.05))
-        )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-    }
 }
 
 // MARK: - Email Preview Row Component
@@ -138,7 +106,7 @@ struct EmailPreviewRow: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: DesignSystem.Spacing.sm) {
                 // Sender initial or avatar
                 Circle()
                     .fill(DesignSystem.Colors.accent.opacity(0.1))
@@ -207,9 +175,9 @@ struct EmailPreviewRow: View {
 
 // MARK: - Preview
 
-struct ImportantEmailsPreviewCard_Previews: PreviewProvider {
+struct TodaysEmailsPreviewCard_Previews: PreviewProvider {
     static var previews: some View {
-        ImportantEmailsPreviewCard(
+        TodaysEmailsPreviewCard(
             emails: [
                 Email(
                     id: "1",

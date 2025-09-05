@@ -207,6 +207,7 @@ class AuthenticationService: ObservableObject {
     // MARK: - Google Sign-In
     
     func signInWithGoogle() async {
+        /*
         await MainActor.run {
             isLoading = true
             authError = nil
@@ -257,6 +258,7 @@ class AuthenticationService: ObservableObject {
         await MainActor.run {
             isLoading = false
         }
+        */
     }
     
     func signOut() async {
@@ -265,10 +267,9 @@ class AuthenticationService: ObservableObject {
         // Clean up Supabase session and real-time subscriptions
         try? await SupabaseService.shared.signOut()
         
-        // TODO: Replace with actual Google Sign-Out
         /*
         do {
-            GoogleSignIn.sharedInstance.signOut()
+            GoogleSignIn.shared.signOut()
         } catch {
             authError = "Sign out failed: \(error.localizedDescription)"
         }
@@ -401,7 +402,7 @@ class AuthenticationService: ObservableObject {
             throw AuthenticationError.noViewController
         }
         
-        try await GoogleSignIn.sharedInstance.addScopes(scopes, presenting: presentingViewController)
+        try await GoogleSignIn.shared.addScopes(scopes, presenting: presentingViewController)
     }
     
     private func getRootViewController() async -> UIViewController? {

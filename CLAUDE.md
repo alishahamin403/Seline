@@ -350,3 +350,38 @@ The app is **production-ready** and prepared for App Store submission with:
 - Privacy policies configured
 - Professional UI polish applied
 - Comprehensive testing completed
+
+## Common Issues and Solutions
+
+### "Extraneous '}' at top level" Error in SwiftUI Views
+
+**Root Cause:**
+
+This error frequently occurs in SwiftUI views, especially in large files like `ContentView.swift`. The primary cause is a mismatched number of opening `{` and closing `}` braces. This can happen due to:
+1.  **Copy-paste errors**: Accidentally duplicating a block of code, including its closing braces.
+2.  **Incorrectly closed closures**: Forgetting a closing brace for a closure, especially in nested view builders.
+3.  **Faulty auto-formatting**: Sometimes, auto-formatting tools can incorrectly place or remove braces, leading to a syntax error.
+
+**Debugging and Solution:**
+
+When this error occurs, it's crucial to manually inspect the file and count the braces. Here's a systematic approach:
+1.  **Start from the bottom**: The error "at top level" is often misleading. The actual error is usually at the end of the file, where the final closing brace of the main struct or extension is mismatched.
+2.  **Use an editor with brace matching**: Xcode and other modern editors highlight matching braces. Click on the last brace `}` in the file and see where its matching opening brace `{` is. If it doesn't match the opening brace of the struct or extension, you have found the problem.
+3.  **Comment out code blocks**: If you can't find the issue by visual inspection, start commenting out large blocks of code from the bottom of the file until the error disappears. This will help you isolate the problematic section.
+4.  **Check Preview Providers**: A common source of this error is a faulty preview provider. Make sure the preview provider struct is correctly defined and closed.
+
+**Example of a common error:**
+```swift
+// Incorrect: Extra closing brace at the end
+struct MyView_Previews: PreviewProvider {
+    static var previews: some View {
+        MyView()
+    }
+}
+} // <--- Extraneous brace
+```
+
+**Prevention:**
+- Be extra careful when copying and pasting code.
+- Use an editor with good syntax highlighting and brace matching.
+- Keep your views small and well-structured. If a view becomes too large, refactor it into smaller subviews.

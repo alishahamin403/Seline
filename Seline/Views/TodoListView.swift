@@ -12,6 +12,7 @@ struct TodoListView: View {
     @StateObject private var todoManager = TodoManager.shared
     @State private var showingAllTodos = false
     @State private var editingTodo: TodoItem?
+    @State private var showingAddTodo = false
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -23,8 +24,7 @@ struct TodoListView: View {
                 // Content
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Todo Items
-                        if todoManager.upcomingTodos.isEmpty {
+                        if todoManager.todos.isEmpty {
                             emptyStateView
                         } else {
                             todoItemsView
@@ -50,6 +50,13 @@ struct TodoListView: View {
                 editingTodo = nil
             }
         }
+        .sheet(isPresented: $showingAddTodo) {
+            AddTodoView { todoItem in
+                Task {
+                    await todoManager.addTodo(todoItem)
+                }
+            }
+        }
     }
     
     // MARK: - Header View
@@ -68,31 +75,18 @@ struct TodoListView: View {
             
             Spacer()
             
-            HStack(spacing: 8) {
-                Image(systemName: "checklist")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(DesignSystem.Colors.accent)
-                
-                Text("My Todos")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
-            }
+            Text("Todos")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.textPrimary)
             
             Spacer()
             
-            if !todoManager.upcomingTodos.isEmpty {
-                Button(action: {
-                    showingAllTodos = true
-                }) {
-                    Text("View All")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.accent)
-                }
-            } else {
-                // Invisible spacer to balance the layout
-                Text("View All")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(.clear)
+            Button(action: {
+                showingAddTodo = true
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.accent)
             }
         }
         .padding(.horizontal, 24)
@@ -103,29 +97,94 @@ struct TodoListView: View {
     // MARK: - Todo Items View
     
     private var todoItemsView: some View {
-        LazyVStack(spacing: 8) {
-            ForEach(Array(todoManager.upcomingTodos.prefix(3).enumerated()), id: \.element.id) { index, todo in
-                TodoRow(
-                    todo: todo,
-                    onToggleComplete: {
-                        Task {
-                            await todoManager.toggleCompletion(todo)
-                        }
-                    },
-                    onDelete: {
-                        Task {
-                            await todoManager.deleteTodo(todo)
-                        }
-                    },
-                    onEdit: {
-                        editingTodo = todo
-                    }
-                )
-                .transition(.asymmetric(
-                    insertion: .slide.combined(with: .opacity),
-                    removal: .scale.combined(with: .opacity)
-                ))
+        LazyVStack(spacing: 0) {
+            ForEach(groupedTodos.keys.sorted(), id: \.self) { date in
+                if let dayTodos = groupedTodos[date] {
+                    daySection(date: date, todos: dayTodos)
+                }
             }
+        }
+    }
+
+    // MARK: - Day Section
+    
+    private func daySection(date: Date, todos: [TodoItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Date header
+            HStack {
+                Text(formatSectionDate(date))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                
+                Spacer()
+                
+                Text("\(todos.count) todo\(todos.count == 1 ? "" : "s")")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(DesignSystem.Colors.surfaceSecondary)
+                    )
+            }
+            .padding(.top, 20)
+            
+            // Todos for this day
+            VStack(spacing: 12) {
+                ForEach(todos.sorted(by: { $0.dueDate < $1.dueDate }), id: \.id) { todo in
+                    TodoRow(
+                        todo: todo,
+                        onToggleComplete: {
+                            Task {
+                                await todoManager.toggleCompletion(todo)
+                            }
+                        },
+                        onDelete: {
+                            Task {
+                                await todoManager.deleteTodo(todo)
+                            }
+                        },
+                        onEdit: {
+                            editingTodo = todo
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - Helper Methods
+    
+    private var groupedTodos: [Date: [TodoItem]] {
+        let calendar = Calendar.current
+        var grouped: [Date: [TodoItem]] = [:]
+        
+        for todo in todoManager.todos {
+            let dayStart = calendar.startOfDay(for: todo.dueDate)
+            if grouped[dayStart] == nil {
+                grouped[dayStart] = []
+            }
+            grouped[dayStart]?.append(todo)
+        }
+        
+        return grouped
+    }
+    
+    private func formatSectionDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        
+        if calendar.isDateInToday(date) {
+            return "Today"
+        } else if calendar.isDateInTomorrow(date) {
+            return "Tomorrow"
+        } else if calendar.isDate(date, equalTo: Date(), toGranularity: .weekOfYear) {
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: date)
+        } else {
+            formatter.dateFormat = "EEEE, MMM d"
+            return formatter.string(from: date)
         }
     }
     
@@ -181,7 +240,7 @@ struct TodoRow: View {
                     }
                     
                     Text(todo.title)
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundColor(todo.isCompleted ? DesignSystem.Colors.textSecondary : DesignSystem.Colors.textPrimary)
                         .strikethrough(todo.isCompleted)
                         .lineLimit(1)

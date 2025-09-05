@@ -178,8 +178,16 @@ class ContentViewModel: ObservableObject {
             do {
                 let fetchedEmails = try await gmailService.fetchTodaysUnreadEmails()
                 
+                // Filter out promotional and noreply emails
+                let filteredEmails = fetchedEmails.filter { email in
+                    return !email.isPromotional && !email.sender.email.lowercased().contains("noreply")
+                }
+                
                 // Update the @Published property with bounds checking (already on main actor)
-                emails = fetchedEmails
+                emails = filteredEmails
+                
+                // Preload email content in the background
+                preloadEmailsInBackground(for: filteredEmails.map { $0.id })
                 
                 // Validate array integrity
                 let finalCount = max(0, emails.count)
@@ -227,7 +235,7 @@ class ContentViewModel: ObservableObject {
             let upcomingCalendarEvents: [CalendarEvent]
             do {
                 // Get Google Calendar events
-                let googleEvents = try await calendarService.fetchUpcomingEvents(days: 14)
+                let googleEvents = try await calendarService.getUpcomingEvents(days: 14)
 
                 // Get local events
                 let localEvents = LocalEventService.shared.getUpcomingEvents(days: 14)
@@ -242,14 +250,15 @@ class ContentViewModel: ObservableObject {
                     }
                 }
 
-                // Sort by start date
-                upcomingCalendarEvents = allEvents.sorted { $0.startDate < $1.startDate }
+                // Sort by start date and filter for today
+                upcomingCalendarEvents = allEvents.filter { Calendar.current.isDateInToday($0.startDate) }.sorted { $0.startDate < $1.startDate }
 
                 ProductionLogger.logEmailOperation("Calendar events loaded (Google: \(googleEvents.count), Local: \(localEvents.count))", count: upcomingCalendarEvents.count)
             } catch {
                 // Fallback to local events only
                 upcomingCalendarEvents = LocalEventService.shared.getUpcomingEvents(days: 14)
                 ProductionLogger.logEmailError(error, operation: "Google Calendar events loading, using local events only")
+                print("Error fetching calendar events: \(error)")
             }
             
             await MainActor.run {
@@ -952,7 +961,7 @@ class ContentViewModel: ObservableObject {
     // MARK: - Home Page Display Properties (Maximum 3 items each)
     
     /// Returns maximum 3 emails for home page display
-    var displayedImportantEmails: [Email] {
+    var displayedTodaysEmails: [Email] {
         return Array(importantEmails.prefix(3))
     }
     

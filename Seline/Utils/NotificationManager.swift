@@ -103,20 +103,35 @@ class NotificationManager: NSObject {
     func notifyNewEmails(_ emails: [Email]) {
         guard notificationsEnabled && !emails.isEmpty else { return }
 
-        let count = emails.count
-        let title = count == 1 ? "New Email" : "\(count) New Emails"
-        let body = count == 1
-            ? "From: \(emails[0].sender.displayName)"
-            : "\(count) new emails in your inbox"
+        scheduleIndividualEmailNotifications(for: emails)
+    }
 
-        scheduleNotification(
-            identifier: "new_emails_\(Date().timeIntervalSince1970)",
-            title: title,
-            body: body,
-            category: .generalEmails
-        )
+    /// Schedule individual notifications for a list of emails
+    func scheduleIndividualEmailNotifications(for emails: [Email]) {
+        guard notificationsEnabled && !emails.isEmpty else { return }
 
-        ProductionLogger.logCoreDataEvent("Scheduled notification for \(count) new emails")
+        for email in emails {
+            // Ensure we haven't already sent a notification for this email
+            guard !NotifiedEmailTracker.shared.hasBeenNotified(id: email.id) else {
+                continue
+            }
+
+            let title = "New from \(email.sender.displayName)"
+            let body = email.subject
+            let identifier = "email_\(email.id)"
+
+            scheduleNotification(
+                identifier: identifier,
+                title: title,
+body: body,
+                category: .generalEmails
+            )
+
+            // Track that this email has been notified
+            NotifiedEmailTracker.shared.addNotifiedEmail(id: email.id)
+        }
+
+        ProductionLogger.logCoreDataEvent("Scheduled individual notifications for \(emails.count) new emails")
     }
     
     func scheduleTodoNotification(for todo: TodoItem) {

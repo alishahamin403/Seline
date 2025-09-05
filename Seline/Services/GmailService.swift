@@ -97,10 +97,6 @@ class GmailService: GmailServiceProtocol {
                 // Notify the user about the new emails
                 if !newEmails.isEmpty {
                     NotificationManager.shared.notifyNewEmails(newEmails)
-                    // Add the new email IDs to the tracker
-                    for email in newEmails {
-                        NotifiedEmailTracker.shared.addNotifiedEmail(id: email.id)
-                    }
                 }
                 
                 ProductionLogger.logEmailLoad("inbox emails", count: emails.count)
