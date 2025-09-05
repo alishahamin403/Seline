@@ -109,6 +109,81 @@ class CalendarService: ObservableObject {
             }
         }
     }
+
+    /// Fetches past events from Google Calendar for a specific month
+    func fetchPastEvents(for date: Date) async throws -> [CalendarEvent] {
+        isLoading = true
+        defer { isLoading = false }
+
+        guard authService.isAuthenticated, let user = authService.user else {
+            throw CalendarError.notAuthenticated
+        }
+
+        if user.isTokenExpired {
+            do {
+                try await authService.refreshTokenIfNeeded()
+            } catch {
+                throw CalendarError.authenticationFailed
+            }
+        }
+
+        guard let accessToken = authService.user?.accessToken else {
+            throw CalendarError.noAccessToken
+        }
+
+        let calendar = Calendar.current
+        guard let monthStartDate = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+              let monthEndDate = calendar.date(byAdding: .month, value: 1, to: monthStartDate) else {
+            return []
+        }
+
+        let dateFormatter = ISO8601DateFormatter()
+        let timeMin = dateFormatter.string(from: monthStartDate)
+        let timeMax = dateFormatter.string(from: monthEndDate)
+
+        var urlComponents = URLComponents(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
+        urlComponents.queryItems = [
+            URLQueryItem(name: "timeMin", value: timeMin),
+            URLQueryItem(name: "timeMax", value: timeMax),
+            URLQueryItem(name: "singleEvents", value: "true"),
+            URLQueryItem(name: "orderBy", value: "startTime"),
+            URLQueryItem(name: "maxResults", value: "250")
+        ]
+
+        guard let url = urlComponents.url else {
+            throw CalendarError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                throw CalendarError.apiError(httpResponse.statusCode)
+            }
+
+            let calendarResponse = try JSONDecoder().decode(GoogleCalendarResponse.self, from: data)
+            let events = calendarResponse.items.compactMap { convertGoogleEventToCalendarEvent($0) }
+
+            await MainActor.run {
+                isConnected = true
+            }
+
+            return events
+        } catch {
+            print("Error fetching past events: \(error)")
+            if error is DecodingError {
+                throw CalendarError.decodingError
+            } else if error is URLError {
+                throw CalendarError.networkError
+            } else {
+                throw CalendarError.unknownError(error)
+            }
+        }
+    }
     
     /// Creates a new event in Google Calendar
     func createEvent(_ event: CalendarEvent) async throws -> CalendarEvent {
@@ -116,7 +191,9 @@ class CalendarService: ObservableObject {
             throw CalendarError.notAuthenticated
         }
         
-        // For now, return the event as-is (placeholder)
+        // Save to local service
+        try await LocalEventService.shared.addEvent(event)
+        
         // In a full implementation, this would POST to Google Calendar API
         return event
     }

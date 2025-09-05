@@ -172,6 +172,28 @@ class AuthenticationService: ObservableObject {
         
         print("🔄 Token expired, refreshing...")
         
+        // In development with mock data, we don't have a real refresh token.
+        // So we will just extend the expiration date of the current mock token.
+        #if DEBUG
+        print("⚠️ In DEBUG mode, skipping real token refresh and extending mock token's expiration.")
+        let refreshedUser = SelineUser(
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            profileImageURL: user.profileImageURL,
+            accessToken: user.accessToken,
+            refreshToken: user.refreshToken,
+            tokenExpirationDate: Date().addingTimeInterval(3600) // Extend for 1 hour
+        )
+        
+        await MainActor.run {
+            self.user = refreshedUser
+        }
+        
+        saveAuthState()
+        return
+        #endif
+
         do {
             // Use GoogleOAuthService for token refresh
             if let newAccessToken = await GoogleOAuthService.shared.getValidAccessToken() {

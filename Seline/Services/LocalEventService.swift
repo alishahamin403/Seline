@@ -6,35 +6,40 @@
 //
 
 import Foundation
+import Combine
 
 /// Service for managing local calendar events
 class LocalEventService {
     static let shared = LocalEventService()
     
+    @Published private var events: [CalendarEvent] = []
+    
     private init() {}
     
     /// Returns upcoming calendar events for the next specified number of days
     func getUpcomingEvents(days: Int) -> [CalendarEvent] {
-        // Placeholder implementation - return empty array for now
-        // In a real implementation, this would fetch from Core Data or other local storage
-        return []
+        let calendar = Calendar.current
+        let startDate = Date()
+        let endDate = calendar.date(byAdding: .day, value: days, to: startDate) ?? startDate
+        
+        return events.filter { $0.startDate >= startDate && $0.startDate <= endDate }
     }
     
     /// Adds a new local event
     func addEvent(_ event: CalendarEvent) async throws {
-        // Placeholder implementation
         // In a real implementation, this would save to Core Data
+        events.append(event)
     }
     
     /// Updates an existing local event
     func updateEvent(_ event: CalendarEvent) async throws {
-        // Placeholder implementation
-        // In a real implementation, this would update in Core Data
+        if let index = events.firstIndex(where: { $0.id == event.id }) {
+            events[index] = event
+        }
     }
     
     /// Deletes a local event
     func deleteEvent(id: String) async throws {
-        // Placeholder implementation
-        // In a real implementation, this would delete from Core Data
+        events.removeAll { $0.id == id }
     }
 }

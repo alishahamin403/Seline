@@ -114,12 +114,16 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingAddCalendarEvent) {
             AddCalendarEventView(
+                onEventAdded: {
+                    Task {
+                        await viewModel.loadCategoryEmails()
+                    }
+                },
                 title: calendarEventTitle,
                 description: calendarEventDescription,
                 start: calendarEventStart,
                 end: calendarEventEnd,
-                location: calendarEventLocation,
-                // isAllDay parameter removed
+                location: calendarEventLocation
             )
         }
         .actionSheet(isPresented: $showingAddOptions) {
@@ -201,7 +205,17 @@ struct ContentView: View {
     // MARK: - Voice Recording Helper
     
     private func startVoiceRecording(for mode: VoiceMode) {
-        VoiceRecordingService.shared.startOneShotTranscription(for: .search) { transcript in
+        let oneShotMode: VoiceRecordingService.OneShotMode
+        switch mode {
+        case .todo:
+            oneShotMode = .todo
+        case .search:
+            oneShotMode = .search // Calendar uses search mode for transcription
+        @unknown default:
+            oneShotMode = .search
+        }
+
+        VoiceRecordingService.shared.startOneShotTranscription(for: oneShotMode) { transcript in
             // Hide overlay when transcription completes
             Task { @MainActor in
                 showingVoiceRecording = false
@@ -214,24 +228,6 @@ struct ContentView: View {
             switch mode {
             case .todo:
                 Task { await TodoManager.shared.createTodoFromSpeech(text) }
-            case .calendar:
-                Task { @MainActor in
-                    // DISABLED: Calendar event extraction not available
-                    // let extracted = await IntelligentSearchService.shared.extractCalendarEvent(from: text)
-                    
-                    // Populate with basic data from voice input
-                    let extracted = (title: text, start: Date(), end: Date().addingTimeInterval(3600), location: nil as String?)
-                    
-                    // Populate state variables with extracted data
-                    calendarEventTitle = extracted.title
-                    calendarEventDescription = nil // Description not provided by extraction
-                    calendarEventStart = extracted.start ?? Date()
-                    calendarEventEnd = extracted.end ?? Date().addingTimeInterval(3600)
-                    calendarEventLocation = extracted.location
-                    
-                    // Show the calendar creation sheet
-                    showingAddCalendarEvent = true
-                }
             case .search:
                 // For search mode, populate search field and open search results
                 Task { @MainActor in
@@ -296,15 +292,10 @@ struct ContentView: View {
     // MARK: - Category Cards View (Normal State)
     
     private var categoryCardsView: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Spacer(minLength: 60)
-                categoryCardsSection
-                Spacer(minLength: 60)
-            }
-        }
-        .refreshable {
-            await performRefresh()
+        VStack(spacing: 0) {
+            Spacer()
+            categoryCardsSection
+            Spacer()
         }
     }
     
@@ -408,9 +399,6 @@ struct ContentView: View {
                 onAddEvent: {
                     showingAddCalendarEvent = true
                 },
-                onAddEventWithVoice: {
-                    startVoiceRecording(for: .calendar)
-                },
                 onViewAll: {
                     showingUpcomingEvents = true
                 }
@@ -426,6 +414,8 @@ struct ContentView: View {
                     showingAddTodo = true
                 },
                 onAddTodoWithVoice: {
+                    selectedVoiceMode = .todo
+                    showingVoiceRecording = true
                     startVoiceRecording(for: .todo)
                 },
                 onViewAll: {
@@ -477,14 +467,9 @@ struct ContentView: View {
                 // Search voice button: when focused on search, record voice for search (opens IntelligentSearchView with transcription)
                 if isSearchFocused {
                     Button(action: {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        
-                        // Dismiss keyboard before showing voice mode selector
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                        
-                        // Show voice mode selector
-                        showingVoiceModeSelector = true
+                        selectedVoiceMode = .search
+                        showingVoiceRecording = true
+                        startVoiceRecording(for: .search)
                     }) {
                         ZStack {
                             Circle()
@@ -508,11 +493,9 @@ struct ContentView: View {
                 } else {
                     // Voice search button: when not focused, open voice mode selector
                     Button(action: {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        
-                        // Show voice mode selector
-                        showingVoiceModeSelector = true
+                        selectedVoiceMode = .search
+                        showingVoiceRecording = true
+                        startVoiceRecording(for: .search)
                     }) {
                         ZStack {
                             Circle()

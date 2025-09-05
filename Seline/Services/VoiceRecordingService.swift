@@ -236,11 +236,22 @@ class VoiceRecordingService: NSObject, ObservableObject {
                 print("🎯 VoiceRecordingService: Final transcription: \(recordedText)")
                 isProcessing = false
                 let finalText = recordedText
-                // Finalize without triggering error path
-                recognitionRequest = nil
+
+                // Cancel the task to prevent further notifications
+                recognitionTask?.cancel()
                 recognitionTask = nil
+
+                // Stop the audio engine
                 audioEngine.stop()
+                if hasTapInstalled {
+                    audioEngine.inputNode.removeTap(onBus: 0)
+                    hasTapInstalled = false
+                }
+                recognitionRequest?.endAudio()
+                recognitionRequest = nil
+
                 isRecording = false
+
                 if let completion = oneShotCompletion {
                     oneShotCompletion = nil
                     oneShotMode = nil

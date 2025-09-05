@@ -37,10 +37,10 @@ struct SelineApp: App {
         print("📊 All app activity will be tracked in Supabase cloud storage")
         
         // Setup development credentials automatically
-        DevelopmentConfiguration.shared.setupDevelopmentCredentials()
+        // DevelopmentConfiguration.shared.setupDevelopmentCredentials()
         
         // Print credential status for debugging
-        DevelopmentConfiguration.shared.printCredentialStatus()
+        // DevelopmentConfiguration.shared.printCredentialStatus()
         
         // Debug authentication service state
         AuthenticationService.shared.debugCurrentState()
@@ -53,7 +53,7 @@ struct SelineApp: App {
             print("🌐 Supabase initialization status: \(supabaseService.isConnected ? "✅ Connected" : "❌ Not Connected")")
             // DISABLED: Supabase initialization
             
-            await DevelopmentConfiguration.shared.validateAPIKeys()
+            // await DevelopmentConfiguration.shared.validateAPIKeys()
         }
         #endif
     }

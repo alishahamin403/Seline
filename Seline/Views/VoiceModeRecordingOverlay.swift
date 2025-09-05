@@ -275,8 +275,6 @@ struct VoiceModeRecordingOverlay: View {
             return "Converting your speech to text and understanding your request"
         } else if voiceService.isRecording {
             switch mode {
-            case .calendar:
-                return "Describe your meeting or event details"
             case .todo:
                 return "Tell me what you need to remember"
             case .search:
@@ -428,7 +426,7 @@ struct VoiceModeRecordingOverlay_Previews: PreviewProvider {
             Color.gray.ignoresSafeArea()
             
             VoiceModeRecordingOverlay(
-                mode: .calendar,
+                mode: .todo,
                 onCancel: { },
                 onModeChange: { }
             )

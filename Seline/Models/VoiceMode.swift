@@ -8,7 +8,6 @@
 import SwiftUI
 
 enum VoiceMode: String, CaseIterable, Identifiable {
-    case calendar = "calendar"
     case todo = "todo"
     case search = "search"
     
@@ -17,8 +16,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     // Display properties
     var title: String {
         switch self {
-        case .calendar:
-            return "Calendar Event"
         case .todo:
             return "Todo Item"
         case .search:
@@ -28,8 +25,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     
     var subtitle: String {
         switch self {
-        case .calendar:
-            return "Create calendar events and meetings"
         case .todo:
             return "Add tasks and reminders"
         case .search:
@@ -39,8 +34,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     
     var icon: String {
         switch self {
-        case .calendar:
-            return "calendar.badge.plus"
         case .todo:
             return "checklist"
         case .search:
@@ -50,8 +43,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     
     var color: Color {
         switch self {
-        case .calendar:
-            return .blue
         case .todo:
             return .green
         case .search:
@@ -61,8 +52,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     
     var gradient: LinearGradient {
         switch self {
-        case .calendar:
-            return DesignSystem.Colors.primaryGradient
         case .todo:
             return DesignSystem.Colors.secondaryGradient
         case .search:
@@ -73,8 +62,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     // Recording-specific properties
     var recordingPrompt: String {
         switch self {
-        case .calendar:
-            return "Tell me about your event..."
         case .todo:
             return "What do you need to remember?"
         case .search:
@@ -84,19 +71,15 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     
     var recordingExample: String {
         switch self {
-        case .calendar:
-            return "\"Meeting with John tomorrow at 3pm\""
         case .todo:
-            return "\"Buy groceries for dinner party\""
+            return "Buy groceries for dinner party"
         case .search:
-            return "\"Find emails from Sarah about the project\""
+            return "Find emails from Sarah about the project"
         }
     }
     
     var recordingIcon: String {
         switch self {
-        case .calendar:
-            return "calendar"
         case .todo:
             return "checkmark.circle"
         case .search:
@@ -107,8 +90,6 @@ enum VoiceMode: String, CaseIterable, Identifiable {
     // Emoji for visual appeal
     var emoji: String {
         switch self {
-        case .calendar:
-            return "📅"
         case .todo:
             return "✅"
         case .search:

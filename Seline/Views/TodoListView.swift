@@ -10,10 +10,22 @@ import Foundation
 
 struct TodoListView: View {
     @StateObject private var todoManager = TodoManager.shared
-    @State private var showingAllTodos = false
     @State private var editingTodo: TodoItem?
     @State private var showingAddTodo = false
+    @State private var selectedTab = 0
     @Environment(\.dismiss) private var dismiss
+    
+    private var upcomingTodos: [TodoItem] {
+        todoManager.todos.filter { !$0.isCompleted }
+    }
+    
+    private var completedTodos: [TodoItem] {
+        todoManager.todos.filter { $0.isCompleted }
+    }
+    
+    private var todosToDisplay: [TodoItem] {
+        selectedTab == 0 ? upcomingTodos : completedTodos
+    }
     
     var body: some View {
         NavigationView {
@@ -21,26 +33,33 @@ struct TodoListView: View {
                 // Header with close button
                 headerView
                 
+                // Tab Picker
+                Picker("Todos", selection: $selectedTab) {
+                    Text("Upcoming").tag(0)
+                    Text("Completed").tag(1)
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
+
                 // Content
-                ScrollView {
-                    VStack(spacing: 16) {
-                        if todoManager.todos.isEmpty {
-                            emptyStateView
-                        } else {
-                            todoItemsView
+                if selectedTab == 0 {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            if todosToDisplay.isEmpty {
+                                emptyStateView
+                            } else {
+                                todoItemsView
+                            }
                         }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 20)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 20)
+                } else {
+                    CompletedTodosCalendarView()
                 }
             }
             .background(DesignSystem.Colors.background)
             .navigationBarHidden(true)
-        }
-        .fullScreenCover(isPresented: $showingAllTodos) {
-            NavigationView {
-                AllTodosView()
-            }
         }
         .sheet(item: $editingTodo) { todo in
             TodoEditView(todo: todo) { updatedTodo in
@@ -160,7 +179,7 @@ struct TodoListView: View {
         let calendar = Calendar.current
         var grouped: [Date: [TodoItem]] = [:]
         
-        for todo in todoManager.todos {
+        for todo in todosToDisplay {
             let dayStart = calendar.startOfDay(for: todo.dueDate)
             if grouped[dayStart] == nil {
                 grouped[dayStart] = []
@@ -196,11 +215,11 @@ struct TodoListView: View {
                 .font(.system(size: 32, weight: .light))
                 .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.6))
             
-            Text("No todos yet")
+            Text(selectedTab == 0 ? "No upcoming todos" : "No completed todos")
                 .font(.system(size: 16, weight: .medium, design: .rounded))
                 .foregroundColor(DesignSystem.Colors.textSecondary)
             
-            Text("Use the voice button to create your first todo")
+            Text(selectedTab == 0 ? "Use the voice button to create your first todo" : "Completed todos will appear here")
                 .font(.system(size: 14, weight: .regular, design: .rounded))
                 .foregroundColor(DesignSystem.Colors.textSecondary.opacity(0.8))
                 .multilineTextAlignment(.center)

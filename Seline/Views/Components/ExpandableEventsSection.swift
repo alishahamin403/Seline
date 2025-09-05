@@ -4,7 +4,6 @@ struct ExpandableEventsSection: View {
     let events: [CalendarEvent]
     @Binding var isExpanded: Bool
     let onAddEvent: () -> Void
-    let onAddEventWithVoice: () -> Void
     let onViewAll: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -49,13 +48,6 @@ struct ExpandableEventsSection: View {
             }
             
             Spacer()
-            
-            Button(action: onAddEventWithVoice) {
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
-            }
-            .padding(.trailing, 8)
 
             Button(action: onAddEvent) {
                 Image(systemName: "plus")
@@ -100,7 +92,6 @@ struct ExpandableEventsSection_Previews: PreviewProvider {
             events: [],
             isExpanded: .constant(true),
             onAddEvent: {},
-            onAddEventWithVoice: {},
             onViewAll: {}
         )
     }

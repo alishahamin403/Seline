@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct AddCalendarEventView: View {
+    var onEventAdded: (() -> Void)?
     let title: String
     let description: String?
     let start: Date
@@ -23,7 +24,8 @@ struct AddCalendarEventView: View {
     @State private var isAllDay: Bool = false
     @State private var isLoading: Bool = false
     
-    init(title: String = "", description: String? = nil, start: Date = Date(), end: Date = Date().addingTimeInterval(3600), location: String? = nil) {
+    init(onEventAdded: (() -> Void)? = nil, title: String = "", description: String? = nil, start: Date = Date(), end: Date = Date().addingTimeInterval(3600), location: String? = nil) {
+        self.onEventAdded = onEventAdded
         self.title = title
         self.description = description
         self.start = start
@@ -94,10 +96,10 @@ struct AddCalendarEventView: View {
                 isAllDay: isAllDay
             )
             
-            // In a real implementation, this would save to CalendarService
             _ = try await CalendarService.shared.createEvent(event)
             
             await MainActor.run {
+                onEventAdded?()
                 dismiss()
             }
         } catch {

@@ -161,6 +161,13 @@ class TodoManager: ObservableObject {
         todos.filter { $0.isCompleted }
     }
     
+    func fetchCompletedTodos(for date: Date) -> [TodoItem] {
+        let calendar = Calendar.current
+        return todos.filter {
+            $0.isCompleted && calendar.isDate($0.dueDate, equalTo: date, toGranularity: .month)
+        }
+    }
+    
     // MARK: - Statistics
     
     var totalTodos: Int { todos.count }

@@ -15,6 +15,7 @@ struct UpcomingEventsView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showingAddEvent = false
+    @State private var selectedTab = 0
     
     private let daysToShow = 7
     
@@ -24,15 +25,27 @@ struct UpcomingEventsView: View {
                 // Header
                 headerView
                 
+                // Tab Picker
+                Picker("Events", selection: $selectedTab) {
+                    Text("Upcoming").tag(0)
+                    Text("Completed").tag(1)
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
+
                 // Content
-                if isLoading {
-                    loadingView
-                } else if let error = errorMessage {
-                    errorView(error)
-                } else if events.isEmpty {
-                    emptyStateView
+                if selectedTab == 0 {
+                    if isLoading {
+                        loadingView
+                    } else if let error = errorMessage {
+                        errorView(error)
+                    } else if events.isEmpty {
+                        emptyStateView
+                    } else {
+                        eventsListView
+                    }
                 } else {
-                    eventsListView
+                    CompletedEventsCalendarView()
                 }
             }
             .background(DesignSystem.Colors.background)
@@ -45,7 +58,11 @@ struct UpcomingEventsView: View {
             await loadEvents()
         }
         .sheet(isPresented: $showingAddEvent) {
-            AddCalendarEventView()
+            AddCalendarEventView {
+                Task {
+                    await loadEvents()
+                }
+            }
         }
     }
     
@@ -358,7 +375,7 @@ struct EventCard: View {
                     }
                 }
             }
-            .frame(width: 60, alignment: .leading)
+            .frame(width: 80, alignment: .leading)
             
             // Event details
             VStack(alignment: .leading, spacing: 4) {
