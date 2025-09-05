@@ -93,3 +93,6 @@ iOSInjectionProject/
 
 # Cursor IDE - Contains sensitive API keys
 .cursor/
+
+# Supabase Config
+Seline/Services/SupabaseConfig.swift
