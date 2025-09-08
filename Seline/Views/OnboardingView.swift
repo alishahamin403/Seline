@@ -13,12 +13,27 @@ struct OnboardingView: View {
     @State private var isAuthenticating = false
     @State private var showingPermissions = false
     
+    private var logoImageName: String {
+        // Use light logo for light appearance, dark logo for dark appearance
+        // For onboarding, we'll use the same logic as ContentView
+        let hour = Calendar.current.component(.hour, from: Date())
+        return hour >= 6 && hour < 18 ? "seline-light" : "SelineLogo"
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 120)
+            Spacer(minLength: 80)
             
-            // Main heading with friendly tone
-            VStack(spacing: DesignSystem.Spacing.lg) {
+            // Seline Logo
+            VStack(spacing: DesignSystem.Spacing.xl) {
+                Image(logoImageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 120, height: 120)
+                    .clipped()
+                
+                // Main heading with friendly tone
+                VStack(spacing: DesignSystem.Spacing.lg) {
                 Text(authService.hasCompletedOnboarding ? "Welcome back!" : "Let's organize your emails")
                     .font(.system(size: 32, weight: .medium, design: .rounded))
                     .foregroundColor(DesignSystem.Colors.textPrimary)
@@ -29,14 +44,15 @@ struct OnboardingView: View {
                     .font(.system(size: 18, weight: .regular, design: .rounded))
                     .foregroundColor(DesignSystem.Colors.textSecondary)
                     .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, DesignSystem.Spacing.xl)
             }
-            .padding(.horizontal, DesignSystem.Spacing.xl)
             
             Spacer(minLength: 100)
             
             // Simple Google sign in button
             Button(action: {
-                Task {
+                Task { @MainActor in
                     await performGoogleSignIn()
                 }
             }) {
@@ -95,7 +111,12 @@ struct OnboardingView: View {
             Spacer(minLength: 80)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignSystem.Colors.surface)
+        .background(
+            Color(UIColor { traitCollection in
+                traitCollection.userInterfaceStyle == .dark ? UIColor.black : UIColor(DesignSystem.Colors.surface)
+            })
+            .ignoresSafeArea()
+        )
         .onAppear {
             googleAuth.lastError = nil // Clear any previous errors
             
@@ -108,6 +129,7 @@ struct OnboardingView: View {
     
     // MARK: - Authentication Methods
     
+    @MainActor
     private func performGoogleSignIn() async {
         isAuthenticating = true
         

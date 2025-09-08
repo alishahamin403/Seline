@@ -8,8 +8,7 @@
 import SwiftUI
 
 struct TodayEmailsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = ContentViewModel()
+    @ObservedObject var viewModel: ContentViewModel
     @StateObject private var summaryCache = EmailSummaryCacheManager()
     @ObservedObject var openAIService: OpenAIService
     @State private var selectedEmail: Email?
@@ -22,17 +21,71 @@ struct TodayEmailsView: View {
     // Computed property for today's emails
     private var todaysEmails: [Email] {
         let today = Date()
-        return viewModel.emails.filter { email in
+        let filtered = viewModel.emails.filter { email in
             Calendar.current.isDate(email.date, inSameDayAs: today)
         }
+        
+        #if DEBUG
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        print("🔍 TodayEmailsView: Total emails: \(viewModel.emails.count)")
+        print("🔍 TodayEmailsView: Today's emails: \(filtered.count)")
+        print("🔍 TodayEmailsView: Current date: \(formatter.string(from: today))")
+        if !viewModel.emails.isEmpty, let firstEmail = viewModel.emails.first {
+            print("🔍 TodayEmailsView: First email date: \(formatter.string(from: firstEmail.date))")
+        }
+        #endif
+        
+        return filtered
     }
     @State private var isSuccessFeedback = true
     @State private var expandedGroups: [TimeGroup: Bool] = [.morning: true, .afternoon: true, .evening: true, .night: true]
+    
+    // MARK: - Gmail App Functions
+    
+    private func openGmailApp() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        
+        // Gmail app URL scheme
+        let gmailURL = URL(string: "googlegmail://")!
+        
+        // Check if Gmail app is installed
+        if UIApplication.shared.canOpenURL(gmailURL) {
+            // Open Gmail app
+            UIApplication.shared.open(gmailURL, options: [:]) { success in
+                if !success {
+                    print("Failed to open Gmail app")
+                    // Fallback to App Store if opening fails
+                    DispatchQueue.main.async {
+                        self.openGmailInAppStore()
+                    }
+                }
+            }
+        } else {
+            // Gmail app not installed, redirect to App Store
+            openGmailInAppStore()
+        }
+    }
+    
+    private func openGmailInAppStore() {
+        // Gmail App Store URL
+        let appStoreURL = URL(string: "https://apps.apple.com/app/gmail-email-by-google/id422689480")!
+        
+        if UIApplication.shared.canOpenURL(appStoreURL) {
+            UIApplication.shared.open(appStoreURL, options: [:]) { success in
+                if !success {
+                    print("Failed to open App Store for Gmail")
+                }
+            }
+        }
+    }
 
     var body: some View {
-        NavigationView {
+        ZStack {
+            // Content
             ZStack {
-                DesignSystem.Colors.surface.ignoresSafeArea()
+                DesignSystem.Colors.background.ignoresSafeArea(.all, edges: .bottom)
                 
                 if viewModel.isLoading {
                     loadingView
@@ -55,48 +108,41 @@ struct TodayEmailsView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(DesignSystem.Colors.textPrimary)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, DesignSystem.Spacing.md)
+                        .padding(.vertical, DesignSystem.Spacing.sm)
                         .background(DesignSystem.Colors.surface)
                         .cornerRadius(12)
                         .shadow(color: DesignSystem.Colors.shadow.opacity(0.2), radius: 8, x: 0, y: 2)
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, DesignSystem.Spacing.md)
                         .padding(.bottom, 100)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     .animation(.easeInOut(duration: 0.3), value: showingFeedback)
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(DesignSystem.Colors.textPrimary)
+            
+            // Floating Inbox Button
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    FloatingActionButton(icon: "tray.fill") {
+                        openGmailApp()
                     }
-                }
-                
-                ToolbarItem(placement: .principal) {
-                    Text("Today's Emails")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 20) // Position right above tab bar
                 }
             }
-            .onAppear {
-                #if DEBUG
-                print("📱 TodayEmailsView appeared")
-                #endif
-                
-                Task {
-                    // Fetch all today's emails with categorization
-                    await viewModel.loadInitialData()
-                }
-            }
-            .sheet(item: $selectedEmail) { email in
-                GmailStyleEmailDetailView(email: email, viewModel: viewModel)
-            }
+        }
+        .background(DesignSystem.Colors.background)
+        .onAppear {
+            #if DEBUG
+            print("📱 TodayEmailsView appeared")
+            #endif
+            // Data loading is now handled by ContentView to prevent redundant fetches
+        }
+        .sheet(item: $selectedEmail) { email in
+            GmailStyleEmailDetailView(email: email, viewModel: viewModel)
         }
     }
     
@@ -137,11 +183,11 @@ struct TodayEmailsView: View {
                             summaryCache: summaryCache,
                             onOpenInGmail: openEmailInApp
                         )
-                        .padding(.leading, 10).padding(.trailing, 18)
+                        .padding(.leading, DesignSystem.Spacing.sm).padding(.trailing, DesignSystem.Spacing.md)
                     }
                 }
             }
-            .padding(.bottom, 20)
+            .padding(.bottom, DesignSystem.Spacing.md)
         }
         .refreshable {
             let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -158,9 +204,7 @@ struct TodayEmailsView: View {
     
     private func performEnhancedRefresh() async {
         await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await viewModel.loadInitialData()
-            }
+            // Data loading is now handled centrally to prevent redundant fetches
             
             // Clear summary cache to get fresh summaries
             group.addTask {
@@ -239,7 +283,7 @@ struct TodayEmailsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
+        .padding(DesignSystem.Spacing.lg)
     }
     
     // MARK: - AI Setup Promotion
@@ -296,8 +340,8 @@ struct TodayEmailsView: View {
                     }
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(DesignSystem.Colors.accent)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, DesignSystem.Spacing.md)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: 25)
                             .fill(DesignSystem.Colors.accent.opacity(0.1))
@@ -321,12 +365,12 @@ struct TodayEmailsView: View {
                     Text("Later")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(DesignSystem.Colors.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, DesignSystem.Spacing.sm)
+                        .padding(.vertical, DesignSystem.Spacing.sm)
                 }
             }
         }
-        .padding(20)
+        .padding(DesignSystem.Spacing.md)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(DesignSystem.Colors.surface)
@@ -487,7 +531,7 @@ struct TimeGroupSection: View {
                             Text("Show All \(emails.count) Emails")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(DesignSystem.Colors.accent)
-                                .padding(.vertical, 8)
+                                .padding(.vertical, DesignSystem.Spacing.sm)
                                 .frame(maxWidth: .infinity)
                                 .background(DesignSystem.Colors.accent.opacity(0.1))
                                 .cornerRadius(8)
@@ -496,7 +540,7 @@ struct TimeGroupSection: View {
                     }
                 }
                 .padding(.top, 8)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, DesignSystem.Spacing.sm)
                 .padding(.bottom, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
@@ -521,16 +565,16 @@ struct TimeGroupSection: View {
                     Text("\(emails.count)")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, DesignSystem.Spacing.sm)
+                        .padding(.vertical, DesignSystem.Spacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(DesignSystem.Colors.accent)
                         )
                 }
                 .contentShape(Rectangle())
-                .padding(.vertical, 12)
-                .padding(.horizontal, 16)
+                .padding(.vertical, DesignSystem.Spacing.sm)
+                .padding(.horizontal, DesignSystem.Spacing.md)
             }
         )
         .accentColor(DesignSystem.Colors.accent) // Added back
@@ -541,6 +585,6 @@ struct TimeGroupSection: View {
 
 struct TodayEmailsView_Previews: PreviewProvider {
     static var previews: some View {
-        TodayEmailsView(openAIService: OpenAIService.shared)
+        TodayEmailsView(viewModel: ContentViewModel(), openAIService: OpenAIService.shared)
     }
 }

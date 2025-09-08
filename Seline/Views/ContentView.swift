@@ -9,16 +9,13 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
+    @Binding var selectedTab: Tab
     @Environment(\.colorScheme) private var colorScheme
-    @StateObject private var viewModel = ContentViewModel()
+    @EnvironmentObject var viewModel: ContentViewModel
     @StateObject private var todoManager = TodoManager.shared
     @StateObject private var voiceRecordingService = VoiceRecordingService.shared
     @State private var showingSettings = false
     @State private var showingSearchResults = false
-    @State private var showingImportantEmails = false
-    @State private var showingUpcomingEvents = false
-    @State private var showingVoiceRecording = false
-    @State private var showingVoiceTodosList = false
     @State private var isRefreshing = false
     @State private var keyboardHeight: CGFloat = 0
     @State private var showingSearchSuggestions = false
@@ -32,14 +29,88 @@ struct ContentView: View {
     @State private var calendarEventLocation: String?
     @State private var todosExpanded = false // no longer used for UI state (kept for compatibility)
     @State private var eventsExpanded = false // no longer used for UI state (kept for compatibility)
-    @State private var showingVoiceModeSelector = false
-    @State private var showingVoiceOverlay = false
     @State private var selectedVoiceMode: VoiceMode?
     @FocusState private var isSearchFocused: Bool
     @State private var actionCompleted = false
+    @State private var lastDebugLogTime: Date?
+    
+    // MARK: - Date and Time Helper Functions
+    
+    private func isToday(_ date: Date) -> Bool {
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // Get start of today (12:00 AM)
+        let startOfToday = calendar.startOfDay(for: today)
+        
+        // Get end of today (11:59:59 PM)
+        let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)?.addingTimeInterval(-1) ?? today
+        
+        // Check if email date falls within today's range
+        return date >= startOfToday && date <= endOfToday
+    }
+    
+    private func getTimeRangeLabel(for date: Date) -> String {
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: date)
+        
+        switch hour {
+        case 0..<6:
+            return "Night"
+        case 6..<12:
+            return "Morning"
+        case 12..<18:
+            return "Afternoon"
+        case 18..<24:
+            return "Evening"
+        default:
+            return "Unknown"
+        }
+    }
     
     private var todayImportantCount: Int {
-        viewModel.importantEmails.count
+        // Show emails from today (12:00 AM to 11:59 PM)
+        let todaysEmails = viewModel.emails.filter { email in
+            isToday(email.date)
+        }
+        
+#if DEBUG
+        // Throttle debug logs to prevent spam (only log every 5 seconds)
+        let now = Date()
+        let shouldLog = lastDebugLogTime == nil || now.timeIntervalSince(lastDebugLogTime!) > 5.0
+        
+        if shouldLog {
+            lastDebugLogTime = now
+            let timeFormatter = DateFormatter()
+            timeFormatter.dateFormat = "h:mm a"
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+            
+            // Enhanced logging
+            print("🏠 HOME: Total emails: \(viewModel.emails.count)")
+            print("🏠 HOME: Today's emails: \(todaysEmails.count)")
+            print("🏠 HOME: Current date: \(dateFormatter.string(from: now))")
+            
+            if viewModel.emails.count > 0 {
+                print("🏠 HOME: First 3 email dates:")
+                for (index, email) in viewModel.emails.prefix(3).enumerated() {
+                    let isToday = isToday(email.date) ? "✓" : "✗"
+                    print("🏠   \(index + 1). \(dateFormatter.string(from: email.date)) \(isToday)")
+                }
+            }
+        }
+        #endif
+        
+        return todaysEmails.count
+    }
+    
+    private var todayEventsCount: Int {
+        // Show only TODAY's events, not the 7-day upcoming events
+        viewModel.upcomingEvents.filter { Calendar.current.isDateInToday($0.startDate) }.count
+    }
+    
+    private var todayTodosCount: Int {
+        todoManager.todayTodos.count
     }
 
     var body: some View {
@@ -48,17 +119,38 @@ struct ContentView: View {
                 // Top area: Clean header with minimal elements
                 topSection
                 
+                // Search bar - now positioned above content
+                topSearchSection
+                
                 if isSearchFocused {
                     // When focused, show search interface with suggestions
                     searchFocusedView
                 } else {
-                    // Normal view with category cards
-                    categoryCardsView
+                    // Normal view with personalized greeting
+                    personalizedGreetingView
+                        .gesture(
+                            DragGesture(minimumDistance: 30)
+                                .onEnded { value in
+                                    // Swipe down gesture to focus search
+                                    if value.translation.height > 50 && abs(value.translation.width) < 100 {
+                                        withAnimation(.easeOut(duration: 0.3)) {
+                                            isSearchFocused = true
+                                        }
+                                        // Haptic feedback
+                                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                                        impactFeedback.impactOccurred()
+                                    }
+                                }
+                        )
                 }
                 
-                // Search bar - always at bottom but moves up with keyboard
-                bottomSearchSection
-                    .padding(.bottom, keyboardHeight > 0 ? keyboardHeight - geometry.safeAreaInsets.bottom : 0)
+                // Spacer to push content up when keyboard appears
+                if keyboardHeight > 0 {
+                    Spacer()
+                        .frame(height: keyboardHeight - geometry.safeAreaInsets.bottom)
+                } else {
+                    Spacer()
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .linearBackground()
@@ -90,20 +182,6 @@ struct ContentView: View {
                     .navigationBarHidden(true)
             }
             .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
-        }
-        .fullScreenCover(isPresented: $showingImportantEmails) {
-            NavigationView {
-                TodayEmailsView(openAIService: OpenAIService.shared) // Using TodayEmailsView instead of ImportantEmailsView
-            }
-            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
-        }
-        .fullScreenCover(isPresented: $showingUpcomingEvents) {
-            UpcomingEventsView()
-                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)))
-        }
-
-        .sheet(isPresented: $showingVoiceTodosList) {
-            TodoListView() // Using TodoListView instead of VoiceTodosListView
         }
         .sheet(isPresented: $showingAddTodo) {
             AddTodoView { todoItem in
@@ -141,56 +219,14 @@ struct ContentView: View {
                 ]
             )
         }
-        .overlay(
-            // Voice mode selector and recording overlays
-            Group {
-                if showingVoiceModeSelector {
-                    VoiceModeSelector(
-                        onModeSelected: { mode in
-                            selectedVoiceMode = mode
-                            showingVoiceModeSelector = false
-                            showingVoiceRecording = true
-                            
-                            // Start recording immediately for selected mode
-                            startVoiceRecording(for: mode)
-                        },
-                        onCancel: {
-                            showingVoiceModeSelector = false
-                        },
-                        selectedVoiceMode: $selectedVoiceMode,
-                        showingVoiceModeSelector: $showingVoiceModeSelector,
-                        showingVoiceRecording: $showingVoiceRecording,
-                        startVoiceRecording: startVoiceRecording
-                    )
-                } else if showingVoiceRecording, let mode = selectedVoiceMode {
-                    VoiceModeRecordingOverlay(
-                        mode: mode,
-                        onCancel: {
-                            voiceRecordingService.stopRecording(userInitiated: true)
-                            showingVoiceRecording = false
-                            selectedVoiceMode = nil
-                        },
-                        onModeChange: {
-                            voiceRecordingService.stopRecording(userInitiated: true)
-                            showingVoiceRecording = false
-                            showingVoiceModeSelector = true
-                        }
-                    )
-                }
-            }
-        )
         // Search is now triggered only when user presses Enter/Return
         // This prevents the refresh screen behavior
         .onAppear {
-            Task {
-                await viewModel.loadEmails()
-                await viewModel.loadCategoryEmails()
-            }
+            // Data loading is now handled by MainTabView to prevent redundant fetches
         }
         .onChange(of: voiceRecordingService.isRecording) { isRecording in
-            // Auto-hide recording overlay when recording stops (but not when cancelled by user)
+            // Reset voice mode when recording stops
             if !isRecording && !voiceRecordingService.isProcessing {
-                showingVoiceRecording = false
                 selectedVoiceMode = nil
             }
         }
@@ -216,9 +252,8 @@ struct ContentView: View {
         }
 
         VoiceRecordingService.shared.startOneShotTranscription(for: oneShotMode) { transcript in
-            // Hide overlay when transcription completes
+            // Reset voice mode when transcription completes
             Task { @MainActor in
-                showingVoiceRecording = false
                 selectedVoiceMode = nil
             }
             
@@ -243,14 +278,10 @@ struct ContentView: View {
     // MARK: - Top Section
     
     private var topSection: some View {
-        HStack {
-            Text("Seline")
-                .font(.system(size: 24, weight: .medium, design: .rounded))
-                .foregroundColor(DesignSystem.Colors.textPrimary)
-            
-            Spacer()
-            
-            HStack(spacing: 16) {
+        VStack(spacing: 12) {
+            HStack {
+                Spacer()
+                
                 // Settings button
                 Button(action: {
                     showingSettings = true
@@ -259,43 +290,36 @@ struct ContentView: View {
                         .font(.title2)
                         .foregroundColor(DesignSystem.Colors.textSecondary)
                 }
-                
-                // Inbox button with improved formatting
-                Button(action: {
-                    openGmailApp()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "tray.fill")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("Inbox")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                    }
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(DesignSystem.Colors.surfaceSecondary)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 1)
-                            )
-                    )
-                }
             }
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.top, DesignSystem.Spacing.md)
+            
+            // Date display moved to top area
+            Text(todayDateString)
+                .font(.system(size: 23, weight: .medium, design: .rounded))
+                .foregroundColor(DesignSystem.Colors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, DesignSystem.Spacing.lg)
+                .padding(.bottom, DesignSystem.Spacing.sm)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 20)
-        .padding(.bottom, 10)
     }
     
-    // MARK: - Category Cards View (Normal State)
+    // MARK: - Personalized Greeting View (Normal State)
     
-    private var categoryCardsView: some View {
+    private var personalizedGreetingView: some View {
         VStack(spacing: 0) {
-            Spacer()
-            categoryCardsSection
-            Spacer()
+            Spacer(minLength: 20)
+            
+            personalizedGreetingSection
+            
+            // Daily Brain Teaser
+            VStack {
+                DailyBrainTeaserCard()
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+            }
+            .padding(.top, 16)
+            
+            Spacer(minLength: 20)
         }
     }
     
@@ -352,7 +376,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, DesignSystem.Spacing.lg)
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "magnifyingglass")
@@ -368,7 +392,7 @@ struct ContentView: View {
                             .font(.system(size: 15, weight: .regular, design: .rounded))
                             .foregroundColor(DesignSystem.Colors.textSecondary)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
+                            .padding(.horizontal, DesignSystem.Spacing.xl)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -377,60 +401,76 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - Recent Search Previews Section
     
-    // MARK: - Category Cards Section
     
-    private var categoryCardsSection: some View {
-        VStack(spacing: 16) {
-
-            // Today's Emails Card with Previews
-            TodaysEmailsPreviewCard(
-                emails: viewModel.displayedTodaysEmails,
-                totalCount: todayImportantCount,
-                onTap: {
-                    showingImportantEmails = true
+    // MARK: - Personalized Greeting Section
+    
+    private var personalizedGreetingSection: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 20) {
+                // Day time tracker
+                DayTimeTracker()
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                
+                VStack(spacing: 16) {
+                    personalizedGreetingText
                 }
-            )
-
-            // Today's Events (tap to open full view)
-            ExpandableEventsSection(
-                events: viewModel.displayedUpcomingEvents,
-                isExpanded: .constant(false),
-                onAddEvent: {
-                    showingAddCalendarEvent = true
-                },
-                onViewAll: {
-                    showingUpcomingEvents = true
-                }
-            )
-            .contentShape(Rectangle())
-            .onTapGesture { showingUpcomingEvents = true }
-
-            // Today's Todos (tap to open full view)
-            ExpandableTodosSection(
-                todos: Array(todoManager.todayTodos.prefix(3)),
-                isExpanded: .constant(false),
-                onAddTodo: {
-                    showingAddTodo = true
-                },
-                onAddTodoWithVoice: {
-                    selectedVoiceMode = .todo
-                    showingVoiceRecording = true
-                    startVoiceRecording(for: .todo)
-                },
-                onViewAll: {
-                    showingVoiceTodosList = true
-                }
-            )
-            .contentShape(Rectangle())
-            .onTapGesture { showingVoiceTodosList = true }
+                .padding(.horizontal, DesignSystem.Spacing.lg)
+            }
         }
-        .padding(.horizontal, 24)
     }
     
-    // MARK: - Bottom Search Section
+    private var personalizedGreetingText: some View {
+        let userName = AuthenticationService.shared.user?.name.components(separatedBy: " ").first ?? "there"
+        
+        return (Text("Hi ") + 
+                Text("\(userName)") +
+                Text(", you have ") +
+                Text("\(todayImportantCount)").foregroundColor(DesignSystem.Colors.accent).fontWeight(.bold) +
+                Text(" emails, ") +
+                Text("\(todayEventsCount)").foregroundColor(DesignSystem.Colors.accent).fontWeight(.bold) +
+                Text(" calendar events, and ") +
+                Text("\(todayTodosCount)").foregroundColor(DesignSystem.Colors.accent).fontWeight(.bold) +
+                Text(" todos today"))
+            .font(.system(size: 28, weight: .regular, design: .rounded))
+            .foregroundColor(DesignSystem.Colors.textPrimary)
+            .multilineTextAlignment(.center)
+            .lineLimit(nil)
+    }
     
-    private var bottomSearchSection: some View {
+    // MARK: - Greeting Computed Properties
+    
+    private var todayDateString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter.string(from: Date())
+    }
+    
+    private var logoImageName: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        // Use light logo during day (6 AM - 6 PM), dark logo at night (6 PM - 6 AM)
+        return hour >= 6 && hour < 18 ? "seline-light" : "SelineLogo"
+    }
+    
+    // MARK: - Top Search Section
+    
+    private var searchBarBackground: some View {
+        RoundedRectangle(cornerRadius: isSearchFocused ? 20 : 16)
+            .fill(DesignSystem.Colors.surfaceSecondary)
+            .overlay(
+                RoundedRectangle(cornerRadius: isSearchFocused ? 20 : 16)
+                    .stroke(
+                        isSearchFocused ? 
+                        DesignSystem.Colors.accent.opacity(0.6) : 
+                        Color.clear,
+                        lineWidth: isSearchFocused ? 2 : 0
+                    )
+            )
+            .animation(.easeInOut(duration: 0.3), value: isSearchFocused)
+    }
+    
+    private var topSearchSection: some View {
         VStack(spacing: 0) {
             // Search bar
             HStack(spacing: DesignSystem.Spacing.sm) {
@@ -464,56 +504,81 @@ struct ContentView: View {
                     .transition(.scale.combined(with: .opacity))
                 }
                 
-                // Search voice button: when focused on search, record voice for search (opens IntelligentSearchView with transcription)
+                // Inline voice recording interface
                 if isSearchFocused {
-                    Button(action: {
-                        selectedVoiceMode = .search
-                        showingVoiceRecording = true
-                        startVoiceRecording(for: .search)
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(voiceRecordingService.isRecording ? Color.red : DesignSystem.Colors.accent)
-                                .frame(width: 28, height: 28)
-                                .scaleEffect(voiceRecordingService.isRecording ? 1.1 : 1.0)
-                                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: voiceRecordingService.isRecording)
-                            
-                            if voiceRecordingService.isProcessing {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Image(systemName: voiceRecordingService.isRecording ? "stop.fill" : "mic.fill")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(Color.white)
+                    HStack(spacing: 8) {
+                        // Voice visualizer bars (show when recording)
+                        if voiceRecordingService.isRecording {
+                            VoiceVisualizerBars(
+                                audioLevels: voiceRecordingService.audioLevels,
+                                isRecording: voiceRecordingService.isRecording
+                            )
+                            .transition(.scale.combined(with: .opacity))
+                        }
+                        
+                        // Stop button (show when recording)
+                        if voiceRecordingService.isRecording {
+                            Button(action: {
+                                voiceRecordingService.stopRecording(userInitiated: true)
+                                selectedVoiceMode = nil
+                            }) {
+                                ZStack {
+                                    Circle()
+                                        .fill(DesignSystem.Colors.danger)
+                                    
+                                    Image(systemName: "stop.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(DesignSystem.Colors.alwaysWhite)
+                                }
+                                .frame(width: 24, height: 24)
                             }
+                            .transition(.scale.combined(with: .opacity))
+                        }
+                        
+                        // Microphone button
+                        Button(action: {
+                            if voiceRecordingService.isRecording {
+                                voiceRecordingService.stopRecording(userInitiated: true)
+                                selectedVoiceMode = nil
+                            } else {
+                                selectedVoiceMode = .search
+                                startVoiceRecording(for: .search)
+                            }
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(voiceRecordingService.isRecording ? DesignSystem.Colors.danger : DesignSystem.Colors.accent)
+                                
+                                if voiceRecordingService.isProcessing {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .progressViewStyle(CircularProgressViewStyle(tint: DesignSystem.Colors.alwaysWhite))
+                                } else {
+                                    Image(systemName: "mic.fill")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
+                                }
+                            }
+                            .frame(width: 28, height: 28)
                         }
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    // Voice search button: when not focused, open voice mode selector
+                    // Voice search button: when not focused, focus search and start recording
                     Button(action: {
+                        isSearchFocused = true
                         selectedVoiceMode = .search
-                        showingVoiceRecording = true
                         startVoiceRecording(for: .search)
                     }) {
                         ZStack {
                             Circle()
-                                .fill(voiceRecordingService.isRecording ? Color.red : DesignSystem.Colors.accent)
-                                .frame(width: 28, height: 28)
-                                .scaleEffect(voiceRecordingService.isRecording ? 1.1 : 1.0)
-                                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: voiceRecordingService.isRecording)
+                                .fill(DesignSystem.Colors.accent)
                             
-                            if voiceRecordingService.isProcessing {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Image(systemName: voiceRecordingService.isRecording ? "stop.fill" : "mic.fill")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(Color.white)
-                            }
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.buttonTextOnAccent)
                         }
+                        .frame(width: 28, height: 28)
                     }
                     .transition(.scale.combined(with: .opacity))
                 }
@@ -532,19 +597,13 @@ struct ContentView: View {
                 }
 
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: isSearchFocused ? 20 : 16)
-                    .fill(DesignSystem.Colors.surfaceSecondary)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: isSearchFocused ? 20 : 16)
-                            .stroke(isSearchFocused ? DesignSystem.Colors.accent.opacity(0.5) : DesignSystem.Colors.border.opacity(0.3), lineWidth: isSearchFocused ? 2 : 1)
-                    )
-                    .animation(.easeInOut(duration: 0.3), value: isSearchFocused)
-            )
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
+            .padding(.horizontal, DesignSystem.Spacing.md)
+            .padding(.vertical, DesignSystem.Spacing.md)
+            .background(searchBarBackground)
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.top, DesignSystem.Spacing.sm)
+            .padding(.bottom, DesignSystem.Spacing.sm)
+            
             
         }
     }
@@ -803,18 +862,7 @@ struct SearchSuggestionRow: View {
                     .fill(Color.white.opacity(0.9))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
-                            .stroke(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color.blue.opacity(0.4),
-                                        Color.blue.opacity(0.2),
-                                        Color.blue.opacity(0.4)
-                                    ]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
                     )
                     .shadow(color: Color.black.opacity(0.03), radius: 3, x: 0, y: 1)
             )
@@ -981,11 +1029,11 @@ struct TodoPreviewRow: View {
                     if todo.isOverdue {
                         Text("Overdue")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundColor(.red)
+                            .foregroundColor(DesignSystem.Colors.danger)
                     } else if todo.isDueToday {
                         Text("Today")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundColor(.orange)
+                            .foregroundColor(DesignSystem.Colors.warning)
                     } else {
                         Text(todo.formattedDueDate)
                             .font(.system(size: 11, weight: .regular, design: .rounded))
@@ -1016,6 +1064,7 @@ struct TodoPreviewRow: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView()
+        ContentView(selectedTab: .constant(.home))
+            .environmentObject(ContentViewModel())
     }
 }

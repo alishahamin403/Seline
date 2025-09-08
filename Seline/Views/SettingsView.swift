@@ -50,32 +50,37 @@ struct AdvancedSettingsView: View {
             
             // Settings content
             ScrollView {
-                VStack(spacing: 32) {
+                VStack(spacing: 24) {
                     // User Profile Section
                     userProfileSection
                     
-                    // App Settings
-                    appSettingsSection
+                    // Main Settings (Compact grouped tiles)
+                    VStack(spacing: 0) {
+                        compactAppSettingsSection
+                    }
+                    .background(DesignSystem.Colors.surface)
+                    .cornerRadius(12)
 
-                    // AI & Search Settings
-                    aiSettingsSection
+                    // AI & Search Settings (Compact grouped tiles)
+                    VStack(spacing: 0) {
+                        compactAISettingsSection
+                    }
+                    .background(DesignSystem.Colors.surface)
+                    .cornerRadius(12)
                     
-                    // Email Settings
-                    emailSettingsSection
-                    
-                    
-                    
-                    
-                    
-                    // Support & About
-                    supportSection
+                    // Support & About (Compact grouped tiles)
+                    VStack(spacing: 0) {
+                        compactSupportSection
+                    }
+                    .background(DesignSystem.Colors.surface)
+                    .cornerRadius(12)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 24)
-                .padding(.bottom, 100) // Extra bottom padding
+                .padding(.bottom, 100)
             }
         }
-        .linearBackground()
+        .background(DesignSystem.Colors.surfaceSecondary.ignoresSafeArea())
         .sheet(isPresented: $showingEmailAccounts) {
             EmailAccountsView()
         }
@@ -347,7 +352,7 @@ struct AdvancedSettingsView: View {
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(DesignSystem.Colors.surfaceSecondary)
+                .fill(DesignSystem.Colors.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(DesignSystem.Colors.border.opacity(0.2), lineWidth: 1)
@@ -589,6 +594,194 @@ struct AdvancedSettingsView: View {
     
     private var connectionStatusColor: Color {
         authService.isAuthenticated ? .green : .red
+    }
+    
+    // MARK: - Compact Settings Sections (WhatsApp style)
+    
+    private var compactAppSettingsSection: some View {
+        VStack(spacing: 0) {
+            // Appearance - with theme selector menu
+            Menu {
+                ForEach(ThemeMode.allCases, id: \.self) { theme in
+                    Button(action: {
+                        themeManager.selectedTheme = theme
+                    }) {
+                        HStack {
+                            Image(systemName: theme.icon)
+                            Text(theme.displayName)
+                            if themeManager.selectedTheme == theme {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(DesignSystem.Colors.accent)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 16) {
+                    // Small icon
+                    Image(systemName: themeManager.selectedTheme.icon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                        .frame(width: 24, height: 24)
+                    
+                    // Title
+                    Text("Appearance")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    // Current theme indicator
+                    Text(themeManager.selectedTheme.displayName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    
+                    // Chevron
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            Divider()
+            
+            // Notifications - with toggle
+            HStack(spacing: 16) {
+                // Small icon
+                Image(systemName: "bell")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                    .frame(width: 24, height: 24)
+                
+                // Title
+                Text("Notifications")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Toggle
+                Toggle("", isOn: $notificationsEnabled)
+                    .labelsHidden()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            
+        }
+    }
+    
+    private var compactAISettingsSection: some View {
+        VStack(spacing: 0) {
+            // AI Integration
+            CompactSettingsTile(
+                icon: "brain.head.profile",
+                title: "AI Integration",
+                action: { showingAPIKeySetupGuide = true }
+            )
+            
+        }
+        .alert("OpenAI", isPresented: $showingOpenAIAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(openAIAlertMessage)
+        }
+        .sheet(isPresented: $showingAPIKeySetupGuide) {
+            APIKeySetupGuideView(
+                openAIService: openAIService,
+                onComplete: {
+                    showingAPIKeySetupGuide = false
+                    if SecureStorage.shared.hasOpenAIKey() {
+                        openAIKeyInput = "••••••••••••••••••••••••••"
+                    }
+                },
+                onDismiss: {
+                    showingAPIKeySetupGuide = false
+                }
+            )
+        }
+    }
+    
+    private var compactSupportSection: some View {
+        VStack(spacing: 0) {
+            // About
+            CompactSettingsTile(
+                icon: "info.circle",
+                title: "About",
+                action: { showingAbout = true }
+            )
+            
+            Divider()
+            
+            // Help & Support
+            CompactSettingsTile(
+                icon: "questionmark.circle",
+                title: "Help & Support",
+                action: { showingHelpSheet = true }
+            )
+            
+            Divider()
+            
+            // Sign Out
+            CompactSettingsTile(
+                icon: "arrow.right.square",
+                title: "Sign Out",
+                titleColor: .red,
+                action: {
+                    Task {
+                        await authService.signOut()
+                        dismiss()
+                    }
+                }
+            )
+        }
+    }
+}
+
+// MARK: - Compact Settings Tile (WhatsApp-style)
+
+struct CompactSettingsTile: View {
+    let icon: String
+    let title: String
+    let titleColor: Color?
+    let action: () -> Void
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    init(icon: String, title: String, titleColor: Color? = nil, action: @escaping () -> Void) {
+        self.icon = icon
+        self.title = title
+        self.titleColor = titleColor
+        self.action = action
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                // Small icon
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(titleColor ?? DesignSystem.Colors.textSecondary)
+                    .frame(width: 24, height: 24)
+                
+                // Title
+                Text(title)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(titleColor ?? DesignSystem.Colors.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DesignSystem.Colors.textTertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
