@@ -359,20 +359,20 @@ class AuthenticationService: ObservableObject {
                 throw AuthenticationError.noViewController
             }
             
-            let result = try await GoogleSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+            // Request all scopes upfront to avoid incremental authorization issues
+            let result = try await GoogleSignIn.shared.signIn(withPresenting: presentingViewController, hint: nil, additionalScopes: scopes)
             let user = result.user
             
-            // Check if we have the required scopes - force complete sign-in if missing any
+            // Verify we got all required scopes
             guard let grantedScopes = user.grantedScopes,
                   scopes.allSatisfy({ grantedScopes.contains($0) }) else {
-                // Instead of requesting additional scopes, sign out and restart with all scopes
-                print("⚠️ Missing calendar scope - will request all scopes upfront")
-                await signOut()
-                throw AuthenticationError.calendarScopeRequired
+                print("⚠️ Not all required scopes were granted")
+                print("📋 Requested: \(scopes)")
+                print("✅ Granted: \(user.grantedScopes ?? [])")
+                throw AuthenticationError.missingScopes
             }
             
             await handleSuccessfulSignIn(user: user)
-            */
             
         } catch {
             await MainActor.run {

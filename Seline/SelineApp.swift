@@ -93,17 +93,11 @@ struct SelineApp: App {
             return
         }
         
-        // Configure with all required scopes upfront to avoid incremental authorization issues
+        // Configure GoogleSignIn with client ID
         let configuration = GIDConfiguration(clientID: clientID)
-        configuration.scopes = [
-            "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/calendar.readonly",
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile"
-        ]
-        
         GIDSignIn.sharedInstance.configuration = configuration
-        print("🔧 Google OAuth configured with all scopes: \(configuration.scopes ?? [])")
+        print("🔧 Google OAuth Client ID configured: \(clientID)")
+        print("📋 Required scopes will be requested during sign-in to avoid incremental auth issues")
     }
     
     private func setupNotifications() {
