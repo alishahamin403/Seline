@@ -331,7 +331,6 @@ class AuthenticationService: ObservableObject {
     // MARK: - Google Sign-In
     
     func signInWithGoogle() async {
-        /*
         await MainActor.run {
             isLoading = true
             authError = nil
@@ -349,12 +348,7 @@ class AuthenticationService: ObservableObject {
         }
         
         do {
-            // TODO: Replace with actual Google Sign-In implementation
-            // For now, simulate successful authentication
-            try await simulateGoogleSignIn()
-            
-            /*
-            // Real implementation would look like this:
+            // Real Google Sign-In implementation
             guard let presentingViewController = await getRootViewController() else {
                 throw AuthenticationError.noViewController
             }
@@ -384,7 +378,6 @@ class AuthenticationService: ObservableObject {
         await MainActor.run {
             isLoading = false
         }
-        */
     }
     
     func signOut() async {
@@ -728,21 +721,6 @@ class AuthenticationService: ObservableObject {
 
 // MARK: - Models
 
-struct SelineUser: Codable {
-    let id: String // Google ID
-    var supabaseId: UUID?
-    let email: String
-    let name: String
-    let profileImageURL: String?
-    let accessToken: String
-    let refreshToken: String?
-    let tokenExpirationDate: Date?
-    
-    var isTokenExpired: Bool {
-        guard let expirationDate = tokenExpirationDate else { return true }
-        return Date() >= expirationDate
-    }
-}
 
 // MARK: - Errors
 
