@@ -24,13 +24,19 @@ class CalendarService: ObservableObject {
         return try await self.fetchUpcomingEvents(days: days)
     }
     
-    /// Fetches upcoming events from Google Calendar API
-    func fetchUpcomingEvents(days: Int = 14) async throws -> [CalendarEvent] {
+    /// Fetches upcoming events from Google Calendar API only
+    private func fetchGoogleCalendarEvents(days: Int = 14) async throws -> [CalendarEvent] {
         isLoading = true
         defer { isLoading = false }
         
         guard authService.isAuthenticated, let user = authService.user else {
             throw CalendarError.notAuthenticated
+        }
+        
+        // Validate calendar scope before making API calls
+        guard hasCalendarScope() else {
+            print("⚠️ Calendar scope not available, requesting scope upgrade")
+            throw CalendarError.calendarScopeNotGranted
         }
         
         // Refresh token if needed
@@ -80,6 +86,16 @@ class CalendarService: ObservableObject {
             // Check HTTP response
             if let httpResponse = response as? HTTPURLResponse {
                 guard httpResponse.statusCode == 200 else {
+                    // Special handling for 401/403 errors (authentication/authorization issues)
+                    if httpResponse.statusCode == 401 {
+                        print("🔒 Calendar API returned 401 - possible scope or token issue")
+                        print("   Requesting token refresh and scope validation")
+                        throw CalendarError.calendarScopeNotGranted
+                    } else if httpResponse.statusCode == 403 {
+                        print("🔒 Calendar API returned 403 - insufficient permissions")
+                        print("   User needs to re-authenticate with calendar scope")
+                        throw CalendarError.calendarScopeNotGranted
+                    }
                     throw CalendarError.apiError(httpResponse.statusCode)
                 }
             }
@@ -100,6 +116,17 @@ class CalendarService: ObservableObject {
             
         } catch {
             print("Error during calendar fetch: \(error)")
+            
+            // Handle specific calendar errors
+            if let calendarError = error as? CalendarError {
+                if case .calendarScopeNotGranted = calendarError {
+                    print("🗓️ Calendar scope not granted - skipping Google Calendar integration")
+                    print("   Continuing without Google Calendar access to avoid forced logout")
+                    // Don't call requestCalendarScopeUpgrade() to avoid forced logout
+                }
+                throw calendarError
+            }
+            
             if error is DecodingError {
                 throw CalendarError.decodingError
             } else if error is URLError {
@@ -109,12 +136,96 @@ class CalendarService: ObservableObject {
             }
         }
     }
+    
+    /// Fetches upcoming events from both local storage and Google Calendar API
+    func fetchUpcomingEvents(days: Int = 14) async throws -> [CalendarEvent] {
+        isLoading = true
+        defer { isLoading = false }
+        
+        // Always get local events first
+        var allEvents = LocalEventService.shared.getUpcomingEvents(days: days)
+        
+        // Try to get Google Calendar events if authenticated
+        if authService.isAuthenticated, let user = authService.user, !user.isTokenExpired {
+            do {
+                let googleEvents = try await fetchGoogleCalendarEvents(days: days)
+                allEvents.append(contentsOf: googleEvents)
+            } catch {
+                // Handle specific calendar errors
+                if let calendarError = error as? CalendarError {
+                    if case .calendarScopeNotGranted = calendarError {
+                        print("🗓️ Calendar scope not granted during fetch - using local events only")
+                        print("   Avoiding forced logout to maintain user session")
+                        // Don't call requestCalendarScopeUpgrade() to avoid forced logout
+                    }
+                }
+                
+                // Log error but don't fail - we have local events
+                print("⚠️ Google Calendar fetch failed: \(error)")
+                // Still mark as connected if we got local events
+                await MainActor.run {
+                    isConnected = !allEvents.isEmpty
+                }
+            }
+        } else {
+            // Not authenticated, just use local events
+            print("📅 Using local events only (not authenticated)")
+            await MainActor.run {
+                isConnected = !allEvents.isEmpty
+            }
+        }
+        
+        // Sort by date and remove duplicates based on title and start time
+        let uniqueEvents = Dictionary(grouping: allEvents) { event in
+            "\(event.title)_\(event.startDate.timeIntervalSince1970)"
+        }.values.compactMap { $0.first }
+        
+        return uniqueEvents.sorted(by: { $0.startDate < $1.startDate })
+    }
 
-    /// Fetches past events from Google Calendar for a specific month
+    /// Fetches past events from both local storage and Google Calendar for a specific month
     func fetchPastEvents(for date: Date) async throws -> [CalendarEvent] {
         isLoading = true
         defer { isLoading = false }
-
+        
+        // Always get local events first
+        var allEvents = LocalEventService.shared.getPastEvents(for: date)
+        
+        // Try to get Google Calendar events if authenticated
+        if authService.isAuthenticated, let user = authService.user, !user.isTokenExpired {
+            do {
+                let googleEvents = try await fetchGooglePastEvents(for: date)
+                allEvents.append(contentsOf: googleEvents)
+            } catch {
+                // Handle specific calendar errors
+                if let calendarError = error as? CalendarError {
+                    if case .calendarScopeNotGranted = calendarError {
+                        print("🗓️ Calendar scope not granted during past events fetch - using local events only")
+                    }
+                }
+                
+                // Log error but don't fail - we have local events
+                print("⚠️ Google Calendar past events fetch failed: \(error)")
+            }
+        } else {
+            // Not authenticated, just use local events
+            print("📅 Using local past events only (not authenticated)")
+        }
+        
+        // Sort by date and remove duplicates
+        let uniqueEvents = Dictionary(grouping: allEvents) { event in
+            "\(event.title)_\(event.startDate.timeIntervalSince1970)"
+        }.values.compactMap { $0.first }
+        
+        await MainActor.run {
+            isConnected = !allEvents.isEmpty
+        }
+        
+        return uniqueEvents.sorted(by: { $0.startDate < $1.startDate })
+    }
+    
+    /// Fetches past events from Google Calendar API only for a specific month
+    private func fetchGooglePastEvents(for date: Date) async throws -> [CalendarEvent] {
         guard authService.isAuthenticated, let user = authService.user else {
             throw CalendarError.notAuthenticated
         }
@@ -162,6 +273,14 @@ class CalendarService: ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                // Handle 403 errors specifically for past events
+                if httpResponse.statusCode == 403 {
+                    print("🔒 Calendar API returned 403 for past events - insufficient permissions")
+                    throw CalendarError.calendarScopeNotGranted
+                } else if httpResponse.statusCode == 401 {
+                    print("🔒 Calendar API returned 401 for past events - authentication issue")
+                    throw CalendarError.calendarScopeNotGranted
+                }
                 throw CalendarError.apiError(httpResponse.statusCode)
             }
 
@@ -175,6 +294,17 @@ class CalendarService: ObservableObject {
             return events
         } catch {
             print("Error fetching past events: \(error)")
+            
+            // Handle specific calendar errors
+            if let calendarError = error as? CalendarError {
+                if case .calendarScopeNotGranted = calendarError {
+                    print("🗓️ Calendar scope not granted for past events - skipping Google Calendar access")
+                    print("   Using local calendar data only to avoid session disruption")
+                    // Don't call requestCalendarScopeUpgrade() to avoid forced logout
+                }
+                throw calendarError
+            }
+            
             if error is DecodingError {
                 throw CalendarError.decodingError
             } else if error is URLError {
@@ -240,6 +370,40 @@ class CalendarService: ObservableObject {
     
     // MARK: - Private Helper Methods
     
+    /// Checks if the current user has calendar scope permissions
+    private func hasCalendarScope() -> Bool {
+        guard let user = authService.user, !user.accessToken.isEmpty else {
+            print("❌ No user or access token available")
+            return false
+        }
+        
+        // Check if token is expired
+        if user.isTokenExpired {
+            print("❌ Access token is expired")
+            return false
+        }
+        
+        // For now, we'll check if the user was authenticated through GoogleOAuthService
+        // which includes calendar scope, or if they need to upgrade their permissions
+        let googleOAuthService = GoogleOAuthService.shared
+        let configuredScopes = googleOAuthService.getConfiguredScopes()
+        let hasCalendarInConfig = configuredScopes.contains("https://www.googleapis.com/auth/calendar")
+        
+        if !hasCalendarInConfig {
+            print("❌ Calendar scope not configured in GoogleOAuthService")
+            return false
+        }
+        
+        // If we have a recent authentication through GoogleOAuthService, assume scopes are valid
+        if googleOAuthService.isAuthenticated {
+            print("✅ User authenticated through GoogleOAuthService with calendar scope")
+            return true
+        }
+        
+        print("⚠️ User may need to re-authenticate to get calendar scope")
+        return false
+    }
+    
     private func convertGoogleEventToCalendarEvent(_ googleEvent: GoogleCalendarEvent) -> CalendarEvent? {
         guard let title = googleEvent.summary else { return nil }
         
@@ -291,6 +455,7 @@ enum CalendarError: Error {
     case notAuthenticated
     case authenticationFailed
     case noAccessToken
+    case calendarScopeNotGranted
     case invalidURL
     case networkError
     case apiError(Int)

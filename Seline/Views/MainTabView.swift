@@ -91,7 +91,7 @@ struct MainTabView: View {
             }
         case .calendar:
             NavigationView {
-                UpcomingEventsView()
+                UpcomingEventsView(viewModel: sharedViewModel)
             }
         case .todo:
             NavigationView {

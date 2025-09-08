@@ -9,93 +9,84 @@ import SwiftUI
 
 struct UpcomingEventsView: View {
     @StateObject private var calendarService = CalendarService.shared
-    @StateObject private var viewModel = ContentViewModel()
-    @Environment(\.dismiss) private var dismiss
-    @State private var events: [CalendarEvent] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    @ObservedObject var viewModel: ContentViewModel
     @State private var showingAddEvent = false
-    @State private var selectedTab = 0
+    @State private var selectedTab = "upcoming"
+    
+    // Use shared ViewModel data instead of separate state
+    private var events: [CalendarEvent] {
+        // Filter to next 7 days on rolling basis
+        let calendar = Calendar.current
+        let startDate = Date()
+        let endDate = calendar.date(byAdding: .day, value: daysToShow, to: startDate) ?? startDate
+        
+        return viewModel.upcomingEvents.filter { event in
+            event.startDate >= startDate && event.startDate <= endDate
+        }
+    }
+    
+    private var isLoading: Bool {
+        viewModel.isLoading
+    }
+    
+    private var errorMessage: String? {
+        viewModel.errorMessage
+    }
     
     private let daysToShow = 7
     
+    init(viewModel: ContentViewModel? = nil) {
+        self.viewModel = viewModel ?? ContentViewModel()
+    }
+    
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header
-                headerView
-                
-                // Tab Picker
-                Picker("Events", selection: $selectedTab) {
-                    Text("Upcoming").tag(0)
-                    Text("Completed").tag(1)
-                }
-                .pickerStyle(SegmentedPickerStyle())
-                .padding()
-
-                // Content
-                if selectedTab == 0 {
-                    if isLoading {
-                        loadingView
-                    } else if let error = errorMessage {
-                        errorView(error)
-                    } else if events.isEmpty {
-                        emptyStateView
-                    } else {
-                        eventsListView
+        ZStack {
+            ShadcnTabs(tabs: [
+                ShadcnTab(id: "upcoming", title: "Upcoming") {
+                    VStack(spacing: 0) {
+                        if isLoading {
+                            loadingView
+                        } else if let error = errorMessage {
+                            errorView(error)
+                        } else if events.isEmpty {
+                            emptyStateView
+                        } else {
+                            eventsListView
+                        }
                     }
-                } else {
+                },
+                ShadcnTab(id: "completed", title: "Completed") {
                     CompletedEventsCalendarView()
                 }
+            ], selectedTabId: $selectedTab)
+            
+            // Floating Action Button
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    FloatingActionButton(icon: "plus") {
+                        showingAddEvent = true
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 20) // Position right above tab bar
+                }
             }
-            .background(DesignSystem.Colors.background)
-            .navigationBarHidden(true)
         }
+        .background(DesignSystem.Colors.background)
         .task {
-            await loadEvents()
+            // Data loading is now handled by shared ViewModel
         }
         .refreshable {
-            await loadEvents()
+            await viewModel.refresh()
         }
         .sheet(isPresented: $showingAddEvent) {
             AddCalendarEventView {
                 Task {
-                    await loadEvents()
+                    await viewModel.loadCategoryEmails()
                 }
             }
         }
-    }
-    
-    // MARK: - Header View
-    
-    private var headerView: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("Back")
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                }
-                .foregroundColor(DesignSystem.Colors.accent)
-            }
-            
-            Spacer()
-            
-            Text("Upcoming Events")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .foregroundColor(DesignSystem.Colors.textPrimary)
-            
-            Spacer()
-            
-            Button(action: { showingAddEvent = true }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.accent)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
     }
     
     // MARK: - Loading View
@@ -140,7 +131,7 @@ struct UpcomingEventsView: View {
             }
             
             Button(action: {
-                Task { await loadEvents() }
+                Task { await viewModel.refresh() }
             }) {
                 Text("Try Again")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -178,22 +169,6 @@ struct UpcomingEventsView: View {
                     .foregroundColor(DesignSystem.Colors.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-            }
-            
-            Button(action: { showingAddEvent = true }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Add Event")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(DesignSystem.Colors.accent)
-                )
             }
             
             Spacer()
@@ -262,9 +237,11 @@ struct UpcomingEventsView: View {
     private func deleteEvent(_ event: CalendarEvent) async {
         do {
             try await calendarService.deleteEvent(id: event.id)
-            events.removeAll { $0.id == event.id }
+            // Refresh the shared ViewModel data to reflect changes
+            await viewModel.loadCategoryEmails()
         } catch {
-            errorMessage = getErrorMessage(for: error)
+            print("Error deleting event: \(error)")
+            // Could show an alert here instead of setting errorMessage
         }
     }
     
@@ -302,26 +279,7 @@ struct UpcomingEventsView: View {
         }
     }
     
-    private func loadEvents() async {
-        await MainActor.run {
-            isLoading = true
-            errorMessage = nil
-        }
-        
-        do {
-            let fetchedEvents = try await calendarService.fetchUpcomingEvents(days: daysToShow)
-            await MainActor.run {
-                events = fetchedEvents
-                isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                errorMessage = getErrorMessage(for: error)
-                isLoading = false
-                print("Error loading events: \(error)")
-            }
-        }
-    }
+    // Event loading is now handled by shared ContentViewModel
     
     private func getErrorMessage(for error: Error) -> String {
         if let calendarError = error as? CalendarError {
@@ -438,6 +396,6 @@ struct EventCard: View {
 
 struct UpcomingEventsView_Previews: PreviewProvider {
     static var previews: some View {
-        UpcomingEventsView()
+        UpcomingEventsView(viewModel: ContentViewModel())
     }
 }
