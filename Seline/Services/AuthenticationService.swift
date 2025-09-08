@@ -308,12 +308,12 @@ class AuthenticationService: ObservableObject {
             } else {
                 // If refresh fails, user needs to re-authenticate
                 print("❌ Token refresh failed, user needs to re-authenticate")
-                await signOut()
+                await self.signOut()
                 throw AuthError.tokenRefreshFailed
             }
         } catch {
             print("❌ Token refresh error: \(error)")
-            await signOut()
+            await self.signOut()
             throw error
         }
     }
@@ -527,7 +527,6 @@ class AuthenticationService: ObservableObject {
         saveAuthState()
     }
     
-    /*
     private func handleSuccessfulSignIn(user: GIDGoogleUser) async {
         let selineUser = SelineUser(
             id: user.userID ?? "",
@@ -559,7 +558,6 @@ class AuthenticationService: ObservableObject {
         }
         return window.rootViewController
     }
-    */
     
     /// Set authenticated user data (for custom OAuth integration)
     public func setAuthenticatedUser(_ user: SelineUser) async {

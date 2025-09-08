@@ -55,8 +55,10 @@ struct SelineApp: App {
         print("📊 All app activity will be tracked in Supabase cloud storage")
         
         
-        // Debug authentication service state
+        // Debug authentication service state  
+        #if DEBUG
         AuthenticationService.shared.debugCurrentState()
+        #endif
         
         // Initialize Supabase connection
         Task {
