@@ -815,6 +815,7 @@ enum AuthenticationError: LocalizedError {
     case noViewController
     case missingScopes
     case calendarScopeRequired
+    case notAuthenticated
     case tokenExpired
     case networkError
     case userCancelled
@@ -827,6 +828,8 @@ enum AuthenticationError: LocalizedError {
             return "Required permissions not granted"
         case .calendarScopeRequired:
             return "Calendar access required - please sign in again"
+        case .notAuthenticated:
+            return "User is not signed in"
         case .tokenExpired:
             return "Authentication token has expired"
         case .networkError:
