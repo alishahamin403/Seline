@@ -353,20 +353,30 @@ class AuthenticationService: ObservableObject {
                 throw AuthenticationError.noViewController
             }
             
-            // Request all scopes upfront to avoid incremental authorization issues
-            let result = try await GoogleSignIn.shared.signIn(withPresenting: presentingViewController, hint: nil, additionalScopes: scopes)
+            // First, sign in with basic scopes
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
             let user = result.user
             
-            // Verify we got all required scopes
-            guard let grantedScopes = user.grantedScopes,
-                  scopes.allSatisfy({ grantedScopes.contains($0) }) else {
-                print("⚠️ Not all required scopes were granted")
+            // Check if we need to request additional scopes
+            let grantedScopes = user.grantedScopes ?? []
+            let missingScopes = scopes.filter { !grantedScopes.contains($0) }
+            
+            if !missingScopes.isEmpty {
+                print("📋 Requesting additional scopes: \(missingScopes)")
+                try await requestAdditionalScopes()
+            }
+            
+            // Verify we now have all required scopes
+            let updatedUser = GIDSignIn.sharedInstance.currentUser
+            guard let finalGrantedScopes = updatedUser?.grantedScopes,
+                  scopes.allSatisfy({ finalGrantedScopes.contains($0) }) else {
+                print("⚠️ Not all required scopes were granted after additional request")
                 print("📋 Requested: \(scopes)")
-                print("✅ Granted: \(user.grantedScopes ?? [])")
+                print("✅ Granted: \(updatedUser?.grantedScopes ?? [])")
                 throw AuthenticationError.missingScopes
             }
             
-            await handleSuccessfulSignIn(user: user)
+            await handleSuccessfulSignIn(user: updatedUser ?? user)
             
         } catch {
             await MainActor.run {
@@ -527,7 +537,7 @@ class AuthenticationService: ObservableObject {
             name: user.profile?.name ?? "",
             profileImageURL: user.profile?.imageURL(withDimension: 100)?.absoluteString,
             accessToken: user.accessToken.tokenString,
-            refreshToken: user.refreshToken?.tokenString,
+            refreshToken: user.refreshToken.tokenString,
             tokenExpirationDate: user.accessToken.expirationDate
         )
         
@@ -541,7 +551,11 @@ class AuthenticationService: ObservableObject {
             throw AuthenticationError.noViewController
         }
         
-        try await GoogleSignIn.shared.addScopes(scopes, presenting: presentingViewController)
+        guard let currentUser = GIDSignIn.sharedInstance.currentUser else {
+            throw AuthenticationError.missingScopes
+        }
+        
+        try await currentUser.addScopes(scopes, presenting: presentingViewController)
     }
     
     private func getRootViewController() async -> UIViewController? {
