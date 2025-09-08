@@ -353,17 +353,40 @@ class AuthenticationService: ObservableObject {
                 throw AuthenticationError.noViewController
             }
             
-            // First, sign in with basic scopes
-            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+            // Sign in and immediately request all scopes to avoid incremental auth issues
+            print("🔐 Attempting sign-in with all required scopes upfront...")
+            
+            // Try to request all scopes during initial sign-in
+            let result: GIDSignInResult
+            do {
+                // First attempt: sign in with basic auth
+                result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+                print("✅ Basic sign-in completed")
+            } catch {
+                print("❌ Basic sign-in failed: \(error)")
+                throw error
+            }
+            
             let user = result.user
             
-            // Check if we need to request additional scopes
+            // Enhanced debugging for scope checking
             let grantedScopes = user.grantedScopes ?? []
             let missingScopes = scopes.filter { !grantedScopes.contains($0) }
             
+            print("🔐 OAuth Scope Analysis:")
+            print("  📋 Required scopes: \(scopes)")
+            print("  ✅ Granted scopes: \(grantedScopes)")
+            print("  ❌ Missing scopes: \(missingScopes)")
+            
             if !missingScopes.isEmpty {
-                print("📋 Requesting additional scopes: \(missingScopes)")
-                try await requestAdditionalScopes()
+                print("📋 Attempting to request additional scopes: \(missingScopes)")
+                do {
+                    try await requestAdditionalScopes()
+                    print("✅ Additional scope request completed")
+                } catch {
+                    print("❌ Additional scope request failed: \(error)")
+                    throw error
+                }
             }
             
             // Verify we now have all required scopes
@@ -555,7 +578,57 @@ class AuthenticationService: ObservableObject {
             throw AuthenticationError.missingScopes
         }
         
-        try await currentUser.addScopes(scopes, presenting: presentingViewController)
+        // Since incremental authorization is problematic, let's try addScopes
+        // If this fails, we'll need to sign out and re-authenticate with all scopes
+        do {
+            try await currentUser.addScopes(scopes, presenting: presentingViewController)
+        } catch {
+            print("⚠️ Incremental authorization failed, forcing complete re-auth")
+            // Sign out and retry with fresh authentication
+            await self.signOut()
+            throw AuthenticationError.calendarScopeRequired
+        }
+    }
+    
+    /// Force complete re-authentication with all required scopes
+    func forceCompleteReauth() async {
+        print("🔄 Forcing complete re-authentication with all scopes...")
+        await signOut()
+        
+        // Wait a moment for sign out to complete
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        
+        await signInWithGoogle()
+    }
+    
+    /// Manually request calendar permissions for debugging
+    public func requestCalendarPermissions() async throws {
+        print("🗓️ Manually requesting calendar permissions...")
+        
+        guard let presentingViewController = await getRootViewController() else {
+            throw AuthenticationError.noViewController
+        }
+        
+        guard let currentUser = GIDSignIn.sharedInstance.currentUser else {
+            print("❌ No current user - need to sign in first")
+            throw AuthenticationError.notAuthenticated
+        }
+        
+        print("👤 Current user: \(currentUser.profile?.email ?? "unknown")")
+        print("✅ Current granted scopes: \(currentUser.grantedScopes ?? [])")
+        
+        let calendarScopes = ["https://www.googleapis.com/auth/calendar.readonly"]
+        print("📋 Requesting calendar scopes: \(calendarScopes)")
+        
+        do {
+            try await currentUser.addScopes(calendarScopes, presenting: presentingViewController)
+            print("✅ Calendar scope request completed!")
+            print("✅ Updated granted scopes: \(currentUser.grantedScopes ?? [])")
+        } catch {
+            print("❌ Calendar scope request failed: \(error)")
+            print("📋 This might be due to incremental authorization restrictions")
+            throw error
+        }
     }
     
     private func getRootViewController() async -> UIViewController? {
