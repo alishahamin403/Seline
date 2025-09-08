@@ -10,10 +10,16 @@ import SwiftUI
 // 1. https://github.com/google/GoogleSignIn-iOS (GoogleSignIn)
 // 2. https://github.com/googleapis/google-api-objectivec-client-for-rest (GoogleAPIClientForREST)
 import GoogleSignIn
+import BackgroundTasks
 
 @main
 struct SelineApp: App {
     @StateObject private var authService = AuthenticationService.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        registerAndUpdateIconTask()
+    }
     
     var body: some Scene {
         WindowGroup {
@@ -23,11 +29,23 @@ struct SelineApp: App {
                     setupDevelopmentEnvironment()
                     setupNotifications()
                     trackAppLaunch()
+                    DynamicIconService.shared.updateAppIcon()
                 }
+        }
+        .onChange(of: scenePhase) { newScenePhase in
+            switch newScenePhase {
+            case .background:
+                scheduleAppIconUpdate()
+            default:
+                break
+            }
         }
     }
     
     private func setupDevelopmentEnvironment() {
+        // Suppress verbose network warnings
+        suppressNetworkWarnings()
+        
         // Configure GoogleSignIn
         configureGoogleSignIn()
         
@@ -36,24 +54,32 @@ struct SelineApp: App {
         print("🔄 DEBUG MODE: Real Supabase cloud sync ENABLED")
         print("📊 All app activity will be tracked in Supabase cloud storage")
         
-        // Setup development credentials automatically
-        // DevelopmentConfiguration.shared.setupDevelopmentCredentials()
-        
-        // Print credential status for debugging
-        // DevelopmentConfiguration.shared.printCredentialStatus()
         
         // Debug authentication service state
         AuthenticationService.shared.debugCurrentState()
         
         // Initialize Supabase connection
         Task {
-            // DISABLED: await SupabaseService.shared.initialize()
             // Test Supabase connection
             let supabaseService = SupabaseService.shared
             print("🌐 Supabase initialization status: \(supabaseService.isConnected ? "✅ Connected" : "❌ Not Connected")")
-            // DISABLED: Supabase initialization
-            
-            // await DevelopmentConfiguration.shared.validateAPIKeys()
+        }
+        #endif
+    }
+    
+    private func suppressNetworkWarnings() {
+        // Suppress common iOS network warnings that clutter logs
+        setenv("CFNETWORK_DIAGNOSTICS", "0", 1)
+        setenv("CFNETWORK_VERBOSE", "0", 1)
+        
+        // ADDITIONAL: Suppress more network debug logs
+        setenv("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES", 1)
+        setenv("NW_LOG_LEVEL", "0", 1) // Disable Network framework logging
+        
+        #if DEBUG
+        // In debug mode, further suppress unwanted network logs
+        LogRateLimiter.shared.logIfAllowed("network_suppression", interval: 60.0) {
+            print("🔇 Network logging suppressed to reduce console spam")
         }
         #endif
     }
@@ -67,9 +93,17 @@ struct SelineApp: App {
             return
         }
         
-        // Uncomment when GoogleSignIn dependency is added:
-         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
-        print("🔧 Google OAuth Client ID configured: \(clientID)")
+        // Configure with all required scopes upfront to avoid incremental authorization issues
+        let configuration = GIDConfiguration(clientID: clientID)
+        configuration.scopes = [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile"
+        ]
+        
+        GIDSignIn.sharedInstance.configuration = configuration
+        print("🔧 Google OAuth configured with all scopes: \(configuration.scopes ?? [])")
     }
     
     private func setupNotifications() {
@@ -95,6 +129,41 @@ struct SelineApp: App {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             PerformanceMonitor.shared.endTiming("app_startup")
+        }
+    }
+
+    private func registerAndUpdateIconTask() {
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.updateIcon", using: nil) { task in
+            self.handleAppIconUpdate(task: task as! BGAppRefreshTask)
+        }
+    }
+
+    private func handleAppIconUpdate(task: BGAppRefreshTask) {
+        scheduleAppIconUpdate()
+
+        let operation = BlockOperation {
+            DynamicIconService.shared.updateAppIcon()
+        }
+
+        operation.completionBlock = {
+            task.setTaskCompleted(success: !operation.isCancelled)
+        }
+
+        task.expirationHandler = {
+            operation.cancel()
+        }
+
+        OperationQueue.main.addOperation(operation)
+    }
+
+    private func scheduleAppIconUpdate() {
+        let request = BGAppRefreshTaskRequest(identifier: "com.seline.updateIcon")
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60) // Fetch no more than once an hour
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("Could not schedule app icon update: \(error)")
         }
     }
 }

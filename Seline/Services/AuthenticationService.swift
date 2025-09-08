@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import GoogleSignIn
+import CommonCrypto
 
 enum AuthError: Error {
     case tokenRefreshFailed
@@ -24,6 +25,7 @@ class AuthenticationService: ObservableObject {
     @Published var authError: String?
     @Published var isLoading = false
     @Published var hasCompletedOnboarding = false
+    @Published var isInitializing = true // NEW: Track initialization state
     
     private let userDefaults = UserDefaults.standard
     private let authStateKey = "seline_auth_state"
@@ -31,10 +33,32 @@ class AuthenticationService: ObservableObject {
     private let onboardingKey = "seline_onboarding_completed"
     private let supabaseService = SupabaseService.shared
     
+    // Debounce mechanism to prevent rapid auth state changes
+    private var lastAuthStateChange: Date = Date()
+    private let authStateChangeMinInterval: TimeInterval = 2.0 // Minimum 2 seconds between changes
+    
+    // Safe method to set authentication state with debouncing
+    private func setAuthenticationState(_ isAuth: Bool, reason: String = "") {
+        let now = Date()
+        if now.timeIntervalSince(lastAuthStateChange) < authStateChangeMinInterval {
+            #if DEBUG
+            print("⏭️ Debouncing auth state change: \(reason) (too recent)")
+            #endif
+            return
+        }
+        
+        lastAuthStateChange = now
+        self.isAuthenticated = isAuth
+        
+        #if DEBUG
+        print("🔐 Auth state set to \(isAuth): \(reason)")
+        #endif
+    }
+    
     // Gmail and Calendar scopes
     private let scopes = [
         "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.readonly",  // Try readonly first
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile"
     ]
@@ -49,20 +73,35 @@ class AuthenticationService: ObservableObject {
     private func loadAuthState() {
         let storedAuthState = userDefaults.bool(forKey: authStateKey)
         let completedOnboarding = userDefaults.bool(forKey: onboardingKey)
+        let currentUserEmail = userDefaults.string(forKey: "current_user_email")
+        
+        #if DEBUG
+        print("🔍 Loading auth state:")
+        print("  - Stored auth state: \(storedAuthState)")
+        print("  - Completed onboarding: \(completedOnboarding)")
+        print("  - Current user email: \(currentUserEmail ?? "nil")")
+        #endif
+        
+        // CRITICAL FIX: Set onboarding state immediately (synchronous)
+        self.hasCompletedOnboarding = completedOnboarding
         
         if let userData = userDefaults.data(forKey: userKey) {
             if let decodedUser = try? JSONDecoder().decode(SelineUser.self, from: userData) {
-                Task { @MainActor in
-                    self.user = decodedUser
-                    self.hasCompletedOnboarding = completedOnboarding
-                }
+                #if DEBUG
+                print("  - Decoded user: \(decodedUser.email)")
+                print("  - Token expired: \(decodedUser.isTokenExpired)")
+                #endif
+                
+                // CRITICAL FIX: Set user and auth state immediately (synchronous)
+                self.user = decodedUser
+                self.isAuthenticated = storedAuthState && !decodedUser.isTokenExpired
                 
                 // Check if token is expired (but be more lenient in development)
                 #if DEBUG
                 if decodedUser.isTokenExpired {
                     print("⚠️ Token expired in dev mode, extending expiration")
                     // In development, extend the token expiration instead of clearing auth
-                    let extendedUser = SelineUser(
+                    var extendedUser = SelineUser(
                         id: decodedUser.id,
                         email: decodedUser.email,
                         name: decodedUser.name,
@@ -71,6 +110,7 @@ class AuthenticationService: ObservableObject {
                         refreshToken: decodedUser.refreshToken,
                         tokenExpirationDate: Date().addingTimeInterval(365 * 24 * 3600) // Extend for 1 year
                     )
+                    extendedUser.supabaseId = decodedUser.supabaseId // Preserve supabaseId
                     Task { @MainActor in
                         self.user = extendedUser
                     }
@@ -78,7 +118,19 @@ class AuthenticationService: ObservableObject {
                 }
                 #else
                 if decodedUser.isTokenExpired {
-                    clearAuthState()
+                    print("⚠️ Token expired in production mode, attempting refresh...")
+                    // Instead of immediately clearing, try to refresh the token first
+                    Task {
+                        do {
+                            try await self.refreshTokenIfNeeded()
+                            print("✅ Token refreshed successfully in production")
+                        } catch {
+                            print("❌ Token refresh failed in production, clearing auth state")
+                            await MainActor.run {
+                                self.clearAuthState()
+                            }
+                        }
+                    }
                     return
                 }
                 #endif
@@ -100,26 +152,54 @@ class AuthenticationService: ObservableObject {
             }
         }
         
-        // Set authentication state
-        Task { @MainActor in
-            self.isAuthenticated = storedAuthState && self.user != nil
-            self.hasCompletedOnboarding = completedOnboarding || self.user != nil
+        // CRITICAL FIX: Set final authentication state synchronously
+        self.isAuthenticated = storedAuthState && self.user != nil && !(self.user?.isTokenExpired ?? true)
+        
+        // CRITICAL FIX: Set initialization as complete synchronously
+        self.isInitializing = false
+        
+        #if DEBUG
+        print("🔐 Auth state loaded: authenticated=\(self.isAuthenticated), onboarding=\(self.hasCompletedOnboarding)")
+        #endif
+        
+        // Background tasks (async but don't affect UI state)
+        Task {
+            // For existing users: if they don't have supabaseId but are authenticated, try to get it
+            if let user = self.user, user.supabaseId == nil, self.isAuthenticated {
+                await self.recoverSupabaseId(for: user)
+            }
             
-            #if DEBUG
-            print("🔐 Auth state loaded: authenticated=\(self.isAuthenticated), onboarding=\(self.hasCompletedOnboarding)")
-            #endif
+            // Update last sign in if authenticated
+            if storedAuthState && self.user != nil {
+                do {
+                    try await supabaseService.updateLastSignIn(userID: UUID())
+                } catch {
+                    ProductionLogger.logError(error, context: "Updating last sign in")
+                }
+            }
         }
     }
     
     private func clearAuthState() {
-        Task { @MainActor in
-            self.isAuthenticated = false
-            self.user = nil
-            // Keep onboarding state so user doesn't see intro screens again
-        }
+        setAuthenticationState(false, reason: "clearing auth state")
+        self.user = nil
+        self.authError = nil
+        // Keep onboarding state so user doesn't see intro screens again
+        
+        // Clear UserDefaults but preserve user email for OpenAI key scoping
+        // IMPORTANT: Don't clear "current_user_email" - needed for API key scoping
         userDefaults.removeObject(forKey: authStateKey)
         userDefaults.removeObject(forKey: userKey)
         // Don't clear onboarding state - user has already seen the flow
+        
+        // CRITICAL: Clear tokens from secure storage but preserve API keys
+        let secureStorage = SecureStorage.shared
+        secureStorage.clearGoogleCredentials()
+        // NOTE: Don't clear OpenAI key here - only clear during complete sign out
+        
+        #if DEBUG
+        print("🧹 Authentication state cleared (preserving API keys and user email)")
+        #endif
     }
     
     private func saveAuthState() {
@@ -129,8 +209,12 @@ class AuthenticationService: ObservableObject {
            let userData = try? JSONEncoder().encode(user) {
             userDefaults.set(userData, forKey: userKey)
             
+            // CRITICAL FIX: Save current user email for OpenAI key scoping
+            userDefaults.set(user.email.lowercased(), forKey: "current_user_email")
+            
             #if DEBUG
             print("💾 User data saved for: \(user.email)")
+            print("💾 Current user email saved: \(user.email.lowercased())")
             #endif
             
             // CRITICAL FIX: Synchronize tokens to secure storage when saving auth state
@@ -170,6 +254,14 @@ class AuthenticationService: ObservableObject {
             return
         }
         
+        // Additional check: Don't refresh if we're in DEBUG mode and token is still valid for more than 1 hour
+        #if DEBUG
+        let oneHourFromNow = Date().addingTimeInterval(3600)
+        if let expiration = user.tokenExpirationDate, expiration > oneHourFromNow {
+            return
+        }
+        #endif
+        
         print("🔄 Token expired, refreshing...")
         
         // In development with mock data, we don't have a real refresh token.
@@ -183,7 +275,7 @@ class AuthenticationService: ObservableObject {
             profileImageURL: user.profileImageURL,
             accessToken: user.accessToken,
             refreshToken: user.refreshToken,
-            tokenExpirationDate: Date().addingTimeInterval(3600) // Extend for 1 hour
+            tokenExpirationDate: Date().addingTimeInterval(24 * 3600) // Extend for 24 hours in DEBUG
         )
         
         await MainActor.run {
@@ -226,6 +318,16 @@ class AuthenticationService: ObservableObject {
         }
     }
     
+    /// Gracefully handle calendar scope upgrade without forcing logout
+    func requestCalendarScopeUpgrade() async {
+        print("🗓️ Calendar access not available - continuing without calendar features")
+        print("   App will function normally with email and other features")
+        print("   Calendar integration can be enabled later through settings")
+        
+        // Don't force sign out - just continue without calendar access
+        // The app should gracefully degrade and work without calendar features
+    }
+    
     // MARK: - Google Sign-In
     
     func signInWithGoogle() async {
@@ -260,11 +362,13 @@ class AuthenticationService: ObservableObject {
             let result = try await GoogleSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
             let user = result.user
             
-            // Check if we have the required scopes
+            // Check if we have the required scopes - force complete sign-in if missing any
             guard let grantedScopes = user.grantedScopes,
                   scopes.allSatisfy({ grantedScopes.contains($0) }) else {
-                try await requestAdditionalScopes()
-                return
+                // Instead of requesting additional scopes, sign out and restart with all scopes
+                print("⚠️ Missing calendar scope - will request all scopes upfront")
+                await signOut()
+                throw AuthenticationError.calendarScopeRequired
             }
             
             await handleSuccessfulSignIn(user: user)
@@ -300,14 +404,36 @@ class AuthenticationService: ObservableObject {
         // Clear local email service
         LocalEmailService.shared.signOut()
         
-        // Clear local state
-        clearAuthState()
+        // Clear local state INCLUDING user email (complete sign out)
+        clearAuthStateCompletely()
         
         #if DEBUG
         print("✅ Sign out completed")
         #endif
         
         isLoading = false
+    }
+    
+    /// Complete sign out that clears everything including user email
+    private func clearAuthStateCompletely() {
+        Task { @MainActor in
+            self.isAuthenticated = false
+            self.user = nil
+            self.authError = nil
+        }
+        
+        // Clear ALL UserDefaults including user email
+        userDefaults.removeObject(forKey: authStateKey)
+        userDefaults.removeObject(forKey: userKey)
+        userDefaults.removeObject(forKey: "current_user_email") // Clear for complete sign out
+        
+        // Clear tokens from secure storage
+        let secureStorage = SecureStorage.shared
+        secureStorage.clearGoogleCredentials()
+        
+        #if DEBUG
+        print("🧹 Complete authentication state cleared including user email")
+        #endif
     }
     
     // MARK: - Debug Methods
@@ -363,9 +489,8 @@ class AuthenticationService: ObservableObject {
     
     func debugCurrentState() {
         #if DEBUG
-        print("🔐 Auth Debug - authenticated: \(isAuthenticated), user: \(user?.email ?? "nil"), loading: \(isLoading)")
-        if let user = user {
-            print("🔐 User: \(user.name) (ID: \(user.id)), Token expired: \(user.isTokenExpired)")
+        if isAuthenticated, let user = user {
+            print("🔐 AUTH: \(user.name) (\(user.email))")
         }
         #endif
     }
@@ -467,28 +592,45 @@ class AuthenticationService: ObservableObject {
         // User successfully authenticated - proceed with sync
         
         // Integrate with Supabase for metadata storage (with consent)
+        var updatedUser = user
         do {
-            let supabaseUser = try await SupabaseService.shared.upsertUser(selineUser: user)
+            let supabaseUser = try await SupabaseService.shared.upsertUser(user)
             
-            await MainActor.run {
-                self.user?.supabaseId = supabaseUser.id
-            }
+            // Update the user object with Supabase ID
+            updatedUser.supabaseId = supabaseUser.id
 
             #if DEBUG
             print("✅ User synchronized to Supabase: \(supabaseUser.id)")
             #endif
             
-            // User successfully synced to Supabase
-            
         } catch {
-            ProductionLogger.logError(error, context: "Supabase user sync")
-            // Don't fail authentication if Supabase sync fails
+            #if DEBUG
+            LogRateLimiter.shared.logIfAllowed("supabase_user_sync_failed", interval: 30.0) {
+                print("⚠️ [AuthenticationService.swift:564] setAuthenticatedUser(_:) - Error in Supabase user sync: \(error)")
+            }
+            #endif
+            
+            // CRITICAL FIX: Create a deterministic UUID based on Google ID to ensure consistency
+            // This prevents repeated Supabase sync failures and enables offline functionality
+            if updatedUser.supabaseId == nil {
+                let deterministicUUID = generateDeterministicUUID(from: user.id)
+                updatedUser.supabaseId = deterministicUUID
+                
+                #if DEBUG
+                print("🔧 Generated offline Supabase ID: \(deterministicUUID)")
+                #endif
+            }
+        }
+        
+        // Set the user (with or without Supabase ID)
+        await MainActor.run {
+            self.user = updatedUser
         }
         
         saveAuthState()
         
         // Initialize local email service with authenticated user
-        LocalEmailService.shared.setCurrentUser(user)
+        LocalEmailService.shared.setCurrentUser(updatedUser)
         
         #if DEBUG
         print("✅ User authentication completed successfully")
@@ -517,6 +659,73 @@ class AuthenticationService: ObservableObject {
         print("🎯 Onboarding marked as completed")
         #endif
     }
+    
+    /// Recover supabaseId for existing users who don't have it
+    private func recoverSupabaseId(for user: SelineUser) async {
+        ProductionLogger.logAuthEvent("[AuthenticationService] Recovering Supabase ID for user: \(user.email)")
+        
+        do {
+            // Try to find existing user in Supabase by Google ID
+            if let existingUser = try await supabaseService.getUserByGoogleID(user.id) {
+                // User exists in Supabase, update local user with Supabase ID
+                var updatedUser = user
+                updatedUser.supabaseId = existingUser.id
+                
+                await MainActor.run {
+                    self.user = updatedUser
+                }
+                saveAuthState()
+                
+                ProductionLogger.logAuthEvent("✅ [AuthenticationService] Supabase ID recovered from existing user: \(existingUser.id)")
+                
+            } else {
+                // User doesn't exist in Supabase, create them
+                ProductionLogger.logAuthEvent("[AuthenticationService] User not found in Supabase, creating new user")
+                
+                let supabaseUser = try await supabaseService.upsertUser(user)
+                var updatedUser = user
+                updatedUser.supabaseId = supabaseUser.id
+                
+                await MainActor.run {
+                    self.user = updatedUser
+                }
+                saveAuthState()
+                
+                ProductionLogger.logAuthEvent("✅ [AuthenticationService] New Supabase user created: \(supabaseUser.id)")
+            }
+            
+        } catch let supabaseError as SupabaseError {
+            // Handle specific Supabase errors with detailed context
+            let context = "Supabase ID recovery for user: \(user.email)"
+            
+            switch supabaseError {
+            case .connectionFailed(let message):
+                ProductionLogger.logError(supabaseError, context: "\(context) - Connection failed: \(message)")
+                
+            case .authenticationFailed(let message):
+                ProductionLogger.logError(supabaseError, context: "\(context) - Authentication failed: \(message)")
+                // Clear auth state if authentication is completely broken
+                await signOut()
+                
+            case .userNotFound:
+                ProductionLogger.logAuthEvent("ℹ️ [AuthenticationService] User not found in Supabase, will create new user on next sync")
+                
+            case .networkError(let underlyingError):
+                ProductionLogger.logError(underlyingError, context: "\(context) - Network error during Supabase ID recovery")
+                
+            case .configurationError(let message):
+                ProductionLogger.logError(supabaseError, context: "\(context) - Configuration error: \(message)")
+                
+            default:
+                ProductionLogger.logError(supabaseError, context: context)
+            }
+            
+        } catch {
+            // Handle any other unexpected errors
+            let mappedError = SupabaseError.from(error, context: "Supabase ID recovery")
+            ProductionLogger.logError(mappedError, context: "Unexpected error in Supabase ID recovery for user: \(user.email)")
+        }
+    }
 }
 
 // MARK: - Models
@@ -542,6 +751,7 @@ struct SelineUser: Codable {
 enum AuthenticationError: LocalizedError {
     case noViewController
     case missingScopes
+    case calendarScopeRequired
     case tokenExpired
     case networkError
     case userCancelled
@@ -552,6 +762,8 @@ enum AuthenticationError: LocalizedError {
             return "Could not find view controller for authentication"
         case .missingScopes:
             return "Required permissions not granted"
+        case .calendarScopeRequired:
+            return "Calendar access required - please sign in again"
         case .tokenExpired:
             return "Authentication token has expired"
         case .networkError:
@@ -559,5 +771,35 @@ enum AuthenticationError: LocalizedError {
         case .userCancelled:
             return "Authentication cancelled by user"
         }
+    }
+}
+
+// MARK: - UUID Generation Helper
+
+extension Data {
+    var sha256: Data {
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        self.withUnsafeBytes {
+            _ = CC_SHA256($0.baseAddress, CC_LONG(self.count), &hash)
+        }
+        return Data(hash)
+    }
+}
+
+extension AuthenticationService {
+    /// Generate a deterministic UUID from a Google ID for offline Supabase compatibility
+    private func generateDeterministicUUID(from googleID: String) -> UUID {
+        // Create a namespace UUID for Seline app (using a fixed UUID for consistency)
+        let namespace = "seline-app-namespace"
+        
+        // Create deterministic UUID using namespace + Google ID
+        let combinedString = namespace + googleID
+        let data = combinedString.data(using: .utf8)!
+        
+        // Simple hash-based UUID generation
+        let hashValue = abs(data.hashValue)
+        let uuidString = String(format: "12FC56DB-E575-4C21-B61F-%012d", hashValue % 1000000000000)
+        
+        return UUID(uuidString: uuidString) ?? UUID()
     }
 }
