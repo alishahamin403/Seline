@@ -26,15 +26,16 @@ struct MainAppView: View {
                         }
                     }
 
-                    // Fixed Footer
-                    BottomTabBar(selectedTab: $selectedTab)
+                    // Fixed Footer - hide when keyboard appears
+                    if keyboardHeight == 0 {
+                        BottomTabBar(selectedTab: $selectedTab)
+                    }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .background(
                     colorScheme == .dark ?
                         Color.black : Color.white
                 )
-                .ignoresSafeArea(.keyboard, edges: .bottom)
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                     if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
                         keyboardHeight = keyboardFrame.cgRectValue.height
@@ -90,17 +91,17 @@ struct MainAppView: View {
                             )
 
                             MetricTile(
-                                icon: "map",
-                                title: "Maps",
-                                subtitle: "",
-                                value: "5"
-                            )
-
-                            MetricTile(
                                 icon: "note.text",
                                 title: "Notes",
                                 subtitle: "",
                                 value: "8"
+                            )
+
+                            MetricTile(
+                                icon: "map",
+                                title: "Maps",
+                                subtitle: "",
+                                value: "5"
                             )
                         }
                         .padding(.horizontal, 20)

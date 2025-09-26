@@ -14,10 +14,10 @@ struct SunMoonTimeTracker: View {
                 .stroke(strokeColor, lineWidth: 0.5)
                 .frame(width: 180, height: 90)
 
-            // Sun/Moon icon positioned above the arc
+            // Sun/Moon icon positioned outside the arc
             GeometryReader { geometry in
-                let center = CGPoint(x: 90, y: 80) // Center point for arc
-                let radius: CGFloat = 60 // Arc radius for positioning
+                let center = CGPoint(x: 90, y: 90) // Center point at bottom of half circle
+                let radius: CGFloat = 115 // Position further outside the arc
 
                 // Calculate angle based on time progress
                 let angle = 180 - (timeProgress * 180) // 0 progress = 180° (left), 1 progress = 0° (right)
@@ -27,10 +27,9 @@ struct SunMoonTimeTracker: View {
 
                 // Sun/Moon icon with proper positioning
                 Image(systemName: iconName)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 24, weight: .medium))
                     .foregroundColor(iconColor)
                     .position(x: iconX, y: iconY)
-                    .shadow(color: Color.black.opacity(0.5), radius: 2, x: 0, y: 1)
                     .animation(.easeInOut(duration: 0.5), value: timeProgress)
 
 
