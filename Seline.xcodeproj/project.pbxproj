@@ -25,7 +25,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C0C43C512E5A5FD90081F5D0 /* Exceptions for "Seline" folder in "Seline" target */ = {
+		C0C43C582E5A5FD60081F5D0 /* Exceptions for "Seline" folder in "Seline" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -38,7 +38,7 @@
 		C0C43C412E5A5FD60081F5D0 /* Seline */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				C0C43C512E5A5FD90081F5D0 /* Exceptions for "Seline" folder in "Seline" target */,
+				C0C43C582E5A5FD60081F5D0 /* Exceptions for "Seline" folder in "Seline" target */,
 			);
 			path = Seline;
 			sourceTree = "<group>";
@@ -186,7 +186,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 734NRYKS8M;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Seline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Seline;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -215,7 +215,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 734NRYKS8M;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Seline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Seline;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;

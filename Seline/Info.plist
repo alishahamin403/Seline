@@ -2,113 +2,96 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDisplayName</key>
-	<string>Seline</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>Seline</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>armv7</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.seline.app.oauth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.729504866074-jp0dk33q729oh942d70fl7nu68ofnff3</string>
-				<string>com.seline.app</string>
-			</array>
-		</dict>
-	</array>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>googlegmail</string>
-		
-	</array>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<false/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>googleapis.com</key>
-			<dict>
-				<key>NSExceptionRequiresForwardSecrecy</key>
-				<false/>
-			</dict>
-		</dict>
-	</dict>
-	<key>UILaunchScreen</key>
-	<dict/>
-	
-	<!-- Privacy Usage Descriptions -->
-	<key>NSContactsUsageDescription</key>
-	<string>Seline accesses your contacts to help organize and display email sender information more effectively.</string>
-	
-	
-	
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Seline may access your photo library to save email attachments or screenshots for your convenience.</string>
-	
-	<key>NSCameraUsageDescription</key>
-	<string>Seline uses the camera to scan documents or QR codes that may be shared via email attachments.</string>
-	
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Seline may use your location to provide relevant context for location-based email content and events.</string>
-	
-	<key>NSUserTrackingUsageDescription</key>
-	<string>This helps us improve Seline by understanding how you use the app, while keeping your email content completely private.</string>
-	
-	<!-- Voice Recording Privacy Descriptions -->
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Seline uses speech recognition to convert your voice into text for creating todos and reminders. Your voice data is processed on-device and with secure AI services.</string>
-	
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Seline needs microphone access to record your voice when creating voice todos and reminders. This makes it quick and easy to capture tasks hands-free.</string>
-	
-	<!-- App Store Required Keys -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	
-	<!-- Capabilities -->
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>background-fetch</string>
-		<string>background-processing</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.seline.email-sync</string>
-	</array>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleDisplayName</key>
+    <string>Seline</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <true/>
+    </dict>
+    <key>UIApplicationSupportsIndirectInputEvents</key>
+    <true/>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>armv7</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- URL Schemes for OAuth callbacks -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <!-- Google OAuth URL Scheme -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>GoogleAuth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <!-- REVERSED_CLIENT_ID from GoogleService-Info.plist -->
+                <string>com.googleusercontent.apps.729504866074-jp0dk33q729oh942d70fl7nu68ofnff3</string>
+            </array>
+        </dict>
+        <!-- Supabase OAuth URL Scheme -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>SupabaseAuth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.seline.app</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- Permissions -->
+    <key>NSCalendarsUsageDescription</key>
+    <string>Seline needs access to your calendar to help manage your events and schedule.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Seline needs access to your contacts to help with email management and suggestions.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Seline needs access to your microphone for voice commands and email dictation.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
+
+    <!-- Custom Fonts -->
+    <key>UIAppFonts</key>
+    <array>
+        <string>GeistSans-Regular.ttf</string>
+        <string>GeistSans-Medium.ttf</string>
+        <string>GeistSans-Semibold.ttf</string>
+        <string>GeistSans-Bold.ttf</string>
+    </array>
 </dict>
 </plist>
