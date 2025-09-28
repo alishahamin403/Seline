@@ -10,16 +10,15 @@ struct MetricTile: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Icon - smaller size
+            // Icon - bigger size
             Image(systemName: icon)
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 26, weight: .medium))
                 .foregroundColor(Color.shadcnForeground(colorScheme))
 
             // Only show the number value
             if !value.isEmpty {
                 Text(value)
-                    .font(.shadcnTextLg)
-                    .fontWeight(.regular)
+                    .font(.system(size: 19, weight: .regular))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .multilineTextAlignment(.center)
             }
@@ -32,22 +31,16 @@ struct MetricTile: View {
                 .fill(colorScheme == .dark ? Color.black : Color.white)
         )
         .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.08) : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 8 : 12,
+            color: colorScheme == .dark ? .black.opacity(0.2) : .gray.opacity(0.15),
+            radius: colorScheme == .dark ? 4 : 12,
             x: 0,
-            y: colorScheme == .dark ? 3 : 4
+            y: colorScheme == .dark ? 2 : 4
         )
         .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.04) : .gray.opacity(0.08),
-            radius: colorScheme == .dark ? 4 : 6,
+            color: colorScheme == .dark ? .black.opacity(0.1) : .gray.opacity(0.08),
+            radius: colorScheme == .dark ? 2 : 6,
             x: 0,
             y: colorScheme == .dark ? 1 : 2
-        )
-        .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.02) : .clear,
-            radius: colorScheme == .dark ? 8 : 0,
-            x: 0,
-            y: colorScheme == .dark ? 2 : 0
         )
     }
 }

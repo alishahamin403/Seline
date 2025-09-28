@@ -184,32 +184,29 @@ struct SunMoonArcView: View {
     }
 
     private var iconName: String {
-        isDaytime ? "sun.max" : "moon"
+        isDaytime ? "sun.max.fill" : "moon.circle.fill"
     }
 
     private var iconColor: Color {
         if isDaytime {
-            // Sun color - warm golden yellow
+            // Sun color - golden yellow
             return Color(red: 1.0, green: 0.8, blue: 0.0)
         } else {
-            // Moon color - soft blue-white
-            if colorScheme == .dark {
-                return Color(red: 0.85, green: 0.90, blue: 0.95) // Soft blue-white for dark mode
-            } else {
-                return Color(red: 0.40, green: 0.50, blue: 0.60) // Muted blue for light mode
-            }
+            // Moon color - white
+            return Color.white
         }
     }
 
     var body: some View {
         ZStack {
-            // Base half circle using your working design
+            // Base half circle with glow effect
             HalfCircleOutline()
                 .stroke(
                     Color.gray.opacity(colorScheme == .dark ? 0.4 : 0.2),
                     lineWidth: 1.5
                 )
                 .frame(width: 200, height: 100)
+                .shadcnShadow()
 
             // Progress arc overlay
             HalfCircleOutline()
@@ -224,20 +221,29 @@ struct SunMoonArcView: View {
             // Sun/Moon icon positioned on the arc
             GeometryReader { geometry in
                 let center = CGPoint(x: 100, y: 100) // Center at bottom of 200x100 frame
-                let radius: CGFloat = 90 // Slightly inside the arc
+                let radius: CGFloat = 100 // Exactly on the arc line
                 // Convert progress to angle: 0 progress = 180° (left), 1 progress = 0° (right)
                 let angle = 180 - (arcProgress * 180)
                 let radians = angle * .pi / 180
                 let iconX = center.x + radius * cos(radians)
-                let iconY = center.y + radius * sin(radians)
+                let iconY = center.y - radius * sin(radians) // Subtract to position on arc line
 
-                Image(systemName: iconName)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(iconColor)
-                    .position(x: iconX, y: iconY)
-                    .shadow(color: iconColor.opacity(0.4), radius: 3, x: 0, y: 1)
-                    .animation(.easeInOut(duration: 1.0), value: arcProgress)
-                    .animation(.easeInOut(duration: 1.5), value: isDaytime)
+                ZStack {
+                    // Circular background to hide line behind icon
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                        .frame(width: 30, height: 30)
+
+                    // Icon
+                    Image(systemName: iconName)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(isDaytime ? iconColor : Color.white)
+                        .symbolRenderingMode(.monochrome)
+                }
+                .position(x: iconX, y: iconY)
+                .shadow(color: colorScheme == .dark ? Color.black.opacity(0.1) : iconColor.opacity(0.4), radius: 3, x: 0, y: 1)
+                .animation(.easeInOut(duration: 1.0), value: arcProgress)
+                .animation(.easeInOut(duration: 1.5), value: isDaytime)
             }
             .frame(width: 200, height: 100)
         }

@@ -58,4 +58,16 @@ class ThemeManager: ObservableObject {
     func setTheme(_ theme: AppTheme) {
         selectedTheme = theme
     }
+
+    // Helper to get the effective current color scheme
+    func getCurrentEffectiveColorScheme(systemColorScheme: ColorScheme) -> ColorScheme {
+        switch selectedTheme {
+        case .system:
+            return systemColorScheme
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
 }

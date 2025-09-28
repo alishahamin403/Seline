@@ -94,10 +94,8 @@ struct TabButton: View {
 }
 
 #Preview {
-    @State var selectedTab: TabSelection = .home
-
-    return VStack {
+    VStack {
         Spacer()
-        BottomTabBar(selectedTab: $selectedTab)
+        BottomTabBar(selectedTab: .constant(.home))
     }
 }

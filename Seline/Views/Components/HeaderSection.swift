@@ -34,7 +34,7 @@ struct HeaderSection: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 15)
         .background(
-            colorScheme == .dark ? Color.black : Color.white
+            colorScheme == .dark ? Color.gmailDarkBackground : Color.white
         )
         .sheet(isPresented: $showingSettings) {
             SettingsView()
@@ -43,6 +43,5 @@ struct HeaderSection: View {
 }
 
 #Preview {
-    @State var selectedTab: TabSelection = .home
-    return HeaderSection(selectedTab: $selectedTab)
+    HeaderSection(selectedTab: .constant(.home))
 }

@@ -72,7 +72,12 @@
       "WebFetch(domain:uselessfacts.jsph.pl)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(timeout 60 xcodebuild:*)",
+      "WebFetch(domain:ui.shadcn.com)",
+      "Bash(timeout 30 xcodebuild:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(xcrun simctl list:*)"
     ],
     "deny": [],
     "ask": []

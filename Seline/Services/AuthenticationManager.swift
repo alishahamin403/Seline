@@ -26,11 +26,21 @@ class AuthenticationManager: ObservableObject {
 
         do {
             // First, sign in with Google
-            guard let presentingViewController = await UIApplication.shared.windows.first?.rootViewController else {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let presentingViewController = windowScene.windows.first?.rootViewController else {
                 throw AuthError.noPresentingViewController
             }
 
-            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
+            // Request additional Gmail scopes
+            let gmailScopes = [
+                "https://www.googleapis.com/auth/gmail.readonly"
+            ]
+
+            let result = try await GIDSignIn.sharedInstance.signIn(
+                withPresenting: presentingViewController,
+                hint: nil,
+                additionalScopes: gmailScopes
+            )
 
             guard let idToken = result.user.idToken?.tokenString else {
                 throw AuthError.noIdToken

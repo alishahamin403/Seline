@@ -93,5 +93,13 @@
         <string>GeistSans-Semibold.ttf</string>
         <string>GeistSans-Bold.ttf</string>
     </array>
+
+    <!-- App Query Schemes (iOS 9+ requirement for canOpenURL) -->
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>googlegmail</string>
+        <string>x-gmail</string>
+        <string>gmail</string>
+    </array>
 </dict>
 </plist>

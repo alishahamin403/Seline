@@ -21,7 +21,7 @@ struct WeatherWidget: View {
             // Location text
             Text(weatherService.weatherData?.locationName ?? locationService.locationName)
                 .font(.system(size: 16, weight: .regular, design: .default))
-                .foregroundColor(.gray)
+                .foregroundColor(colorScheme == .dark ? .white : .gray)
 
             // Weather info
             HStack(spacing: 6) {

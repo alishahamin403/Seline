@@ -68,7 +68,5 @@ extension View {
 }
 
 #Preview {
-    @State var selectedTab: TabSelection = .home
-
-    return SearchBarComponent(selectedTab: $selectedTab)
+    SearchBarComponent(selectedTab: .constant(.home))
 }

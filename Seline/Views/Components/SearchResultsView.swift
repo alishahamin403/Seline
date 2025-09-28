@@ -137,8 +137,6 @@ struct SearchResultRow: View {
 }
 
 #Preview {
-    @State var selectedTab: TabSelection = .home
-
     let sampleResults = [
         SearchResult(
             item: SearchableItem(
@@ -162,10 +160,10 @@ struct SearchResultRow: View {
         )
     ]
 
-    return SearchResultsView(
+    SearchResultsView(
         results: sampleResults,
         isSearching: false,
-        selectedTab: $selectedTab
+        selectedTab: .constant(.home)
     )
     .padding()
 }

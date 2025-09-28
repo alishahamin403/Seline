@@ -9,6 +9,12 @@ extension Color {
     static let shadcnPrimary = Color(red: 0.20, green: 0.34, blue: 0.40) // #345766 (dark blue)
     static let shadcnPrimaryForeground = Color.white
 
+    // MARK: - Gmail Dark Mode Colors
+    // Inspired by Gmail's dark theme color palette
+    static let gmailDarkBackground = Color(red: 0.102, green: 0.102, blue: 0.102) // #1a1a1a (very dark gray)
+    static let gmailDarkCard = Color(red: 0.235, green: 0.251, blue: 0.263) // #3c4043 (medium gray)
+    static let gmailDarkCardAlt = Color(red: 0.196, green: 0.212, blue: 0.224) // #323639 (slightly darker gray)
+
     // Background Colors
     static func shadcnBackground(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
@@ -32,7 +38,7 @@ extension Color {
     // Text Colors
     static func shadcnForeground(_ colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ?
-            Color(red: 0.847, green: 0.925, blue: 0.969) : // #d8ecf7 (lightest blue)
+            Color.white : // Pure white in dark mode
             Color(red: 0.035, green: 0.086, blue: 0.106) // #09161b (darkest blue)
     }
 

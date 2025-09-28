@@ -17,8 +17,10 @@ struct AuthenticationView: View {
                     // Logo positioned above welcome text
                     Image("SelineLogo")
                         .resizable()
+                        .renderingMode(.original)
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 140, height: 140)
+                        .clipped()
 
                     // Welcome Section
                     VStack(spacing: 12) {

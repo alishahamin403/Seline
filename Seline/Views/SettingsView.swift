@@ -8,7 +8,7 @@ struct SettingsView: View {
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
-        themeManager.selectedTheme == .dark
+        themeManager.getCurrentEffectiveColorScheme(systemColorScheme: colorScheme) == .dark
     }
 
     // Settings states (some are mockup for now)
@@ -107,6 +107,36 @@ struct SettingsView: View {
                 .foregroundColor(isDarkMode ? .white : .black)
 
             VStack(spacing: 16) {
+                // Theme toggle
+                SettingsTile(title: "Theme") {
+                    HStack(spacing: 8) {
+                        ForEach(AppTheme.allCases, id: \.self) { theme in
+                            Button(action: {
+                                themeManager.setTheme(theme)
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: theme.icon)
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text(theme.displayName)
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(themeManager.selectedTheme == theme ?
+                                              (isDarkMode ? Color.white.opacity(0.2) : Color.black.opacity(0.1)) :
+                                              Color.clear)
+                                )
+                                .foregroundColor(themeManager.selectedTheme == theme ?
+                                                (isDarkMode ? .white : .black) :
+                                                .gray)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+
                 // Notification toggle
                 SettingsTile(title: "Notification") {
                     Toggle("", isOn: Binding(
@@ -126,19 +156,6 @@ struct SettingsView: View {
                                     notificationService.openAppSettings()
                                 }
                             }
-                        }
-                    ))
-                    .labelsHidden()
-                    .tint(Color(red: 0.4, green: 0.4, blue: 0.4))
-                }
-
-                // Night mode toggle
-                SettingsTile(title: "Night mode") {
-                    Toggle("", isOn: Binding(
-                        get: { themeManager.selectedTheme == .dark },
-                        set: { newValue in
-                            let newTheme: AppTheme = newValue ? .dark : .light
-                            themeManager.setTheme(newTheme)
                         }
                     ))
                     .labelsHidden()

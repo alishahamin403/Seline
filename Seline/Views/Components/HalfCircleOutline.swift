@@ -35,6 +35,7 @@ struct HalfCircleOutlineView: View {
         HalfCircleOutline()
             .stroke(strokeColor, lineWidth: 0.5)
             .frame(width: 180, height: 90)
+            .shadcnShadow()
     }
 }
 

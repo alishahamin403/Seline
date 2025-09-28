@@ -7,46 +7,47 @@ struct MainAppView: View {
     @State private var keyboardHeight: CGFloat = 0
 
     var body: some View {
-        NavigationView {
-            GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    // Content based on selected tab
-                    Group {
-                        switch selectedTab {
-                        case .home:
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Content based on selected tab
+                Group {
+                    switch selectedTab {
+                    case .home:
+                        NavigationView {
                             homeContent
-                        case .email:
-                            EmailPlaceholderView()
-                        case .events:
-                            EventsPlaceholderView()
-                        case .notes:
-                            NotesPlaceholderView()
-                        case .maps:
-                            MapsPlaceholderView()
                         }
+                        .navigationViewStyle(StackNavigationViewStyle())
+                        .navigationBarHidden(true)
+                    case .email:
+                        EmailView()
+                    case .events:
+                        EventsPlaceholderView()
+                    case .notes:
+                        NotesPlaceholderView()
+                    case .maps:
+                        MapsPlaceholderView()
                     }
+                }
 
-                    // Fixed Footer - hide when keyboard appears
-                    if keyboardHeight == 0 {
-                        BottomTabBar(selectedTab: $selectedTab)
-                    }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(
-                    colorScheme == .dark ?
-                        Color.black : Color.white
-                )
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-                    if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-                        keyboardHeight = keyboardFrame.cgRectValue.height
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                    keyboardHeight = 0
+                // Fixed Footer - hide when keyboard appears
+                if keyboardHeight == 0 {
+                    BottomTabBar(selectedTab: $selectedTab)
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .background(
+                colorScheme == .dark ?
+                    Color.gmailDarkBackground : Color.white
+            )
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+                    keyboardHeight = keyboardFrame.cgRectValue.height
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardHeight = 0
+            }
         }
-        .navigationViewStyle(StackNavigationViewStyle())
     }
 
     // MARK: - Home Content
@@ -122,7 +123,7 @@ struct MainAppView: View {
             }
             .background(
                 colorScheme == .dark ?
-                    Color.black : Color.white
+                    Color.gmailDarkBackground : Color.white
             )
         }
     }

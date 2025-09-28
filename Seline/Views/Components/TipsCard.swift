@@ -38,33 +38,20 @@ struct TipsCard: View {
                 .fill(colorScheme == .dark ? Color.black : Color.white)
         )
         .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.08) : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 8 : 12,
+            color: colorScheme == .dark ? .clear : .gray.opacity(0.15),
+            radius: colorScheme == .dark ? 0 : 12,
             x: 0,
-            y: colorScheme == .dark ? 3 : 4
+            y: colorScheme == .dark ? 0 : 4
         )
         .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.04) : .gray.opacity(0.08),
-            radius: colorScheme == .dark ? 4 : 6,
+            color: colorScheme == .dark ? .clear : .gray.opacity(0.08),
+            radius: colorScheme == .dark ? 0 : 6,
             x: 0,
-            y: colorScheme == .dark ? 1 : 2
-        )
-        .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.02) : .clear,
-            radius: colorScheme == .dark ? 8 : 0,
-            x: 0,
-            y: colorScheme == .dark ? 2 : 0
+            y: colorScheme == .dark ? 0 : 2
         )
         .padding(.horizontal, 20)
-        .onTapGesture {
-            // Manually refresh fact on tap
-            withAnimation(.easeInOut(duration: 0.3)) {
-                funFactsService.manualRefresh()
-            }
-        }
         .onAppear {
             // Service automatically handles 3-hour refresh cycle
-            // Tap to refresh manually for immediate new fact
         }
     }
 }

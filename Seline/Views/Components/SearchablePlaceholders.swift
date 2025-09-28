@@ -2,54 +2,6 @@ import SwiftUI
 
 // MARK: - Searchable Placeholder Views
 
-struct EmailPlaceholderView: View, Searchable {
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        VStack {
-            Spacer()
-            Text("Email")
-                .font(.system(size: 24, weight: .bold, design: .default))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-            Text("Coming Soon")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.shadcnBackground(colorScheme))
-        .onAppear {
-            SearchService.shared.registerSearchableProvider(self, for: .email)
-        }
-    }
-
-    func getSearchableContent() -> [SearchableItem] {
-        return [
-            SearchableItem(
-                title: "Email Management",
-                content: "Manage your emails, inbox, drafts, and sent messages. Stay organized with smart categorization.",
-                type: .email,
-                identifier: "email-main",
-                metadata: ["category": "communication", "status": "coming-soon"]
-            ),
-            SearchableItem(
-                title: "Inbox",
-                content: "View and manage incoming emails with intelligent filtering and sorting.",
-                type: .email,
-                identifier: "email-inbox",
-                metadata: ["feature": "inbox", "priority": "high"]
-            ),
-            SearchableItem(
-                title: "Compose Email",
-                content: "Write and send new emails with rich text formatting and attachments.",
-                type: .email,
-                identifier: "email-compose",
-                metadata: ["feature": "compose", "action": "send"]
-            )
-        ]
-    }
-}
-
 struct EventsPlaceholderView: View, Searchable {
     @Environment(\.colorScheme) var colorScheme
 
