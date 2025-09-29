@@ -61,8 +61,8 @@ struct EmailRow: View {
 
                                 if !email.isRead {
                                     Circle()
-                                        .fill(colorScheme == .dark ? .white : .black)
-                                        .frame(width: 8, height: 8)
+                                        .fill(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                        .frame(width: 10, height: 10)
                                 }
                             }
                         }

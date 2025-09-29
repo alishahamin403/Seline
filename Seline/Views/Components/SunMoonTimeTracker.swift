@@ -8,43 +8,38 @@ struct SunMoonTimeTracker: View {
     let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
-            // Base half circle with glow effect
-            HalfCircleOutline()
-                .stroke(strokeColor, lineWidth: 0.5)
-                .frame(width: 180, height: 90)
-                .shadcnShadow()
+        GeometryReader { geometry in
+            ZStack {
+                // Base straight line - spans full screen width, matches section separator style
+                StraightLine()
+                    .stroke(strokeColor, lineWidth: 2.0)
+                    .frame(width: geometry.size.width, height: 80)
 
-            // Sun/Moon icon positioned on the arc
-            GeometryReader { geometry in
-                let center = CGPoint(x: 90, y: 90) // Center point at bottom of half circle
-                let radius: CGFloat = 90 // Position exactly on the arc line
+                // Sun/Moon icon positioned on the line
+                let lineY: CGFloat = 40 // Middle of the frame (height 80 / 2)
+                let lineStartX: CGFloat = 16 // Small padding from edge
+                let lineEndX: CGFloat = geometry.size.width - 16 // Small padding from edge
 
-                // Calculate angle based on time progress
-                let angle = 180 - (timeProgress * 180) // 0 progress = 180° (left), 1 progress = 0° (right)
-                let radians = angle * .pi / 180
-                let iconX = center.x + radius * cos(radians)
-                let iconY = center.y - radius * sin(radians) // Subtract to position on arc line
+                // Calculate X position based on time progress (0 = left, 1 = right)
+                let iconX = lineStartX + (timeProgress * (lineEndX - lineStartX))
 
                 // Sun/Moon icon with background to hide line
                 ZStack {
                     // Circular background to hide line behind icon
                     Circle()
                         .fill(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 44, height: 44)
 
                     // Icon
                     Image(systemName: iconName)
-                        .font(.system(size: 24, weight: .medium))
+                        .font(.system(size: 28, weight: .medium))
                         .foregroundColor(iconColor)
                 }
-                .position(x: iconX, y: iconY)
+                .position(x: iconX, y: lineY)
                 .animation(.easeInOut(duration: 0.5), value: timeProgress)
-
-
             }
-            .frame(width: 180, height: 90)
         }
+        .frame(height: 80)
         .onReceive(timer) { _ in
             currentTime = Date()
         }
@@ -53,7 +48,7 @@ struct SunMoonTimeTracker: View {
     // MARK: - Computed Properties
 
     private var strokeColor: Color {
-        colorScheme == .dark ? Color.white : Color.gray
+        colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2)
     }
 
     private var isDaytime: Bool {
@@ -70,8 +65,10 @@ struct SunMoonTimeTracker: View {
             // Golden yellow sun
             return Color(red: 1.0, green: 0.8, blue: 0.0)
         } else {
-            // White moon in dark mode, gray in light mode
-            return colorScheme == .dark ? Color.white : Color.gray
+            // Blue moon matching tab icon color
+            return colorScheme == .dark ?
+                Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (light blue for dark mode)
+                Color(red: 0.20, green: 0.34, blue: 0.40)      // #345766 (dark blue for light mode)
         }
     }
 

@@ -12,24 +12,29 @@ struct HeaderSection: View {
     }
 
     var body: some View {
-        ZStack {
-            // Centered date display
-            Text(dateFormatter.string(from: Date()))
-                .font(FontManager.geist(size: 20, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+        VStack(spacing: 8) {
+            ZStack {
+                // Centered date display
+                Text(dateFormatter.string(from: Date()))
+                    .font(FontManager.geist(size: 24, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
 
-            // Profile icon positioned on the right
-            HStack {
-                Spacer()
-                Button(action: {
-                    showingSettings = true
-                }) {
-                    Image(systemName: "person.circle")
-                        .font(FontManager.geist(size: 24, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                // Profile icon positioned on the right
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        showingSettings = true
+                    }) {
+                        Image(systemName: "person.circle")
+                            .font(FontManager.geist(size: 24, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
+
+            // Weather widget under the date
+            WeatherWidget()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 15)

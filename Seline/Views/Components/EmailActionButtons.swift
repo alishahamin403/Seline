@@ -4,7 +4,6 @@ struct EmailActionButtons: View {
     let onReply: () -> Void
     let onForward: () -> Void
     let onDelete: () -> Void
-    let onOpenInGmail: () -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -25,14 +24,6 @@ struct EmailActionButtons: View {
                 action: onForward
             )
 
-            // Open in Gmail Button
-            ActionButton(
-                icon: "envelope.fill",
-                label: "Gmail",
-                colorScheme: colorScheme,
-                action: onOpenInGmail
-            )
-
             // Delete Button
             ActionButton(
                 icon: "trash",
@@ -41,7 +32,15 @@ struct EmailActionButtons: View {
                 action: onDelete
             )
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: ShadcnRadius.lg)
+                .fill(colorScheme == .dark
+                    ? Color.clear // No background in dark mode
+                    : Color.white // Clean white for light mode
+                )
+        )
     }
 }
 
@@ -65,10 +64,23 @@ struct ActionButton: View {
                     .foregroundColor(Color.shadcnForeground(colorScheme))
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 80)
+            .frame(height: 70)
             .background(
-                RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                    .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.16) : Color.white)
+                RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                    .fill(
+                        colorScheme == .dark
+                            ? Color(red: 0.15, green: 0.15, blue: 0.16) // Keep dark mode as is
+                            : Color(red: 0.98, green: 0.98, blue: 0.98) // Very light gray for individual buttons in light mode
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                            .stroke(
+                                colorScheme == .dark
+                                    ? Color.clear
+                                    : Color.gray.opacity(0.1),
+                                lineWidth: 0.5
+                            )
+                    )
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -80,15 +92,13 @@ struct ActionButton: View {
         EmailActionButtons(
             onReply: { print("Reply tapped") },
             onForward: { print("Forward tapped") },
-            onDelete: { print("Delete tapped") },
-            onOpenInGmail: { print("Open in Gmail tapped") }
+            onDelete: { print("Delete tapped") }
         )
 
         EmailActionButtons(
             onReply: { print("Reply tapped") },
             onForward: { print("Forward tapped") },
-            onDelete: { print("Delete tapped") },
-            onOpenInGmail: { print("Open in Gmail tapped") }
+            onDelete: { print("Delete tapped") }
         )
         .preferredColorScheme(.dark)
     }

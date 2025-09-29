@@ -12,6 +12,7 @@ class NotificationService: ObservableObject {
     private init() {
         Task {
             await checkAuthorizationStatus()
+            configurePushNotificationCategories()
         }
     }
 
@@ -37,6 +38,97 @@ class NotificationService: ObservableObject {
     func openAppSettings() {
         if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
             UIApplication.shared.open(settingsUrl)
+        }
+    }
+
+    // MARK: - Email Notifications
+
+    func scheduleNewEmailNotification(emailCount: Int, latestSender: String?, latestSubject: String?) async {
+        // Check if we have authorization
+        guard isAuthorized else {
+            print("Notification authorization not granted")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+
+        if emailCount == 1 {
+            content.title = "New Email"
+            if let sender = latestSender {
+                content.body = "From: \(sender)"
+                if let subject = latestSubject, !subject.isEmpty {
+                    content.body += "\n\(subject)"
+                }
+            } else {
+                content.body = "You have a new email"
+            }
+        } else {
+            content.title = "New Emails (\(emailCount))"
+            if let sender = latestSender {
+                content.body = "Latest from: \(sender)"
+                if let subject = latestSubject, !subject.isEmpty {
+                    content.body += "\n\(subject)"
+                }
+            } else {
+                content.body = "You have \(emailCount) new emails"
+            }
+        }
+
+        content.sound = .default
+        content.badge = NSNumber(value: emailCount)
+        content.categoryIdentifier = "email"
+
+        // Add action buttons
+        content.userInfo = ["type": "new_email", "count": emailCount]
+
+        let request = UNNotificationRequest(
+            identifier: "new-email-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil // Show immediately
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("📧 Scheduled notification for \(emailCount) new emails")
+        } catch {
+            print("Failed to schedule email notification: \(error)")
+        }
+    }
+
+    func configurePushNotificationCategories() {
+        let openAction = UNNotificationAction(
+            identifier: "open",
+            title: "Open Email",
+            options: [.foreground]
+        )
+
+        let markReadAction = UNNotificationAction(
+            identifier: "mark_read",
+            title: "Mark as Read",
+            options: []
+        )
+
+        let emailCategory = UNNotificationCategory(
+            identifier: "email",
+            actions: [openAction, markReadAction],
+            intentIdentifiers: []
+        )
+
+        UNUserNotificationCenter.current().setNotificationCategories([emailCategory])
+    }
+
+    func updateAppBadge(count: Int) {
+        UIApplication.shared.applicationIconBadgeNumber = count
+    }
+
+    func clearEmailNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notifications in
+            let emailNotificationIds = notifications
+                .filter { $0.request.content.userInfo["type"] as? String == "new_email" }
+                .map { $0.request.identifier }
+
+            center.removeDeliveredNotifications(withIdentifiers: emailNotificationIds)
         }
     }
 }

@@ -4,8 +4,8 @@ struct EmailDetailView: View {
     let email: Email
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) private var dismiss
-    @State private var showingGmailAlert = false
-    @State private var gmailAlertMessage = ""
+    @StateObject private var emailService = EmailService.shared
+    @StateObject private var openAIService = OpenAIService.shared
 
     var body: some View {
         NavigationView {
@@ -20,10 +20,13 @@ struct EmailDetailView: View {
                             // Sender/Recipient Information
                             CompactSenderView(email: email)
 
-                            // AI Summary Section
-                            if let aiSummary = email.aiSummary {
-                                AISummaryCard(summary: aiSummary)
-                            }
+                            // AI Summary Section - always show
+                            AISummaryCard(
+                                email: email,
+                                onGenerateSummary: { email in
+                                    await generateAISummary(for: email)
+                                }
+                            )
 
                             // Attachments Section
                             if !email.attachments.isEmpty {
@@ -32,7 +35,7 @@ struct EmailDetailView: View {
 
                             // Bottom spacing to account for fixed buttons
                             Spacer()
-                                .frame(height: 100)
+                                .frame(height: 40)
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 24)
@@ -53,48 +56,58 @@ struct EmailDetailView: View {
                                 // TODO: Implement delete functionality
                                 print("Delete email: \(email.subject)")
                                 dismiss()
-                            },
-                            onOpenInGmail: {
-                                openEmailInGmail()
                             }
                         )
                         .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
+                        .padding(.bottom, 4)
+                        .padding(.top, 4)
                         .background(
                             colorScheme == .dark ?
-                                Color(red: 0.11, green: 0.11, blue: 0.12) : // Dark gray for dark mode
+                                Color.gmailDarkBackground :
                                 Color.white
                         )
                     }
                 }
                 .background(
                     colorScheme == .dark ?
-                        Color(red: 0.11, green: 0.11, blue: 0.12) : // Dark gray for dark mode
+                        Color.gmailDarkBackground :
                         Color.white
                 )
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
-        .alert("Gmail", isPresented: $showingGmailAlert) {
-            Button("OK") { }
-        } message: {
-            Text(gmailAlertMessage)
+        .onAppear {
+            // Mark email as read when view appears
+            if !email.isRead {
+                emailService.markAsRead(email)
+            }
         }
     }
 
-    // MARK: - Gmail Opening Logic
-    private func openEmailInGmail() {
-        GmailURLHelper.openEmailInGmail(email) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    // Successfully opened Gmail - no action needed
-                    break
-                case .failure(let error):
-                    gmailAlertMessage = error.userFriendlyMessage
-                    showingGmailAlert = true
-                }
-            }
+
+    // MARK: - AI Summary Generation
+
+    private func generateAISummary(for email: Email) async -> Result<String, Error> {
+        // Check if email already has a summary
+        if let existingSummary = email.aiSummary {
+            return .success(existingSummary)
+        }
+
+        do {
+            // Generate summary using OpenAI
+            let emailBody = email.body ?? email.snippet
+            let summary = try await openAIService.summarizeEmail(
+                subject: email.subject,
+                body: emailBody
+            )
+
+            // Cache the summary in the email service
+            await emailService.updateEmailWithAISummary(email, summary: summary)
+
+            return .success(summary)
+        } catch {
+            print("Failed to generate AI summary: \(error)")
+            return .failure(error)
         }
     }
 

@@ -4,6 +4,8 @@ struct EmailView: View, Searchable {
     @StateObject private var emailService = EmailService.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: EmailTab = .inbox
+    @State private var selectedCategory: EmailCategory? = nil // nil means show all emails
+    @State private var lastRefreshTime: Date? = nil
 
     var currentEmails: [Email] {
         return emailService.getEmails(for: selectedTab.folder)
@@ -14,7 +16,12 @@ struct EmailView: View, Searchable {
     }
 
     var currentSections: [EmailSection] {
-        return emailService.getCategorizedEmails(for: selectedTab.folder)
+        if let selectedCategory = selectedCategory {
+            return emailService.getCategorizedEmails(for: selectedTab.folder, category: selectedCategory)
+        } else {
+            // Show all emails when no category is selected
+            return emailService.getCategorizedEmails(for: selectedTab.folder)
+        }
     }
 
 
@@ -23,14 +30,22 @@ struct EmailView: View, Searchable {
             let topPadding = CGFloat(8)
 
             VStack(spacing: 0) {
-                VStack(spacing: 0) {
+                VStack(spacing: 12) {
                     // Tab selector - always visible now
                     EmailTabView(selectedTab: $selectedTab)
                         .onChange(of: selectedTab) { newTab in
-                            // Load emails for the selected folder, respecting cache
+                            // Load emails for the selected folder - cache will be respected
+                            // This will show cached content immediately if available
                             Task {
                                 await emailService.loadEmailsForFolder(newTab.folder)
                             }
+                        }
+
+                    // Category filter buttons
+                    EmailCategoryFilterView(selectedCategory: $selectedCategory)
+                        .onChange(of: selectedCategory) { _ in
+                            // Category change doesn't require reloading data, just filtering
+                            // The currentSections computed property will handle the filtering
                         }
                 }
                 .padding(.horizontal, 20)
@@ -82,47 +97,53 @@ struct EmailView: View, Searchable {
             )
         }
         .onAppear {
-            Task {
-                // Load emails for current tab, respecting cache
-                await emailService.loadEmailsForFolder(selectedTab.folder)
-            }
-
-            // Register with search service
+            // Register with search service first
             SearchService.shared.registerSearchableProvider(self, for: .email)
+
+            // Clear any email notifications when user opens email view
+            Task {
+                await emailService.notificationService.clearEmailNotifications()
+
+                // Load emails for current tab - will show cached content immediately
+                await emailService.loadEmailsForFolder(selectedTab.folder)
+
+                // Update app badge to reflect current unread count
+                let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
+                await emailService.notificationService.updateAppBadge(count: unreadCount)
+            }
         }
     }
 
     private func refreshCurrentFolder() async {
+        lastRefreshTime = Date()
         await emailService.loadEmailsForFolder(selectedTab.folder, forceRefresh: true)
     }
 
     private func openGmailCompose() {
-        // Most reliable Gmail compose URL scheme
-        let composeURL = "googlegmail://co?to=&subject=&body="
+        // Try Gmail compose URL schemes in order of reliability
+        let composeURLs = [
+            "googlegmail://co",           // Direct compose
+            "googlegmail:///co",          // Alternative compose
+            "googlegmail://compose",      // Another compose variant
+            "googlegmail://"              // Fallback to general Gmail
+        ]
 
-        if let url = URL(string: composeURL) {
-            if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url)
-                print("✅ Opening Gmail compose with URL: \(composeURL)")
-                return
-            } else {
-                print("❌ Cannot open Gmail compose URL: \(composeURL)")
+        for urlString in composeURLs {
+            if let url = URL(string: urlString) {
+                if UIApplication.shared.canOpenURL(url) {
+                    UIApplication.shared.open(url) { success in
+                        if success {
+                            print("✅ Successfully opened Gmail with: \(urlString)")
+                            return
+                        }
+                    }
+                    return
+                }
             }
         }
 
-        // Fallback: Try to open Gmail app main screen
-        let gmailMainURL = "googlegmail://"
-        if let url = URL(string: gmailMainURL) {
-            if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url)
-                print("✅ Opening Gmail main app as fallback")
-                return
-            } else {
-                print("❌ Cannot open Gmail main app")
-            }
-        }
-
-        print("❌ Gmail app not found or not accessible")
+        // If none worked, Gmail app might not be installed
+        print("Gmail app is not installed or none of the URL schemes worked")
     }
 
     // MARK: - Searchable Protocol

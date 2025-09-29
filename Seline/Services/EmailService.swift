@@ -20,8 +20,17 @@ class EmailService: ObservableObject {
 
     // Cache management
     private var cacheTimestamps: [EmailFolder: Date] = [:]
-    private let cacheExpirationTime: TimeInterval = 86400 // 24 hours (full day)
-    private let newEmailCheckInterval: TimeInterval = 180 // 3 minutes for new email checks
+    private let cacheExpirationTime: TimeInterval = 604800 // 7 days for longer persistence
+    private let newEmailCheckInterval: TimeInterval = 120 // 2 minutes for more frequent checks
+
+    // Persistent cache keys
+    private enum CacheKeys {
+        static let inboxEmails = "cached_inbox_emails"
+        static let sentEmails = "cached_sent_emails"
+        static let inboxTimestamp = "cached_inbox_timestamp"
+        static let sentTimestamp = "cached_sent_timestamp"
+        static let lastEmailIds = "last_email_ids" // For tracking new emails
+    }
 
     // Request management
     private var currentTasks: [EmailFolder: Task<Void, Never>] = [:]
@@ -31,9 +40,10 @@ class EmailService: ObservableObject {
 
     private let authManager = AuthenticationManager.shared
     private let gmailAPIClient = GmailAPIClient.shared
-    private let filterManager = EmailFilterManager.shared
+    let notificationService = NotificationService.shared // Made public for access from EmailView
 
     private init() {
+        loadCachedData()
         startNewEmailPolling()
     }
 
@@ -60,7 +70,8 @@ class EmailService: ObservableObject {
 
         // Check if we have valid cached data and don't need to refresh
         if !forceRefresh && isCacheValid(for: folder) && !getEmails(for: folder).isEmpty {
-            // Data is cached and valid, no need to reload
+            // Data is cached and valid, set state to loaded with cached data
+            setLoadingState(for: folder, state: .loaded(getEmails(for: folder)))
             return
         }
 
@@ -72,13 +83,9 @@ class EmailService: ObservableObject {
 
                 switch folder {
                 case .inbox:
-                    let inboxEmails = try await gmailAPIClient.fetchInboxEmails(maxResults: 100)
-                    // Apply user-configured filters for inbox
-                    emails = applyUserFilters(inboxEmails)
+                    emails = try await gmailAPIClient.fetchInboxEmails(maxResults: 100)
                 case .sent:
-                    let sentEmails = try await gmailAPIClient.fetchSentEmails(maxResults: 100)
-                    // Apply user-configured filters for sent emails too
-                    emails = applyUserFilters(sentEmails)
+                    emails = try await gmailAPIClient.fetchSentEmails(maxResults: 100)
                 default:
                     // For other folders, we can extend this later
                     emails = []
@@ -96,8 +103,9 @@ class EmailService: ObservableObject {
                 updateEmailsForFolder(folder, emails: filteredEmails)
                 setLoadingState(for: folder, state: .loaded(filteredEmails))
 
-                // Update cache timestamp
+                // Update cache timestamp and save to persistent storage
                 updateCacheTimestamp(for: folder)
+                saveCachedData(for: folder)
 
             } catch {
                 // Only update state if not cancelled
@@ -144,10 +152,17 @@ class EmailService: ObservableObject {
     }
 
     func refreshEmails() async {
+        // Clear notifications when user manually refreshes
+        await notificationService.clearEmailNotifications()
+
         await loadEmailsForFolder(.inbox, forceRefresh: true)
         // Add delay to respect rate limits
         try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
         await loadEmailsForFolder(.sent, forceRefresh: true)
+
+        // Update app badge after refresh
+        let unreadCount = inboxEmails.filter { !$0.isRead }.count
+        await notificationService.updateAppBadge(count: unreadCount)
     }
 
     func refreshFolder(_ folder: EmailFolder) async {
@@ -179,20 +194,6 @@ class EmailService: ObservableObject {
     }
 
 
-    private func applyUserFilters(_ emails: [Email]) -> [Email] {
-        return emails.filter { email in
-            filterManager.shouldShowEmail(email)
-        }
-    }
-
-    func refreshEmailsWithCurrentFilters() async {
-        // Force refresh all folders with current filter settings
-        await loadEmailsForFolder(.inbox, forceRefresh: true)
-
-        // Add delay to respect rate limits
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-        await loadEmailsForFolder(.sent, forceRefresh: true)
-    }
 
     func getEmails(for folder: EmailFolder) -> [Email] {
         switch folder {
@@ -221,6 +222,170 @@ class EmailService: ObservableObject {
         }
     }
 
+    func getCategorizedEmails(for folder: EmailFolder, category: EmailCategory) -> [EmailSection] {
+        let emails = getFilteredEmails(for: folder, category: category)
+        let categorized = TimePeriod.categorizeEmails(emails, for: Date())
+
+        return TimePeriod.allCases.compactMap { period in
+            let periodEmails = categorized[period] ?? []
+            guard !periodEmails.isEmpty else { return nil }
+            return EmailSection(timePeriod: period, emails: periodEmails)
+        }
+    }
+
+    func getFilteredEmails(for folder: EmailFolder, category: EmailCategory) -> [Email] {
+        let allEmails = getEmails(for: folder)
+
+        // Filter emails by category
+        return allEmails.filter { email in
+            email.category == category
+        }
+    }
+
+    func getEmailCount(for folder: EmailFolder, category: EmailCategory) -> Int {
+        return getFilteredEmails(for: folder, category: category).count
+    }
+
+    // MARK: - Email Actions
+
+    func markAsRead(_ email: Email) {
+        var wasUpdated = false
+
+        // Update in inbox emails
+        if let inboxIndex = inboxEmails.firstIndex(where: { $0.id == email.id }) {
+            if !inboxEmails[inboxIndex].isRead {
+                let currentEmail = inboxEmails[inboxIndex]
+                let updatedEmail = Email(
+                    id: currentEmail.id,
+                    threadId: currentEmail.threadId,
+                    sender: currentEmail.sender,
+                    recipients: currentEmail.recipients,
+                    ccRecipients: currentEmail.ccRecipients,
+                    subject: currentEmail.subject,
+                    snippet: currentEmail.snippet,
+                    body: currentEmail.body,
+                    timestamp: currentEmail.timestamp,
+                    isRead: true, // Mark as read
+                    isImportant: currentEmail.isImportant,
+                    hasAttachments: currentEmail.hasAttachments,
+                    attachments: currentEmail.attachments,
+                    labels: currentEmail.labels,
+                    aiSummary: currentEmail.aiSummary,
+                    gmailMessageId: currentEmail.gmailMessageId,
+                    gmailThreadId: currentEmail.gmailThreadId
+                )
+                inboxEmails[inboxIndex] = updatedEmail
+                wasUpdated = true
+            }
+        }
+
+        // Update in sent emails if it exists there too
+        if let sentIndex = sentEmails.firstIndex(where: { $0.id == email.id }) {
+            if !sentEmails[sentIndex].isRead {
+                let currentEmail = sentEmails[sentIndex]
+                let updatedEmail = Email(
+                    id: currentEmail.id,
+                    threadId: currentEmail.threadId,
+                    sender: currentEmail.sender,
+                    recipients: currentEmail.recipients,
+                    ccRecipients: currentEmail.ccRecipients,
+                    subject: currentEmail.subject,
+                    snippet: currentEmail.snippet,
+                    body: currentEmail.body,
+                    timestamp: currentEmail.timestamp,
+                    isRead: true, // Mark as read
+                    isImportant: currentEmail.isImportant,
+                    hasAttachments: currentEmail.hasAttachments,
+                    attachments: currentEmail.attachments,
+                    labels: currentEmail.labels,
+                    aiSummary: currentEmail.aiSummary,
+                    gmailMessageId: currentEmail.gmailMessageId,
+                    gmailThreadId: currentEmail.gmailThreadId
+                )
+                sentEmails[sentIndex] = updatedEmail
+                wasUpdated = true
+            }
+        }
+
+        // Only save and update if something actually changed
+        if wasUpdated {
+            // Save updated data to persistent cache
+            saveCachedData(for: .inbox)
+            saveCachedData(for: .sent)
+
+            // Update app badge count
+            Task {
+                let unreadCount = inboxEmails.filter { !$0.isRead }.count
+                await notificationService.updateAppBadge(count: unreadCount)
+            }
+
+            print("📧 Marked email as read: \(email.subject)")
+        }
+    }
+
+    func updateEmailWithAISummary(_ email: Email, summary: String) async {
+        var wasUpdated = false
+
+        // Update in inbox emails
+        if let inboxIndex = inboxEmails.firstIndex(where: { $0.id == email.id }) {
+            let currentEmail = inboxEmails[inboxIndex]
+            let updatedEmail = Email(
+                id: currentEmail.id,
+                threadId: currentEmail.threadId,
+                sender: currentEmail.sender,
+                recipients: currentEmail.recipients,
+                ccRecipients: currentEmail.ccRecipients,
+                subject: currentEmail.subject,
+                snippet: currentEmail.snippet,
+                body: currentEmail.body,
+                timestamp: currentEmail.timestamp,
+                isRead: currentEmail.isRead,
+                isImportant: currentEmail.isImportant,
+                hasAttachments: currentEmail.hasAttachments,
+                attachments: currentEmail.attachments,
+                labels: currentEmail.labels,
+                aiSummary: summary, // Update AI summary
+                gmailMessageId: currentEmail.gmailMessageId,
+                gmailThreadId: currentEmail.gmailThreadId
+            )
+            inboxEmails[inboxIndex] = updatedEmail
+            wasUpdated = true
+        }
+
+        // Update in sent emails if it exists there too
+        if let sentIndex = sentEmails.firstIndex(where: { $0.id == email.id }) {
+            let currentEmail = sentEmails[sentIndex]
+            let updatedEmail = Email(
+                id: currentEmail.id,
+                threadId: currentEmail.threadId,
+                sender: currentEmail.sender,
+                recipients: currentEmail.recipients,
+                ccRecipients: currentEmail.ccRecipients,
+                subject: currentEmail.subject,
+                snippet: currentEmail.snippet,
+                body: currentEmail.body,
+                timestamp: currentEmail.timestamp,
+                isRead: currentEmail.isRead,
+                isImportant: currentEmail.isImportant,
+                hasAttachments: currentEmail.hasAttachments,
+                attachments: currentEmail.attachments,
+                labels: currentEmail.labels,
+                aiSummary: summary, // Update AI summary
+                gmailMessageId: currentEmail.gmailMessageId,
+                gmailThreadId: currentEmail.gmailThreadId
+            )
+            sentEmails[sentIndex] = updatedEmail
+            wasUpdated = true
+        }
+
+        // Only save if something actually changed
+        if wasUpdated {
+            // Save updated data to persistent cache
+            saveCachedData(for: .inbox)
+            saveCachedData(for: .sent)
+            print("🤖 Updated AI summary for email: \(email.subject)")
+        }
+    }
 
     // MARK: - New Email Polling
 
@@ -233,6 +398,21 @@ class EmailService: ObservableObject {
         }
     }
 
+    private func showNewEmailNotification(newEmails: [Email]) async {
+        guard !newEmails.isEmpty else { return }
+
+        let latestEmail = newEmails.first // Already sorted by timestamp descending
+        await notificationService.scheduleNewEmailNotification(
+            emailCount: newEmails.count,
+            latestSender: latestEmail?.sender.displayName,
+            latestSubject: latestEmail?.subject
+        )
+
+        // Update app badge with total unread count
+        let unreadCount = inboxEmails.filter { !$0.isRead }.count
+        await notificationService.updateAppBadge(count: unreadCount)
+    }
+
     private func checkForNewEmails() async {
         // Only check for new emails if we have cached data
         guard !inboxEmails.isEmpty else { return }
@@ -240,8 +420,7 @@ class EmailService: ObservableObject {
         // Quick check for new emails in inbox only
         do {
             let latestEmails = try await gmailAPIClient.fetchInboxEmails(maxResults: 10)
-            let filteredLatest = applyUserFilters(latestEmails)
-            let todaysLatest = filterTodaysEmails(filteredLatest)
+            let todaysLatest = filterTodaysEmails(latestEmails)
 
             // Check if we have any new emails that aren't in our current list
             let newEmails = todaysLatest.filter { newEmail in
@@ -253,6 +432,13 @@ class EmailService: ObservableObject {
             if !newEmails.isEmpty {
                 // Prepend new emails to the existing list
                 inboxEmails = (newEmails + inboxEmails).sorted { $0.timestamp > $1.timestamp }
+
+                // Save updated cache
+                saveCachedData(for: .inbox)
+
+                // Show notification for new emails
+                await showNewEmailNotification(newEmails: newEmails)
+
                 print("📧 Found \(newEmails.count) new emails")
             }
         } catch {
@@ -262,32 +448,106 @@ class EmailService: ObservableObject {
 
     // MARK: - Cache Management
 
+    private func loadCachedData() {
+        // Load cached emails from persistent storage
+        if let inboxData = UserDefaults.standard.data(forKey: CacheKeys.inboxEmails),
+           let cachedInboxEmails = try? JSONDecoder().decode([Email].self, from: inboxData) {
+            inboxEmails = cachedInboxEmails
+        }
+
+        if let sentData = UserDefaults.standard.data(forKey: CacheKeys.sentEmails),
+           let cachedSentEmails = try? JSONDecoder().decode([Email].self, from: sentData) {
+            sentEmails = cachedSentEmails
+        }
+
+        // Load cache timestamps
+        if let inboxTimestamp = UserDefaults.standard.object(forKey: CacheKeys.inboxTimestamp) as? Date {
+            cacheTimestamps[.inbox] = inboxTimestamp
+        }
+
+        if let sentTimestamp = UserDefaults.standard.object(forKey: CacheKeys.sentTimestamp) as? Date {
+            cacheTimestamps[.sent] = sentTimestamp
+        }
+    }
+
+    private func saveCachedData(for folder: EmailFolder) {
+        let emails = getEmails(for: folder)
+        let encoder = JSONEncoder()
+
+        do {
+            let data = try encoder.encode(emails)
+            switch folder {
+            case .inbox:
+                UserDefaults.standard.set(data, forKey: CacheKeys.inboxEmails)
+                UserDefaults.standard.set(Date(), forKey: CacheKeys.inboxTimestamp)
+            case .sent:
+                UserDefaults.standard.set(data, forKey: CacheKeys.sentEmails)
+                UserDefaults.standard.set(Date(), forKey: CacheKeys.sentTimestamp)
+            default:
+                break
+            }
+        } catch {
+            print("Failed to save cached emails for \(folder.displayName): \(error)")
+        }
+    }
+
     private func isCacheValid(for folder: EmailFolder) -> Bool {
         guard let timestamp = cacheTimestamps[folder] else {
             return false
         }
 
-        // Check if it's a new day - if so, invalidate cache
-        let calendar = Calendar.current
-        let now = Date()
-
-        if !calendar.isDate(timestamp, inSameDayAs: now) {
-            return false
-        }
-
+        // Cache is valid for 7 days
         return Date().timeIntervalSince(timestamp) < cacheExpirationTime
     }
 
     private func updateCacheTimestamp(for folder: EmailFolder) {
         cacheTimestamps[folder] = Date()
+
+        // Also update persistent timestamp
+        switch folder {
+        case .inbox:
+            UserDefaults.standard.set(Date(), forKey: CacheKeys.inboxTimestamp)
+        case .sent:
+            UserDefaults.standard.set(Date(), forKey: CacheKeys.sentTimestamp)
+        default:
+            break
+        }
     }
 
     func clearCache(for folder: EmailFolder? = nil) {
         if let folder = folder {
             cacheTimestamps.removeValue(forKey: folder)
+
+            // Clear persistent cache
+            switch folder {
+            case .inbox:
+                UserDefaults.standard.removeObject(forKey: CacheKeys.inboxEmails)
+                UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
+            case .sent:
+                UserDefaults.standard.removeObject(forKey: CacheKeys.sentEmails)
+                UserDefaults.standard.removeObject(forKey: CacheKeys.sentTimestamp)
+            default:
+                break
+            }
         } else {
             cacheTimestamps.removeAll()
+
+            // Clear all persistent cache
+            UserDefaults.standard.removeObject(forKey: CacheKeys.inboxEmails)
+            UserDefaults.standard.removeObject(forKey: CacheKeys.sentEmails)
+            UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
+            UserDefaults.standard.removeObject(forKey: CacheKeys.sentTimestamp)
+            UserDefaults.standard.removeObject(forKey: CacheKeys.lastEmailIds)
         }
+    }
+
+    // MARK: - Background Refresh
+
+    func handleBackgroundRefresh() async {
+        // Perform a quick check for new emails when app refreshes in background
+        guard !inboxEmails.isEmpty else { return }
+
+        await checkForNewEmails()
     }
 
     // MARK: - Private Methods

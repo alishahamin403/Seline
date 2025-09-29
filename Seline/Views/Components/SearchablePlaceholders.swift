@@ -2,54 +2,6 @@ import SwiftUI
 
 // MARK: - Searchable Placeholder Views
 
-struct EventsPlaceholderView: View, Searchable {
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        VStack {
-            Spacer()
-            Text("Events")
-                .font(.system(size: 24, weight: .bold, design: .default))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-            Text("Coming Soon")
-                .font(.system(size: 12, weight: .regular, design: .default))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.shadcnBackground(colorScheme))
-        .onAppear {
-            SearchService.shared.registerSearchableProvider(self, for: .events)
-        }
-    }
-
-    func getSearchableContent() -> [SearchableItem] {
-        return [
-            SearchableItem(
-                title: "Calendar Events",
-                content: "Schedule and manage your calendar events, meetings, and appointments.",
-                type: .events,
-                identifier: "events-main",
-                metadata: ["category": "scheduling", "status": "coming-soon"]
-            ),
-            SearchableItem(
-                title: "Create Event",
-                content: "Schedule new meetings, appointments, and reminders with smart suggestions.",
-                type: .events,
-                identifier: "events-create",
-                metadata: ["feature": "create", "action": "schedule"]
-            ),
-            SearchableItem(
-                title: "Today's Schedule",
-                content: "View your daily agenda and upcoming events at a glance.",
-                type: .events,
-                identifier: "events-today",
-                metadata: ["feature": "agenda", "timeframe": "today"]
-            )
-        ]
-    }
-}
-
 struct NotesPlaceholderView: View, Searchable {
     @Environment(\.colorScheme) var colorScheme
 

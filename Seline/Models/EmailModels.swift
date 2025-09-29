@@ -7,9 +7,9 @@ enum TimePeriod: String, CaseIterable {
 
     var timeRange: String {
         switch self {
-        case .morning: return "6:00 AM - 11:59 AM"
+        case .morning: return "12:00 AM - 11:59 AM"
         case .afternoon: return "12:00 PM - 4:59 PM"
-        case .night: return "5:00 PM - 5:59 AM"
+        case .night: return "5:00 PM - 11:59 PM"
         }
     }
 
@@ -26,12 +26,14 @@ enum TimePeriod: String, CaseIterable {
         let hour = calendar.component(.hour, from: date)
 
         switch hour {
-        case 6..<12:  // 6:00 AM - 11:59 AM
+        case 0..<12:  // 12:00 AM - 11:59 AM
             return .morning
         case 12..<17: // 12:00 PM - 4:59 PM
             return .afternoon
-        default:      // 5:00 PM - 5:59 AM (next day)
+        case 17..<24: // 5:00 PM - 11:59 PM
             return .night
+        default:
+            return .night // Fallback (shouldn't happen)
         }
     }
 
@@ -52,7 +54,7 @@ enum TimePeriod: String, CaseIterable {
             let isPreviousDay = calendar.isDate(emailDate, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: targetDate) ?? targetDate)
 
             switch emailHour {
-            case 6..<12:  // Morning: 6:00 AM - 11:59 AM (same day only)
+            case 0..<12:  // Morning: 12:00 AM - 11:59 AM (same day only)
                 if isTargetDate {
                     categorized[.morning]?.append(email)
                 }
@@ -60,12 +62,12 @@ enum TimePeriod: String, CaseIterable {
                 if isTargetDate {
                     categorized[.afternoon]?.append(email)
                 }
-            default:      // Night: 5:00 PM - 5:59 AM (spans 2 days)
-                // Include night emails from target date (5 PM - 11:59 PM)
-                // AND early morning emails from target date (12:00 AM - 5:59 AM)
-                if isTargetDate || (isPreviousDay && emailHour >= 17) {
+            case 17..<24: // Night: 5:00 PM - 11:59 PM (same day only)
+                if isTargetDate {
                     categorized[.night]?.append(email)
                 }
+            default:
+                break // Shouldn't happen with 24-hour format
             }
         }
 
@@ -395,81 +397,130 @@ extension Email {
     }
 }
 
+// MARK: - Email Category System
+
 enum EmailCategory: String, CaseIterable, Identifiable {
-    case promotional = "promotional"
-    case updates = "updates"
-    case social = "social"
-    case work = "work"
-    case personal = "personal"
-    case automated = "automated"
+    case important = "Important"
+    case promotional = "Promotional"
+    case updates = "Updates"
 
     var id: String { rawValue }
 
-    var displayName: String {
-        switch self {
-        case .promotional: return "Promotional"
-        case .updates: return "Updates"
-        case .social: return "Social"
-        case .work: return "Work"
-        case .personal: return "Personal"
-        case .automated: return "Automated"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .promotional: return "Marketing, sales, newsletters, offers"
-        case .updates: return "Notifications, digests, system updates"
-        case .social: return "Social media, community notifications"
-        case .work: return "Work-related communications"
-        case .personal: return "Personal communications"
-        case .automated: return "No-reply, system-generated emails"
-        }
-    }
-
     var icon: String {
         switch self {
-        case .promotional: return "megaphone"
-        case .updates: return "bell"
-        case .social: return "person.2"
-        case .work: return "briefcase"
-        case .personal: return "heart"
-        case .automated: return "gearshape"
+        case .important: return "star.fill"
+        case .promotional: return "megaphone.fill"
+        case .updates: return "bell.fill"
+        }
+    }
+
+    var displayName: String {
+        return rawValue
+    }
+}
+
+// MARK: - Email Categorization Extension
+
+extension Email {
+    var category: EmailCategory {
+        // Check for promotional emails first (most specific)
+        if isPromotionalEmail {
+            return .promotional
+        }
+
+        // Check for update emails second
+        if isUpdateEmail {
+            return .updates
+        }
+
+        // Check if email is marked as important or has important indicators
+        if isImportant || hasImportantIndicators {
+            return .important
+        }
+
+        // Default based on email characteristics
+        // Personal emails from known domains get Important
+        let personalDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"]
+        let senderDomain = sender.email.lowercased()
+
+        if personalDomains.contains(where: { senderDomain.contains($0) }) {
+            return .important
+        }
+
+        // Default to important for everything else to ensure emails don't get hidden
+        return .important
+    }
+
+    private var isPromotionalEmail: Bool {
+        let subject = subject.lowercased()
+        let senderEmail = sender.email.lowercased()
+        let senderName = sender.name?.lowercased() ?? ""
+        let snippet = snippet.lowercased()
+
+        let promotionalKeywords = [
+            "unsubscribe", "promotion", "promo", "sale", "discount", "offer", "deal",
+            "marketing", "advertisement", "special offer", "limited time", "newsletter",
+            "shop now", "buy now", "% off", "free shipping", "coupon", "voucher"
+        ]
+
+        let promotionalSenders = [
+            "marketing", "promo", "newsletter", "offers", "deals", "sales", "no-reply",
+            "noreply", "donotreply", "support", "info", "hello", "team"
+        ]
+
+        // Check if any promotional keywords are in subject or snippet
+        let hasPromotionalKeywords = promotionalKeywords.contains { keyword in
+            subject.contains(keyword) || snippet.contains(keyword)
+        }
+
+        // Check if sender email contains promotional indicators
+        let hasPromotionalSender = promotionalSenders.contains { indicator in
+            senderEmail.contains(indicator) || senderName.contains(indicator)
+        }
+
+        return hasPromotionalKeywords || hasPromotionalSender
+    }
+
+    private var isUpdateEmail: Bool {
+        let subject = subject.lowercased()
+        let senderEmail = sender.email.lowercased()
+        let snippet = snippet.lowercased()
+
+        let updateKeywords = [
+            "update", "notification", "digest", "summary", "weekly", "daily", "monthly",
+            "reminder", "alert", "notice", "report", "activity", "new comment",
+            "new message", "new activity", "system", "automated"
+        ]
+
+        let updateSenders = [
+            "notification", "updates", "alerts", "system", "automated", "digest",
+            "github", "gitlab", "slack", "discord", "twitter", "facebook", "linkedin"
+        ]
+
+        // Check if any update keywords are in subject or snippet
+        let hasUpdateKeywords = updateKeywords.contains { keyword in
+            subject.contains(keyword) || snippet.contains(keyword)
+        }
+
+        // Check if sender email contains update indicators
+        let hasUpdateSender = updateSenders.contains { indicator in
+            senderEmail.contains(indicator)
+        }
+
+        return hasUpdateKeywords || hasUpdateSender
+    }
+
+    private var hasImportantIndicators: Bool {
+        let subject = subject.lowercased()
+
+        let importantKeywords = [
+            "urgent", "important", "asap", "deadline", "action required", "please review",
+            "immediate", "priority", "critical", "time sensitive"
+        ]
+
+        return importantKeywords.contains { keyword in
+            subject.contains(keyword)
         }
     }
 }
 
-struct EmailFilterPreferences: Codable {
-    private var enabledCategoryStrings: Set<String>
-
-    var enabledCategories: Set<EmailCategory> {
-        get {
-            Set(enabledCategoryStrings.compactMap { EmailCategory(rawValue: $0) })
-        }
-        set {
-            enabledCategoryStrings = Set(newValue.map { $0.rawValue })
-        }
-    }
-
-    static let `default` = EmailFilterPreferences(
-        enabledCategories: Set(EmailCategory.allCases.filter { $0 != .promotional && $0 != .automated })
-    )
-
-    init(enabledCategories: Set<EmailCategory> = Set(EmailCategory.allCases)) {
-        self.enabledCategoryStrings = Set(enabledCategories.map { $0.rawValue })
-    }
-
-    func isCategoryEnabled(_ category: EmailCategory) -> Bool {
-        return enabledCategories.contains(category)
-    }
-
-    mutating func toggleCategory(_ category: EmailCategory) {
-        var categories = enabledCategories
-        if categories.contains(category) {
-            categories.remove(category)
-        } else {
-            categories.insert(category)
-        }
-        enabledCategories = categories
-    }
-}

@@ -5,33 +5,27 @@ struct WeatherWidget: View {
     @StateObject private var locationService = LocationService.shared
     @Environment(\.colorScheme) var colorScheme
 
-    private var selectedColor: Color {
-        if colorScheme == .dark {
-            // Light blue for dark mode - #84cae9
-            return Color(red: 0.518, green: 0.792, blue: 0.914)
-        } else {
-            // Dark blue for light mode - #345766
-            return Color(red: 0.20, green: 0.34, blue: 0.40)
-        }
+    private var weatherIconColor: Color {
+        colorScheme == .dark ? Color.white : Color.black
     }
 
     var body: some View {
         // Center-aligned location and weather in one line
         HStack(spacing: 12) {
-            // Location text
+            // Location text - smaller and lighter
             Text(weatherService.weatherData?.locationName ?? locationService.locationName)
-                .font(.system(size: 16, weight: .regular, design: .default))
-                .foregroundColor(colorScheme == .dark ? .white : .gray)
+                .font(.system(size: 14, weight: .regular, design: .default))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.gray.opacity(0.8))
 
             // Weather info
             HStack(spacing: 6) {
                 Image(systemName: weatherService.weatherData?.iconName ?? "cloud.fill")
-                    .font(.system(size: 14, weight: .regular, design: .default))
-                    .foregroundColor(selectedColor)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundColor(weatherIconColor)
 
                 Text("\(weatherService.weatherData?.temperature ?? 20)°")
-                    .font(.system(size: 16, weight: .regular, design: .default))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(.system(size: 14, weight: .regular, design: .default))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.8))
             }
         }
         .frame(maxWidth: .infinity)

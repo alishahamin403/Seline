@@ -11,7 +11,7 @@ extension Color {
 
     // MARK: - Gmail Dark Mode Colors
     // Inspired by Gmail's dark theme color palette
-    static let gmailDarkBackground = Color(red: 0.102, green: 0.102, blue: 0.102) // #1a1a1a (very dark gray)
+    static let gmailDarkBackground = Color(red: 0.059, green: 0.059, blue: 0.059) // #0F0F0F (very dark gray)
     static let gmailDarkCard = Color(red: 0.235, green: 0.251, blue: 0.263) // #3c4043 (medium gray)
     static let gmailDarkCardAlt = Color(red: 0.196, green: 0.212, blue: 0.224) // #323639 (slightly darker gray)
 

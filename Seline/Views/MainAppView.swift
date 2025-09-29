@@ -2,9 +2,36 @@ import SwiftUI
 
 struct MainAppView: View {
     @EnvironmentObject var authManager: AuthenticationManager
+    @StateObject private var emailService = EmailService.shared
+    @StateObject private var taskManager = TaskManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
+
+    private var unreadEmailCount: Int {
+        emailService.inboxEmails.filter { !$0.isRead }.count
+    }
+
+    private var todayTaskCount: Int {
+        // Get today's weekday
+        let calendar = Calendar.current
+        let todayWeekday = calendar.component(.weekday, from: Date())
+
+        // Convert to WeekDay enum (1 = Sunday, 2 = Monday, etc.)
+        let weekDay: WeekDay
+        switch todayWeekday {
+        case 1: weekDay = .sunday
+        case 2: weekDay = .monday
+        case 3: weekDay = .tuesday
+        case 4: weekDay = .wednesday
+        case 5: weekDay = .thursday
+        case 6: weekDay = .friday
+        case 7: weekDay = .saturday
+        default: weekDay = .monday
+        }
+
+        return taskManager.getTasks(for: weekDay).count
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -21,7 +48,7 @@ struct MainAppView: View {
                     case .email:
                         EmailView()
                     case .events:
-                        EventsPlaceholderView()
+                        EventsView()
                     case .notes:
                         NotesPlaceholderView()
                     case .maps:
@@ -58,67 +85,57 @@ struct MainAppView: View {
 
             // Content with keyboard-aware layout
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 12) {
-                    // Search bar - always stays at top
-                    SearchBarComponent(selectedTab: $selectedTab)
+                VStack(spacing: 0) {
+                    // Sun/Moon time tracker - moved as high as possible
+                    SunMoonTimeTracker()
+                        .padding(.horizontal, 0) // Remove horizontal padding to span full width
+                        .padding(.top, -20) // Negative padding to move closer to header
 
-                    // Show other content only when keyboard is not active
-                    if keyboardHeight == 0 {
-                        // Weather widget
-                        WeatherWidget()
+                    // Minimal spacing after tracker to move sections higher
+                    Spacer()
+                        .frame(height: 8)
 
-                        // Extra spacing to push content lower
-                        Spacer()
-                            .frame(height: 30)
+                    // 5 sections in vertical layout with separator lines
+                    VStack(spacing: 0) {
+                        HomeSectionButton(title: "EMAIL", unreadCount: unreadEmailCount)
 
-                        // Sun/Moon time tracker
-                        SunMoonTimeTracker()
-                            .padding(.vertical, 12)
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                            .frame(height: 2)
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, -20) // Extend to screen edges
 
-                        // 4 Metric tiles horizontally
-                        HStack(spacing: 12) {
-                            MetricTile(
-                                icon: "envelope",
-                                title: "Emails",
-                                subtitle: "",
-                                value: "12"
-                            )
+                        HomeSectionButton(title: "EVENTS", unreadCount: todayTaskCount)
 
-                            MetricTile(
-                                icon: "calendar",
-                                title: "Events",
-                                subtitle: "",
-                                value: "3"
-                            )
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                            .frame(height: 2)
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, -20) // Extend to screen edges
 
-                            MetricTile(
-                                icon: "note.text",
-                                title: "Notes",
-                                subtitle: "",
-                                value: "8"
-                            )
+                        HomeSectionButton(title: "NOTES")
 
-                            MetricTile(
-                                icon: "map",
-                                title: "Maps",
-                                subtitle: "",
-                                value: "5"
-                            )
-                        }
-                        .padding(.horizontal, 20)
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                            .frame(height: 2)
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, -20) // Extend to screen edges
 
-                        // Smaller spacing before tips card
-                        Spacer()
-                            .frame(height: 20)
+                        HomeSectionButton(title: "MAPS")
 
-                        // Tips card
-                        TipsCard()
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                            .frame(height: 2)
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, -20) // Extend to screen edges
+
+                        FunFactSection()
                     }
+                    .padding(.horizontal, 20)
 
                     Spacer()
-                        .frame(height: keyboardHeight > 0 ? 50 : 100)
+                        .frame(height: 100)
                 }
-                .padding(.top, 10)
                 .animation(.easeInOut(duration: 0.3), value: keyboardHeight)
             }
             .background(

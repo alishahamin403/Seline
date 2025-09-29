@@ -33,7 +33,7 @@ struct CompactSenderView: View {
                         HStack(spacing: 8) {
                             Text("to me")
                                 .font(FontManager.geist(size: .small, weight: .regular))
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
 
                             Text("•")
                                 .font(FontManager.geist(size: .small, weight: .regular))
@@ -41,7 +41,7 @@ struct CompactSenderView: View {
 
                             Text(email.formattedTime)
                                 .font(FontManager.geist(size: .small, weight: .regular))
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
                         }
                     }
 
@@ -128,7 +128,7 @@ struct SenderDetailRow: View {
             // Label
             Text(label)
                 .font(FontManager.geist(size: .small, weight: .medium))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
                 .frame(width: 40, alignment: .leading)
 
             // Addresses

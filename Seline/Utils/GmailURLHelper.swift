@@ -8,7 +8,7 @@ struct GmailURLHelper {
     private static let gmailComposeScheme = "googlegmail:///co"
 
     // MARK: - Gmail Web URLs
-    private static let gmailWebBaseURL = "https://mail.google.com/mail/u/0/#all/"
+    private static let gmailWebBaseURL = "https://mail.google.com/mail/u/0/#inbox/"
 
     // MARK: - Public Methods
 
@@ -34,45 +34,56 @@ struct GmailURLHelper {
         return URL(string: urlString)
     }
 
-    /// Attempts to open an email in Gmail app, with fallback to web
+    /// Attempts to open specific email in Gmail app, with fallback to web
     /// - Parameters:
     ///   - email: The email object containing Gmail IDs
     ///   - completion: Completion handler called with success/failure result
     static func openEmailInGmail(_ email: Email, completion: @escaping (Result<Void, GmailOpenError>) -> Void) {
-        // Check if we have Gmail IDs
-        guard let threadId = email.gmailThreadId ?? email.gmailMessageId else {
-            completion(.failure(.noGmailId))
+        // Always open Gmail web with specific email if we have Gmail IDs
+        // This avoids the sandbox extension issues with complex Gmail app URL schemes
+        if let threadId = email.gmailThreadId ?? email.gmailMessageId {
+            openInGmailWeb(threadId: threadId, completion: completion)
+        } else if isGmailAppInstalled() {
+            // Only use basic Gmail app opening if no Gmail IDs available
+            openGmailApp(completion: completion)
+        } else {
+            // No Gmail app and no IDs, open general Gmail web
+            openGeneralGmailWeb(completion: completion)
+        }
+    }
+
+    /// Opens Gmail app to main inbox
+    static func openGmailApp(completion: @escaping (Result<Void, GmailOpenError>) -> Void) {
+        guard let gmailURL = URL(string: gmailAppScheme) else {
+            completion(.failure(.invalidURL))
             return
         }
 
-        // Try Gmail app first if installed
-        if isGmailAppInstalled() {
-            if let appURL = createGmailAppURL(threadId: threadId) {
-                UIApplication.shared.open(appURL) { success in
-                    if success {
-                        completion(.success(()))
-                    } else {
-                        // Fallback to web if app URL fails
-                        openInGmailWeb(threadId: threadId, completion: completion)
-                    }
-                }
-                return
+        UIApplication.shared.open(gmailURL) { success in
+            if success {
+                completion(.success(()))
+            } else {
+                completion(.failure(.failedToOpen))
             }
         }
-
-        // Fallback to Gmail web
-        openInGmailWeb(threadId: threadId, completion: completion)
     }
 
     // MARK: - Private Methods
 
-    /// Creates a Gmail app URL for a specific thread (experimental)
-    /// Note: This may not work reliably due to Gmail app limitations
-    private static func createGmailAppURL(threadId: String) -> URL? {
-        // Convert hex thread ID to decimal format if needed
-        let decimalThreadId = convertToDecimalIfNeeded(threadId)
-        let urlString = "googlegmail:///cv=\(decimalThreadId)/accountId=0&create-new-tab"
-        return URL(string: urlString)
+    /// Opens general Gmail web interface
+    private static func openGeneralGmailWeb(completion: @escaping (Result<Void, GmailOpenError>) -> Void) {
+        guard let webURL = URL(string: "https://mail.google.com/mail/u/0/#inbox") else {
+            completion(.failure(.invalidURL))
+            return
+        }
+
+        UIApplication.shared.open(webURL) { success in
+            if success {
+                completion(.success(()))
+            } else {
+                completion(.failure(.failedToOpen))
+            }
+        }
     }
 
     /// Opens email in Gmail web interface
