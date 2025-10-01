@@ -4,6 +4,8 @@ struct EmailListView: View {
     let emails: [Email]
     let loadingState: EmailLoadingState
     let onRefresh: () async -> Void
+    let onDeleteEmail: (Email) -> Void
+    let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedEmail: Email?
 
@@ -33,7 +35,11 @@ struct EmailListView: View {
                             Button(action: {
                                 selectedEmail = email
                             }) {
-                                EmailRow(email: email)
+                                EmailRow(
+                                    email: email,
+                                    onDelete: onDeleteEmail,
+                                    onMarkAsUnread: onMarkAsUnread
+                                )
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
@@ -111,7 +117,9 @@ struct ErrorEmailState: View {
         EmailListView(
             emails: [],
             loadingState: .loading,
-            onRefresh: {}
+            onRefresh: {},
+            onDeleteEmail: { _ in },
+            onMarkAsUnread: { _ in }
         )
         .frame(height: 200)
 
@@ -121,7 +129,9 @@ struct ErrorEmailState: View {
         EmailListView(
             emails: Email.sampleEmails,
             loadingState: .loaded(Email.sampleEmails),
-            onRefresh: {}
+            onRefresh: {},
+            onDeleteEmail: { _ in },
+            onMarkAsUnread: { _ in }
         )
         .frame(height: 300)
     }

@@ -44,17 +44,26 @@ struct EmailDetailView: View {
                     // Fixed action buttons at bottom
                     VStack(spacing: 0) {
                         EmailActionButtons(
+                            email: email,
                             onReply: {
-                                // TODO: Implement reply functionality
-                                print("Reply to email: \(email.subject)")
+                                emailService.replyToEmail(email)
                             },
                             onForward: {
-                                // TODO: Implement forward functionality
-                                print("Forward email: \(email.subject)")
+                                emailService.forwardEmail(email)
                             },
                             onDelete: {
-                                // TODO: Implement delete functionality
-                                print("Delete email: \(email.subject)")
+                                Task {
+                                    do {
+                                        try await emailService.deleteEmail(email)
+                                        dismiss()
+                                    } catch {
+                                        print("Failed to delete email: \(error.localizedDescription)")
+                                        // You could show an alert here if needed
+                                    }
+                                }
+                            },
+                            onMarkAsUnread: {
+                                emailService.markAsUnread(email)
                                 dismiss()
                             }
                         )

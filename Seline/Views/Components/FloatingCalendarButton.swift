@@ -7,7 +7,7 @@ struct FloatingCalendarButton: View {
 
     private var buttonColor: Color {
         colorScheme == .dark ?
-            Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (light blue for dark mode)
+            Color(red: 0.40, green: 0.65, blue: 0.80) : // Darker blue for dark mode
             Color(red: 0.20, green: 0.34, blue: 0.40)     // #345766 (dark blue for light mode)
     }
 

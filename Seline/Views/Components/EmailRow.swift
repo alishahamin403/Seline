@@ -2,6 +2,8 @@ import SwiftUI
 
 struct EmailRow: View {
     let email: Email
+    let onDelete: (Email) -> Void
+    let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -76,13 +78,38 @@ struct EmailRow: View {
         .padding(.vertical, 12)
         .background(Color.clear)
         .contentShape(Rectangle())
+        .contextMenu {
+            // Mark as Unread option (only show if email is read)
+            if email.isRead {
+                Button {
+                    onMarkAsUnread(email)
+                } label: {
+                    Label("Mark as Unread", systemImage: "envelope.badge")
+                }
+            }
+
+            // Delete option
+            Button(role: .destructive) {
+                onDelete(email)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 
 #Preview {
     VStack(spacing: 0) {
         ForEach(Email.sampleEmails.prefix(3)) { email in
-            EmailRow(email: email)
+            EmailRow(
+                email: email,
+                onDelete: { email in
+                    print("Delete email: \(email.subject)")
+                },
+                onMarkAsUnread: { email in
+                    print("Mark as unread: \(email.subject)")
+                }
+            )
         }
     }
     .background(Color.shadcnBackground(.light))

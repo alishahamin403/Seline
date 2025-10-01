@@ -5,39 +5,24 @@ struct HeaderSection: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var showingSettings = false
 
-    private var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMM d"
-        return formatter
-    }
-
     var body: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                // Centered date display
-                Text(dateFormatter.string(from: Date()))
+        HStack(spacing: 0) {
+            // Sun/Moon tracker extending across most of the width
+            SunMoonTimeTracker()
+
+            // Settings icon on the right with some padding
+            Button(action: {
+                showingSettings = true
+            }) {
+                Image(systemName: "person.circle")
                     .font(FontManager.geist(size: 24, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                // Profile icon positioned on the right
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        showingSettings = true
-                    }) {
-                        Image(systemName: "person.circle")
-                            .font(FontManager.geist(size: 24, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
             }
-
-            // Weather widget under the date
-            WeatherWidget()
+            .buttonStyle(PlainButtonStyle())
+            .padding(.leading, 16)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 15)
+        .padding(.vertical, 8)
         .background(
             colorScheme == .dark ? Color.gmailDarkBackground : Color.white
         )

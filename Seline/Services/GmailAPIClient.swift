@@ -26,6 +26,62 @@ class GmailAPIClient {
         return try await fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
     }
 
+    func deleteEmail(messageId: String) async throws {
+        guard let user = GIDSignIn.sharedInstance.currentUser else {
+            throw GmailAPIError.notAuthenticated
+        }
+
+        let accessToken = user.accessToken.tokenString
+
+        guard let url = URL(string: "\(baseURL)/messages/\(messageId)") else {
+            throw GmailAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GmailAPIError.invalidResponse
+        }
+
+        // Gmail API returns 204 No Content for successful deletion
+        guard httpResponse.statusCode == 204 else {
+            let errorMessage = "Failed to delete email (HTTP \(httpResponse.statusCode))"
+            throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+        }
+    }
+
+    func trashEmail(messageId: String) async throws {
+        guard let user = GIDSignIn.sharedInstance.currentUser else {
+            throw GmailAPIError.notAuthenticated
+        }
+
+        let accessToken = user.accessToken.tokenString
+
+        guard let url = URL(string: "\(baseURL)/messages/\(messageId)/trash") else {
+            throw GmailAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GmailAPIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = "Failed to move email to trash (HTTP \(httpResponse.statusCode))"
+            throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+        }
+    }
+
     // MARK: - Private Methods
 
     private func fetchMessagesList(query: String, maxResults: Int = 50) async throws -> GmailMessagesList {

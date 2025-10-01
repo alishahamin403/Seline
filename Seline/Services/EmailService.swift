@@ -1,5 +1,6 @@
 import Foundation
 import GoogleSignIn
+import UIKit
 
 @MainActor
 class EmailService: ObservableObject {
@@ -153,7 +154,7 @@ class EmailService: ObservableObject {
 
     func refreshEmails() async {
         // Clear notifications when user manually refreshes
-        await notificationService.clearEmailNotifications()
+        notificationService.clearEmailNotifications()
 
         await loadEmailsForFolder(.inbox, forceRefresh: true)
         // Add delay to respect rate limits
@@ -162,7 +163,7 @@ class EmailService: ObservableObject {
 
         // Update app badge after refresh
         let unreadCount = inboxEmails.filter { !$0.isRead }.count
-        await notificationService.updateAppBadge(count: unreadCount)
+        notificationService.updateAppBadge(count: unreadCount)
     }
 
     func refreshFolder(_ folder: EmailFolder) async {
@@ -248,6 +249,132 @@ class EmailService: ObservableObject {
 
     // MARK: - Email Actions
 
+    func replyToEmail(_ email: Email) {
+        guard let subject = email.subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let senderEmail = email.sender.email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            print("Failed to encode email data for reply")
+            return
+        }
+
+        // Construct reply subject with "Re: " prefix if not already present
+        let replySubject = email.subject.hasPrefix("Re: ") ? subject : "Re:%20\(subject)"
+
+        // Try Gmail compose URL schemes for reply
+        let replyURLs = [
+            "googlegmail://co?to=\(senderEmail)&subject=\(replySubject)",
+            "googlegmail:///co?to=\(senderEmail)&subject=\(replySubject)",
+            "mailto:\(senderEmail)?subject=\(replySubject)" // Fallback to system mail
+        ]
+
+        openEmailURL(replyURLs, action: "reply")
+    }
+
+    func forwardEmail(_ email: Email) {
+        guard let subject = email.subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            print("Failed to encode email subject for forward")
+            return
+        }
+
+        // Construct forward subject with "Fwd: " prefix if not already present
+        let forwardSubject = email.subject.hasPrefix("Fwd: ") ? subject : "Fwd:%20\(subject)"
+
+        // Create a formatted forwarded message with context
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .full
+        dateFormatter.timeStyle = .short
+
+        let forwardedContent = """
+        ---------- Forwarded message ---------
+        From: \(email.sender.displayName) <\(email.sender.email)>
+        Date: \(dateFormatter.string(from: email.timestamp))
+        Subject: \(email.subject)
+
+        \(email.body ?? email.snippet)
+        """
+
+        guard let emailBody = forwardedContent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            print("Failed to encode email body for forward")
+            return
+        }
+
+        // Try Gmail compose URL schemes for forward
+        let forwardURLs = [
+            "googlegmail://co?subject=\(forwardSubject)&body=\(emailBody)",
+            "googlegmail:///co?subject=\(forwardSubject)&body=\(emailBody)",
+            "mailto:?subject=\(forwardSubject)&body=\(emailBody)" // Fallback to system mail
+        ]
+
+        openEmailURL(forwardURLs, action: "forward")
+    }
+
+    private func openEmailURL(_ urls: [String], action: String) {
+        for urlString in urls {
+            if let url = URL(string: urlString) {
+                if UIApplication.shared.canOpenURL(url) {
+                    UIApplication.shared.open(url) { success in
+                        if success {
+                            print("✅ Successfully opened Gmail for \(action) with: \(urlString)")
+                        } else {
+                            print("❌ Failed to open Gmail for \(action)")
+                        }
+                    }
+                    return
+                }
+            }
+        }
+
+        // If all Gmail schemes failed, show a message
+        print("Gmail app is not installed or none of the URL schemes worked for \(action)")
+    }
+
+    func deleteEmail(_ email: Email) async throws {
+        guard let gmailMessageId = email.gmailMessageId else {
+            throw EmailServiceError.missingGmailId
+        }
+
+        // First, delete from Gmail using the API
+        try await gmailAPIClient.trashEmail(messageId: gmailMessageId)
+
+        // Then remove from local storage
+        await MainActor.run {
+            removeEmailFromLocalStorage(email)
+            print("🗑️ Deleted email: \(email.subject)")
+        }
+    }
+
+    private func removeEmailFromLocalStorage(_ email: Email) {
+        var wasRemoved = false
+
+        // Remove from inbox emails
+        if let inboxIndex = inboxEmails.firstIndex(where: { $0.id == email.id }) {
+            inboxEmails.remove(at: inboxIndex)
+            wasRemoved = true
+        }
+
+        // Remove from sent emails
+        if let sentIndex = sentEmails.firstIndex(where: { $0.id == email.id }) {
+            sentEmails.remove(at: sentIndex)
+            wasRemoved = true
+        }
+
+        // Remove from search results if present
+        if let searchIndex = searchResults.firstIndex(where: { $0.id == email.id }) {
+            searchResults.remove(at: searchIndex)
+        }
+
+        // Save updated cache if email was removed
+        if wasRemoved {
+            saveCachedData(for: .inbox)
+            saveCachedData(for: .sent)
+
+            // Update app badge count
+            Task {
+                let unreadCount = inboxEmails.filter { !$0.isRead }.count
+                notificationService.updateAppBadge(count: unreadCount)
+            }
+        }
+    }
+
     func markAsRead(_ email: Email) {
         var wasUpdated = false
 
@@ -316,10 +443,79 @@ class EmailService: ObservableObject {
             // Update app badge count
             Task {
                 let unreadCount = inboxEmails.filter { !$0.isRead }.count
-                await notificationService.updateAppBadge(count: unreadCount)
+                notificationService.updateAppBadge(count: unreadCount)
             }
 
             print("📧 Marked email as read: \(email.subject)")
+        }
+    }
+
+    func markAsUnread(_ email: Email) {
+        var wasUpdated = false
+
+        // Update in inbox emails
+        if let inboxIndex = inboxEmails.firstIndex(where: { $0.id == email.id }) {
+            if inboxEmails[inboxIndex].isRead {
+                let currentEmail = inboxEmails[inboxIndex]
+                let updatedEmail = Email(
+                    id: currentEmail.id,
+                    threadId: currentEmail.threadId,
+                    sender: currentEmail.sender,
+                    recipients: currentEmail.recipients,
+                    ccRecipients: currentEmail.ccRecipients,
+                    subject: currentEmail.subject,
+                    snippet: currentEmail.snippet,
+                    body: currentEmail.body,
+                    timestamp: currentEmail.timestamp,
+                    isRead: false, // Mark as unread
+                    isImportant: currentEmail.isImportant,
+                    hasAttachments: currentEmail.hasAttachments,
+                    attachments: currentEmail.attachments,
+                    labels: currentEmail.labels,
+                    aiSummary: currentEmail.aiSummary,
+                    gmailMessageId: currentEmail.gmailMessageId,
+                    gmailThreadId: currentEmail.gmailThreadId
+                )
+                inboxEmails[inboxIndex] = updatedEmail
+                wasUpdated = true
+            }
+        }
+
+        // Update in sent emails if it exists there too
+        if let sentIndex = sentEmails.firstIndex(where: { $0.id == email.id }) {
+            if sentEmails[sentIndex].isRead {
+                let currentEmail = sentEmails[sentIndex]
+                let updatedEmail = Email(
+                    id: currentEmail.id,
+                    threadId: currentEmail.threadId,
+                    sender: currentEmail.sender,
+                    recipients: currentEmail.recipients,
+                    ccRecipients: currentEmail.ccRecipients,
+                    subject: currentEmail.subject,
+                    snippet: currentEmail.snippet,
+                    body: currentEmail.body,
+                    timestamp: currentEmail.timestamp,
+                    isRead: false, // Mark as unread
+                    isImportant: currentEmail.isImportant,
+                    hasAttachments: currentEmail.hasAttachments,
+                    attachments: currentEmail.attachments,
+                    labels: currentEmail.labels,
+                    aiSummary: currentEmail.aiSummary,
+                    gmailMessageId: currentEmail.gmailMessageId,
+                    gmailThreadId: currentEmail.gmailThreadId
+                )
+                sentEmails[sentIndex] = updatedEmail
+                wasUpdated = true
+            }
+        }
+
+        if wasUpdated {
+            Task {
+                // Update app badge with new unread count
+                let unreadCount = inboxEmails.filter { !$0.isRead }.count
+                notificationService.updateAppBadge(count: unreadCount)
+            }
+            print("📧 Marked email as unread: \(email.subject)")
         }
     }
 
@@ -410,7 +606,7 @@ class EmailService: ObservableObject {
 
         // Update app badge with total unread count
         let unreadCount = inboxEmails.filter { !$0.isRead }.count
-        await notificationService.updateAppBadge(count: unreadCount)
+        notificationService.updateAppBadge(count: unreadCount)
     }
 
     private func checkForNewEmails() async {
@@ -601,6 +797,7 @@ enum EmailServiceError: LocalizedError {
     case invalidAccessToken
     case apiError
     case parsingError
+    case missingGmailId
 
     var errorDescription: String? {
         switch self {
@@ -612,6 +809,8 @@ enum EmailServiceError: LocalizedError {
             return "Gmail API request failed"
         case .parsingError:
             return "Failed to parse email data"
+        case .missingGmailId:
+            return "Email missing Gmail message ID"
         }
     }
 }

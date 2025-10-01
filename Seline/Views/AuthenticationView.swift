@@ -48,13 +48,24 @@ struct AuthenticationView: View {
                 // Authentication Section
                 VStack(spacing: 24) {
                     if authManager.isLoading {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .frame(height: 52)
-                            .tint(colorScheme == .dark ?
-                                Color(red: 0.64, green: 0.68, blue: 0.73) : // slate-400
-                                Color(red: 0.37, green: 0.42, blue: 0.48)   // slate-600
-                            )
+                        // Loading state with consistent layout properties
+                        VStack {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(colorScheme == .dark ?
+                                    Color(red: 0.64, green: 0.68, blue: 0.73) : // slate-400
+                                    Color(red: 0.37, green: 0.42, blue: 0.48)   // slate-600
+                                )
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(
+                            colorScheme == .dark ?
+                                Color(red: 0.64, green: 0.68, blue: 0.73).opacity(0.2) : // slate-400 with opacity
+                                Color(red: 0.27, green: 0.32, blue: 0.38).opacity(0.2)   // slate-700 with opacity
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 40)
                     } else {
                         // Custom Google Sign-In Button using slate colors
                         Button(action: {
@@ -104,6 +115,7 @@ struct AuthenticationView: View {
                             .padding(.top, 8)
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: authManager.isLoading)
 
                 // Bottom spacing
                 Spacer()

@@ -12,26 +12,22 @@ struct CalendarPopupView: View {
     @State private var selectedTime = Date()
     @State private var isRecurring = false
     @State private var selectedFrequency = RecurrenceFrequency.weekly
+    @State private var selectedTaskForEditing: TaskItem?
+    @State private var showingEditTaskSheet = false
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Calendar picker
-                DatePicker(
-                    "Select Date",
-                    selection: $selectedDate,
-                    displayedComponents: [.date]
+                // Shadcn-style custom calendar
+                ShadcnCalendar(
+                    selectedDate: $selectedDate,
+                    taskManager: taskManager,
+                    colorScheme: colorScheme,
+                    onDateChange: { newDate in
+                        updateTasksForDate(for: newDate)
+                    }
                 )
-                .datePickerStyle(.graphical)
-                .accentColor(Color.shadcnPrimary)
-                .tint(Color.shadcnPrimary)
-                .scaleEffect(0.85) // Make calendar numbers smaller
-                .padding(.horizontal, 20)
-                .padding(.top, -30) // Move calendar higher
-                .onChange(of: selectedDate) { newDate in
-                    updateTasksForDate(for: newDate)
-                }
 
 
                 // Completed tasks section
@@ -82,7 +78,14 @@ struct CalendarPopupView: View {
                         ScrollView {
                             LazyVStack(spacing: 8) {
                                 ForEach(tasksForDate) { task in
-                                    TaskRowCalendar(task: task)
+                                    TaskRowCalendar(
+                                        task: task,
+                                        selectedDate: selectedDate,
+                                        onEdit: {
+                                            selectedTaskForEditing = task
+                                            showingEditTaskSheet = true
+                                        }
+                                    )
                                 }
                             }
                             .padding(.horizontal, 20)
@@ -98,17 +101,24 @@ struct CalendarPopupView: View {
             )
             .navigationTitle("Task Calendar")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundColor(Color.shadcnPrimary)
-                }
-            }
         }
         .onAppear {
             updateTasksForDate(for: selectedDate)
+        }
+        .sheet(isPresented: $showingEditTaskSheet) {
+            if let task = selectedTaskForEditing {
+                EditTaskView(
+                    task: task,
+                    onSave: { updatedTask in
+                        taskManager.editTask(updatedTask)
+                        showingEditTaskSheet = false
+                        updateTasksForDate(for: selectedDate)
+                    },
+                    onCancel: {
+                        showingEditTaskSheet = false
+                    }
+                )
+            }
         }
         .sheet(isPresented: $showingAddTaskSheet) {
             NavigationView {
@@ -310,7 +320,7 @@ struct CalendarPopupView: View {
         guard !trimmedTitle.isEmpty,
               let weekday = weekdayFromDate(selectedDate) else { return }
 
-        taskManager.addTask(title: trimmedTitle, to: weekday, scheduledTime: selectedTime)
+        taskManager.addTask(title: trimmedTitle, to: weekday, scheduledTime: selectedTime, targetDate: selectedDate)
 
         // If recurring, make the task recurring after adding it
         if isRecurring {
@@ -335,19 +345,10 @@ struct CalendarPopupView: View {
 
 struct TaskRowCalendar: View {
     let task: TaskItem
+    let selectedDate: Date
+    let onEdit: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
-
-
-    private var timeString: String {
-        if task.isCompleted, let completedDate = task.completedDate {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            return "Completed at \(formatter.string(from: completedDate))"
-        } else {
-            return "Scheduled"
-        }
-    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -363,17 +364,9 @@ struct TaskRowCalendar: View {
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .strikethrough(task.isCompleted, color: Color.shadcnMutedForeground(colorScheme))
 
-                // Weekday and status
-                HStack(spacing: 8) {
-                    Text(task.weekday.displayName)
-                        .font(.shadcnTextXs)
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-
-                    Text("•")
-                        .font(.shadcnTextXs)
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-
-                    Text(timeString)
+                // Show only time if there's a scheduled time
+                if !task.formattedTime.isEmpty {
+                    Text(task.formattedTime)
                         .font(.shadcnTextXs)
                         .foregroundColor(Color.shadcnMutedForeground(colorScheme))
                 }
@@ -387,6 +380,18 @@ struct TaskRowCalendar: View {
             RoundedRectangle(cornerRadius: ShadcnRadius.md)
                 .fill(Color.clear)
         )
+        .onLongPressGesture {
+            // Allow editing all tasks now
+            onEdit?()
+        }
+        .contextMenu {
+            // Show edit option for all tasks
+            if let onEdit = onEdit {
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+            }
+        }
     }
 }
 
@@ -427,6 +432,230 @@ struct FrequencyOptionButton: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct ShadcnCalendar: View {
+    @Binding var selectedDate: Date
+    let taskManager: TaskManager
+    let colorScheme: ColorScheme
+    let onDateChange: (Date) -> Void
+
+    @State private var currentMonth = Date()
+
+    private var calendar: Calendar {
+        Calendar.current
+    }
+
+    private var monthYearFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }
+
+    private var daysInMonth: [Date] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start) else {
+            return []
+        }
+
+        var dates: [Date] = []
+        var date = monthFirstWeek.start
+
+        while date < monthInterval.end {
+            dates.append(date)
+            date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
+        }
+
+        // Pad to complete weeks
+        while calendar.component(.weekday, from: dates.last ?? Date()) != 1 {
+            if let lastDate = dates.last,
+               let nextDate = calendar.date(byAdding: .day, value: 1, to: lastDate) {
+                dates.append(nextDate)
+            } else {
+                break
+            }
+        }
+
+        return dates
+    }
+
+    private let weekdaySymbols = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Header with navigation
+            HStack(spacing: 12) {
+                // Previous month button
+                Button(action: previousMonth) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .frame(width: 32, height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                                .fill(Color.clear)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Month and year
+                Text(monthYearFormatter.string(from: currentMonth))
+                    .font(.shadcnTextBaseMedium)
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                    .frame(maxWidth: .infinity)
+
+                // Today button
+                Button(action: {
+                    selectedDate = Date()
+                    currentMonth = Date()
+                    onDateChange(Date())
+                }) {
+                    Text("Today")
+                        .font(.shadcnTextSm)
+                        .foregroundColor(Color.shadcnPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: ShadcnRadius.sm)
+                                .fill(Color.shadcnPrimary.opacity(0.1))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Next month button
+                Button(action: nextMonth) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .frame(width: 32, height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                                .fill(Color.clear)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+
+            // Weekday headers
+            HStack(spacing: 0) {
+                ForEach(weekdaySymbols, id: \.self) { symbol in
+                    Text(symbol)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 16)
+
+            // Calendar grid
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
+                ForEach(daysInMonth, id: \.self) { date in
+                    ShadcnDayCell(
+                        date: date,
+                        selectedDate: $selectedDate,
+                        currentMonth: currentMonth,
+                        hasEvents: taskManager.getAllTasks(for: date).count > 0,
+                        colorScheme: colorScheme,
+                        onTap: {
+                            selectedDate = date
+                            onDateChange(date)
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        }
+    }
+
+    private func previousMonth() {
+        currentMonth = calendar.date(byAdding: .month, value: -1, to: currentMonth) ?? currentMonth
+    }
+
+    private func nextMonth() {
+        currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
+    }
+}
+
+struct ShadcnDayCell: View {
+    let date: Date
+    @Binding var selectedDate: Date
+    let currentMonth: Date
+    let hasEvents: Bool
+    let colorScheme: ColorScheme
+    let onTap: () -> Void
+
+    private var calendar: Calendar {
+        Calendar.current
+    }
+
+    private var isToday: Bool {
+        calendar.isDateInToday(date)
+    }
+
+    private var isSelected: Bool {
+        calendar.isDate(date, inSameDayAs: selectedDate)
+    }
+
+    private var isInCurrentMonth: Bool {
+        calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
+    }
+
+    private var dayNumber: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d"
+        return formatter.string(from: date)
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 4) {
+                Text(dayNumber)
+                    .font(.system(size: 14, weight: isToday ? .semibold : .regular))
+                    .foregroundColor(textColor)
+
+                // Event indicator dot
+                if hasEvents && isInCurrentMonth {
+                    Circle()
+                        .fill(Color.shadcnPrimary)
+                        .frame(width: 4, height: 4)
+                } else {
+                    Circle()
+                        .fill(Color.clear)
+                        .frame(width: 4, height: 4)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(backgroundColor)
+            .cornerRadius(ShadcnRadius.md)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var textColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.black : Color.white
+        } else if isToday {
+            return Color.shadcnPrimary
+        } else if !isInCurrentMonth {
+            return Color.shadcnMutedForeground(colorScheme).opacity(0.4)
+        } else {
+            return Color.shadcnForeground(colorScheme)
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.shadcnPrimary
+        } else if isToday {
+            return Color.shadcnPrimary.opacity(0.1)
+        } else {
+            return Color.clear
+        }
     }
 }
 

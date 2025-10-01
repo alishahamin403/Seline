@@ -51,7 +51,7 @@ enum TimePeriod: String, CaseIterable {
 
             // Check if email belongs to the target date's categories
             let isTargetDate = calendar.isDate(emailDate, inSameDayAs: targetDate)
-            let isPreviousDay = calendar.isDate(emailDate, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: targetDate) ?? targetDate)
+            let _ = calendar.isDate(emailDate, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: targetDate) ?? targetDate)
 
             switch emailHour {
             case 0..<12:  // Morning: 12:00 AM - 11:59 AM (same day only)

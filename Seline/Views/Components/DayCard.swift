@@ -3,17 +3,20 @@ import SwiftUI
 struct DayCard: View {
     let weekday: WeekDay
     let tasks: [TaskItem]
-    let onAddTask: (String, Date?) -> Void
+    let onAddTask: (String, Date?, ReminderTime?) -> Void
     let onToggleTask: (TaskItem) -> Void
     let onDeleteTask: (TaskItem) -> Void
     let onDeleteRecurringSeries: (TaskItem) -> Void
     let onMakeRecurring: (TaskItem) -> Void
+    let onEditTask: (TaskItem) -> Void
 
     @Environment(\.colorScheme) var colorScheme
     @State private var newTaskText: String = ""
     @State private var isAddingTask: Bool = false
     @State private var isExpanded: Bool = false
     @State private var selectedTime: Date = Date()
+    @State private var selectedReminder: ReminderTime = .none
+    @State private var showReminderPicker: Bool = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var shouldShowAddTaskInput: Bool {
@@ -106,6 +109,9 @@ struct DayCard: View {
                             },
                             onMakeRecurring: {
                                 onMakeRecurring(task)
+                            },
+                            onEdit: {
+                                onEditTask(task)
                             }
                         )
                     }
@@ -130,34 +136,105 @@ struct DayCard: View {
     }
 
     private var addTaskRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "plus.circle")
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                .font(.system(size: 18, weight: .medium))
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "plus.circle")
+                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                    .font(.system(size: 18, weight: .medium))
 
-            TextField("Add a new task...", text: $newTaskText)
-                .font(.shadcnTextSm)
-                .foregroundColor(Color.shadcnForeground(colorScheme))
-                .focused($isTextFieldFocused)
-                .onSubmit {
-                    addTask()
+                TextField("Add a new task...", text: $newTaskText)
+                    .font(.shadcnTextSm)
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                    .focused($isTextFieldFocused)
+                    .onSubmit {
+                        addTask()
+                    }
+
+                Spacer()
+
+                DatePicker("Time", selection: $selectedTime, displayedComponents: [.hourAndMinute])
+                    .labelsHidden()
+                    .scaleEffect(0.9)
+                    .foregroundColor(grayColor)
+
+                Button(action: {
+                    showReminderPicker.toggle()
+                }) {
+                    Image(systemName: selectedReminder == .none ? "bell.slash" : "bell.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(selectedReminder == .none ? grayColor : Color.shadcnPrimary)
                 }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                    .fill(Color.clear)
+            )
+            .onTapGesture {
+                isTextFieldFocused = true
+            }
 
-            Spacer()
+            // Reminder picker
+            if showReminderPicker {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Remind me")
+                        .font(.shadcnTextXsMedium)
+                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .padding(.horizontal, 16)
 
-            DatePicker("Time", selection: $selectedTime, displayedComponents: [.hourAndMinute])
-                .labelsHidden()
-                .scaleEffect(0.9)
-                .foregroundColor(grayColor)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                .fill(Color.clear)
-        )
-        .onTapGesture {
-            isTextFieldFocused = true
+                    ForEach(ReminderTime.allCases, id: \.self) { reminder in
+                        Button(action: {
+                            selectedReminder = reminder
+                            showReminderPicker = false
+                        }) {
+                            HStack {
+                                Image(systemName: reminder.icon)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(selectedReminder == reminder ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
+                                    .frame(width: 20)
+
+                                Text(reminder.displayName)
+                                    .font(.shadcnTextSm)
+                                    .foregroundColor(selectedReminder == reminder ? Color.shadcnPrimary : Color.shadcnForeground(colorScheme))
+
+                                Spacer()
+
+                                if selectedReminder == reminder {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(Color.shadcnPrimary)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: ShadcnRadius.sm)
+                                    .fill(selectedReminder == reminder ? Color.shadcnPrimary.opacity(0.1) : Color.clear)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                        .fill(
+                            colorScheme == .dark ?
+                                Color.black.opacity(0.3) : Color.gray.opacity(0.05)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: ShadcnRadius.md)
+                                .stroke(
+                                    colorScheme == .dark ?
+                                        Color.white.opacity(0.1) : Color.black.opacity(0.1),
+                                    lineWidth: 1
+                                )
+                        )
+                )
+                .padding(.horizontal, 16)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 
@@ -197,9 +274,11 @@ struct DayCard: View {
         let trimmedText = newTaskText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
-        onAddTask(trimmedText, selectedTime)
+        onAddTask(trimmedText, selectedTime, selectedReminder == .none ? nil : selectedReminder)
         newTaskText = ""
         selectedTime = Date() // Reset to current time
+        selectedReminder = .none // Reset reminder
+        showReminderPicker = false
         isTextFieldFocused = false
 
         // Hide the input for non-Monday days
@@ -221,21 +300,23 @@ struct DayCard: View {
                     TaskItem(title: "Read 10 pages", weekday: .monday),
                     TaskItem(title: "Walk the dog", weekday: .monday)
                 ],
-                onAddTask: { _, _ in },
+                onAddTask: { _, _, _ in },
                 onToggleTask: { _ in },
                 onDeleteTask: { _ in },
                 onDeleteRecurringSeries: { _ in },
-                onMakeRecurring: { _ in }
+                onMakeRecurring: { _ in },
+                onEditTask: { _ in }
             )
 
             DayCard(
                 weekday: .tuesday,
                 tasks: [],
-                onAddTask: { _, _ in },
+                onAddTask: { _, _, _ in },
                 onToggleTask: { _ in },
                 onDeleteTask: { _ in },
                 onDeleteRecurringSeries: { _ in },
-                onMakeRecurring: { _ in }
+                onMakeRecurring: { _ in },
+                onEditTask: { _ in }
             )
         }
         .padding(.vertical)

@@ -75,24 +75,55 @@ struct SunMoonTracker: View {
         }
     }
 
-    var body: some View {
-        VStack(spacing: 8) {
-            // Temporary debug info
-            Text("Time: \(currentTime.formatted(.dateTime.hour().minute())) - \(isDaytime ? "Day" : "Night") - Progress: \(String(format: "%.2f", arcProgress))")
-                .font(.caption)
-                .foregroundColor(.gray)
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
 
-            // The arc view
-            SunMoonArcView(
-                sunrise: sunrise,
-                sunset: sunset,
-                currentTime: currentTime,
-                colorScheme: colorScheme
-            )
-            .frame(height: 120)
+    var body: some View {
+        VStack(spacing: 12) {
+            // The arc view with sunrise/sunset times
+            HStack(alignment: .bottom, spacing: 0) {
+                // Sunrise on the left
+                VStack(spacing: 4) {
+                    Image(systemName: "sunrise.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(red: 1.0, green: 0.8, blue: 0.0))
+
+                    Text(formatTime(sunrise))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                }
+                .frame(width: 60)
+
+                Spacer()
+
+                // Arc in the center
+                SunMoonArcView(
+                    sunrise: sunrise,
+                    sunset: sunset,
+                    currentTime: currentTime,
+                    colorScheme: colorScheme
+                )
+                .frame(height: 100)
+
+                Spacer()
+
+                // Sunset on the right
+                VStack(spacing: 4) {
+                    Image(systemName: "sunset.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.2))
+
+                    Text(formatTime(sunset))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                }
+                .frame(width: 60)
+            }
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
-        .background(Color.red.opacity(0.1)) // Temporary debug background
         .onReceive(timer) { _ in
             currentTime = Date()
         }
@@ -229,14 +260,14 @@ struct SunMoonArcView: View {
                 let iconY = center.y - radius * sin(radians) // Subtract to position on arc line
 
                 ZStack {
-                    // Circular background to hide line behind icon
+                    // Circular background to hide line behind icon - match home screen background
                     Circle()
-                        .fill(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                        .fill(colorScheme == .dark ? Color.shadcnBackground(colorScheme) : Color.white)
                         .frame(width: 30, height: 30)
 
-                    // Icon
+                    // Icon - make moon much larger to visually match sun
                     Image(systemName: iconName)
-                        .font(.system(size: 20, weight: .medium))
+                        .font(.system(size: isDaytime ? 20 : 24, weight: .medium))
                         .foregroundStyle(isDaytime ? iconColor : Color.white)
                         .symbolRenderingMode(.monochrome)
                 }

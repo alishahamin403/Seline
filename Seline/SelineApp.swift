@@ -27,7 +27,7 @@ struct SelineApp: App {
 
                         // Update app badge with current unread count
                         let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
-                        await notificationService.updateAppBadge(count: unreadCount)
+                        notificationService.updateAppBadge(count: unreadCount)
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
@@ -64,7 +64,7 @@ struct SelineApp: App {
 
         // Request notification permissions on app launch
         Task {
-            let granted = await notificationService.requestAuthorization()
+            let granted = await NotificationService.shared.requestAuthorization()
             if granted {
                 print("✅ Notification permissions granted")
             } else {

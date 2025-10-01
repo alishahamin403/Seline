@@ -4,6 +4,8 @@ struct EmailCategorySection: View {
     let section: EmailSection
     @Binding var isExpanded: Bool
     let onEmailTap: (Email) -> Void
+    let onDeleteEmail: (Email) -> Void
+    let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -46,7 +48,11 @@ struct EmailCategorySection: View {
                         Button(action: {
                             onEmailTap(email)
                         }) {
-                            EmailRow(email: email)
+                            EmailRow(
+                                email: email,
+                                onDelete: onDeleteEmail,
+                                onMarkAsUnread: onMarkAsUnread
+                            )
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -73,6 +79,12 @@ struct EmailCategorySection: View {
             isExpanded: .constant(true),
             onEmailTap: { email in
                 print("Tapped email: \(email.subject)")
+            },
+            onDeleteEmail: { email in
+                print("Delete email: \(email.subject)")
+            },
+            onMarkAsUnread: { email in
+                print("Mark as unread: \(email.subject)")
             }
         )
 
@@ -81,6 +93,12 @@ struct EmailCategorySection: View {
             isExpanded: .constant(false),
             onEmailTap: { email in
                 print("Tapped email: \(email.subject)")
+            },
+            onDeleteEmail: { email in
+                print("Delete email: \(email.subject)")
+            },
+            onMarkAsUnread: { email in
+                print("Mark as unread: \(email.subject)")
             }
         )
     }

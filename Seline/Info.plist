@@ -84,6 +84,8 @@
     <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Seline uses Face ID to securely lock and unlock your private notes.</string>
 
     <!-- Custom Fonts -->
     <key>UIAppFonts</key>

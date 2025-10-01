@@ -36,8 +36,8 @@ struct AISummaryCard: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
 
             // Content - always shown
             VStack(alignment: .leading, spacing: 16) {
@@ -55,30 +55,24 @@ struct AISummaryCard: View {
                     errorView(errorMessage)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: ShadcnRadius.xl)
                 .fill(colorScheme == .dark ? Color.black : Color.white)
         )
         .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.08) : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 8 : 12,
+            color: colorScheme == .dark ? .clear : .gray.opacity(0.15),
+            radius: colorScheme == .dark ? 0 : 12,
             x: 0,
-            y: colorScheme == .dark ? 3 : 4
+            y: colorScheme == .dark ? 0 : 4
         )
         .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.04) : .gray.opacity(0.08),
-            radius: colorScheme == .dark ? 4 : 6,
+            color: colorScheme == .dark ? .clear : .gray.opacity(0.08),
+            radius: colorScheme == .dark ? 0 : 6,
             x: 0,
-            y: colorScheme == .dark ? 1 : 2
-        )
-        .shadow(
-            color: colorScheme == .dark ? .white.opacity(0.02) : .clear,
-            radius: colorScheme == .dark ? 8 : 0,
-            x: 0,
-            y: colorScheme == .dark ? 2 : 0
+            y: colorScheme == .dark ? 0 : 2
         )
         .onAppear {
             // If we already have a summary, show it immediately
@@ -134,13 +128,13 @@ struct AISummaryCard: View {
     private func errorView(_ errorMessage: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
+                Image(systemName: errorMessage.contains("Rate limit") ? "clock" : "exclamationmark.triangle")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.red)
+                    .foregroundColor(errorMessage.contains("Rate limit") ? .orange : .red)
 
-                Text("Failed to generate summary")
+                Text(errorMessage.contains("Rate limit") ? "Rate limit reached" : "Failed to generate summary")
                     .font(FontManager.geist(size: .body, weight: .medium))
-                    .foregroundColor(.red)
+                    .foregroundColor(errorMessage.contains("Rate limit") ? .orange : .red)
             }
 
             Text(errorMessage)
@@ -152,7 +146,7 @@ struct AISummaryCard: View {
                     await generateSummary()
                 }
             }) {
-                Text("Try Again")
+                Text(errorMessage.contains("Rate limit") ? "Retry Now" : "Try Again")
                     .font(FontManager.geist(size: .body, weight: .medium))
                     .foregroundColor(Color.shadcnPrimary)
                     .padding(.vertical, 8)
@@ -193,7 +187,7 @@ struct AISummaryCard: View {
                 // Mock function for preview
                 do {
                     try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-                    return .success("Q4 marketing campaign exceeded targets by 23%, generating $2.4M in revenue. Social media engagement increased 45% with video content performing best. Budget allocation for Q1 needs approval by December 15th. Team recommends doubling investment in video marketing for next quarter.")
+                    return .success("Q4 marketing campaign exceeded targets by 23%. Budget approval needed by December 15th. Double video marketing investment recommended.")
                 } catch {
                     return .failure(error)
                 }

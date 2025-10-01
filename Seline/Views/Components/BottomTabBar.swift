@@ -69,8 +69,8 @@ struct TabButton: View {
     // Blue theme colors for selected state
     private var selectedColor: Color {
         if colorScheme == .dark {
-            // Light blue for dark mode - #84cae9
-            return Color(red: 0.518, green: 0.792, blue: 0.914)
+            // Darker blue for dark mode
+            return Color(red: 0.40, green: 0.65, blue: 0.80)
         } else {
             // Dark blue for light mode - #345766
             return Color(red: 0.20, green: 0.34, blue: 0.40)

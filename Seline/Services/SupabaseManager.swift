@@ -6,7 +6,6 @@ class SupabaseManager: ObservableObject {
     static let shared = SupabaseManager()
 
     let authClient: AuthClient
-    let postgrestClient: PostgrestClient
     private let supabaseURL: URL
     private let supabaseKey: String
 
@@ -23,10 +22,26 @@ class SupabaseManager: ObservableObject {
             logger: nil
         )
 
-        // Initialize PostgREST client for database operations
-        self.postgrestClient = PostgrestClient(
+        // PostgREST client is now created dynamically with current auth token
+    }
+
+    func getPostgrestClient() async -> PostgrestClient {
+        let token: String
+        if authClient.currentUser != nil {
+            do {
+                let session = try await authClient.session
+                token = session.accessToken
+            } catch {
+                print("Failed to get session, using anon key: \(error)")
+                token = supabaseKey
+            }
+        } else {
+            token = supabaseKey
+        }
+
+        return PostgrestClient(
             url: supabaseURL.appendingPathComponent("/rest/v1"),
-            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(supabaseKey)"],
+            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(token)"],
             logger: nil
         )
     }
@@ -45,8 +60,10 @@ class SupabaseManager: ObservableObject {
 
     func createOrUpdateUserProfile(user: User, email: String?, name: String?) async throws {
         do {
+            let client = await getPostgrestClient()
+
             // First, check if profile exists
-            let existingProfile = try await postgrestClient
+            let existingProfile = try await client
                 .from("user_profiles")
                 .select("id")
                 .eq("id", value: user.id.uuidString)
@@ -62,7 +79,7 @@ class SupabaseManager: ObservableObject {
                 "updated_at": AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
             ]
 
-            try await postgrestClient
+            try await client
                 .from("user_profiles")
                 .update(userProfile)
                 .eq("id", value: user.id.uuidString)

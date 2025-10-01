@@ -58,6 +58,19 @@ struct EmailView: View, Searchable {
                     loadingState: currentLoadingState,
                     onRefresh: {
                         await refreshCurrentFolder()
+                    },
+                    onDeleteEmail: { email in
+                        Task {
+                            do {
+                                try await emailService.deleteEmail(email)
+                            } catch {
+                                print("Failed to delete email: \(error.localizedDescription)")
+                                // You could show an alert here if needed
+                            }
+                        }
+                    },
+                    onMarkAsUnread: { email in
+                        emailService.markAsUnread(email)
                     }
                 )
             }
@@ -84,7 +97,7 @@ struct EmailView: View, Searchable {
                                 Circle()
                                     .fill(
                                         colorScheme == .dark ?
-                                            Color(red: 0.518, green: 0.792, blue: 0.914) :
+                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
                                             Color(red: 0.20, green: 0.34, blue: 0.40)
                                     )
                             )
@@ -102,14 +115,14 @@ struct EmailView: View, Searchable {
 
             // Clear any email notifications when user opens email view
             Task {
-                await emailService.notificationService.clearEmailNotifications()
+                emailService.notificationService.clearEmailNotifications()
 
                 // Load emails for current tab - will show cached content immediately
                 await emailService.loadEmailsForFolder(selectedTab.folder)
 
                 // Update app badge to reflect current unread count
                 let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
-                await emailService.notificationService.updateAppBadge(count: unreadCount)
+                emailService.notificationService.updateAppBadge(count: unreadCount)
             }
         }
     }

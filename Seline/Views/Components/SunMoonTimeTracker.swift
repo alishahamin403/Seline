@@ -10,36 +10,41 @@ struct SunMoonTimeTracker: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Base straight line - spans full screen width, matches section separator style
+                // Base straight line - spans width minus space for settings icon
                 StraightLine()
                     .stroke(strokeColor, lineWidth: 2.0)
-                    .frame(width: geometry.size.width, height: 80)
+                    .frame(width: geometry.size.width - 40, height: 50) // Reserve 40 points for settings icon
 
                 // Sun/Moon icon positioned on the line
-                let lineY: CGFloat = 40 // Middle of the frame (height 80 / 2)
+                let lineY: CGFloat = 25 // Middle of the frame (height 50 / 2)
                 let lineStartX: CGFloat = 16 // Small padding from edge
                 let lineEndX: CGFloat = geometry.size.width - 16 // Small padding from edge
 
                 // Calculate X position based on time progress (0 = left, 1 = right)
-                let iconX = lineStartX + (timeProgress * (lineEndX - lineStartX))
+                // Reserve space for the settings icon by ending the line earlier
+                let actualLineEndX = lineEndX - 40 // Reserve 40 points for settings icon
+                let iconX = lineStartX + (timeProgress * (actualLineEndX - lineStartX))
 
                 // Sun/Moon icon with background to hide line
                 ZStack {
-                    // Circular background to hide line behind icon
+                    // Circular background - white for moon, match home background for sun
                     Circle()
-                        .fill(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                        .frame(width: 44, height: 44)
+                        .fill(isDaytime ?
+                            (colorScheme == .dark ? Color.gmailDarkBackground : Color.white) :
+                            Color.white
+                        )
+                        .frame(width: isDaytime ? 36 : 22, height: isDaytime ? 36 : 22)
 
-                    // Icon
+                    // Icon - make moon smaller than sun but not too small
                     Image(systemName: iconName)
-                        .font(.system(size: 28, weight: .medium))
+                        .font(.system(size: isDaytime ? 18 : 16, weight: .medium))
                         .foregroundColor(iconColor)
                 }
                 .position(x: iconX, y: lineY)
                 .animation(.easeInOut(duration: 0.5), value: timeProgress)
             }
         }
-        .frame(height: 80)
+        .frame(height: 50)
         .onReceive(timer) { _ in
             currentTime = Date()
         }
@@ -65,10 +70,8 @@ struct SunMoonTimeTracker: View {
             // Golden yellow sun
             return Color(red: 1.0, green: 0.8, blue: 0.0)
         } else {
-            // Blue moon matching tab icon color
-            return colorScheme == .dark ?
-                Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (light blue for dark mode)
-                Color(red: 0.20, green: 0.34, blue: 0.40)      // #345766 (dark blue for light mode)
+            // Moon color matches home page background
+            return colorScheme == .dark ? Color.gmailDarkBackground : Color.white
         }
     }
 

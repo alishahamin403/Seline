@@ -14,8 +14,7 @@ struct RecurringTaskSheet: View {
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 // Task info header
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -88,7 +87,6 @@ struct RecurringTaskSheet: View {
                 }
             }
         }
-    }
 }
 
 struct FrequencyTile: View {

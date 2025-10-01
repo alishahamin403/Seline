@@ -1,5 +1,5 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 import UIKit
 
 @MainActor
@@ -123,12 +123,56 @@ class NotificationService: ObservableObject {
 
     func clearEmailNotifications() {
         let center = UNUserNotificationCenter.current()
-        center.getDeliveredNotifications { notifications in
+        center.getDeliveredNotifications { [center] notifications in
             let emailNotificationIds = notifications
                 .filter { $0.request.content.userInfo["type"] as? String == "new_email" }
                 .map { $0.request.identifier }
 
             center.removeDeliveredNotifications(withIdentifiers: emailNotificationIds)
         }
+    }
+
+    // MARK: - Task Reminders
+
+    func scheduleTaskReminder(taskId: String, title: String, body: String, scheduledTime: Date) async {
+        // Check if we have authorization
+        guard isAuthorized else {
+            print("Notification authorization not granted")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Task Reminder"
+        content.body = body
+        content.sound = .default
+        content.categoryIdentifier = "task_reminder"
+        content.userInfo = ["type": "task_reminder", "taskId": taskId]
+
+        // Create date components from the scheduled time
+        let dateComponents = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute],
+            from: scheduledTime
+        )
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+
+        let request = UNNotificationRequest(
+            identifier: "task-reminder-\(taskId)",
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("⏰ Scheduled reminder for '\(title)' at \(scheduledTime)")
+        } catch {
+            print("Failed to schedule task reminder: \(error)")
+        }
+    }
+
+    func cancelTaskReminder(taskId: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: ["task-reminder-\(taskId)"]
+        )
     }
 }

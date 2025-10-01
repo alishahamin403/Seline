@@ -77,7 +77,14 @@
       "WebFetch(domain:ui.shadcn.com)",
       "Bash(timeout 30 xcodebuild:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(xcrun simctl list:*)"
+      "Bash(xcrun simctl list:*)",
+      "mcp__supabase-db__list_tables",
+      "mcp__supabase-db__apply_migration",
+      "mcp__supabase-db__execute_sql",
+      "Bash(__NEW_LINE__ sips -z 500 500 \"/Users/alishahamin/Downloads/Seline Icon Light.png\" --out seline-logo-light.png)",
+      "Bash(__NEW_LINE__ sips -z 1000 1000 \"/Users/alishahamin/Downloads/Seline Icon Light.png\" --out seline-logo-light@2x.png)",
+      "Bash(__NEW_LINE__ sips -z 1500 1500 \"/Users/alishahamin/Downloads/Seline Icon Light.png\" --out seline-logo-light@3x.png)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

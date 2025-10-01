@@ -66,6 +66,12 @@ class AuthenticationManager: ObservableObject {
             print("✅ Google Sign-In Success: \(result.user.profile?.email ?? "No email")")
             print("✅ Supabase User Created: \(supabaseUser.id)")
 
+            // Sync tasks and notes from Supabase
+            Task {
+                await TaskManager.shared.syncTasksOnLogin()
+                await NotesManager.shared.syncNotesOnLogin()
+            }
+
         } catch {
             errorMessage = "Authentication failed: \(error.localizedDescription)"
             print("Google Sign-In error: \(error)")
@@ -85,7 +91,8 @@ class AuthenticationManager: ObservableObject {
             // Sign out from Google
             GIDSignIn.sharedInstance.signOut()
 
-            // Set authentication state
+            // Clear tasks and set authentication state
+            TaskManager.shared.clearTasksOnLogout()
             self.isAuthenticated = false
             self.currentUser = nil
             self.supabaseUser = nil

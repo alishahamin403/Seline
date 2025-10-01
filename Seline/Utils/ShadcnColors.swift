@@ -99,6 +99,7 @@ extension Font {
     static let shadcnText2Xl = Font.system(size: 24, weight: .regular) // text-2xl
 
     // Weight variants
+    static let shadcnTextXsMedium = Font.system(size: 12, weight: .medium)
     static let shadcnTextSmMedium = Font.system(size: 14, weight: .medium)
     static let shadcnTextBaseMedium = Font.system(size: 16, weight: .medium)
     static let shadcnTextLgSemibold = Font.system(size: 18, weight: .semibold)

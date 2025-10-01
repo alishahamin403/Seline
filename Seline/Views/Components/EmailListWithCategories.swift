@@ -4,6 +4,8 @@ struct EmailListWithCategories: View {
     let sections: [EmailSection]
     let loadingState: EmailLoadingState
     let onRefresh: () async -> Void
+    let onDeleteEmail: (Email) -> Void
+    let onMarkAsUnread: (Email) -> Void
 
     @State private var expandedSections: Set<String> = Set(TimePeriod.allCases.map { $0.rawValue })
     @State private var selectedEmail: Email?
@@ -42,7 +44,9 @@ struct EmailListWithCategories: View {
                                 ),
                                 onEmailTap: { email in
                                     selectedEmail = email
-                                }
+                                },
+                                onDeleteEmail: onDeleteEmail,
+                                onMarkAsUnread: onMarkAsUnread
                             )
                         }
                     }
@@ -237,7 +241,9 @@ struct ErrorView: View {
         EmailListWithCategories(
             sections: sampleSections,
             loadingState: .loaded(Email.sampleEmails),
-            onRefresh: {}
+            onRefresh: {},
+            onDeleteEmail: { _ in },
+            onMarkAsUnread: { _ in }
         )
     }
     .background(Color.shadcnBackground(.light))

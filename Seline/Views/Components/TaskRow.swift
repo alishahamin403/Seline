@@ -6,6 +6,7 @@ struct TaskRow: View {
     let onDelete: () -> Void
     let onDeleteRecurringSeries: () -> Void
     let onMakeRecurring: () -> Void
+    let onEdit: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
     @State private var dragOffset: CGSize = .zero
@@ -43,12 +44,21 @@ struct TaskRow: View {
             }
             .buttonStyle(PlainButtonStyle())
 
-            // Task title
-            Text(task.title)
-                .font(.shadcnTextSm)
-                .foregroundColor(Color.shadcnForeground(colorScheme))
-                .strikethrough(task.isCompleted, color: blueColor)
-                .animation(.easeInOut(duration: 0.2), value: task.isCompleted)
+            // Task title with recurring indicator
+            HStack(spacing: 6) {
+                Text(task.title)
+                    .font(.shadcnTextSm)
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                    .strikethrough(task.isCompleted, color: blueColor)
+                    .animation(.easeInOut(duration: 0.2), value: task.isCompleted)
+
+                // Recurring indicator
+                if task.isRecurring {
+                    Image(systemName: "repeat")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(blueColor.opacity(0.7))
+                }
+            }
 
             Spacer()
 
@@ -64,6 +74,19 @@ struct TaskRow: View {
         .background(Color.clear)
         .offset(x: dragOffset.width)
         .contextMenu {
+            // Show edit option for all tasks
+            if let onEdit = onEdit {
+                Button(action: onEdit) {
+                    if task.isRecurring {
+                        Label("Edit Recurring Event", systemImage: "pencil")
+                    } else if task.parentRecurringTaskId != nil {
+                        Label("Edit This Instance", systemImage: "pencil")
+                    } else {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                }
+            }
+
             // Show different delete options based on task type
             if task.isRecurring || task.parentRecurringTaskId != nil {
                 // For recurring tasks, show both options
@@ -87,6 +110,10 @@ struct TaskRow: View {
                     Label("Make Recurring", systemImage: "repeat")
                 }
             }
+        }
+        .onLongPressGesture {
+            // Allow editing all tasks
+            onEdit?()
         }
         .gesture(
             DragGesture()
@@ -117,7 +144,8 @@ struct TaskRow: View {
             onToggleCompletion: {},
             onDelete: {},
             onDeleteRecurringSeries: {},
-            onMakeRecurring: {}
+            onMakeRecurring: {},
+            onEdit: {}
         )
 
         TaskRow(
@@ -125,7 +153,8 @@ struct TaskRow: View {
             onToggleCompletion: {},
             onDelete: {},
             onDeleteRecurringSeries: {},
-            onMakeRecurring: {}
+            onMakeRecurring: {},
+            onEdit: {}
         )
     }
     .padding()

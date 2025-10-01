@@ -11,6 +11,11 @@ struct SettingsView: View {
         themeManager.getCurrentEffectiveColorScheme(systemColorScheme: colorScheme) == .dark
     }
 
+    // Check if dark mode toggle should be enabled (only if not system theme)
+    private var isDarkModeToggleEnabled: Bool {
+        themeManager.selectedTheme == .dark
+    }
+
     // Settings states (some are mockup for now)
     @AppStorage("showEmail") private var showEmail = true
     @AppStorage("showNumber") private var showNumber = true
@@ -107,34 +112,20 @@ struct SettingsView: View {
                 .foregroundColor(isDarkMode ? .white : .black)
 
             VStack(spacing: 16) {
-                // Theme toggle
-                SettingsTile(title: "Theme") {
-                    HStack(spacing: 8) {
-                        ForEach(AppTheme.allCases, id: \.self) { theme in
-                            Button(action: {
-                                themeManager.setTheme(theme)
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: theme.icon)
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text(theme.displayName)
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(themeManager.selectedTheme == theme ?
-                                              (isDarkMode ? Color.white.opacity(0.2) : Color.black.opacity(0.1)) :
-                                              Color.clear)
-                                )
-                                .foregroundColor(themeManager.selectedTheme == theme ?
-                                                (isDarkMode ? .white : .black) :
-                                                .gray)
+                // Dark Mode toggle
+                SettingsTile(title: "Dark Mode") {
+                    Toggle("", isOn: Binding(
+                        get: { isDarkModeToggleEnabled },
+                        set: { newValue in
+                            if newValue {
+                                themeManager.setTheme(.dark)
+                            } else {
+                                themeManager.setTheme(.light)
                             }
-                            .buttonStyle(PlainButtonStyle())
                         }
-                    }
+                    ))
+                    .labelsHidden()
+                    .tint(Color(red: 0.4, green: 0.4, blue: 0.4))
                 }
 
                 // Notification toggle

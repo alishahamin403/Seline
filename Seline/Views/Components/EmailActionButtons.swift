@@ -1,35 +1,38 @@
 import SwiftUI
 
 struct EmailActionButtons: View {
+    let email: Email
     let onReply: () -> Void
     let onForward: () -> Void
     let onDelete: () -> Void
+    let onMarkAsUnread: () -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         HStack(spacing: 8) {
             // Reply Button
-            ActionButton(
+            ActionButtonWithText(
                 icon: "arrowshape.turn.up.left",
-                label: "Reply",
-                colorScheme: colorScheme,
-                action: onReply
+                text: "Reply",
+                action: onReply,
+                colorScheme: colorScheme
             )
 
             // Forward Button
-            ActionButton(
+            ActionButtonWithText(
                 icon: "arrowshape.turn.up.right",
-                label: "Forward",
-                colorScheme: colorScheme,
-                action: onForward
+                text: "Forward",
+                action: onForward,
+                colorScheme: colorScheme
             )
 
+
             // Delete Button
-            ActionButton(
+            ActionButtonWithText(
                 icon: "trash",
-                label: "Delete",
-                colorScheme: colorScheme,
-                action: onDelete
+                text: "Delete",
+                action: onDelete,
+                colorScheme: colorScheme
             )
         }
         .padding(.horizontal, 16)
@@ -44,44 +47,83 @@ struct EmailActionButtons: View {
     }
 }
 
-struct ActionButton: View {
+struct ActionButtonWithText: View {
     let icon: String
-    let label: String
-    let colorScheme: ColorScheme
+    let text: String
     let action: () -> Void
+    let colorScheme: ColorScheme
+
+    private var textColor: Color {
+        colorScheme == .dark ? Color.white : Color.black
+    }
+
+    private var backgroundColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.1)
+            : Color.black.opacity(0.05)
+    }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                // Icon
+            HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(textColor)
 
-                // Label
-                Text(label)
-                    .font(FontManager.geist(size: .small, weight: .medium))
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                Text(text)
+                    .font(FontManager.geist(size: .caption, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 70)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .frame(minWidth: 80)
             .background(
                 RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                    .fill(
-                        colorScheme == .dark
-                            ? Color(red: 0.15, green: 0.15, blue: 0.16) // Keep dark mode as is
-                            : Color(red: 0.98, green: 0.98, blue: 0.98) // Very light gray for individual buttons in light mode
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                            .stroke(
-                                colorScheme == .dark
-                                    ? Color.clear
-                                    : Color.gray.opacity(0.1),
-                                lineWidth: 0.5
-                            )
-                    )
+                    .fill(backgroundColor)
             )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct MinimalisticActionButton: View {
+    let icon: String
+    let action: () -> Void
+    let colorScheme: ColorScheme
+    let isDangerous: Bool
+
+    init(icon: String, action: @escaping () -> Void, colorScheme: ColorScheme, isDangerous: Bool = false) {
+        self.icon = icon
+        self.action = action
+        self.colorScheme = colorScheme
+        self.isDangerous = isDangerous
+    }
+
+    private var iconColor: Color {
+        if isDangerous {
+            return Color.red
+        }
+        return colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7)
+    }
+
+    private var backgroundColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.1)
+            : Color.black.opacity(0.05)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(iconColor)
+                .frame(width: 44, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: ShadcnRadius.sm)
+                        .fill(backgroundColor)
+                )
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -90,15 +132,19 @@ struct ActionButton: View {
 #Preview {
     VStack(spacing: 20) {
         EmailActionButtons(
+            email: Email.sampleEmails.first!,
             onReply: { print("Reply tapped") },
             onForward: { print("Forward tapped") },
-            onDelete: { print("Delete tapped") }
+            onDelete: { print("Delete tapped") },
+            onMarkAsUnread: { print("Mark as unread tapped") }
         )
 
         EmailActionButtons(
+            email: Email.sampleEmails.first!,
             onReply: { print("Reply tapped") },
             onForward: { print("Forward tapped") },
-            onDelete: { print("Delete tapped") }
+            onDelete: { print("Delete tapped") },
+            onMarkAsUnread: { print("Mark as unread tapped") }
         )
         .preferredColorScheme(.dark)
     }
