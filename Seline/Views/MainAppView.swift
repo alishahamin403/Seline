@@ -8,6 +8,7 @@ struct MainAppView: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
+    @State private var selectedNoteToOpen: Note? = nil
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -46,7 +47,7 @@ struct MainAppView: View {
                     case .notes:
                         NotesView()
                     case .maps:
-                        MapsPlaceholderView()
+                        MapsView()
                     }
                 }
 
@@ -67,6 +68,12 @@ struct MainAppView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardHeight = 0
+            }
+            .sheet(item: $selectedNoteToOpen) { note in
+                NoteEditView(note: note, isPresented: Binding<Bool>(
+                    get: { selectedNoteToOpen != nil },
+                    set: { if !$0 { selectedNoteToOpen = nil } }
+                ))
             }
         }
     }
@@ -188,7 +195,7 @@ struct MainAppView: View {
             } else {
                 ForEach(pinnedNotes.prefix(5)) { note in
                     Button(action: {
-                        selectedTab = .notes
+                        selectedNoteToOpen = note
                     }) {
                         HStack(spacing: 6) {
                             Text(note.title)
@@ -231,50 +238,46 @@ struct MainAppView: View {
             // Content with keyboard-aware layout
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
+                    // Fun fact under header with spacing
+                    FunFactSection()
+                        .padding(.top, 8)
+                        .padding(.bottom, 32)
 
-                    // 5 sections in vertical layout with separator lines
+                    // 4 sections in vertical layout with separator lines
                     VStack(spacing: 0) {
-                        HomeSectionButton(title: "EMAIL", unreadCount: unreadEmailCount) {
-                            AnyView(emailDetailContent)
+                            HomeSectionButton(title: "EMAIL", unreadCount: unreadEmailCount) {
+                                AnyView(emailDetailContent)
+                            }
+
+                            Rectangle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                                .frame(height: 1)
+                                .padding(.vertical, 16)
+                                .padding(.horizontal, -20) // Extend to screen edges
+
+                            HomeSectionButton(title: "EVENTS", unreadCount: todayTaskCount) {
+                                AnyView(eventsDetailContent)
+                            }
+
+                            Rectangle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                                .frame(height: 1)
+                                .padding(.vertical, 16)
+                                .padding(.horizontal, -20) // Extend to screen edges
+
+                            HomeSectionButton(title: "NOTES", unreadCount: pinnedNotesCount) {
+                                AnyView(notesDetailContent)
+                            }
+
+                            Rectangle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                                .frame(height: 1)
+                                .padding(.vertical, 16)
+                                .padding(.horizontal, -20) // Extend to screen edges
+
+                            HomeSectionButton(title: "LOCATIONS")
                         }
-
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-                            .padding(.vertical, 16)
-                            .padding(.horizontal, -20) // Extend to screen edges
-
-                        HomeSectionButton(title: "EVENTS", unreadCount: todayTaskCount) {
-                            AnyView(eventsDetailContent)
-                        }
-
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-                            .padding(.vertical, 16)
-                            .padding(.horizontal, -20) // Extend to screen edges
-
-                        HomeSectionButton(title: "NOTES", unreadCount: pinnedNotesCount) {
-                            AnyView(notesDetailContent)
-                        }
-
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-                            .padding(.vertical, 16)
-                            .padding(.horizontal, -20) // Extend to screen edges
-
-                        HomeSectionButton(title: "LOCATIONS")
-
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-                            .padding(.vertical, 16)
-                            .padding(.horizontal, -20) // Extend to screen edges
-
-                        FunFactSection()
-                    }
-                    .padding(.horizontal, 20)
+                        .padding(.horizontal, 20)
 
                     Spacer()
                         .frame(height: 100)

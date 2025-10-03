@@ -61,16 +61,18 @@ struct FolderSidebarView: View {
             }) {
                 HStack {
                     Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                     Text("New Folder")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                 }
-                .foregroundColor(colorScheme == .dark ? .black : .white)
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? .white : .black)
+                        .fill(colorScheme == .dark ?
+                            Color(red: 0.40, green: 0.65, blue: 0.80) :
+                            Color(red: 0.20, green: 0.34, blue: 0.40))
                 )
             }
             .padding(.horizontal, 20)
@@ -227,7 +229,7 @@ struct FolderRowView: View {
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Text(folder.name)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
                 }

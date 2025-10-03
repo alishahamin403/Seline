@@ -2,13 +2,17 @@ import SwiftUI
 
 struct HeaderSection: View {
     @Binding var selectedTab: TabSelection
+    @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.colorScheme) var colorScheme
     @State private var showingSettings = false
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sun/Moon tracker extending across most of the width
-            SunMoonTimeTracker()
+            // Motivational greeting with user's name
+            MotivationalGreeting()
+                .environmentObject(authManager)
+
+            Spacer()
 
             // Settings icon on the right with some padding
             Button(action: {
@@ -34,4 +38,5 @@ struct HeaderSection: View {
 
 #Preview {
     HeaderSection(selectedTab: .constant(.home))
+        .environmentObject(AuthenticationManager.shared)
 }

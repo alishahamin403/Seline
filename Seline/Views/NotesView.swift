@@ -378,8 +378,14 @@ struct NoteEditView: View {
     @State private var newFolderName = ""
     @State private var showingCustomPrompt = false
     @State private var customPrompt = ""
-    @State private var isProcessingAI = false
+    @State private var isProcessingCleanup = false
+    @State private var isProcessingBullets = false
+    @State private var isProcessingCustom = false
     @StateObject private var openAIService = OpenAIService.shared
+
+    var isAnyProcessing: Bool {
+        isProcessingCleanup || isProcessingBullets || isProcessingCustom
+    }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
         self.note = note
@@ -395,16 +401,16 @@ struct NoteEditView: View {
 
             VStack(spacing: 0) {
                 // Custom toolbar
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     // Back button
                     Button(action: {
                         saveNote()
                         isPresented = false
                     }) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 20, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 36, height: 36)
                             .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
                     }
 
@@ -413,9 +419,9 @@ struct NoteEditView: View {
                         undoLastChange()
                     }) {
                         Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 20, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 36, height: 36)
                             .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
                     }
                     .disabled(undoHistory.isEmpty)
@@ -428,9 +434,9 @@ struct NoteEditView: View {
                         showingFolderPicker = true
                     }) {
                         Image(systemName: "folder")
-                            .font(.system(size: 20, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 36, height: 36)
                             .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
                     }
 
@@ -439,9 +445,9 @@ struct NoteEditView: View {
                         deleteNote()
                     }) {
                         Image(systemName: "trash")
-                            .font(.system(size: 20, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 36, height: 36)
                             .background(Circle().fill(Color.red))
                     }
                     .opacity(note != nil ? 1.0 : 0.5)
@@ -452,9 +458,9 @@ struct NoteEditView: View {
                         toggleLock()
                     }) {
                         Image(systemName: noteIsLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 20, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 36, height: 36)
                             .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
                     }
 
@@ -464,9 +470,9 @@ struct NoteEditView: View {
                         isPresented = false
                     }) {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.system(size: 16, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 36, height: 36)
                             .background(
                                 Circle().fill(
                                     colorScheme == .dark ?
@@ -479,8 +485,8 @@ struct NoteEditView: View {
                     .opacity(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 16)
 
                 // Note content
                 if !isLockedInSession {
@@ -549,7 +555,7 @@ struct NoteEditView: View {
                             await cleanUpNoteWithAI()
                         }
                     }) {
-                        if isProcessingAI {
+                        if isProcessingCleanup {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
                                 .frame(maxWidth: .infinity)
@@ -566,7 +572,7 @@ struct NoteEditView: View {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                     )
-                    .disabled(isProcessingAI || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     // Bullet Form button - uses AI
                     Button(action: {
@@ -574,7 +580,7 @@ struct NoteEditView: View {
                             await convertToBulletFormWithAI()
                         }
                     }) {
-                        if isProcessingAI {
+                        if isProcessingBullets {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
                                 .frame(maxWidth: .infinity)
@@ -591,23 +597,30 @@ struct NoteEditView: View {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                     )
-                    .disabled(isProcessingAI || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     // Custom button - allows user to enter their own prompt
                     Button(action: {
                         showingCustomPrompt = true
                     }) {
-                        Text("Custom")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                        if isProcessingCustom {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        } else {
+                            Text("Custom")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 10)
                             .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                     )
-                    .disabled(isProcessingAI || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -749,19 +762,19 @@ struct NoteEditView: View {
     private func cleanUpNoteWithAI() async {
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        isProcessingAI = true
+        isProcessingCleanup = true
         saveToUndoHistory()
 
         do {
             let cleanedText = try await openAIService.cleanUpNoteText(content)
             await MainActor.run {
                 content = cleanedText
-                isProcessingAI = false
+                isProcessingCleanup = false
                 saveToUndoHistory()
             }
         } catch {
             await MainActor.run {
-                isProcessingAI = false
+                isProcessingCleanup = false
                 print("Error cleaning up text: \(error.localizedDescription)")
             }
         }
@@ -770,19 +783,19 @@ struct NoteEditView: View {
     private func convertToBulletFormWithAI() async {
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        isProcessingAI = true
+        isProcessingBullets = true
         saveToUndoHistory()
 
         do {
             let bulletText = try await openAIService.convertToBulletPoints(content)
             await MainActor.run {
                 content = bulletText
-                isProcessingAI = false
+                isProcessingBullets = false
                 saveToUndoHistory()
             }
         } catch {
             await MainActor.run {
-                isProcessingAI = false
+                isProcessingBullets = false
                 print("Error converting to bullets: \(error.localizedDescription)")
             }
         }
@@ -795,7 +808,7 @@ struct NoteEditView: View {
             return
         }
 
-        isProcessingAI = true
+        isProcessingCustom = true
         saveToUndoHistory()
 
         let prompt = customPrompt
@@ -805,12 +818,12 @@ struct NoteEditView: View {
             let editedText = try await openAIService.customEditText(content, prompt: prompt)
             await MainActor.run {
                 content = editedText
-                isProcessingAI = false
+                isProcessingCustom = false
                 saveToUndoHistory()
             }
         } catch {
             await MainActor.run {
-                isProcessingAI = false
+                isProcessingCustom = false
                 print("Error with custom edit: \(error.localizedDescription)")
             }
         }

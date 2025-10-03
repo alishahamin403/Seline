@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DayCard: View {
     let weekday: WeekDay
+    let date: Date?
     let tasks: [TaskItem]
     let onAddTask: (String, Date?, ReminderTime?) -> Void
     let onToggleTask: (TaskItem) -> Void
@@ -23,8 +24,26 @@ struct DayCard: View {
         weekday == .monday || isAddingTask
     }
 
+    private var dayStatus: WeekDay.DayStatus {
+        guard let date = date else {
+            return weekday.dayStatus
+        }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let cardDate = calendar.startOfDay(for: date)
+
+        if cardDate == today {
+            return .current
+        } else if cardDate < today {
+            return .past
+        } else {
+            return .future
+        }
+    }
+
     private var canAddTasks: Bool {
-        weekday.dayStatus != .past
+        dayStatus != .past
     }
 
     private var grayColor: Color {
@@ -34,7 +53,7 @@ struct DayCard: View {
     }
 
     private var dayTitleColor: Color {
-        switch weekday.dayStatus {
+        switch dayStatus {
         case .past:
             return colorScheme == .dark ?
                 Color.white.opacity(0.4) :
@@ -50,7 +69,7 @@ struct DayCard: View {
     }
 
     private var dayDateColor: Color {
-        switch weekday.dayStatus {
+        switch dayStatus {
         case .past:
             return colorScheme == .dark ?
                 Color.white.opacity(0.3) :
@@ -63,6 +82,15 @@ struct DayCard: View {
         case .future:
             return colorScheme == .dark ? Color.white : Color.black
         }
+    }
+
+    private var formattedDate: String {
+        guard let date = date else {
+            return weekday.formattedDate()
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: date)
     }
 
     var body: some View {
@@ -80,7 +108,7 @@ struct DayCard: View {
 
                     // Only show date when expanded
                     if isExpanded {
-                        Text(weekday.formattedDate())
+                        Text(formattedDate)
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                     }
@@ -295,6 +323,7 @@ struct DayCard: View {
         VStack(spacing: 16) {
             DayCard(
                 weekday: .monday,
+                date: Date(),
                 tasks: [
                     TaskItem(title: "Gym run", weekday: .monday),
                     TaskItem(title: "Read 10 pages", weekday: .monday),
@@ -310,6 +339,7 @@ struct DayCard: View {
 
             DayCard(
                 weekday: .tuesday,
+                date: Date(),
                 tasks: [],
                 onAddTask: { _, _, _ in },
                 onToggleTask: { _ in },

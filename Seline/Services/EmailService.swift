@@ -111,7 +111,8 @@ class EmailService: ObservableObject {
             } catch {
                 // Only update state if not cancelled
                 if !Task.isCancelled {
-                    setLoadingState(for: folder, state: .error(error.localizedDescription))
+                    let errorMessage = self.getUserFriendlyErrorMessage(error)
+                    setLoadingState(for: folder, state: .error(errorMessage))
                     print("Error loading emails for \(folder.displayName): \(error)")
                 }
             }
@@ -212,8 +213,14 @@ class EmailService: ObservableObject {
         }
     }
 
-    func getCategorizedEmails(for folder: EmailFolder) -> [EmailSection] {
-        let emails = getEmails(for: folder)
+    func getCategorizedEmails(for folder: EmailFolder, unreadOnly: Bool = false) -> [EmailSection] {
+        var emails = getEmails(for: folder)
+
+        // Filter to unread only if requested
+        if unreadOnly {
+            emails = emails.filter { !$0.isRead }
+        }
+
         let categorized = TimePeriod.categorizeEmails(emails, for: Date())
 
         return TimePeriod.allCases.compactMap { period in
@@ -223,8 +230,14 @@ class EmailService: ObservableObject {
         }
     }
 
-    func getCategorizedEmails(for folder: EmailFolder, category: EmailCategory) -> [EmailSection] {
-        let emails = getFilteredEmails(for: folder, category: category)
+    func getCategorizedEmails(for folder: EmailFolder, category: EmailCategory, unreadOnly: Bool = false) -> [EmailSection] {
+        var emails = getFilteredEmails(for: folder, category: category)
+
+        // Filter to unread only if requested
+        if unreadOnly {
+            emails = emails.filter { !$0.isRead }
+        }
+
         let categorized = TimePeriod.categorizeEmails(emails, for: Date())
 
         return TimePeriod.allCases.compactMap { period in
@@ -789,6 +802,29 @@ class EmailService: ObservableObject {
         }
 
         return data
+    }
+
+    // MARK: - Error Handling
+    private func getUserFriendlyErrorMessage(_ error: Error) -> String {
+        if let gmailError = error as? GmailAPIError {
+            switch gmailError {
+            case .notAuthenticated:
+                return "Please sign in again to access your emails"
+            case .apiError(let statusCode, _):
+                if statusCode == 401 {
+                    return "Session expired. Pull down to refresh"
+                } else if statusCode == 403 {
+                    return "Gmail access denied. Please check permissions"
+                } else if statusCode >= 500 {
+                    return "Gmail servers are temporarily unavailable"
+                } else {
+                    return "Failed to load emails. Pull down to retry"
+                }
+            default:
+                return "Failed to load emails. Pull down to retry"
+            }
+        }
+        return "Failed to load emails. Pull down to retry"
     }
 }
 

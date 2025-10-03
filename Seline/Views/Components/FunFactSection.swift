@@ -5,37 +5,25 @@ struct FunFactSection: View {
     @StateObject private var funFactsService = FunFactsService.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // FUN FACT header - non-interactive
-            HStack {
-                Text("FUN FACT")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
+        HStack(alignment: .center, spacing: ShadcnSpacing.sm) {
+            // Fun fact content centered - limited to 2 lines
+            Text(funFactsService.currentFact)
+                .font(.shadcnTextSm)
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Spacer()
-
-                if funFactsService.isLoading {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-            // Fun fact content - always visible
-            VStack(alignment: .leading, spacing: 8) {
-                Text(funFactsService.currentFact)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(nil)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+            if funFactsService.isLoading {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
             }
         }
-        .background(Color.clear)
+        .padding(.horizontal, 20)
+        .padding(.vertical, ShadcnSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
     }
 }
 

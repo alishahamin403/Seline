@@ -5,6 +5,7 @@ struct EmailView: View, Searchable {
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: EmailTab = .inbox
     @State private var selectedCategory: EmailCategory? = nil // nil means show all emails
+    @State private var showUnreadOnly: Bool = false
     @State private var lastRefreshTime: Date? = nil
 
     var currentEmails: [Email] {
@@ -17,10 +18,10 @@ struct EmailView: View, Searchable {
 
     var currentSections: [EmailSection] {
         if let selectedCategory = selectedCategory {
-            return emailService.getCategorizedEmails(for: selectedTab.folder, category: selectedCategory)
+            return emailService.getCategorizedEmails(for: selectedTab.folder, category: selectedCategory, unreadOnly: showUnreadOnly)
         } else {
             // Show all emails when no category is selected
-            return emailService.getCategorizedEmails(for: selectedTab.folder)
+            return emailService.getCategorizedEmails(for: selectedTab.folder, unreadOnly: showUnreadOnly)
         }
     }
 
@@ -31,15 +32,42 @@ struct EmailView: View, Searchable {
 
             VStack(spacing: 0) {
                 VStack(spacing: 12) {
-                    // Tab selector - always visible now
-                    EmailTabView(selectedTab: $selectedTab)
-                        .onChange(of: selectedTab) { newTab in
-                            // Load emails for the selected folder - cache will be respected
-                            // This will show cached content immediately if available
-                            Task {
-                                await emailService.loadEmailsForFolder(newTab.folder)
+                    // Tab selector and unread filter button
+                    HStack(spacing: 12) {
+                        EmailTabView(selectedTab: $selectedTab)
+                            .onChange(of: selectedTab) { newTab in
+                                // Load emails for the selected folder - cache will be respected
+                                // This will show cached content immediately if available
+                                Task {
+                                    await emailService.loadEmailsForFolder(newTab.folder)
+                                }
                             }
+
+                        // Unread filter button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showUnreadOnly.toggle()
+                            }
+                        }) {
+                            Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(
+                                    showUnreadOnly ?
+                                        (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                        Color.gray
+                                )
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(
+                                            showUnreadOnly ?
+                                                (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.1)) :
+                                                (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
+                                        )
+                                )
                         }
+                        .buttonStyle(PlainButtonStyle())
+                    }
 
                     // Category filter buttons
                     EmailCategoryFilterView(selectedCategory: $selectedCategory)

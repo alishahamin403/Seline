@@ -9,76 +9,159 @@ class GmailAPIClient {
     // MARK: - Gmail API Endpoints
     private let baseURL = "https://gmail.googleapis.com/gmail/v1/users/me"
 
-    // MARK: - Public Methods
-
-    func fetchInboxEmails(maxResults: Int = 50) async throws -> [Email] {
-        let messageList = try await fetchMessagesList(query: "in:inbox", maxResults: maxResults)
-        return try await fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
-    }
-
-    func fetchSentEmails(maxResults: Int = 50) async throws -> [Email] {
-        let messageList = try await fetchMessagesList(query: "in:sent", maxResults: maxResults)
-        return try await fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
-    }
-
-    func searchEmails(query: String, maxResults: Int = 50) async throws -> [Email] {
-        let messageList = try await fetchMessagesList(query: query, maxResults: maxResults)
-        return try await fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
-    }
-
-    func deleteEmail(messageId: String) async throws {
+    // MARK: - Token Management
+    private func refreshAccessTokenIfNeeded() async throws {
         guard let user = GIDSignIn.sharedInstance.currentUser else {
             throw GmailAPIError.notAuthenticated
         }
 
-        let accessToken = user.accessToken.tokenString
+        // Check if token needs refresh (if it's about to expire in the next 5 minutes)
+        let currentToken = user.accessToken
+        let expirationDate = currentToken.expirationDate
 
-        guard let url = URL(string: "\(baseURL)/messages/\(messageId)") else {
-            throw GmailAPIError.invalidURL
+        if let expirationDate = expirationDate, expirationDate.timeIntervalSinceNow < 300 {
+            print("🔄 Access token expiring soon, refreshing...")
+            try await refreshAccessToken()
+        }
+    }
+
+    private func refreshAccessToken() async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
+                if let error = error {
+                    print("❌ Failed to refresh token: \(error.localizedDescription)")
+                    continuation.resume(throwing: GmailAPIError.notAuthenticated)
+                    return
+                }
+
+                guard let user = user else {
+                    print("❌ No user after refresh attempt")
+                    continuation.resume(throwing: GmailAPIError.notAuthenticated)
+                    return
+                }
+
+                print("✅ Access token refreshed successfully")
+                continuation.resume(returning: ())
+            }
+        }
+    }
+
+    private func withRetry<T>(maxAttempts: Int = 2, operation: @escaping () async throws -> T) async throws -> T {
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await operation()
+            } catch let error as GmailAPIError {
+                switch error {
+                case .apiError(let statusCode, _):
+                    // If it's a 401 error, try refreshing the token and retry
+                    if statusCode == 401 && attempt < maxAttempts {
+                        print("🔄 Got 401 error, attempting to refresh token (attempt \(attempt)/\(maxAttempts))...")
+                        try? await refreshAccessToken()
+                        lastError = error
+                        continue
+                    }
+                default:
+                    break
+                }
+                throw error
+            } catch {
+                lastError = error
+                throw error
+            }
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        throw lastError ?? GmailAPIError.invalidResponse
+    }
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+    // MARK: - Public Methods
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GmailAPIError.invalidResponse
+    func fetchInboxEmails(maxResults: Int = 50) async throws -> [Email] {
+        try await refreshAccessTokenIfNeeded()
+        return try await withRetry {
+            let messageList = try await self.fetchMessagesList(query: "in:inbox", maxResults: maxResults)
+            return try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
         }
+    }
 
-        // Gmail API returns 204 No Content for successful deletion
-        guard httpResponse.statusCode == 204 else {
-            let errorMessage = "Failed to delete email (HTTP \(httpResponse.statusCode))"
-            throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+    func fetchSentEmails(maxResults: Int = 50) async throws -> [Email] {
+        try await refreshAccessTokenIfNeeded()
+        return try await withRetry {
+            let messageList = try await self.fetchMessagesList(query: "in:sent", maxResults: maxResults)
+            return try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
+        }
+    }
+
+    func searchEmails(query: String, maxResults: Int = 50) async throws -> [Email] {
+        try await refreshAccessTokenIfNeeded()
+        return try await withRetry {
+            let messageList = try await self.fetchMessagesList(query: query, maxResults: maxResults)
+            return try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
+        }
+    }
+
+    func deleteEmail(messageId: String) async throws {
+        try await refreshAccessTokenIfNeeded()
+
+        try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
+
+            let accessToken = user.accessToken.tokenString
+
+            guard let url = URL(string: "\(self.baseURL)/messages/\(messageId)") else {
+                throw GmailAPIError.invalidURL
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            // Gmail API returns 204 No Content for successful deletion
+            guard httpResponse.statusCode == 204 else {
+                let errorMessage = "Failed to delete email (HTTP \(httpResponse.statusCode))"
+                throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+            }
         }
     }
 
     func trashEmail(messageId: String) async throws {
-        guard let user = GIDSignIn.sharedInstance.currentUser else {
-            throw GmailAPIError.notAuthenticated
-        }
+        try await refreshAccessTokenIfNeeded()
 
-        let accessToken = user.accessToken.tokenString
+        try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
 
-        guard let url = URL(string: "\(baseURL)/messages/\(messageId)/trash") else {
-            throw GmailAPIError.invalidURL
-        }
+            let accessToken = user.accessToken.tokenString
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            guard let url = URL(string: "\(self.baseURL)/messages/\(messageId)/trash") else {
+                throw GmailAPIError.invalidURL
+            }
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GmailAPIError.invalidResponse
-        }
+            let (_, response) = try await URLSession.shared.data(for: request)
 
-        guard httpResponse.statusCode == 200 else {
-            let errorMessage = "Failed to move email to trash (HTTP \(httpResponse.statusCode))"
-            throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                let errorMessage = "Failed to move email to trash (HTTP \(httpResponse.statusCode))"
+                throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+            }
         }
     }
 

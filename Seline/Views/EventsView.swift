@@ -42,6 +42,31 @@ struct EventsView: View, Searchable {
         }
     }
 
+    private var next6Days: [(date: Date, weekday: WeekDay)] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        return (0..<7).compactMap { dayOffset in
+            guard let futureDate = calendar.date(byAdding: .day, value: dayOffset, to: today) else { return nil }
+            let weekdayIndex = calendar.component(.weekday, from: futureDate)
+
+            // Convert Calendar weekday (1=Sunday, 2=Monday, etc.) to WeekDay enum
+            let weekday: WeekDay
+            switch weekdayIndex {
+            case 1: weekday = .sunday
+            case 2: weekday = .monday
+            case 3: weekday = .tuesday
+            case 4: weekday = .wednesday
+            case 5: weekday = .thursday
+            case 6: weekday = .friday
+            case 7: weekday = .saturday
+            default: return nil
+            }
+
+            return (futureDate, weekday)
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             ScrollView(.vertical, showsIndicators: false) {
@@ -51,12 +76,26 @@ struct EventsView: View, Searchable {
                         .fill(Color.clear)
                         .frame(height: isSearchExpanded ? (searchText.isEmpty ? 60 : 250) : 60)
 
-                    ForEach(Array(WeekDay.allCases.enumerated()), id: \.element) { index, weekday in
+                    ForEach(Array(next6Days.enumerated()), id: \.element.weekday) { index, dayInfo in
                     DayCard(
-                        weekday: weekday,
-                        tasks: taskManager.getTasksForCurrentWeek(for: weekday),
+                        weekday: dayInfo.weekday,
+                        date: dayInfo.date,
+                        tasks: taskManager.getTasksForCurrentWeek(for: dayInfo.weekday).filter { task in
+                            // For future dates (next week's Monday/Tuesday), only show uncompleted tasks
+                            let calendar = Calendar.current
+                            let today = calendar.startOfDay(for: Date())
+                            let cardDate = calendar.startOfDay(for: dayInfo.date)
+
+                            if cardDate > today {
+                                // Future date - only show incomplete tasks
+                                return !task.isCompleted
+                            } else {
+                                // Today or current week - show all tasks
+                                return true
+                            }
+                        },
                         onAddTask: { title, scheduledTime, reminderTime in
-                            taskManager.addTask(title: title, to: weekday, scheduledTime: scheduledTime, reminderTime: reminderTime)
+                            taskManager.addTask(title: title, to: dayInfo.weekday, scheduledTime: scheduledTime, reminderTime: reminderTime)
                         },
                         onToggleTask: { task in
                             taskManager.toggleTaskCompletion(task)
@@ -78,7 +117,7 @@ struct EventsView: View, Searchable {
                     )
 
                     // Add separator line between days (but not after the last day)
-                    if index < WeekDay.allCases.count - 1 {
+                    if index < next6Days.count - 1 {
                         Rectangle()
                             .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
                             .frame(height: 1)

@@ -26,11 +26,13 @@ struct NoteSectionHeader: View {
                 if count > 0 {
                     Text("\(count)")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .foregroundColor(colorScheme == .dark ? .white : .white)
                         .frame(width: 24, height: 24)
                         .background(
                             Circle()
-                                .fill(colorScheme == .dark ? .white : .black)
+                                .fill(colorScheme == .dark ?
+                                    Color(red: 0.518, green: 0.792, blue: 0.914) :
+                                    Color(red: 0.20, green: 0.34, blue: 0.40))
                         )
                 }
             }
