@@ -44,6 +44,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
     case weekly = "weekly"
     case biweekly = "biweekly"
     case monthly = "monthly"
+    case yearly = "yearly"
 
     var displayName: String {
         switch self {
@@ -51,6 +52,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
         case .weekly: return "Weekly"
         case .biweekly: return "Bi-weekly"
         case .monthly: return "Monthly"
+        case .yearly: return "Yearly"
         }
     }
 
@@ -60,6 +62,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
         case .weekly: return "Repeats every week"
         case .biweekly: return "Repeats every 2 weeks"
         case .monthly: return "Repeats every month"
+        case .yearly: return "Repeats every year"
         }
     }
 
@@ -69,6 +72,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
         case .weekly: return "calendar"
         case .biweekly: return "calendar.badge.plus"
         case .monthly: return "calendar.circle"
+        case .yearly: return "calendar.badge.clock"
         }
     }
 }
@@ -203,7 +207,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         self.reminderTime = reminderTime
         self.isRecurring = isRecurring
         self.recurrenceFrequency = recurrenceFrequency
-        self.recurrenceEndDate = isRecurring ? Calendar.current.date(byAdding: .year, value: 1, to: Date()) : nil
+        self.recurrenceEndDate = isRecurring ? Calendar.current.date(byAdding: .year, value: 10, to: Date()) : nil
         self.parentRecurringTaskId = parentRecurringTaskId
     }
 
@@ -248,12 +252,21 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func addTask(title: String, to weekday: WeekDay, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil) {
+    func addTask(title: String, to weekday: WeekDay, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // Use provided target date, or default to the current week's date for this weekday
         let finalTargetDate = targetDate ?? weekday.dateForCurrentWeek()
-        let newTask = TaskItem(title: title.trimmingCharacters(in: .whitespacesAndNewlines), weekday: weekday, scheduledTime: scheduledTime, targetDate: finalTargetDate, reminderTime: reminderTime)
+        let newTask = TaskItem(
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            weekday: weekday,
+            scheduledTime: scheduledTime,
+            targetDate: finalTargetDate,
+            reminderTime: reminderTime,
+            isRecurring: isRecurring,
+            recurrenceFrequency: recurrenceFrequency,
+            parentRecurringTaskId: nil
+        )
         tasks[weekday]?.append(newTask)
         saveTasks()
 
@@ -621,6 +634,8 @@ class TaskManager: ObservableObject {
                 currentDate = calendar.date(byAdding: .weekOfYear, value: 2, to: currentDate) ?? currentDate
             case .monthly:
                 currentDate = calendar.date(byAdding: .month, value: 1, to: currentDate) ?? currentDate
+            case .yearly:
+                currentDate = calendar.date(byAdding: .year, value: 1, to: currentDate) ?? currentDate
             }
 
             let newWeekday = weekdayFromCalendarComponent(calendar.component(.weekday, from: currentDate)) ?? task.weekday
@@ -662,6 +677,54 @@ class TaskManager: ObservableObject {
 
     func getTasks(for weekday: WeekDay) -> [TaskItem] {
         return (tasks[weekday] ?? []).filter { !$0.isDeleted }
+    }
+
+    func getTasksForDate(_ date: Date) -> [TaskItem] {
+        let calendar = Calendar.current
+        let targetDate = calendar.startOfDay(for: date)
+
+        // Get the weekday from the date
+        let weekdayComponent = calendar.component(.weekday, from: date)
+        guard let weekday = weekdayFromCalendarComponent(weekdayComponent) else {
+            return []
+        }
+
+        // Get all tasks that should appear on this specific date
+        let allTasks = tasks.values.flatMap { $0 }
+
+        return allTasks.filter { task in
+            // First filter out deleted tasks
+            guard !task.isDeleted else { return false }
+
+            // For recurring tasks, use the recurring logic
+            if task.isRecurring {
+                return shouldRecurringTaskAppearOn(task: task, date: targetDate)
+            } else {
+                // For non-recurring tasks, check weekday match
+                if task.weekday == weekday {
+                    if let taskTargetDate = task.targetDate {
+                        // For tasks with specific target dates, check if they match the requested date
+                        return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
+                    } else {
+                        // For tasks without target dates (legacy tasks), check if they belong to the current week
+                        let currentWeekDate = weekday.dateForCurrentWeek()
+                        return calendar.isDate(currentWeekDate, inSameDayAs: targetDate)
+                    }
+                }
+                return false
+            }
+        }.sorted { task1, task2 in
+            // Sort by scheduled time if available, otherwise by creation date
+            if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
+                return time1 < time2
+            } else if task1.scheduledTime != nil {
+                return true
+            } else if task2.scheduledTime != nil {
+                return false
+            } else {
+                return task1.createdAt < task2.createdAt
+            }
+        }
     }
 
     func getTasksForCurrentWeek(for weekday: WeekDay) -> [TaskItem] {
@@ -862,6 +925,15 @@ class TaskManager: ObservableObject {
 
             // Also check that we're at least in the same month as the original task or later
             return daysDifference >= 0 && startWeekOfMonth == dateWeekOfMonth
+        case .yearly:
+            // Yearly tasks appear on the same date every year
+            let startMonth = calendar.component(.month, from: startDate)
+            let startDay = calendar.component(.day, from: startDate)
+            let targetMonth = calendar.component(.month, from: targetDate)
+            let targetDay = calendar.component(.day, from: targetDate)
+
+            // Check if the month and day match
+            return daysDifference >= 0 && startMonth == targetMonth && startDay == targetDay
         }
     }
 
@@ -909,7 +981,7 @@ class TaskManager: ObservableObject {
         // Mark the original task as recurring
         tasks[task.weekday]?[index].isRecurring = true
         tasks[task.weekday]?[index].recurrenceFrequency = frequency
-        tasks[task.weekday]?[index].recurrenceEndDate = Calendar.current.date(byAdding: .year, value: 1, to: Date())
+        tasks[task.weekday]?[index].recurrenceEndDate = Calendar.current.date(byAdding: .year, value: 10, to: Date())
 
         // Note: The recurring logic in shouldRecurringTaskAppearOn will dynamically display
         // this task on the appropriate days based on the frequency. We don't need to
@@ -939,6 +1011,8 @@ class TaskManager: ObservableObject {
             generateBiweeklyTasks(for: task, parentTaskId: parentTaskId, from: startDate, to: endDate)
         case .monthly:
             generateMonthlyTasks(for: task, parentTaskId: parentTaskId, from: startDate, to: endDate)
+        case .yearly:
+            generateYearlyTasks(for: task, parentTaskId: parentTaskId, from: startDate, to: endDate)
         }
     }
 
@@ -962,6 +1036,12 @@ class TaskManager: ObservableObject {
 
     private func generateMonthlyTasks(for task: TaskItem, parentTaskId: String, from startDate: Date, to endDate: Date) {
         // For monthly tasks, we don't need to create individual instances
+        // The logic will be handled dynamically in shouldRecurringTaskAppearOn
+        // This prevents duplicate tasks from being created
+    }
+
+    private func generateYearlyTasks(for task: TaskItem, parentTaskId: String, from startDate: Date, to endDate: Date) {
+        // For yearly tasks, we don't need to create individual instances
         // The logic will be handled dynamically in shouldRecurringTaskAppearOn
         // This prevents duplicate tasks from being created
     }

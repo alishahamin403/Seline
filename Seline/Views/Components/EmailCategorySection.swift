@@ -9,37 +9,39 @@ struct EmailCategorySection: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Section header
+        VStack(alignment: .leading, spacing: 0) {
+            // Section header - matching home page style with count badge
             Button(action: {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    isExpanded.toggle()
+                if section.emailCount > 0 {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isExpanded.toggle()
+                    }
                 }
             }) {
                 HStack {
-                    // Time period icon
-                    Image(systemName: section.timePeriod.icon)
-                        .font(FontManager.geist(size: .body, weight: .medium))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                        .frame(width: 20)
-
-                    // Title only
-                    Text(section.title)
-                        .font(FontManager.geist(size: .body, weight: .semibold))
+                    Text(section.title.uppercased())
+                        .font(.system(size: 23, weight: .regular))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
 
                     Spacer()
 
-                    // Expand/collapse indicator
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(FontManager.geist(size: .caption, weight: .medium))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                        .rotationEffect(.degrees(isExpanded ? 0 : 0))
+                    // Count badge - matching home page style
+                    if section.emailCount > 0 {
+                        Text("\(section.emailCount)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .white)
+                            .frame(width: 20, height: 20)
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                            )
+                    }
                 }
-                .padding(.horizontal, 0)
-                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(PlainButtonStyle())
+            .padding(.vertical, 12)
+            .disabled(section.emailCount == 0)
 
             // Email list
             if isExpanded {
@@ -62,6 +64,12 @@ struct EmailCategorySection: View {
                     removal: .move(edge: .top).combined(with: .opacity)
                 ))
             }
+
+            // Separator line - always show (whether expanded or collapsed)
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                .frame(height: 1)
+                .padding(.top, isExpanded ? 8 : 0)
         }
     }
 }

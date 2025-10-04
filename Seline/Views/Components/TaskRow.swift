@@ -111,10 +111,6 @@ struct TaskRow: View {
                 }
             }
         }
-        .onLongPressGesture {
-            // Allow editing all tasks
-            onEdit?()
-        }
         .gesture(
             DragGesture()
                 .onChanged { value in

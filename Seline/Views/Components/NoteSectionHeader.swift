@@ -17,7 +17,7 @@ struct NoteSectionHeader: View {
             HStack {
                 // Section title - matching home page font and size
                 Text(title)
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 24, weight: .regular))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
                 Spacer()
@@ -25,14 +25,12 @@ struct NoteSectionHeader: View {
                 // Count badge - matching home page style
                 if count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .white)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 20, height: 20)
                         .background(
                             Circle()
-                                .fill(colorScheme == .dark ?
-                                    Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40))
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40))
                         )
                 }
             }

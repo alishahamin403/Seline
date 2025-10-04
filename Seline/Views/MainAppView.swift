@@ -9,6 +9,8 @@ struct MainAppView: View {
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectedNoteToOpen: Note? = nil
+    @State private var showingNewNoteSheet = false
+    @State private var showingAddEventPopup = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -74,6 +76,51 @@ struct MainAppView: View {
                     get: { selectedNoteToOpen != nil },
                     set: { if !$0 { selectedNoteToOpen = nil } }
                 ))
+            }
+            .sheet(isPresented: $showingNewNoteSheet) {
+                NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+            }
+            .overlay {
+                if showingAddEventPopup {
+                    AddEventPopupView(
+                        isPresented: $showingAddEventPopup,
+                        onSave: { title, date, time, reminder, recurring, frequency in
+                            // Determine the weekday from the selected date
+                            let calendar = Calendar.current
+                            let weekdayIndex = calendar.component(.weekday, from: date)
+
+                            let weekday: WeekDay
+                            switch weekdayIndex {
+                            case 1: weekday = .sunday
+                            case 2: weekday = .monday
+                            case 3: weekday = .tuesday
+                            case 4: weekday = .wednesday
+                            case 5: weekday = .thursday
+                            case 6: weekday = .friday
+                            case 7: weekday = .saturday
+                            default: weekday = .monday
+                            }
+
+                            // Create the task
+                            taskManager.addTask(
+                                title: title,
+                                to: weekday,
+                                scheduledTime: time,
+                                targetDate: date,
+                                reminderTime: reminder
+                            )
+
+                            // If recurring, make it recurring
+                            if recurring, let frequency = frequency {
+                                // Find the task we just created and make it recurring
+                                if let createdTask = taskManager.getTasks(for: weekday).first(where: { $0.title == title }) {
+                                    taskManager.makeTaskRecurring(createdTask, frequency: frequency)
+                                }
+                            }
+                        }
+                    )
+                    .transition(.opacity)
+                }
             }
         }
     }
@@ -238,14 +285,30 @@ struct MainAppView: View {
             // Content with keyboard-aware layout
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Fun fact under header with spacing
-                    FunFactSection()
-                        .padding(.top, 8)
+                    // News carousel under header with spacing
+                    NewsCarouselView()
+                        .padding(.top, 16)
                         .padding(.bottom, 32)
 
                     // 4 sections in vertical layout with separator lines
                     VStack(spacing: 0) {
-                            HomeSectionButton(title: "EMAIL", unreadCount: unreadEmailCount) {
+                            HomeSectionButton(
+                                title: "EMAIL",
+                                unreadCount: unreadEmailCount,
+                                onAddAction: {
+                                    // Open Gmail compose
+                                    if let composeURL = URL(string: "googlegmail:///co") {
+                                        UIApplication.shared.open(composeURL) { success in
+                                            if !success {
+                                                // Fallback to mailto
+                                                if let mailtoURL = URL(string: "mailto:") {
+                                                    UIApplication.shared.open(mailtoURL)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ) {
                                 AnyView(emailDetailContent)
                             }
 
@@ -255,7 +318,14 @@ struct MainAppView: View {
                                 .padding(.vertical, 16)
                                 .padding(.horizontal, -20) // Extend to screen edges
 
-                            HomeSectionButton(title: "EVENTS", unreadCount: todayTaskCount) {
+                            HomeSectionButton(
+                                title: "EVENTS",
+                                unreadCount: todayTaskCount,
+                                onAddAction: {
+                                    // Show add event popup
+                                    showingAddEventPopup = true
+                                }
+                            ) {
                                 AnyView(eventsDetailContent)
                             }
 
@@ -265,7 +335,13 @@ struct MainAppView: View {
                                 .padding(.vertical, 16)
                                 .padding(.horizontal, -20) // Extend to screen edges
 
-                            HomeSectionButton(title: "NOTES", unreadCount: pinnedNotesCount) {
+                            HomeSectionButton(
+                                title: "NOTES",
+                                unreadCount: pinnedNotesCount,
+                                onAddAction: {
+                                    showingNewNoteSheet = true
+                                }
+                            ) {
                                 AnyView(notesDetailContent)
                             }
 

@@ -54,21 +54,19 @@ class NotificationService: ObservableObject {
 
         if emailCount == 1 {
             content.title = "New Email"
-            if let sender = latestSender {
-                content.body = "From: \(sender)"
-                if let subject = latestSubject, !subject.isEmpty {
-                    content.body += "\n\(subject)"
-                }
+            if let sender = latestSender, let subject = latestSubject, !subject.isEmpty {
+                content.body = "\(sender): \(subject)"
+            } else if let sender = latestSender {
+                content.body = sender
             } else {
                 content.body = "You have a new email"
             }
         } else {
             content.title = "New Emails (\(emailCount))"
-            if let sender = latestSender {
-                content.body = "Latest from: \(sender)"
-                if let subject = latestSubject, !subject.isEmpty {
-                    content.body += "\n\(subject)"
-                }
+            if let sender = latestSender, let subject = latestSubject, !subject.isEmpty {
+                content.body = "\(sender): \(subject)"
+            } else if let sender = latestSender {
+                content.body = sender
             } else {
                 content.body = "You have \(emailCount) new emails"
             }
@@ -142,8 +140,8 @@ class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Task Reminder"
-        content.body = body
+        content.title = "Event Reminder"
+        content.body = title  // Just show the event name
         content.sound = .default
         content.categoryIdentifier = "task_reminder"
         content.userInfo = ["type": "task_reminder", "taskId": taskId]

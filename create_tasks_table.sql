@@ -8,7 +8,7 @@ CREATE TABLE public.tasks (
     weekday TEXT NOT NULL CHECK (weekday IN ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
-    recurrence_frequency TEXT CHECK (recurrence_frequency IN ('daily', 'weekly', 'biweekly', 'monthly')),
+    recurrence_frequency TEXT CHECK (recurrence_frequency IN ('daily', 'weekly', 'biweekly', 'monthly', 'yearly')),
     recurrence_end_date TIMESTAMPTZ,
     parent_recurring_task_id TEXT,
     scheduled_time TIMESTAMPTZ,

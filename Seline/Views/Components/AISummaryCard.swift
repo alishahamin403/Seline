@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 enum AISummaryState {
     case collapsed
@@ -114,9 +115,9 @@ struct AISummaryCard: View {
                         .frame(width: 6, height: 6)
                         .padding(.top, 6)
 
-                    // Bullet text
+                    // Bullet text (1 point smaller)
                     Text(bullet)
-                        .font(FontManager.geist(size: .body, weight: .regular))
+                        .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -176,6 +177,73 @@ struct AISummaryCard: View {
                 summaryState = .error(error.localizedDescription)
             }
         }
+    }
+}
+
+// MARK: - Zoomable HTML Content View
+
+struct ZoomableHTMLContentView: UIViewRepresentable {
+    let htmlContent: String
+    @Environment(\.colorScheme) var colorScheme
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+
+        // Enable zooming and scrolling
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.minimumZoomScale = 0.5
+        webView.scrollView.maximumZoomScale = 3.0
+        webView.scrollView.bouncesZoom = true
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        // Wrap HTML with basic styling that matches Gmail, with zoom enabled
+        let backgroundColor = colorScheme == .dark ? "#000000" : "#ffffff"
+        let textColor = colorScheme == .dark ? "#ffffff" : "#000000"
+
+        let styledHTML = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, user-scalable=yes">
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                    font-size: 14px;
+                    line-height: 1.5;
+                    color: \(textColor);
+                    background-color: \(backgroundColor);
+                    margin: 0;
+                    padding: 16px;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                img {
+                    max-width: 100%;
+                    height: auto;
+                }
+                a {
+                    color: #0066cc;
+                    text-decoration: none;
+                }
+                table {
+                    max-width: 100%;
+                }
+            </style>
+        </head>
+        <body>
+            \(htmlContent)
+        </body>
+        </html>
+        """
+
+        webView.loadHTMLString(styledHTML, baseURL: nil)
     }
 }
 

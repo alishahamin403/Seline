@@ -56,23 +56,18 @@ struct CategoryFilterButton: View {
                 selectedCategory = category // Select this category
             }
         }) {
-            HStack(spacing: 6) {
-                Image(systemName: category.icon)
-                    .font(.system(size: 14, weight: .medium))
-
-                Text(category.displayName)
-                    .font(FontManager.geist(size: .caption, weight: isSelected ? .semibold : .medium))
-            }
-            .foregroundColor(
-                isSelected ? selectedColor : Color.gray
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(backgroundColor)
-            )
+            Text(category.displayName)
+                .font(FontManager.geist(size: .small, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(
+                    isSelected ? selectedColor : Color.gray
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(backgroundColor)
+                )
         }
         .buttonStyle(PlainButtonStyle())
         .animation(.easeInOut(duration: 0.2), value: isSelected)

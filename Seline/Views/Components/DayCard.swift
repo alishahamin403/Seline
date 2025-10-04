@@ -103,7 +103,7 @@ struct DayCard: View {
             }) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(weekday.displayName)
-                        .font(.system(size: 32, weight: .bold))
+                        .font(.system(size: 32, weight: .regular))
                         .foregroundColor(dayTitleColor)
 
                     // Only show date when expanded

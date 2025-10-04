@@ -15,10 +15,16 @@ struct NoteRow: View {
         }) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    // Note title with lock icon
+                    // Note title with lock icon and attachment indicator
                     HStack(spacing: 6) {
                         if note.isLocked {
                             Image(systemName: "lock.fill")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
+
+                        if !note.imageAttachments.isEmpty {
+                            Image(systemName: "paperclip")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
@@ -52,12 +58,12 @@ struct NoteRow: View {
 
                 Spacer()
 
-                // Pin button
+                // Pin button - aligned with count badge
                 Button(action: {
                     onPinToggle(note)
                 }) {
                     Image(systemName: note.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(
                             note.isPinned ?
                                 (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :

@@ -9,7 +9,7 @@ struct EmailActionButtons: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             // Reply Button
             ActionButtonWithText(
                 icon: "arrowshape.turn.up.left",
@@ -26,7 +26,6 @@ struct EmailActionButtons: View {
                 colorScheme: colorScheme
             )
 
-
             // Delete Button
             ActionButtonWithText(
                 icon: "trash",
@@ -36,14 +35,8 @@ struct EmailActionButtons: View {
             )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.lg)
-                .fill(colorScheme == .dark
-                    ? Color.clear // No background in dark mode
-                    : Color.white // Clean white for light mode
-                )
-        )
+        .padding(.vertical, 12)
+        .background(Color.clear)
     }
 }
 
@@ -53,37 +46,18 @@ struct ActionButtonWithText: View {
     let action: () -> Void
     let colorScheme: ColorScheme
 
-    private var textColor: Color {
-        colorScheme == .dark ? Color.white : Color.black
-    }
-
-    private var backgroundColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.1)
-            : Color.black.opacity(0.05)
-    }
-
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(textColor)
-
-                Text(text)
-                    .font(FontManager.geist(size: .caption, weight: .medium))
-                    .foregroundColor(textColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .frame(minWidth: 80)
-            .background(
-                RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                    .fill(backgroundColor)
-            )
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
         }
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+        )
         .buttonStyle(PlainButtonStyle())
     }
 }

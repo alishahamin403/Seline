@@ -28,10 +28,10 @@ struct EmailView: View, Searchable {
 
     var body: some View {
         GeometryReader { geometry in
-            let topPadding = CGFloat(8)
+            let topPadding = CGFloat(4)
 
             VStack(spacing: 0) {
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     // Tab selector and unread filter button
                     HStack(spacing: 12) {
                         EmailTabView(selectedTab: $selectedTab)
@@ -78,7 +78,7 @@ struct EmailView: View, Searchable {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, topPadding)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
 
                 // Email list - only categorized view, no search results
                 EmailListWithCategories(

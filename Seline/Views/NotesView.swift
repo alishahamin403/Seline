@@ -17,7 +17,7 @@ struct NotesView: View, Searchable {
         if searchText.isEmpty {
             notes = notesManager.pinnedNotes
         } else {
-            notes = notesManager.searchNotes(query: searchText).filter { $0.isPinned }
+            notes = notesManager.searchNotes(query: searchText).filter { $0.isPinned && !$0.isDraft }
         }
 
         // Filter by selected folder if one is selected
@@ -28,12 +28,13 @@ struct NotesView: View, Searchable {
         return notes
     }
 
+
     var allUnpinnedNotes: [Note] {
         var notes: [Note]
         if searchText.isEmpty {
             notes = notesManager.recentNotes
         } else {
-            notes = notesManager.searchNotes(query: searchText).filter { !$0.isPinned }
+            notes = notesManager.searchNotes(query: searchText).filter { !$0.isPinned && !$0.isDraft }
         }
 
         // Filter by selected folder if one is selected
@@ -77,15 +78,15 @@ struct NotesView: View, Searchable {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 // Search header
-                VStack(spacing: 16) {
+                VStack(spacing: 8) {
                     NotesSearchBar(
                         searchText: $searchText,
                         showingFolderSidebar: $showingFolderSidebar,
                         selectedFolderId: $selectedFolderId
                     )
                 }
-                .padding(.top, 8)
-                .padding(.bottom, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
 
                 // Notes list
                 ScrollView(.vertical, showsIndicators: false) {
@@ -206,7 +207,7 @@ struct NotesView: View, Searchable {
                                 }
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 8)
 
                         // Empty state
                         if filteredPinnedNotes.isEmpty && recentNotes.isEmpty && notesByMonth.isEmpty {
@@ -367,10 +368,11 @@ struct NoteEditView: View {
 
     @State private var title: String = ""
     @State private var content: String = ""
+    @State private var attributedContent: NSAttributedString = NSAttributedString()
     @State private var isLockedInSession: Bool = false
     @State private var showingFaceIDPrompt: Bool = false
-    @State private var undoHistory: [String] = []
-    @State private var redoHistory: [String] = []
+    @State private var undoHistory: [NSAttributedString] = []
+    @State private var redoHistory: [NSAttributedString] = []
     @State private var noteIsLocked: Bool = false
     @State private var selectedFolderId: UUID? = nil
     @State private var showingFolderPicker = false
@@ -379,12 +381,19 @@ struct NoteEditView: View {
     @State private var showingCustomPrompt = false
     @State private var customPrompt = ""
     @State private var isProcessingCleanup = false
-    @State private var isProcessingBullets = false
     @State private var isProcessingCustom = false
+    @State private var showingShareSheet = false
+    @State private var draftNoteId: UUID? = nil // Track the draft note being edited
     @StateObject private var openAIService = OpenAIService.shared
+    @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
+    @State private var showingImagePicker = false
+    @State private var imageAttachments: [UIImage] = []
+    @State private var showingImageViewer = false
+    @State private var selectedImageIndex: Int = 0
+    @State private var isKeyboardVisible = false
 
     var isAnyProcessing: Bool {
-        isProcessingCleanup || isProcessingBullets || isProcessingCustom
+        isProcessingCleanup || isProcessingCustom
     }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
@@ -396,257 +405,26 @@ struct NoteEditView: View {
     var body: some View {
         ZStack {
             // Background
-            (colorScheme == .dark ? Color.black : Color.white)
+            backgroundColor
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Custom toolbar
-                HStack(spacing: 12) {
-                    // Back button
-                    Button(action: {
-                        saveNote()
-                        isPresented = false
-                    }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
-                    }
-
-                    // Undo button
-                    Button(action: {
-                        undoLastChange()
-                    }) {
-                        Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
-                    }
-                    .disabled(undoHistory.isEmpty)
-                    .opacity(undoHistory.isEmpty ? 0.5 : 1.0)
-
-                    Spacer()
-
-                    // Folder button
-                    Button(action: {
-                        showingFolderPicker = true
-                    }) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
-                    }
-
-                    // Delete button
-                    Button(action: {
-                        deleteNote()
-                    }) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(Color.red))
-                    }
-                    .opacity(note != nil ? 1.0 : 0.5)
-                    .disabled(note == nil)
-
-                    // Lock/Unlock button
-                    Button(action: {
-                        toggleLock()
-                    }) {
-                        Image(systemName: noteIsLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
-                    }
-
-                    // Save button
-                    Button(action: {
-                        saveNote()
-                        isPresented = false
-                    }) {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(
-                                Circle().fill(
-                                    colorScheme == .dark ?
-                                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                        Color(red: 0.20, green: 0.34, blue: 0.40)
-                                )
-                            )
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 16)
+                customToolbar
 
                 // Note content
                 if !isLockedInSession {
-                    VStack(alignment: .leading, spacing: 8) {
-                        // Title
-                        TextField("", text: $title)
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .placeholder(when: title.isEmpty) {
-                                Text("Note title")
-                                    .font(.system(size: 24, weight: .bold))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                            }
-                            .onChange(of: title) { newValue in
-                                saveToUndoHistory()
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 8)
-
-                        // Content - made larger and easier to tap
-                        TextEditor(text: $content)
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .background(Color.clear)
-                            .scrollContentBackground(.hidden)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.horizontal, 20)
-                            .onChange(of: content) { newValue in
-                                saveToUndoHistory()
-                            }
-                    }
+                    noteContentView
                 } else {
-                    // Locked state
-                    Spacer()
-                    VStack(spacing: 16) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 48, weight: .light))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-
-                        Text("Note is locked")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-
-                        Button(action: {
-                            authenticateWithFaceID()
-                        }) {
-                            Text("Unlock with Face ID")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 25)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                                )
-                        }
-                    }
-                    Spacer()
+                    lockedStateView
                 }
 
-                // Bottom action buttons
-                HStack(spacing: 10) {
-                    // Clean up button - uses AI
-                    Button(action: {
-                        Task {
-                            await cleanUpNoteWithAI()
-                        }
-                    }) {
-                        if isProcessingCleanup {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        } else {
-                            Text("Clean up")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                    )
-                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    // Bullet Form button - uses AI
-                    Button(action: {
-                        Task {
-                            await convertToBulletFormWithAI()
-                        }
-                    }) {
-                        if isProcessingBullets {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        } else {
-                            Text("Bullet Form")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                    )
-                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    // Custom button - allows user to enter their own prompt
-                    Button(action: {
-                        showingCustomPrompt = true
-                    }) {
-                        if isProcessingCustom {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        } else {
-                            Text("Custom")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                    )
-                    .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(Color.clear)
+                bottomActionButtons
             }
         }
         .navigationBarHidden(true)
-        .onAppear {
-            if let note = note {
-                title = note.title
-                content = note.content
-                noteIsLocked = note.isLocked
-                selectedFolderId = note.folderId
-
-                // If note is locked, require Face ID to unlock
-                if note.isLocked {
-                    isLockedInSession = true
-                    authenticateWithFaceID()
-                }
-            } else if let folderId = initialFolderId {
-                // Set initial folder for new note
-                selectedFolderId = folderId
-            }
-            // Initialize undo history
-            saveToUndoHistory()
-        }
+        .onAppear(perform: onAppearAction)
+        .onDisappear(perform: onDisappearAction)
         .sheet(isPresented: $showingFolderPicker) {
             FolderPickerView(
                 selectedFolderId: $selectedFolderId,
@@ -662,7 +440,7 @@ struct NoteEditView: View {
             Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
         }
         .alert("Custom Edit", isPresented: $showingCustomPrompt) {
-            TextField("Enter editing instructions", text: $customPrompt)
+            TextField("Enter editing instructions (max 2 sentences)", text: $customPrompt)
             Button("Cancel", role: .cancel) {
                 customPrompt = ""
             }
@@ -672,7 +450,374 @@ struct NoteEditView: View {
                 }
             }
         } message: {
-            Text("How would you like to edit this text? (e.g., \"make it more formal\", \"simplify\", \"add emojis\")")
+            Text("Enter your instructions in 1-2 sentences. Output will be text and links only.")
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            if let noteToShare = note {
+                ShareSheet(activityItems: ["\(noteToShare.title)\n\n\(noteToShare.content)"])
+            } else {
+                ShareSheet(activityItems: ["\(title)\n\n\(content)"])
+            }
+        }
+        .sheet(isPresented: $showingImagePicker) {
+            ImagePicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        imageAttachments.append(image)
+                    }
+                }
+            ))
+        }
+        .fullScreenCover(isPresented: $showingImageViewer) {
+            if selectedImageIndex < imageAttachments.count {
+                ImageViewer(image: imageAttachments[selectedImageIndex], isPresented: $showingImageViewer)
+            }
+        }
+    }
+
+    // MARK: - View Components
+
+    private var backgroundColor: some View {
+        colorScheme == .dark ? Color.black : Color.white
+    }
+
+    private var customToolbar: some View {
+        HStack(spacing: 12) {
+            // Back button
+            Button(action: {
+                saveNote()
+                isPresented = false
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+            }
+
+            // Undo button
+            Button(action: {
+                undoLastChange()
+            }) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+            }
+            .disabled(undoHistory.isEmpty)
+            .opacity(undoHistory.isEmpty ? 0.5 : 1.0)
+
+            Spacer()
+
+            // Share button
+            Button(action: {
+                showingShareSheet = true
+            }) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+            }
+
+            // Folder button
+            Button(action: {
+                showingFolderPicker = true
+            }) {
+                Image(systemName: "folder")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+            }
+
+            // Delete button
+            Button(action: {
+                deleteNote()
+            }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(Color.red))
+            }
+            .opacity(note != nil ? 1.0 : 0.5)
+            .disabled(note == nil)
+
+            // Lock/Unlock button
+            Button(action: {
+                toggleLock()
+            }) {
+                Image(systemName: noteIsLocked ? "lock.fill" : "lock.open")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+            }
+
+            // Save button
+            Button(action: {
+                saveNote()
+                isPresented = false
+            }) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle().fill(
+                            colorScheme == .dark ?
+                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                        )
+                    )
+            }
+            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var noteContentView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Title
+            TextField("", text: $title)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .placeholder(when: title.isEmpty) {
+                    Text("Note title")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                }
+                .onChange(of: title) { newValue in
+                    // Don't trigger saves during view updates
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 4)
+
+            // Content - made larger and easier to tap
+            VStack(spacing: 0) {
+                // Scrollable text editor
+                GeometryReader { geometry in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        FormattableTextEditor(
+                            attributedText: $attributedContent,
+                            colorScheme: colorScheme,
+                            onSelectionChange: { range in
+                                selectedTextRange = range
+                            },
+                            onTextChange: { newAttributedText in
+                                attributedContent = newAttributedText
+                                content = newAttributedText.string
+                            }
+                        )
+                        .frame(minHeight: geometry.size.height)
+                    }
+                }
+
+                // Fixed Image Attachments Section at bottom (collapsible)
+                if !imageAttachments.isEmpty {
+                    imageAttachmentsView
+                }
+            }
+        }
+    }
+
+    private var imageAttachmentsView: some View {
+        VStack(alignment: .leading, spacing: isKeyboardVisible ? 4 : 12) {
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                .frame(height: 1)
+
+            Text("Attachments (\(imageAttachments.count))")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                .padding(.horizontal, 32)
+
+            if !isKeyboardVisible {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(imageAttachments.indices, id: \.self) { index in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: imageAttachments[index])
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .onTapGesture {
+                                        selectedImageIndex = index
+                                        showingImageViewer = true
+                                    }
+
+                                // Delete button
+                                Button(action: {
+                                    imageAttachments.remove(at: index)
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.white)
+                                        .background(Circle().fill(Color.red))
+                                        .font(.system(size: 20))
+                                }
+                                .offset(x: 5, y: -5)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 32)
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .background(colorScheme == .dark ? Color.black : Color.white)
+    }
+
+    private var lockedStateView: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 16) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+
+                Text("Note is locked")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+
+                Button(action: {
+                    authenticateWithFaceID()
+                }) {
+                    Text("Unlock with Face ID")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 25)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                        )
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private var bottomActionButtons: some View {
+        VStack(spacing: 0) {
+            // Bottom action buttons
+            HStack(spacing: 12) {
+                // Clean up button - uses AI
+                Button(action: {
+                    Task {
+                        await cleanUpNoteWithAI()
+                    }
+                }) {
+                    if isProcessingCleanup {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
+                            .frame(width: 100)
+                            .padding(.vertical, 12)
+                    } else {
+                        Text("Clean up")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .frame(width: 100)
+                            .padding(.vertical, 12)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                )
+                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                // Custom button - allows user to enter their own prompt (up to 2 sentences)
+                Button(action: {
+                    showingCustomPrompt = true
+                }) {
+                    if isProcessingCustom {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
+                            .frame(width: 100)
+                            .padding(.vertical, 12)
+                    } else {
+                        Text("Custom")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .frame(width: 100)
+                            .padding(.vertical, 12)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                )
+                .disabled(isAnyProcessing)
+
+                Spacer()
+
+                // Image button
+                Button(action: {
+                    showingImagePicker = true
+                }) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 20)
+            .background(Color.clear)
+        }
+    }
+
+    // MARK: - Lifecycle Methods
+
+    private func onAppearAction() {
+        // Add keyboard observers
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { _ in
+            isKeyboardVisible = true
+        }
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in
+            isKeyboardVisible = false
+        }
+
+        if let note = note {
+            title = note.title
+            content = note.content
+
+            // Parse content and load images
+            attributedContent = parseContentWithImages(note.content)
+
+            // Load image attachments
+            imageAttachments = note.imageAttachments.compactMap { UIImage(data: $0) }
+
+            noteIsLocked = note.isLocked
+            selectedFolderId = note.folderId
+            draftNoteId = note.id // Set the draft ID if editing existing note
+
+            // If note is locked, require Face ID to unlock
+            if note.isLocked {
+                isLockedInSession = true
+                authenticateWithFaceID()
+            }
+        } else if let folderId = initialFolderId {
+            // Set initial folder for new note
+            selectedFolderId = folderId
+        }
+        // Initialize undo history
+        saveToUndoHistory()
+    }
+
+    private func onDisappearAction() {
+        // Save note when leaving the view
+        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            saveNote()
         }
     }
 
@@ -682,16 +827,76 @@ struct NoteEditView: View {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
 
+        // Convert attributed content to plain text
+        let contentToSave = convertAttributedContentToText()
+
+        // Convert images to Data
+        let imageData = imageAttachments.compactMap { $0.jpegData(compressionQuality: 0.8) }
+
         if let existingNote = note {
             var updatedNote = existingNote
             updatedNote.title = trimmedTitle
-            updatedNote.content = content
+            updatedNote.content = contentToSave
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
+            updatedNote.imageAttachments = imageData
             notesManager.updateNote(updatedNote)
         } else {
-            var newNote = Note(title: trimmedTitle, content: content, folderId: selectedFolderId)
+            var newNote = Note(title: trimmedTitle, content: contentToSave, folderId: selectedFolderId)
             newNote.isLocked = noteIsLocked
+            newNote.imageAttachments = imageData
+            notesManager.addNote(newNote)
+        }
+    }
+
+    private func convertAttributedContentToText() -> String {
+        // For now, just return plain text without images
+        // Images are stored as attachments locally only
+        return content
+    }
+
+    private func saveDraft() {
+        // Auto-save when user has typed something
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let contentToSave = convertAttributedContentToText()
+        let trimmedContent = contentToSave.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Only save if there's any content
+        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return }
+
+        // Convert images to Data
+        let imageData = imageAttachments.compactMap { $0.jpegData(compressionQuality: 0.8) }
+
+        if let existingNote = note {
+            // Updating an existing note
+            var updatedNote = existingNote
+            updatedNote.title = trimmedTitle.isEmpty ? "Untitled" : trimmedTitle
+            updatedNote.content = contentToSave
+            updatedNote.isLocked = noteIsLocked
+            updatedNote.folderId = selectedFolderId
+            updatedNote.imageAttachments = imageData
+            notesManager.updateNote(updatedNote)
+        } else if let draftId = draftNoteId {
+            // Update existing auto-saved note that was created in this session
+            if let existingDraft = notesManager.notes.first(where: { $0.id == draftId }) {
+                var updatedNote = existingDraft
+                updatedNote.title = trimmedTitle.isEmpty ? "Untitled" : trimmedTitle
+                updatedNote.content = contentToSave
+                updatedNote.isLocked = noteIsLocked
+                updatedNote.folderId = selectedFolderId
+                updatedNote.imageAttachments = imageData
+                notesManager.updateNote(updatedNote)
+            }
+        } else {
+            // Create new note only once
+            var newNote = Note(
+                title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle,
+                content: contentToSave,
+                folderId: selectedFolderId
+            )
+            newNote.isLocked = noteIsLocked
+            newNote.imageAttachments = imageData
+            draftNoteId = newNote.id // Store the ID to update later
             notesManager.addNote(newNote)
         }
     }
@@ -732,13 +937,28 @@ struct NoteEditView: View {
     }
 
     private func saveToUndoHistory() {
-        let currentState = title + "\n---\n" + content
-        if undoHistory.last != currentState {
-            undoHistory.append(currentState)
+        // Create combined attributed string with title
+        let titleAttrString = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 24, weight: .bold),
+                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+            ]
+        )
+        let separator = NSAttributedString(string: "\n---\n")
+        let combined = NSMutableAttributedString()
+        combined.append(titleAttrString)
+        combined.append(separator)
+        combined.append(attributedContent)
+
+        if let last = undoHistory.last, !last.isEqual(to: combined) {
+            undoHistory.append(combined)
             if undoHistory.count > 20 { // Limit history
                 undoHistory.removeFirst()
             }
             redoHistory.removeAll() // Clear redo when new changes are made
+        } else if undoHistory.isEmpty {
+            undoHistory.append(combined)
         }
     }
 
@@ -749,12 +969,33 @@ struct NoteEditView: View {
         redoHistory.append(currentState)
 
         if let previousState = undoHistory.last {
-            let components = previousState.components(separatedBy: "\n---\n")
+            let text = previousState.string
+            let components = text.components(separatedBy: "\n---\n")
             if components.count >= 2 {
                 title = components[0]
-                content = components[1]
+                // Extract attributed content after separator
+                if let range = previousState.string.range(of: "\n---\n") {
+                    let contentStartIndex = previousState.string.distance(from: previousState.string.startIndex, to: range.upperBound)
+                    let contentRange = NSRange(location: contentStartIndex, length: previousState.length - contentStartIndex)
+                    attributedContent = previousState.attributedSubstring(from: contentRange)
+                    content = attributedContent.string
+                }
             }
         }
+    }
+
+    // MARK: - Image Parsing
+
+    private func parseContentWithImages(_ content: String) -> NSAttributedString {
+        // Just return plain text content as attributed string
+        // Images are stored locally only (not persisted to Supabase yet)
+        return NSAttributedString(
+            string: content,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+            ]
+        )
     }
 
     // MARK: - AI-Powered Text Editing
@@ -769,6 +1010,13 @@ struct NoteEditView: View {
             let cleanedText = try await openAIService.cleanUpNoteText(content)
             await MainActor.run {
                 content = cleanedText
+                attributedContent = NSAttributedString(
+                    string: cleanedText,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                    ]
+                )
                 isProcessingCleanup = false
                 saveToUndoHistory()
             }
@@ -780,44 +1028,43 @@ struct NoteEditView: View {
         }
     }
 
-    private func convertToBulletFormWithAI() async {
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-        isProcessingBullets = true
-        saveToUndoHistory()
-
-        do {
-            let bulletText = try await openAIService.convertToBulletPoints(content)
-            await MainActor.run {
-                content = bulletText
-                isProcessingBullets = false
-                saveToUndoHistory()
-            }
-        } catch {
-            await MainActor.run {
-                isProcessingBullets = false
-                print("Error converting to bullets: \(error.localizedDescription)")
-            }
-        }
-    }
-
     private func applyCustomEdit() async {
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        // Validate prompt
+        let trimmedPrompt = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
             customPrompt = ""
+            return
+        }
+
+        // Count sentences (simple check for periods, exclamation marks, question marks)
+        let sentenceEnders = CharacterSet(charactersIn: ".!?")
+        let sentences = trimmedPrompt.components(separatedBy: sentenceEnders).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+        if sentences.count > 2 {
+            // Show error - prompt too long
+            await MainActor.run {
+                customPrompt = ""
+            }
             return
         }
 
         isProcessingCustom = true
         saveToUndoHistory()
 
-        let prompt = customPrompt
+        let prompt = trimmedPrompt + "\n\nIMPORTANT: Output should be text and links only. Do not include images, pictures, or media."
         customPrompt = ""
 
         do {
-            let editedText = try await openAIService.customEditText(content, prompt: prompt)
+            let editedText = try await openAIService.customEditText(content.isEmpty ? "" : content, prompt: prompt)
             await MainActor.run {
                 content = editedText
+                attributedContent = NSAttributedString(
+                    string: editedText,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                    ]
+                )
                 isProcessingCustom = false
                 saveToUndoHistory()
             }
@@ -828,6 +1075,59 @@ struct NoteEditView: View {
             }
         }
     }
+}
+
+// MARK: - Image Viewer
+
+struct ImageViewer: View {
+    let image: UIImage
+    @Binding var isPresented: Bool
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        isPresented = false
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Circle().fill(Color.white.opacity(0.2)))
+                    }
+                    .padding()
+                }
+
+                Spacer()
+
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding()
+
+                Spacer()
+            }
+        }
+    }
+}
+
+// MARK: - Share Sheet
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 #Preview {

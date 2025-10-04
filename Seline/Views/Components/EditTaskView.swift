@@ -348,11 +348,6 @@ struct RecurringOptionsSheet: View {
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
-
-                    if frequency != RecurrenceFrequency.allCases.last {
-                        Divider()
-                            .background(Color.shadcnBorder(colorScheme))
-                    }
                 }
 
                 Spacer()
@@ -423,11 +418,6 @@ struct ReminderOptionsSheet: View {
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
-
-                    if reminder != ReminderTime.allCases.last {
-                        Divider()
-                            .background(Color.shadcnBorder(colorScheme))
-                    }
                 }
 
                 Spacer()

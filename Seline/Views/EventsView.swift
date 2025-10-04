@@ -68,19 +68,20 @@ struct EventsView: View, Searchable {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Spacer for fixed header
-                    Rectangle()
-                        .fill(Color.clear)
-                        .frame(height: isSearchExpanded ? (searchText.isEmpty ? 60 : 250) : 60)
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        // Spacer for fixed header
+                        Rectangle()
+                            .fill(Color.clear)
+                            .frame(height: isSearchExpanded ? (searchText.isEmpty ? 60 : geometry.size.height - 100) : 60)
 
                     ForEach(Array(next6Days.enumerated()), id: \.element.weekday) { index, dayInfo in
                     DayCard(
                         weekday: dayInfo.weekday,
                         date: dayInfo.date,
-                        tasks: taskManager.getTasksForCurrentWeek(for: dayInfo.weekday).filter { task in
+                        tasks: taskManager.getTasksForDate(dayInfo.date).filter { task in
                             // For future dates (next week's Monday/Tuesday), only show uncompleted tasks
                             let calendar = Calendar.current
                             let today = calendar.startOfDay(for: Date())
@@ -217,59 +218,67 @@ struct EventsView: View, Searchable {
 
                 // Inline search results
                 if isSearchExpanded && !searchText.isEmpty {
-                    ScrollView {
-                        if filteredTasks.isEmpty {
-                            Text("No results found")
-                                .font(.shadcnTextSm)
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                                .padding(.vertical, 20)
-                        } else {
-                            LazyVStack(spacing: 8) {
-                                ForEach(filteredTasks.prefix(5)) { task in
-                                    CompactEventSearchRow(
-                                        task: task,
-                                        colorScheme: colorScheme,
-                                        onTap: {
-                                            // Close search
-                                            searchText = ""
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                                isSearchExpanded = false
+                    VStack(spacing: 0) {
+                        ScrollView {
+                            if filteredTasks.isEmpty {
+                                Text("No results found")
+                                    .font(.shadcnTextSm)
+                                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                    .padding(.vertical, 20)
+                            } else {
+                                LazyVStack(spacing: 8) {
+                                    ForEach(filteredTasks) { task in
+                                        CompactEventSearchRow(
+                                            task: task,
+                                            colorScheme: colorScheme,
+                                            onTap: {
+                                                // Close search
+                                                searchText = ""
+                                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                                    isSearchExpanded = false
+                                                }
+                                                // Open edit sheet for the task
+                                                selectedTaskForEditing = task
+                                                activeSheet = .editTask
                                             }
-                                            // Open edit sheet for the task
-                                            selectedTaskForEditing = task
-                                            activeSheet = .editTask
-                                        }
-                                    )
+                                        )
+                                    }
                                 }
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 12)
+                                .padding(.top, 4)
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 12)
                         }
+                        .frame(maxHeight: geometry.size.height - 140) // Leave space for header and keyboard
                     }
-                    .frame(maxHeight: 190)
                     .background(
                         colorScheme == .dark ?
                             Color.gmailDarkBackground : Color.white
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
+                    .zIndex(1000) // Put search results in front of calendar button
                 }
             }
             .frame(maxWidth: .infinity)
         }
         .overlay(
-            // Floating calendar button
+            // Floating calendar button - behind search results
             VStack {
                 Spacer()
                 HStack {
                     Spacer()
-                    FloatingCalendarButton {
-                        activeSheet = .calendar
+                    if !isSearchExpanded || searchText.isEmpty {
+                        FloatingCalendarButton {
+                            activeSheet = .calendar
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 60) // Match + icon spacing
                     }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 60) // Match + icon spacing
                 }
             }
+            .zIndex(100)
         )
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .calendar:

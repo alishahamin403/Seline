@@ -84,6 +84,14 @@ struct CalendarPopupView: View {
                                         onEdit: {
                                             selectedTaskForEditing = task
                                             showingEditTaskSheet = true
+                                        },
+                                        onDelete: {
+                                            taskManager.deleteTask(task)
+                                            updateTasksForDate(for: selectedDate)
+                                        },
+                                        onDeleteRecurringSeries: {
+                                            taskManager.deleteRecurringTask(task)
+                                            updateTasksForDate(for: selectedDate)
                                         }
                                     )
                                 }
@@ -116,6 +124,16 @@ struct CalendarPopupView: View {
                     },
                     onCancel: {
                         showingEditTaskSheet = false
+                    },
+                    onDelete: { taskToDelete in
+                        taskManager.deleteTask(taskToDelete)
+                        showingEditTaskSheet = false
+                        updateTasksForDate(for: selectedDate)
+                    },
+                    onDeleteRecurringSeries: { taskToDelete in
+                        taskManager.deleteRecurringTask(taskToDelete)
+                        showingEditTaskSheet = false
+                        updateTasksForDate(for: selectedDate)
                     }
                 )
             }
@@ -320,15 +338,16 @@ struct CalendarPopupView: View {
         guard !trimmedTitle.isEmpty,
               let weekday = weekdayFromDate(selectedDate) else { return }
 
-        taskManager.addTask(title: trimmedTitle, to: weekday, scheduledTime: selectedTime, targetDate: selectedDate)
-
-        // If recurring, make the task recurring after adding it
-        if isRecurring {
-            // Find the task we just added
-            if let addedTask = taskManager.getTasks(for: weekday).last {
-                taskManager.makeTaskRecurring(addedTask, frequency: selectedFrequency)
-            }
-        }
+        // Add the task with recurring parameters
+        taskManager.addTask(
+            title: trimmedTitle,
+            to: weekday,
+            scheduledTime: selectedTime,
+            targetDate: selectedDate,
+            reminderTime: nil,
+            isRecurring: isRecurring,
+            recurrenceFrequency: isRecurring ? selectedFrequency : nil
+        )
 
         // Reset form
         newTaskTitle = ""
@@ -347,8 +366,11 @@ struct TaskRowCalendar: View {
     let task: TaskItem
     let selectedDate: Date
     let onEdit: (() -> Void)?
+    let onDelete: (() -> Void)?
+    let onDeleteRecurringSeries: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
+    @State private var showingDeleteAlert = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -373,6 +395,13 @@ struct TaskRowCalendar: View {
             }
 
             Spacer()
+
+            // Recurring indicator
+            if task.isRecurring {
+                Image(systemName: "repeat")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.shadcnPrimary.opacity(0.7))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -380,10 +409,7 @@ struct TaskRowCalendar: View {
             RoundedRectangle(cornerRadius: ShadcnRadius.md)
                 .fill(Color.clear)
         )
-        .onLongPressGesture {
-            // Allow editing all tasks now
-            onEdit?()
-        }
+        .contentShape(Rectangle())
         .contextMenu {
             // Show edit option for all tasks
             if let onEdit = onEdit {
@@ -391,6 +417,32 @@ struct TaskRowCalendar: View {
                     Label("Edit", systemImage: "pencil")
                 }
             }
+
+            // Show delete option
+            Button(role: .destructive, action: {
+                if task.isRecurring || task.parentRecurringTaskId != nil {
+                    showingDeleteAlert = true
+                } else {
+                    onDelete?()
+                }
+            }) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .confirmationDialog("Delete Event", isPresented: $showingDeleteAlert, titleVisibility: .visible) {
+            Button("Delete This Event Only", role: .destructive) {
+                onDelete?()
+            }
+
+            if task.isRecurring {
+                Button("Delete All Recurring Events", role: .destructive) {
+                    onDeleteRecurringSeries?()
+                }
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(task.isRecurring ? "This is a recurring event. What would you like to delete?" : "Delete this event?")
         }
     }
 }

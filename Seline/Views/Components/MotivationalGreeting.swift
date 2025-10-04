@@ -14,18 +14,18 @@ struct MotivationalGreeting: View {
         HStack(spacing: 4) {
             if isLoading {
                 Text("Loading...")
-                    .font(FontManager.geist(size: 20, weight: .medium))
+                    .font(FontManager.geist(size: 17, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
             } else {
                 Text(dailyQuote + ",")
-                    .font(FontManager.geist(size: 20, weight: .medium))
+                    .font(FontManager.geist(size: 17, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 Text(userName)
-                    .font(FontManager.geist(size: 20, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                    .font(FontManager.geist(size: 17, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

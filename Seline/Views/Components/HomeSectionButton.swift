@@ -5,22 +5,25 @@ struct HomeSectionButton: View {
     let titleContent: (() -> AnyView)?
     let unreadCount: Int?
     let detailContent: () -> AnyView
+    let onAddAction: (() -> Void)?
     @Environment(\.colorScheme) var colorScheme
     @State private var isExpanded: Bool = false
 
     // Original initializer for backward compatibility
-    init(title: String, unreadCount: Int? = nil, @ViewBuilder detailContent: @escaping () -> AnyView = { AnyView(EmptyView()) }) {
+    init(title: String, unreadCount: Int? = nil, onAddAction: (() -> Void)? = nil, @ViewBuilder detailContent: @escaping () -> AnyView = { AnyView(EmptyView()) }) {
         self.title = title
         self.titleContent = nil
         self.unreadCount = unreadCount
+        self.onAddAction = onAddAction
         self.detailContent = detailContent
     }
 
     // New initializer for custom title content with icons
-    init(titleContent: @escaping () -> AnyView, unreadCount: Int? = nil, @ViewBuilder detailContent: @escaping () -> AnyView = { AnyView(EmptyView()) }) {
+    init(titleContent: @escaping () -> AnyView, unreadCount: Int? = nil, onAddAction: (() -> Void)? = nil, @ViewBuilder detailContent: @escaping () -> AnyView = { AnyView(EmptyView()) }) {
         self.title = ""
         self.titleContent = titleContent
         self.unreadCount = unreadCount
+        self.onAddAction = onAddAction
         self.detailContent = detailContent
     }
 
@@ -39,23 +42,33 @@ struct HomeSectionButton: View {
                         titleContent()
                     } else {
                         Text(title)
-                            .font(.system(size: 24, weight: .bold))
+                            .font(.system(size: 24, weight: .regular))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                     }
 
                     Spacer()
 
-                    if let unreadCount = unreadCount, unreadCount > 0 {
-                        Text("\(unreadCount)")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .white)
-                            .frame(width: 24, height: 24)
-                            .background(
-                                Circle()
-                                    .fill(colorScheme == .dark ?
-                                        Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                        Color(red: 0.20, green: 0.34, blue: 0.40))
-                            )
+                    HStack(spacing: 8) {
+                        if let unreadCount = unreadCount, unreadCount > 0 {
+                            Text("\(unreadCount)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .white)
+                                .frame(width: 20, height: 20)
+                                .background(
+                                    Circle()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                )
+                        }
+
+                        if let onAddAction = onAddAction {
+                            Button(action: onAddAction) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .frame(width: 24, height: 24)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     }
                 }
                 .padding(.horizontal, 16)

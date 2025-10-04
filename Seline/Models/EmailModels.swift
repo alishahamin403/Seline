@@ -401,8 +401,8 @@ extension Email {
 
 enum EmailCategory: String, CaseIterable, Identifiable {
     case important = "Important"
-    case promotional = "Promotional"
     case updates = "Updates"
+    case promotional = "Promo"
 
     var id: String { rawValue }
 
@@ -452,6 +452,11 @@ extension Email {
     }
 
     private var isPromotionalEmail: Bool {
+        // First check if Gmail has labeled this as promotional
+        if labels.contains("CATEGORY_PROMOTIONS") {
+            return true
+        }
+
         let subject = subject.lowercased()
         let senderEmail = sender.email.lowercased()
         let senderName = sender.name?.lowercased() ?? ""
@@ -482,6 +487,11 @@ extension Email {
     }
 
     private var isUpdateEmail: Bool {
+        // First check if Gmail has labeled this as updates
+        if labels.contains("CATEGORY_UPDATES") {
+            return true
+        }
+
         let subject = subject.lowercased()
         let senderEmail = sender.email.lowercased()
         let snippet = snippet.lowercased()

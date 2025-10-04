@@ -42,6 +42,7 @@ class EmailService: ObservableObject {
     private let authManager = AuthenticationManager.shared
     private let gmailAPIClient = GmailAPIClient.shared
     let notificationService = NotificationService.shared // Made public for access from EmailView
+    private let openAIService = OpenAIService.shared
 
     private init() {
         loadCachedData()
@@ -107,6 +108,11 @@ class EmailService: ObservableObject {
                 // Update cache timestamp and save to persistent storage
                 updateCacheTimestamp(for: folder)
                 saveCachedData(for: folder)
+
+                // Pre-generate AI summaries for emails without them (in background)
+                Task.detached(priority: .background) {
+                    await self.preloadAISummaries(for: filteredEmails)
+                }
 
             } catch {
                 // Only update state if not cancelled
@@ -594,6 +600,40 @@ class EmailService: ObservableObject {
             saveCachedData(for: .sent)
             print("🤖 Updated AI summary for email: \(email.subject)")
         }
+    }
+
+    // MARK: - AI Summary Pre-loading
+
+    private func preloadAISummaries(for emails: [Email]) async {
+        // Filter emails that don't have AI summaries yet
+        let emailsNeedingSummary = emails.filter { $0.aiSummary == nil }
+
+        guard !emailsNeedingSummary.isEmpty else {
+            print("📧 All emails already have AI summaries")
+            return
+        }
+
+        print("🤖 Pre-loading AI summaries for \(emailsNeedingSummary.count) emails...")
+
+        // Generate summaries one at a time to respect rate limits
+        for email in emailsNeedingSummary {
+            do {
+                let emailBody = email.body ?? email.snippet
+                let summary = try await openAIService.summarizeEmail(
+                    subject: email.subject,
+                    body: emailBody
+                )
+
+                // Update the email with the summary
+                await updateEmailWithAISummary(email, summary: summary)
+
+            } catch {
+                // Log error but continue with other emails
+                print("⚠️ Failed to generate summary for '\(email.subject)': \(error.localizedDescription)")
+            }
+        }
+
+        print("✅ Finished pre-loading AI summaries")
     }
 
     // MARK: - New Email Polling

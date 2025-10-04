@@ -13,8 +13,10 @@ struct Note: Identifiable, Codable, Hashable {
     var isPinned: Bool
     var folderId: UUID?
     var isLocked: Bool
+    var isDraft: Bool
+    var imageAttachments: [Data] // Store images as Data array
 
-    init(title: String, content: String = "", folderId: UUID? = nil) {
+    init(title: String, content: String = "", folderId: UUID? = nil, isDraft: Bool = false) {
         self.id = UUID()
         self.title = title
         self.content = content
@@ -23,6 +25,8 @@ struct Note: Identifiable, Codable, Hashable {
         self.isPinned = false
         self.folderId = folderId
         self.isLocked = false
+        self.isDraft = isDraft
+        self.imageAttachments = []
     }
 
     var formattedDateModified: String {
@@ -153,6 +157,27 @@ class NotesManager: ObservableObject {
         }
     }
 
+    // Upload image and return URL
+    func uploadImage(_ image: UIImage) async throws -> String {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            throw NSError(domain: "NotesManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        // Convert image to JPEG data
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            throw NSError(domain: "NotesManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image to data"])
+        }
+
+        // Generate unique filename
+        let fileName = "\(UUID().uuidString).jpg"
+
+        // Upload to Supabase
+        let imageUrl = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
+
+        print("✅ Image uploaded successfully: \(imageUrl)")
+        return imageUrl
+    }
+
     func updateNote(_ note: Note) {
         if let index = notes.firstIndex(where: { $0.id == note.id }) {
             var updatedNote = note
@@ -243,11 +268,15 @@ class NotesManager: ObservableObject {
     // MARK: - Computed Properties
 
     var pinnedNotes: [Note] {
-        notes.filter { $0.isPinned }.sorted { $0.dateModified > $1.dateModified }
+        notes.filter { $0.isPinned && !$0.isDraft }.sorted { $0.dateModified > $1.dateModified }
     }
 
     var recentNotes: [Note] {
-        notes.filter { !$0.isPinned }.sorted { $0.dateModified > $1.dateModified }
+        notes.filter { !$0.isPinned && !$0.isDraft }.sorted { $0.dateModified > $1.dateModified }
+    }
+
+    var draftNotes: [Note] {
+        notes.filter { $0.isDraft }.sorted { $0.dateModified > $1.dateModified }
     }
 
     func searchNotes(query: String) -> [Note] {
@@ -290,7 +319,23 @@ class NotesManager: ObservableObject {
 
         print("💾 Saving note to Supabase - User ID: \(userId.uuidString), Note ID: \(note.id.uuidString)")
 
+        // Upload images to Supabase Storage and get URLs
+        var imageUrls: [String] = []
+        for (index, imageData) in note.imageAttachments.enumerated() {
+            do {
+                let fileName = "\(note.id.uuidString)_\(index).jpg"
+                let url = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
+                imageUrls.append(url)
+            } catch {
+                print("❌ Error uploading image \(index): \(error)")
+            }
+        }
+
         let formatter = ISO8601DateFormatter()
+
+        // Convert image URLs to AnyJSON array
+        let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
+
         let noteData: [String: PostgREST.AnyJSON] = [
             "id": .string(note.id.uuidString),
             "user_id": .string(userId.uuidString),
@@ -300,7 +345,9 @@ class NotesManager: ObservableObject {
             "date_created": .string(formatter.string(from: note.dateCreated)),
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(note.isPinned),
-            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null
+            "is_draft": .bool(note.isDraft),
+            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
+            "image_attachments": .array(imageUrlsArray)
         ]
 
         do {
@@ -309,7 +356,7 @@ class NotesManager: ObservableObject {
                 .from("notes")
                 .insert(noteData)
                 .execute()
-            print("✅ Note saved to Supabase: \(note.title)")
+            print("✅ Note saved to Supabase: \(note.title) with \(imageUrls.count) images")
         } catch {
             print("❌ Error saving note to Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
@@ -317,19 +364,37 @@ class NotesManager: ObservableObject {
     }
 
     private func updateNoteInSupabase(_ note: Note) async {
-        guard SupabaseManager.shared.getCurrentUser() != nil else {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("⚠️ No user ID, skipping Supabase sync")
             return
         }
 
+        // Upload images to Supabase Storage and get URLs
+        var imageUrls: [String] = []
+        for (index, imageData) in note.imageAttachments.enumerated() {
+            do {
+                let fileName = "\(note.id.uuidString)_\(index).jpg"
+                let url = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
+                imageUrls.append(url)
+            } catch {
+                print("❌ Error uploading image \(index): \(error)")
+            }
+        }
+
         let formatter = ISO8601DateFormatter()
+
+        // Convert image URLs to AnyJSON array
+        let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
+
         let noteData: [String: PostgREST.AnyJSON] = [
             "title": .string(note.title),
             "content": .string(note.content),
             "is_locked": .bool(note.isLocked),
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(note.isPinned),
-            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null
+            "is_draft": .bool(note.isDraft),
+            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
+            "image_attachments": .array(imageUrlsArray)
         ]
 
         do {
@@ -339,7 +404,7 @@ class NotesManager: ObservableObject {
                 .update(noteData)
                 .eq("id", value: note.id.uuidString)
                 .execute()
-            print("✅ Note updated in Supabase: \(note.title)")
+            print("✅ Note updated in Supabase: \(note.title) with \(imageUrls.count) images")
         } catch {
             print("❌ Error updating note in Supabase: \(error)")
         }
@@ -386,13 +451,32 @@ class NotesManager: ObservableObject {
 
             print("📥 Received \(response.count) notes from Supabase")
 
+            // Parse notes and download images
+            var parsedNotes: [Note] = []
+            for supabaseNote in response {
+                if var note = parseNoteFromSupabase(supabaseNote) {
+                    // Download images from Supabase Storage
+                    if let imageUrls = supabaseNote.image_attachments, !imageUrls.isEmpty {
+                        for imageUrl in imageUrls {
+                            do {
+                                guard let url = URL(string: imageUrl) else {
+                                    continue
+                                }
+
+                                let (data, _) = try await URLSession.shared.data(from: url)
+                                note.imageAttachments.append(data)
+                            } catch {
+                                print("❌ Error downloading image: \(error)")
+                            }
+                        }
+                    }
+                    parsedNotes.append(note)
+                }
+            }
+
             await MainActor.run {
                 // Only update if we have notes from Supabase
                 if !response.isEmpty {
-                    let parsedNotes = response.compactMap { supabaseNote in
-                        parseNoteFromSupabase(supabaseNote)
-                    }
-
                     // Only update if we successfully parsed at least one note
                     if !parsedNotes.isEmpty {
                         self.notes = parsedNotes
@@ -690,6 +774,35 @@ struct NoteSupabaseData: Codable {
     let date_modified: String
     let is_pinned: Bool
     let folder_id: String?
+    let image_attachments: [String]? // Array of image URLs from JSONB
+
+    enum CodingKeys: String, CodingKey {
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, image_attachments
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        user_id = try container.decode(String.self, forKey: .user_id)
+        title = try container.decode(String.self, forKey: .title)
+        content = try container.decode(String.self, forKey: .content)
+        is_locked = try container.decode(Bool.self, forKey: .is_locked)
+        date_created = try container.decode(String.self, forKey: .date_created)
+        date_modified = try container.decode(String.self, forKey: .date_modified)
+        is_pinned = try container.decode(Bool.self, forKey: .is_pinned)
+        folder_id = try container.decodeIfPresent(String.self, forKey: .folder_id)
+
+        // Handle both string (old format) and array (new format) for image_attachments
+        if let attachmentsArray = try? container.decodeIfPresent([String].self, forKey: .image_attachments) {
+            image_attachments = attachmentsArray
+        } else if let attachmentsString = try? container.decodeIfPresent(String.self, forKey: .image_attachments),
+                  let data = attachmentsString.data(using: .utf8),
+                  let array = try? JSONDecoder().decode([String].self, from: data) {
+            image_attachments = array
+        } else {
+            image_attachments = nil
+        }
+    }
 }
 
 struct FolderSupabaseData: Codable {

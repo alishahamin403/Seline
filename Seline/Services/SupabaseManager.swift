@@ -1,6 +1,7 @@
 import Foundation
 import Auth
 import PostgREST
+import Storage
 
 class SupabaseManager: ObservableObject {
     static let shared = SupabaseManager()
@@ -100,5 +101,55 @@ class SupabaseManager: ObservableObject {
 
     func signOut() async throws {
         try await authClient.signOut()
+    }
+
+    func getStorageClient() async -> SupabaseStorageClient {
+        let token: String
+        if authClient.currentUser != nil {
+            do {
+                let session = try await authClient.session
+                token = session.accessToken
+            } catch {
+                print("❌ Failed to get session: \(error)")
+                token = supabaseKey
+            }
+        } else {
+            token = supabaseKey
+        }
+
+        let configuration = StorageClientConfiguration(
+            url: supabaseURL.appendingPathComponent("/storage/v1"),
+            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(token)"]
+        )
+
+        return SupabaseStorageClient(configuration: configuration)
+    }
+
+    // Upload image to Supabase Storage
+    func uploadImage(_ imageData: Data, fileName: String, userId: UUID) async throws -> String {
+        // Verify user is authenticated
+        guard let currentUser = authClient.currentUser else {
+            throw NSError(domain: "SupabaseManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        // Verify the userId matches the current user
+        guard currentUser.id == userId else {
+            throw NSError(domain: "SupabaseManager", code: 403, userInfo: [NSLocalizedDescriptionKey: "User ID mismatch"])
+        }
+
+        let storage = await getStorageClient()
+        let path = "\(userId.uuidString)/\(fileName)"
+
+        // Use upsert to replace existing files
+        try await storage
+            .from("note-images")
+            .upload(path: path, file: imageData, options: FileOptions(contentType: "image/jpeg", upsert: true))
+
+        // Return the public URL
+        let publicURL = try await storage
+            .from("note-images")
+            .getPublicURL(path: path)
+
+        return publicURL.absoluteString
     }
 }
