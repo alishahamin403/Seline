@@ -1,158 +1,190 @@
 import SwiftUI
+import CoreLocation
 
 struct WeatherWidget: View {
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var locationService = LocationService.shared
+    @StateObject private var navigationService = NavigationService.shared
+    @StateObject private var supabaseManager = SupabaseManager.shared
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.scenePhase) var scenePhase // Track app lifecycle
+
+    var isVisible: Bool = true // Controls whether to fetch data
 
     @State private var currentTime = Date()
-    let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
-
-    private var weatherIconColor: Color {
-        colorScheme == .dark ? Color.white : Color.black
-    }
+    @State private var locationPreferences: UserLocationPreferences?
+    @State private var timer: Timer? // Manual timer that we can start/stop
+    @State private var lastWeatherFetch: Date? // Track last fetch
 
     private var currentWeather: WeatherData? {
         weatherService.weatherData
     }
 
     private var sunrise: Date {
-        currentWeather?.sunrise ?? mockSunrise()
+        currentWeather?.sunrise ?? Date()
     }
 
     private var sunset: Date {
-        currentWeather?.sunset ?? mockSunset()
+        currentWeather?.sunset ?? Date()
     }
 
-    private var isDaytime: Bool {
-        currentTime >= sunrise && currentTime <= sunset
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
-    private var dayProgress: Double {
-        let now = currentTime
-        guard sunrise != sunset else { return 0.0 }
 
-        if now >= sunrise && now <= sunset {
-            // Daytime - sun position
-            let dayDuration = sunset.timeIntervalSince(sunrise)
-            guard dayDuration > 0 else { return 0.0 }
-            let timeSinceSunrise = now.timeIntervalSince(sunrise)
-            return max(0.0, min(1.0, timeSinceSunrise / dayDuration))
-        } else {
-            // Nighttime - moon position
-            let calendar = Calendar.current
-            let nightStart: Date
-            let nightEnd: Date
-
-            let todaySunrise = calendar.dateInterval(of: .day, for: now)?.start.addingTimeInterval(
-                sunrise.timeIntervalSince(calendar.dateInterval(of: .day, for: sunrise)?.start ?? sunrise)
-            ) ?? sunrise
-
-            let todaySunset = calendar.dateInterval(of: .day, for: now)?.start.addingTimeInterval(
-                sunset.timeIntervalSince(calendar.dateInterval(of: .day, for: sunset)?.start ?? sunset)
-            ) ?? sunset
-
-            if now > todaySunset {
-                nightStart = todaySunset
-                nightEnd = calendar.date(byAdding: .day, value: 1, to: todaySunrise) ?? todaySunrise
-            } else {
-                let yesterdaySunset = calendar.date(byAdding: .day, value: -1, to: todaySunset) ?? todaySunset
-                nightStart = yesterdaySunset
-                nightEnd = todaySunrise
-            }
-
-            let nightDuration = nightEnd.timeIntervalSince(nightStart)
-            guard nightDuration > 0 else { return 0.0 }
-            let timeSinceNightStart = now.timeIntervalSince(nightStart)
-            return max(0.0, min(1.0, timeSinceNightStart / nightDuration))
-        }
-    }
-
-    private var sunMoonIconName: String {
-        isDaytime ? "sun.max.fill" : "moon.circle.fill"
-    }
-
-    private var sunMoonIconColor: Color {
-        if isDaytime {
-            return Color(red: 1.0, green: 0.8, blue: 0.0) // Golden sun
-        } else {
-            return colorScheme == .dark ? Color.white : Color.gray
-        }
-    }
+    @State private var showLocationSetup = false
+    @State private var setupLocationSlot: LocationSlot?
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Center-aligned location and weather in one line
-            HStack(spacing: 12) {
-                // Location text - smaller and lighter
-                Text(weatherService.weatherData?.locationName ?? locationService.locationName)
-                    .font(.system(size: 14, weight: .regular, design: .default))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.8))
+        GeometryReader { geometry in
+            HStack(spacing: 8) {
+                // Weather Card (50%)
+                weatherCardButton(width: (geometry.size.width - 8) * 0.5)
 
-                // Weather info
-                HStack(spacing: 6) {
-                    Image(systemName: weatherService.weatherData?.iconName ?? "cloud.fill")
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(weatherIconColor)
-
-                    Text("\(weatherService.weatherData?.temperature ?? 20)°")
-                        .font(.system(size: 14, weight: .regular, design: .default))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.8))
-                }
-            }
-            .padding(.horizontal, 20)
-
-            // Full-width horizontal progression line with sun/moon icon
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    // Base line - full width
-                    Rectangle()
-                        .fill(Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.2))
-                        .frame(height: 1)
-
-                    // Progress line - full width
-                    Rectangle()
-                        .fill(sunMoonIconColor.opacity(0.6))
-                        .frame(width: geometry.size.width * dayProgress, height: 1.5)
-                        .animation(.easeInOut(duration: 1.0), value: dayProgress)
-
-                    // Sun/Moon icon positioned along the line
-                    HStack {
-                        Spacer(minLength: 0)
-
-                        ZStack {
-                            // Even bigger circular background - match home screen background
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.shadcnBackground(colorScheme) : Color.white)
-                                .frame(width: 32, height: 32)
-
-                            // Even bigger icon - make moon much larger to visually match sun
-                            Image(systemName: sunMoonIconName)
-                                .font(.system(size: isDaytime ? 20 : 26, weight: .medium))
-                                .foregroundStyle(sunMoonIconColor)
-                                .symbolRenderingMode(.monochrome)
+            // Navigation Card (50%)
+            VStack(spacing: 6) {
+                // Location 1 ETA
+                NavigationETARow(
+                    icon: locationPreferences?.location1Icon ?? "house.fill",
+                    eta: navigationService.location1ETA,
+                    isLocationSet: locationPreferences?.location1Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location1Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
+                        } else {
+                            setupLocationSlot = .location1
+                            showLocationSetup = true
                         }
-                        .offset(x: (geometry.size.width - 32) * dayProgress - (geometry.size.width - 32) * 0.5)
-                        .animation(.easeInOut(duration: 1.0), value: dayProgress)
-                        .animation(.easeInOut(duration: 1.5), value: isDaytime)
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location1
+                        showLocationSetup = true
+                    }
+                )
 
-                        Spacer(minLength: 0)
+                // Location 2 ETA
+                NavigationETARow(
+                    icon: locationPreferences?.location2Icon ?? "briefcase.fill",
+                    eta: navigationService.location2ETA,
+                    isLocationSet: locationPreferences?.location2Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location2Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
+                        } else {
+                            setupLocationSlot = .location2
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location2
+                        showLocationSetup = true
+                    }
+                )
+
+                // Location 3 ETA
+                NavigationETARow(
+                    icon: locationPreferences?.location3Icon ?? "fork.knife",
+                    eta: navigationService.location3ETA,
+                    isLocationSet: locationPreferences?.location3Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location3Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
+                        } else {
+                            setupLocationSlot = .location3
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location3
+                        showLocationSetup = true
+                    }
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(width: (geometry.size.width - 8) * 0.5, height: 90, alignment: .leading)
+            .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            .cornerRadius(12)
+            }
+            .frame(height: 90)
+        }
+        .frame(height: 90)
+        .padding(.horizontal, 12)
+        .sheet(isPresented: $showLocationSetup) {
+            LocationEditView(
+                locationSlot: setupLocationSlot ?? .location1,
+                currentPreferences: locationPreferences,
+                onSave: { updatedPreferences in
+                    Task {
+                        do {
+                            try await supabaseManager.saveLocationPreferences(updatedPreferences)
+                            locationPreferences = updatedPreferences
+                            updateETAs()
+                        } catch {
+                            print("❌ Failed to save location: \(error)")
+                        }
                     }
                 }
-            }
-            .frame(height: 16)
+            )
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .onReceive(timer) { _ in
-            currentTime = Date()
+        .onChange(of: scenePhase) { newPhase in
+            switch newPhase {
+            case .active:
+                // App became active - only refresh if needed, NO automatic timer
+                refreshWeatherIfNeeded()
+            case .background, .inactive:
+                // App went to background - stop timer
+                stopWeatherTimer()
+            @unknown default:
+                break
+            }
         }
         .onAppear {
-            // Load mock data for development
-            weatherService.loadMockWeather()
+            // NO automatic timer - only manual refresh on appearance
+            // Only fetch if visible
+            guard isVisible else { return }
+
             locationService.requestLocationPermission()
+            loadLocationPreferences()
+
+            // If we already have a location, fetch weather immediately on appearance
+            if let location = locationService.currentLocation {
+                Task {
+                    await weatherService.fetchWeather(for: location)
+                }
+            }
+        }
+        .onChange(of: isVisible) { visible in
+            if visible {
+                // When becoming visible, start location updates and fetch data
+                locationService.requestLocationPermission()
+                loadLocationPreferences()
+
+                if let location = locationService.currentLocation {
+                    Task {
+                        await weatherService.fetchWeather(for: location)
+                    }
+                }
+                // Update ETAs when becoming visible
+                updateETAs()
+            } else {
+                // When becoming invisible, stop location updates
+                locationService.stopLocationUpdates()
+            }
         }
         .onChange(of: locationService.currentLocation) { location in
+            // Only update if visible
+            guard isVisible else { return }
+
             if let location = location {
                 Task {
                     await weatherService.fetchWeather(for: location)
@@ -161,14 +193,298 @@ struct WeatherWidget: View {
         }
     }
 
-    private func mockSunrise() -> Date {
-        let calendar = Calendar.current
-        return calendar.date(bySettingHour: 6, minute: 30, second: 0, of: Date()) ?? Date()
+    // MARK: - Computed Properties
+
+    private var weatherConditionIcon: Image {
+        let description = weatherService.weatherData?.description.lowercased() ?? ""
+
+        // Check for specific weather conditions
+        if description.contains("rain") || description.contains("drizzle") {
+            return Image(systemName: "cloud.rain.fill")
+        } else if description.contains("snow") {
+            return Image(systemName: "cloud.snow.fill")
+        } else if description.contains("cloud") {
+            return Image(systemName: "cloud.fill")
+        } else if description.contains("clear") || description.contains("sun") {
+            return Image(systemName: "sun.max.fill")
+        } else if description.contains("thunder") || description.contains("storm") {
+            return Image(systemName: "cloud.bolt.fill")
+        } else if description.contains("fog") || description.contains("mist") {
+            return Image(systemName: "cloud.fog.fill")
+        } else {
+            return Image(systemName: "sun.max.fill")
+        }
     }
 
-    private func mockSunset() -> Date {
-        let calendar = Calendar.current
-        return calendar.date(bySettingHour: 19, minute: 45, second: 0, of: Date()) ?? Date()
+    // MARK: - View Components
+
+    private func weatherCardButton(width: CGFloat) -> some View {
+        Button(action: {
+            openWeatherApp()
+        }) {
+            VStack(alignment: .center, spacing: 4) {
+                // Row 1: Location | Temperature | Weather Icon
+                HStack(spacing: 6) {
+                    // Location text
+                    Text(weatherService.weatherData?.locationName ?? locationService.locationName)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    // Separator
+                    Text("|")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+
+                    // Temperature - regular weight
+                    if let temperature = weatherService.weatherData?.temperature {
+                        Text("\(temperature)°")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                    } else {
+                        Text("--°")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                    }
+
+                    // Weather condition icon
+                    weatherConditionIcon
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                }
+
+                // Row 2: Sunrise and Sunset
+                HStack(spacing: 16) {
+                    // Sunrise - yellow icon
+                    HStack(spacing: 4) {
+                        Image(systemName: "sunrise.fill")
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(Color(red: 1.0, green: 0.8, blue: 0.0))
+                        Text(formatTime(sunrise))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+
+                    // Sunset - yellow icon
+                    HStack(spacing: 4) {
+                        Image(systemName: "sunset.fill")
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(Color(red: 1.0, green: 0.8, blue: 0.0))
+                        Text(formatTime(sunset))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+                }
+
+                // Row 3: Hourly Forecast (next 4 hours)
+                HStack(spacing: 8) {
+                    ForEach(weatherService.weatherData?.hourlyForecasts ?? [], id: \.hour) { forecast in
+                        VStack(spacing: 2) {
+                            Image(systemName: forecast.iconName)
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                .frame(height: 12)
+
+                            Text("\(forecast.temperature)°")
+                                .font(.system(size: 9, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                .frame(height: 12)
+
+                            Text(forecast.hour)
+                                .font(.system(size: 8, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                .frame(height: 10)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(width: width, height: 90, alignment: .center)
+            .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            .cornerRadius(12)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    // MARK: - Methods
+
+    private func loadLocationPreferences() {
+        Task {
+            do {
+                let preferences = try await supabaseManager.loadLocationPreferences()
+                await MainActor.run {
+                    self.locationPreferences = preferences
+                }
+                updateETAs()
+            } catch {
+                print("❌ Failed to load location preferences: \(error)")
+            }
+        }
+    }
+
+    private func updateETAs() {
+        guard let currentLocation = locationService.currentLocation,
+              let preferences = locationPreferences else {
+            return
+        }
+
+        Task {
+            await navigationService.updateETAs(
+                currentLocation: currentLocation,
+                location1: preferences.location1Coordinate,
+                location2: preferences.location2Coordinate,
+                location3: preferences.location3Coordinate
+            )
+        }
+    }
+
+    private func openWeatherApp() {
+        // Open the native Weather app
+        if let weatherURL = URL(string: "weather://") {
+            if UIApplication.shared.canOpenURL(weatherURL) {
+                UIApplication.shared.open(weatherURL)
+                print("✅ Opened Weather app")
+            }
+        }
+    }
+
+    private func openNavigation(to coordinate: CLLocationCoordinate2D?, address: String?) {
+        guard let coordinate = coordinate else {
+            print("⚠️ No destination coordinate available")
+            return
+        }
+
+        // Try Google Maps app first with driving directions
+        let googleMapsURL = URL(string: "comgooglemaps://?daddr=\(coordinate.latitude),\(coordinate.longitude)&directionsmode=driving")
+
+        if let googleMapsURL = googleMapsURL,
+           UIApplication.shared.canOpenURL(googleMapsURL) {
+            UIApplication.shared.open(googleMapsURL)
+            print("✅ Opened in Google Maps with driving directions")
+        } else {
+            // Fallback: Open Google Maps in browser
+            let webGoogleMapsURL = URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(coordinate.latitude),\(coordinate.longitude)&travelmode=driving")
+
+            if let webGoogleMapsURL = webGoogleMapsURL {
+                UIApplication.shared.open(webGoogleMapsURL)
+                print("✅ Opened Google Maps in browser")
+            }
+        }
+    }
+
+    // MARK: - Weather Timer Management (REMOVED - Manual refresh only)
+
+    private func stopWeatherTimer() {
+        timer?.invalidate()
+        timer = nil
+        print("🛑 WeatherWidget: Timer stopped")
+    }
+
+    private func refreshWeatherIfNeeded() {
+        guard isVisible else { return }
+
+        // Only fetch if we haven't fetched in the last hour (prevents excessive API calls on rapid view changes)
+        if let lastFetch = lastWeatherFetch,
+           Date().timeIntervalSince(lastFetch) < 3600 {
+            print("⏭️ WeatherWidget: Skipping fetch - last fetched \(Int(Date().timeIntervalSince(lastFetch)))s ago")
+            return
+        }
+
+        // Fetch weather manually when user opens home page
+        if let location = locationService.currentLocation {
+            Task {
+                await weatherService.fetchWeather(for: location)
+                lastWeatherFetch = Date()
+            }
+        }
+    }
+}
+
+// MARK: - Navigation ETA Row Component
+
+struct NavigationETARow: View {
+    let icon: String
+    let eta: String?
+    let isLocationSet: Bool
+    let isLoading: Bool
+    let colorScheme: ColorScheme
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                // Icon
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                    .frame(width: 20)
+
+                // Content based on state
+                if !isLocationSet {
+                    // Location not set - show "Set Location" with plus icon
+                    Text("Set Location")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(
+                            colorScheme == .dark ?
+                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                        )
+
+                    Spacer()
+
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundColor(
+                            colorScheme == .dark ?
+                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                        )
+                } else if isLoading {
+                    // Location set but loading
+                    ProgressView()
+                        .scaleEffect(0.7)
+
+                    Spacer()
+                } else if let eta = eta {
+                    // Location set and ETA available
+                    HStack(spacing: 4) {
+                        Image(systemName: "car.fill")
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        Text(eta)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.9))
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+                } else {
+                    // Location set but ETA failed/unavailable
+                    Text("—")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+
+                    Spacer()
+                }
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    HapticManager.shared.selection()
+                    onLongPress()
+                }
+        )
     }
 }
 

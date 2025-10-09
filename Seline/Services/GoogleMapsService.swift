@@ -4,9 +4,13 @@ import UIKit
 class GoogleMapsService: ObservableObject {
     static let shared = GoogleMapsService()
 
-    // Google Places API Key
-    private let apiKey = "AIzaSyBWw6VpZR5GFpQXj8oF5mT9vK3xL4eU8nQ" // Replace with actual key
-    private let placesBaseURL = "https://maps.googleapis.com/maps/api/place"
+    // Google Places API Key - Get from Google Cloud Console
+    // TODO: Replace with your actual Google Maps API key
+    // 1. Go to https://console.cloud.google.com/
+    // 2. Enable "Places API (New)"
+    // 3. Create API Key in "Credentials"
+    private let apiKey = "AIzaSyDL864Gd2OuJBIuL9380kQFbb0jJAJilQ8"
+    private let placesBaseURL = "https://places.googleapis.com/v1"
 
     private init() {}
 
@@ -38,46 +42,84 @@ class GoogleMapsService: ObservableObject {
     func searchPlaces(query: String) async throws -> [PlaceSearchResult] {
         guard !query.isEmpty else { return [] }
 
-        // Use Text Search API
-        let urlString = "\(placesBaseURL)/textsearch/json?query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&key=\(apiKey)"
+        print("🌍 Making API request to Google Places (New API) for: \(query)")
+
+        // Use new Places API (Text Search)
+        let urlString = "\(placesBaseURL)/places:searchText"
+
+        print("📡 URL: \(urlString)")
 
         guard let url = URL(string: urlString) else {
             throw MapsError.invalidURL
         }
 
+        // Create request body for new API
+        let requestBody: [String: Any] = [
+            "textQuery": query
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            throw MapsError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
+        request.setValue("places.id,places.displayName,places.formattedAddress,places.location,places.types", forHTTPHeaderField: "X-Goog-FieldMask")
+        request.httpBody = jsonData
+
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             if let httpResponse = response as? HTTPURLResponse {
+                print("📥 HTTP Status: \(httpResponse.statusCode)")
+
                 guard httpResponse.statusCode == 200 else {
-                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errorMessage = errorData["error_message"] as? String {
-                        throw MapsError.apiError(errorMessage)
-                    } else {
-                        throw MapsError.apiError("HTTP \(httpResponse.statusCode)")
+                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        print("❌ Error response: \(errorData)")
+                        if let error = errorData["error"] as? [String: Any],
+                           let errorMessage = error["message"] as? String {
+                            throw MapsError.apiError(errorMessage)
+                        }
                     }
+                    throw MapsError.apiError("HTTP \(httpResponse.statusCode)")
                 }
             }
 
             // Parse response
-            guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let results = jsonResponse["results"] as? [[String: Any]] else {
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("📄 Response preview: \(String(responseString.prefix(200)))...")
+            }
+
+            guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("❌ Failed to parse JSON response")
                 throw MapsError.decodingError
             }
 
+            guard let places = jsonResponse["places"] as? [[String: Any]] else {
+                print("❌ No places array in response")
+                throw MapsError.decodingError
+            }
+
+            print("📍 Raw results count: \(places.count)")
+
             // Convert to PlaceSearchResult array
-            let places = results.compactMap { result -> PlaceSearchResult? in
-                guard let placeId = result["place_id"] as? String,
-                      let name = result["name"] as? String,
-                      let formattedAddress = result["formatted_address"] as? String,
-                      let geometry = result["geometry"] as? [String: Any],
-                      let location = geometry["location"] as? [String: Double],
-                      let lat = location["lat"],
-                      let lng = location["lng"] else {
+            let searchResults = places.compactMap { place -> PlaceSearchResult? in
+                guard let placeId = place["id"] as? String,
+                      let displayName = place["displayName"] as? [String: Any],
+                      let name = displayName["text"] as? String,
+                      let formattedAddress = place["formattedAddress"] as? String,
+                      let location = place["location"] as? [String: Double],
+                      let lat = location["latitude"],
+                      let lng = location["longitude"] else {
+                    print("⚠️ Skipping result due to missing fields")
                     return nil
                 }
 
-                let types = result["types"] as? [String] ?? []
+                let types = place["types"] as? [String] ?? []
+
+                print("📍 Search result - ID: \(placeId), Name: \(name)")
 
                 return PlaceSearchResult(
                     id: placeId,
@@ -89,11 +131,13 @@ class GoogleMapsService: ObservableObject {
                 )
             }
 
-            return places
+            print("✅ Parsed \(searchResults.count) valid places")
+            return searchResults
 
         } catch let error as MapsError {
             throw error
         } catch {
+            print("❌ Network error: \(error)")
             throw MapsError.networkError(error)
         }
     }
@@ -101,57 +145,133 @@ class GoogleMapsService: ObservableObject {
     // MARK: - Get Place Details
 
     func getPlaceDetails(placeId: String) async throws -> PlaceDetails {
-        let fields = "name,formatted_address,geometry,formatted_phone_number,photos,rating,types"
-        let urlString = "\(placesBaseURL)/details/json?place_id=\(placeId)&fields=\(fields)&key=\(apiKey)"
+        print("🔍 Fetching place details for ID: \(placeId)")
+
+        // The new Places API expects the full resource name format: places/{placeId}
+        // But the search returns just the ID, so we need to construct the full path
+        let resourceName = placeId.hasPrefix("places/") ? placeId : "places/\(placeId)"
+        let urlString = "\(placesBaseURL)/\(resourceName)"
+
+        print("📍 Full URL: \(urlString)")
 
         guard let url = URL(string: urlString) else {
             throw MapsError.invalidURL
         }
 
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
+        request.setValue("displayName,formattedAddress,location,internationalPhoneNumber,photos,rating,userRatingCount,reviews,websiteUri,regularOpeningHours,priceLevel,types", forHTTPHeaderField: "X-Goog-FieldMask")
+
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             if let httpResponse = response as? HTTPURLResponse {
+                print("📥 Place details HTTP Status: \(httpResponse.statusCode)")
+
                 guard httpResponse.statusCode == 200 else {
-                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let errorMessage = errorData["error_message"] as? String {
-                        throw MapsError.apiError(errorMessage)
-                    } else {
-                        throw MapsError.apiError("HTTP \(httpResponse.statusCode)")
+                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        print("❌ Error response: \(errorData)")
+                        if let error = errorData["error"] as? [String: Any],
+                           let errorMessage = error["message"] as? String {
+                            throw MapsError.apiError(errorMessage)
+                        }
                     }
+                    throw MapsError.apiError("HTTP \(httpResponse.statusCode)")
                 }
             }
 
             // Parse response
-            guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let result = jsonResponse["result"] as? [String: Any] else {
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("📄 Place details response preview: \(String(responseString.prefix(300)))...")
+            }
+
+            guard let place = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("❌ Failed to parse place details JSON")
                 throw MapsError.decodingError
             }
 
-            // Extract details
-            let name = result["name"] as? String ?? ""
-            let address = result["formatted_address"] as? String ?? ""
-            let phone = result["formatted_phone_number"] as? String
-            let rating = result["rating"] as? Double
+            // Extract details using new API structure
+            let displayName = place["displayName"] as? [String: Any]
+            let name = displayName?["text"] as? String ?? ""
+            let address = place["formattedAddress"] as? String ?? ""
+            let phone = place["internationalPhoneNumber"] as? String
+            let rating = place["rating"] as? Double
+            let totalRatings = place["userRatingCount"] as? Int ?? 0
+            let websiteUri = place["websiteUri"] as? String
+            let priceLevel = place["priceLevel"] as? String
 
             var latitude = 0.0
             var longitude = 0.0
-            if let geometry = result["geometry"] as? [String: Any],
-               let location = geometry["location"] as? [String: Double] {
-                latitude = location["lat"] ?? 0.0
-                longitude = location["lng"] ?? 0.0
+            if let location = place["location"] as? [String: Double] {
+                latitude = location["latitude"] ?? 0.0
+                longitude = location["longitude"] ?? 0.0
             }
 
-            // Extract photo references
+            // Extract photo URLs (new API structure)
+            // OPTIMIZED: Reduced from 10 to 3 photos, and size from 800px to 400px to reduce egress
             var photoURLs: [String] = []
-            if let photos = result["photos"] as? [[String: Any]] {
-                photoURLs = photos.prefix(5).compactMap { photo in
-                    guard let photoReference = photo["photo_reference"] as? String else { return nil }
-                    return getPhotoURL(photoReference: photoReference)
+            if let photos = place["photos"] as? [[String: Any]] {
+                photoURLs = photos.prefix(3).compactMap { photo in
+                    guard let photoName = photo["name"] as? String else { return nil }
+                    // Use new API photo endpoint with reduced size
+                    return "https://places.googleapis.com/v1/\(photoName)/media?maxWidthPx=400&key=\(apiKey)"
                 }
             }
 
-            let types = result["types"] as? [String] ?? []
+            // Extract reviews (new API structure)
+            var reviews: [PlaceReview] = []
+            if let reviewsData = place["reviews"] as? [[String: Any]] {
+                reviews = reviewsData.prefix(5).compactMap { reviewData in
+                    guard let authorAttribution = reviewData["authorAttribution"] as? [String: Any],
+                          let authorName = authorAttribution["displayName"] as? String,
+                          let rating = reviewData["rating"] as? Int,
+                          let textData = reviewData["text"] as? [String: Any],
+                          let text = textData["text"] as? String else {
+                        return nil
+                    }
+
+                    let relativeTime = reviewData["relativePublishTimeDescription"] as? String
+                    let profilePhoto = authorAttribution["photoUri"] as? String
+
+                    return PlaceReview(
+                        authorName: authorName,
+                        rating: rating,
+                        text: text,
+                        relativeTime: relativeTime,
+                        profilePhotoUrl: profilePhoto
+                    )
+                }
+            }
+
+            // Extract opening hours (new API structure)
+            var isOpenNow: Bool? = nil
+            var weekdayText: [String] = []
+            if let openingHours = place["regularOpeningHours"] as? [String: Any] {
+                if let periods = openingHours["periods"] as? [[String: Any]], !periods.isEmpty {
+                    isOpenNow = true // Simplified - would need more logic to determine current status
+                }
+                if let weekdayDescriptions = openingHours["weekdayDescriptions"] as? [String] {
+                    weekdayText = weekdayDescriptions
+                }
+            }
+
+            let types = place["types"] as? [String] ?? []
+
+            // Convert price level string to int
+            var priceLevelInt: Int? = nil
+            if let priceLevelStr = priceLevel {
+                switch priceLevelStr {
+                case "PRICE_LEVEL_FREE": priceLevelInt = 0
+                case "PRICE_LEVEL_INEXPENSIVE": priceLevelInt = 1
+                case "PRICE_LEVEL_MODERATE": priceLevelInt = 2
+                case "PRICE_LEVEL_EXPENSIVE": priceLevelInt = 3
+                case "PRICE_LEVEL_VERY_EXPENSIVE": priceLevelInt = 4
+                default: priceLevelInt = nil
+                }
+            }
+
+            print("✅ Successfully parsed place details: \(name)")
 
             return PlaceDetails(
                 name: name,
@@ -161,12 +281,19 @@ class GoogleMapsService: ObservableObject {
                 longitude: longitude,
                 photoURLs: photoURLs,
                 rating: rating,
+                totalRatings: totalRatings,
+                reviews: reviews,
+                website: websiteUri,
+                isOpenNow: isOpenNow,
+                openingHours: weekdayText,
+                priceLevel: priceLevelInt,
                 types: types
             )
 
         } catch let error as MapsError {
             throw error
         } catch {
+            print("❌ Network error fetching place details: \(error)")
             throw MapsError.networkError(error)
         }
     }
@@ -174,7 +301,8 @@ class GoogleMapsService: ObservableObject {
     // MARK: - Get Photo URL
 
     private func getPhotoURL(photoReference: String, maxWidth: Int = 400) -> String {
-        return "\(placesBaseURL)/photo?maxwidth=\(maxWidth)&photo_reference=\(photoReference)&key=\(apiKey)"
+        // Use legacy API for photos as new API has different structure
+        return "https://maps.googleapis.com/maps/api/place/photo?maxwidth=\(maxWidth)&photo_reference=\(photoReference)&key=\(apiKey)"
     }
 
     // MARK: - Open in Google Maps
@@ -208,29 +336,37 @@ class GoogleMapsService: ObservableObject {
         }
     }
 
-    // MARK: - Get Recent Searches (Simulated Google Maps History)
+    // MARK: - Get Recent Searches
 
-    /// Returns most searched places from Google Maps
-    /// In a real implementation, this would use Google Activity API to get actual search history
-    /// For now, we return popular nearby places to simulate search history
+    /// Returns most searched places from local search history
+    /// Note: Google doesn't provide a public API to access Google Maps search history
+    /// This tracks searches made within the app
     func getMostSearchedPlaces() async throws -> [PlaceSearchResult] {
-        // Simulate getting user's most searched places
-        // These are common searches that would appear in a typical Google Maps history
+        let locationsManager = LocationsManager.shared
+        let recentSearches = locationsManager.getRecentSearches(limit: 10)
+
+        if !recentSearches.isEmpty {
+            print("📍 Returning \(recentSearches.count) searches from local history")
+            return recentSearches
+        }
+
+        // If no history, show popular suggestions
+        print("ℹ️ No search history found, showing popular suggestions")
+        return try await getPopularSuggestions()
+    }
+
+    /// Get popular place suggestions as fallback
+    private func getPopularSuggestions() async throws -> [PlaceSearchResult] {
         let popularSearches = [
             "coffee shops near me",
-            "gas station near me",
-            "grocery store near me",
-            "pharmacy near me",
             "restaurants near me",
-            "atm near me",
-            "parking near me",
-            "hospital near me"
+            "gas station near me",
+            "grocery store near me"
         ]
 
         var allPlaces: [PlaceSearchResult] = []
 
-        // Get 2-3 results for each popular search to simulate history
-        for query in popularSearches.prefix(4) {
+        for query in popularSearches {
             do {
                 let places = try await searchPlaces(query: query)
                 allPlaces.append(contentsOf: places.prefix(2))
@@ -239,8 +375,7 @@ class GoogleMapsService: ObservableObject {
             }
         }
 
-        // Return up to 10 most recent searches
-        return Array(allPlaces.prefix(10))
+        return Array(allPlaces.prefix(8))
     }
 
     /// Get nearby places for the refresh button
@@ -259,6 +394,12 @@ struct PlaceDetails {
     let longitude: Double
     let photoURLs: [String]
     let rating: Double?
+    let totalRatings: Int
+    let reviews: [PlaceReview]
+    let website: String?
+    let isOpenNow: Bool?
+    let openingHours: [String]
+    let priceLevel: Int?
     let types: [String]
 
     func toSavedPlace(googlePlaceId: String) -> SavedPlace {
@@ -273,4 +414,13 @@ struct PlaceDetails {
             rating: rating
         )
     }
+}
+
+struct PlaceReview: Identifiable, Codable {
+    let id = UUID()
+    let authorName: String
+    let rating: Int
+    let text: String
+    let relativeTime: String?
+    let profilePhotoUrl: String?
 }

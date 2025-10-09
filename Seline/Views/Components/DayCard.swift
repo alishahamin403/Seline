@@ -9,6 +9,7 @@ struct DayCard: View {
     let onDeleteTask: (TaskItem) -> Void
     let onDeleteRecurringSeries: (TaskItem) -> Void
     let onMakeRecurring: (TaskItem) -> Void
+    let onViewTask: (TaskItem) -> Void
     let onEditTask: (TaskItem) -> Void
 
     @Environment(\.colorScheme) var colorScheme
@@ -137,6 +138,9 @@ struct DayCard: View {
                             },
                             onMakeRecurring: {
                                 onMakeRecurring(task)
+                            },
+                            onView: {
+                                onViewTask(task)
                             },
                             onEdit: {
                                 onEditTask(task)
@@ -334,6 +338,7 @@ struct DayCard: View {
                 onDeleteTask: { _ in },
                 onDeleteRecurringSeries: { _ in },
                 onMakeRecurring: { _ in },
+                onViewTask: { _ in },
                 onEditTask: { _ in }
             )
 
@@ -346,6 +351,7 @@ struct DayCard: View {
                 onDeleteTask: { _ in },
                 onDeleteRecurringSeries: { _ in },
                 onMakeRecurring: { _ in },
+                onViewTask: { _ in },
                 onEditTask: { _ in }
             )
         }

@@ -13,7 +13,9 @@ struct CalendarPopupView: View {
     @State private var isRecurring = false
     @State private var selectedFrequency = RecurrenceFrequency.weekly
     @State private var selectedTaskForEditing: TaskItem?
+    @State private var showingViewTaskSheet = false
     @State private var showingEditTaskSheet = false
+    @State private var isTransitioningToEdit = false
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
@@ -81,6 +83,10 @@ struct CalendarPopupView: View {
                                     TaskRowCalendar(
                                         task: task,
                                         selectedDate: selectedDate,
+                                        onView: {
+                                            selectedTaskForEditing = task
+                                            showingViewTaskSheet = true
+                                        },
                                         onEdit: {
                                             selectedTaskForEditing = task
                                             showingEditTaskSheet = true
@@ -113,29 +119,58 @@ struct CalendarPopupView: View {
         .onAppear {
             updateTasksForDate(for: selectedDate)
         }
+        .sheet(isPresented: $showingViewTaskSheet) {
+            if let task = selectedTaskForEditing {
+                NavigationView {
+                    ViewEventView(
+                        task: task,
+                        onEdit: {
+                            // Mark that we're transitioning to edit
+                            isTransitioningToEdit = true
+                            showingViewTaskSheet = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                showingEditTaskSheet = true
+                            }
+                        },
+                        onDelete: { taskToDelete in
+                            taskManager.deleteTask(taskToDelete)
+                            showingViewTaskSheet = false
+                            updateTasksForDate(for: selectedDate)
+                        },
+                        onDeleteRecurringSeries: { taskToDelete in
+                            taskManager.deleteRecurringTask(taskToDelete)
+                            showingViewTaskSheet = false
+                            updateTasksForDate(for: selectedDate)
+                        }
+                    )
+                }
+            }
+        }
         .sheet(isPresented: $showingEditTaskSheet) {
             if let task = selectedTaskForEditing {
-                EditTaskView(
-                    task: task,
-                    onSave: { updatedTask in
-                        taskManager.editTask(updatedTask)
-                        showingEditTaskSheet = false
-                        updateTasksForDate(for: selectedDate)
-                    },
-                    onCancel: {
-                        showingEditTaskSheet = false
-                    },
-                    onDelete: { taskToDelete in
-                        taskManager.deleteTask(taskToDelete)
-                        showingEditTaskSheet = false
-                        updateTasksForDate(for: selectedDate)
-                    },
-                    onDeleteRecurringSeries: { taskToDelete in
-                        taskManager.deleteRecurringTask(taskToDelete)
-                        showingEditTaskSheet = false
-                        updateTasksForDate(for: selectedDate)
-                    }
-                )
+                NavigationView {
+                    EditTaskView(
+                        task: task,
+                        onSave: { updatedTask in
+                            taskManager.editTask(updatedTask)
+                            showingEditTaskSheet = false
+                            updateTasksForDate(for: selectedDate)
+                        },
+                        onCancel: {
+                            showingEditTaskSheet = false
+                        },
+                        onDelete: { taskToDelete in
+                            taskManager.deleteTask(taskToDelete)
+                            showingEditTaskSheet = false
+                            updateTasksForDate(for: selectedDate)
+                        },
+                        onDeleteRecurringSeries: { taskToDelete in
+                            taskManager.deleteRecurringTask(taskToDelete)
+                            showingEditTaskSheet = false
+                            updateTasksForDate(for: selectedDate)
+                        }
+                    )
+                }
             }
         }
         .sheet(isPresented: $showingAddTaskSheet) {
@@ -301,6 +336,22 @@ struct CalendarPopupView: View {
                 }
             }
         }
+        .onChange(of: showingViewTaskSheet) { isShowing in
+            // Clear task when view sheet is dismissed (unless transitioning to edit)
+            if !isShowing && !isTransitioningToEdit {
+                selectedTaskForEditing = nil
+            }
+        }
+        .onChange(of: showingEditTaskSheet) { isShowing in
+            // Reset transition flag and clear task when edit sheet is dismissed
+            if !isShowing {
+                isTransitioningToEdit = false
+                selectedTaskForEditing = nil
+            } else {
+                // Reset flag when edit sheet opens
+                isTransitioningToEdit = false
+            }
+        }
     }
 
     private var formattedSelectedDate: String {
@@ -365,6 +416,7 @@ struct CalendarPopupView: View {
 struct TaskRowCalendar: View {
     let task: TaskItem
     let selectedDate: Date
+    let onView: (() -> Void)?
     let onEdit: (() -> Void)?
     let onDelete: (() -> Void)?
     let onDeleteRecurringSeries: (() -> Void)?
@@ -410,8 +462,12 @@ struct TaskRowCalendar: View {
                 .fill(Color.clear)
         )
         .contentShape(Rectangle())
+        .onTapGesture {
+            // Tap opens view mode (read-only)
+            onView?()
+        }
         .contextMenu {
-            // Show edit option for all tasks
+            // Context menu "Edit" opens edit mode directly
             if let onEdit = onEdit {
                 Button(action: onEdit) {
                     Label("Edit", systemImage: "pencil")

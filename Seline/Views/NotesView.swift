@@ -17,7 +17,7 @@ struct NotesView: View, Searchable {
         if searchText.isEmpty {
             notes = notesManager.pinnedNotes
         } else {
-            notes = notesManager.searchNotes(query: searchText).filter { $0.isPinned && !$0.isDraft }
+            notes = notesManager.searchNotes(query: searchText).filter { $0.isPinned }
         }
 
         // Filter by selected folder if one is selected
@@ -34,7 +34,7 @@ struct NotesView: View, Searchable {
         if searchText.isEmpty {
             notes = notesManager.recentNotes
         } else {
-            notes = notesManager.searchNotes(query: searchText).filter { !$0.isPinned && !$0.isDraft }
+            notes = notesManager.searchNotes(query: searchText).filter { !$0.isPinned }
         }
 
         // Filter by selected folder if one is selected
@@ -90,11 +90,10 @@ struct NotesView: View, Searchable {
 
                 // Notes list
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        // Sections in vertical layout with separator lines - matching home page structure
-                        VStack(spacing: 0) {
-                            // Pinned section
-                            if !filteredPinnedNotes.isEmpty {
+                    VStack(spacing: 16) {
+                        // Pinned section card
+                        if !filteredPinnedNotes.isEmpty {
+                            VStack(spacing: 0) {
                                 NoteSectionHeader(
                                     title: "PINNED",
                                     count: filteredPinnedNotes.count,
@@ -118,17 +117,21 @@ struct NotesView: View, Searchable {
                                     }
                                 }
                             }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                                    .shadow(
+                                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                                        radius: 8,
+                                        x: 0,
+                                        y: 2
+                                    )
+                            )
+                        }
 
-                            // Recent section (last 7 days)
-                            if !recentNotes.isEmpty {
-                                if !filteredPinnedNotes.isEmpty {
-                                    Rectangle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                                        .frame(height: 1)
-                                        .padding(.vertical, 16)
-                                        .padding(.horizontal, -20)
-                                }
-
+                        // Recent section card (last 7 days)
+                        if !recentNotes.isEmpty {
+                            VStack(spacing: 0) {
                                 NoteSectionHeader(
                                     title: "RECENT",
                                     count: recentNotes.count,
@@ -161,19 +164,23 @@ struct NotesView: View, Searchable {
                                     }
                                 }
                             }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                                    .shadow(
+                                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                                        radius: 8,
+                                        x: 0,
+                                        y: 2
+                                    )
+                            )
+                        }
 
-                            // Monthly sections for older notes
-                            ForEach(notesByMonth.indices, id: \.self) { index in
-                                let monthGroup = notesByMonth[index]
+                        // Monthly sections for older notes
+                        ForEach(notesByMonth.indices, id: \.self) { index in
+                            let monthGroup = notesByMonth[index]
 
-                                if !filteredPinnedNotes.isEmpty || !recentNotes.isEmpty || index > 0 {
-                                    Rectangle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                                        .frame(height: 1)
-                                        .padding(.vertical, 16)
-                                        .padding(.horizontal, -20)
-                                }
-
+                            VStack(spacing: 0) {
                                 NoteSectionHeader(
                                     title: monthGroup.month.uppercased(),
                                     count: monthGroup.notes.count,
@@ -206,8 +213,17 @@ struct NotesView: View, Searchable {
                                     }
                                 }
                             }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                                    .shadow(
+                                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                                        radius: 8,
+                                        x: 0,
+                                        y: 2
+                                    )
+                            )
                         }
-                        .padding(.horizontal, 8)
 
                         // Empty state
                         if filteredPinnedNotes.isEmpty && recentNotes.isEmpty && notesByMonth.isEmpty {
@@ -234,6 +250,8 @@ struct NotesView: View, Searchable {
                         Spacer()
                             .frame(height: 80)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
                 }
 
                 Spacer()
@@ -250,6 +268,7 @@ struct NotesView: View, Searchable {
                     HStack {
                         Spacer()
                         Button(action: {
+                            HapticManager.shared.buttonTap()
                             showingNewNoteSheet = true
                         }) {
                             Image(systemName: "plus")
@@ -267,7 +286,7 @@ struct NotesView: View, Searchable {
                                 .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                         }
                         .padding(.trailing, 20)
-                        .padding(.bottom, 60)
+                        .padding(.bottom, 30)
                     }
                 }
             )
@@ -383,17 +402,23 @@ struct NoteEditView: View {
     @State private var isProcessingCleanup = false
     @State private var isProcessingCustom = false
     @State private var showingShareSheet = false
-    @State private var draftNoteId: UUID? = nil // Track the draft note being edited
     @StateObject private var openAIService = OpenAIService.shared
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
     @State private var showingImagePicker = false
+    @State private var showingCameraPicker = false
+    @State private var showingReceiptOptions = false
+    @State private var showingReceiptImagePicker = false
+    @State private var showingReceiptCameraPicker = false
     @State private var imageAttachments: [UIImage] = []
     @State private var showingImageViewer = false
+    @State private var showingAttachmentsSheet = false
     @State private var selectedImageIndex: Int = 0
     @State private var isKeyboardVisible = false
+    @State private var isProcessingReceipt = false
+    @State private var isGeneratingTitle = false
 
     var isAnyProcessing: Bool {
-        isProcessingCleanup || isProcessingCustom
+        isProcessingCleanup || isProcessingCustom || isProcessingReceipt || isGeneratingTitle
     }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
@@ -409,17 +434,51 @@ struct NoteEditView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Custom toolbar
+                // Custom toolbar - fixed at top
                 customToolbar
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .zIndex(2)
 
-                // Note content
-                if !isLockedInSession {
-                    noteContentView
-                } else {
-                    lockedStateView
+                // Scrollable content area
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(spacing: 0) {
+                        // Note content
+                        if !isLockedInSession {
+                            noteContentView
+                        } else {
+                            lockedStateView
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .gesture(
+                    DragGesture()
+                        .onEnded { gesture in
+                            // Swipe down to save and dismiss
+                            if gesture.translation.height > 100 {
+                                HapticManager.shared.save()
+                                saveNoteAndDismiss()
+                            }
+                        }
+                )
+
+                // Receipt processing indicator - fixed above bottom buttons
+                if isProcessingReceipt {
+                    HStack {
+                        ShadcnSpinner(size: .small)
+                        Text("Analyzing receipt...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    }
+                    .padding(.bottom, 4)
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .zIndex(1)
                 }
 
+                // Bottom buttons - fixed at bottom
                 bottomActionButtons
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .zIndex(2)
             }
         }
         .navigationBarHidden(true)
@@ -464,7 +523,41 @@ struct NoteEditView: View {
                 get: { nil },
                 set: { newImage in
                     if let image = newImage {
+                        // Just attach image without AI processing
                         imageAttachments.append(image)
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingCameraPicker) {
+            CameraPicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        // Just attach image without AI processing
+                        imageAttachments.append(image)
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingReceiptImagePicker) {
+            ImagePicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        // Process receipt with AI
+                        processReceiptImage(image)
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingReceiptCameraPicker) {
+            CameraPicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        // Process receipt with AI
+                        processReceiptImage(image)
                     }
                 }
             ))
@@ -473,6 +566,29 @@ struct NoteEditView: View {
             if selectedImageIndex < imageAttachments.count {
                 ImageViewer(image: imageAttachments[selectedImageIndex], isPresented: $showingImageViewer)
             }
+        }
+        .sheet(isPresented: $showingAttachmentsSheet) {
+            NavigationView {
+                imageAttachmentsView
+                    .navigationTitle("Attachments (\(imageAttachments.count))")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") {
+                                showingAttachmentsSheet = false
+                            }
+                        }
+                    }
+            }
+        }
+        .confirmationDialog("Add Receipt", isPresented: $showingReceiptOptions, titleVisibility: .visible) {
+            Button("Camera") {
+                showingReceiptCameraPicker = true
+            }
+            Button("Gallery") {
+                showingReceiptImagePicker = true
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -486,25 +602,26 @@ struct NoteEditView: View {
         HStack(spacing: 12) {
             // Back button
             Button(action: {
-                saveNote()
-                isPresented = false
+                HapticManager.shared.navigation()
+                saveNoteAndDismiss()
             }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
             // Undo button
             Button(action: {
+                HapticManager.shared.buttonTap()
                 undoLastChange()
             }) {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
             .disabled(undoHistory.isEmpty)
             .opacity(undoHistory.isEmpty ? 0.5 : 1.0)
@@ -513,28 +630,31 @@ struct NoteEditView: View {
 
             // Share button
             Button(action: {
+                HapticManager.shared.buttonTap()
                 showingShareSheet = true
             }) {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
             // Folder button
             Button(action: {
+                HapticManager.shared.folder()
                 showingFolderPicker = true
             }) {
                 Image(systemName: "folder")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
             // Delete button
             Button(action: {
+                HapticManager.shared.delete()
                 deleteNote()
             }) {
                 Image(systemName: "trash")
@@ -548,19 +668,20 @@ struct NoteEditView: View {
 
             // Lock/Unlock button
             Button(action: {
+                HapticManager.shared.lockToggle()
                 toggleLock()
             }) {
                 Image(systemName: noteIsLocked ? "lock.fill" : "lock.open")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                    .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
             }
 
             // Save button
             Button(action: {
-                saveNote()
-                isPresented = false
+                HapticManager.shared.save()
+                saveNoteAndDismiss()
             }) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 16, weight: .bold))
@@ -574,8 +695,6 @@ struct NoteEditView: View {
                         )
                     )
             }
-            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -583,11 +702,12 @@ struct NoteEditView: View {
     }
 
     private var noteContentView: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             // Title
-            TextField("", text: $title)
+            TextField("", text: $title, axis: .vertical)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(nil)
                 .placeholder(when: title.isEmpty) {
                     Text("Note title")
                         .font(.system(size: 24, weight: .bold))
@@ -596,80 +716,69 @@ struct NoteEditView: View {
                 .onChange(of: title) { newValue in
                     // Don't trigger saves during view updates
                 }
-                .padding(.horizontal, 32)
-                .padding(.top, 4)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
 
-            // Content - made larger and easier to tap
-            VStack(spacing: 0) {
-                // Scrollable text editor
-                GeometryReader { geometry in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        FormattableTextEditor(
-                            attributedText: $attributedContent,
-                            colorScheme: colorScheme,
-                            onSelectionChange: { range in
-                                selectedTextRange = range
-                            },
-                            onTextChange: { newAttributedText in
-                                attributedContent = newAttributedText
-                                content = newAttributedText.string
-                            }
-                        )
-                        .frame(minHeight: geometry.size.height)
-                    }
+            // Content - positioned right under title
+            // Text editor grows to fit content, ScrollView handles scrolling
+            FormattableTextEditor(
+                attributedText: $attributedContent,
+                colorScheme: colorScheme,
+                onSelectionChange: { range in
+                    selectedTextRange = range
+                },
+                onTextChange: { newAttributedText in
+                    attributedContent = newAttributedText
+                    content = newAttributedText.string
                 }
-
-                // Fixed Image Attachments Section at bottom (collapsible)
-                if !imageAttachments.isEmpty {
-                    imageAttachmentsView
-                }
-            }
+            )
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 0)
+            .padding(.top, 8)
         }
     }
 
     private var imageAttachmentsView: some View {
-        VStack(alignment: .leading, spacing: isKeyboardVisible ? 4 : 12) {
-            Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-                .frame(height: 1)
-
-            Text("Attachments (\(imageAttachments.count))")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                .padding(.horizontal, 32)
-
-            if !isKeyboardVisible {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(imageAttachments.indices, id: \.self) { index in
-                            ZStack(alignment: .topTrailing) {
-                                Image(uiImage: imageAttachments[index])
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 80, height: 80)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .onTapGesture {
-                                        selectedImageIndex = index
-                                        showingImageViewer = true
-                                    }
-
-                                // Delete button
-                                Button(action: {
-                                    imageAttachments.remove(at: index)
-                                }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.white)
-                                        .background(Circle().fill(Color.red))
-                                        .font(.system(size: 20))
-                                }
-                                .offset(x: 5, y: -5)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 16) {
+                ForEach(imageAttachments.indices, id: \.self) { index in
+                    VStack(alignment: .leading, spacing: 8) {
+                        // Image
+                        Image(uiImage: imageAttachments[index])
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .onTapGesture {
+                                selectedImageIndex = index
+                                showingImageViewer = true
                             }
+
+                        // Delete button
+                        Button(action: {
+                            imageAttachments.remove(at: index)
+                            if imageAttachments.isEmpty {
+                                showingAttachmentsSheet = false
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 14, weight: .medium))
+                                Text("Remove")
+                                    .font(.system(size: 14, weight: .medium))
+                            }
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.red.opacity(0.1))
+                            )
                         }
                     }
-                    .padding(.horizontal, 32)
                 }
-                .padding(.bottom, 8)
             }
+            .padding(20)
         }
         .background(colorScheme == .dark ? Color.black : Color.white)
     }
@@ -705,75 +814,119 @@ struct NoteEditView: View {
     }
 
     private var bottomActionButtons: some View {
-        VStack(spacing: 0) {
-            // Bottom action buttons
-            HStack(spacing: 12) {
-                // Clean up button - uses AI
-                Button(action: {
-                    Task {
-                        await cleanUpNoteWithAI()
-                    }
-                }) {
-                    if isProcessingCleanup {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
-                            .frame(width: 100)
-                            .padding(.vertical, 12)
-                    } else {
-                        Text("Clean up")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 100)
-                            .padding(.vertical, 12)
-                    }
+        // Bottom action buttons - 5 buttons in a row
+        HStack(spacing: 8) {
+            // Clean up button - uses AI
+            Button(action: {
+                HapticManager.shared.aiActionStart()
+                Task {
+                    await cleanUpNoteWithAI()
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                )
-                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                // Custom button - allows user to enter their own prompt (up to 2 sentences)
-                Button(action: {
-                    showingCustomPrompt = true
-                }) {
-                    if isProcessingCustom {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: colorScheme == .dark ? .white : .black))
-                            .frame(width: 100)
-                            .padding(.vertical, 12)
-                    } else {
-                        Text("Custom")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 100)
-                            .padding(.vertical, 12)
-                    }
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                )
-                .disabled(isAnyProcessing)
-
-                Spacer()
-
-                // Image button
-                Button(action: {
-                    showingImagePicker = true
-                }) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 16, weight: .medium))
+            }) {
+                if isProcessingCleanup {
+                    ShadcnSpinner(size: .small)
+                        .frame(height: 36)
+                } else {
+                    Text("Clean up")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2)))
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 20)
-            .background(Color.clear)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+            .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            // Custom button - allows user to enter their own prompt (up to 2 sentences)
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                showingCustomPrompt = true
+            }) {
+                if isProcessingCustom {
+                    ShadcnSpinner(size: .small)
+                        .frame(height: 36)
+                } else {
+                    Text("Custom")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+            .disabled(isAnyProcessing)
+
+            Spacer()
+
+            // Attachments button - shows count if any
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                if !imageAttachments.isEmpty {
+                    showingAttachmentsSheet = true
+                }
+            }) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 40, height: 36)
+
+                    // Badge showing attachment count
+                    if !imageAttachments.isEmpty {
+                        Text("\(imageAttachments.count)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 16, height: 16)
+                            .background(Circle().fill(Color.blue))
+                            .offset(x: 8, y: -4)
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+            .opacity(imageAttachments.isEmpty ? 0.5 : 1.0)
+
+            // Gallery button - quick image attach without AI
+            Button(action: {
+                HapticManager.shared.imageAttachment()
+                showingImagePicker = true
+            }) {
+                Image(systemName: "photo")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+
+            // Receipt button with AI processing options
+            Button(action: {
+                HapticManager.shared.imageAttachment()
+                showingReceiptOptions = true
+            }) {
+                Image(systemName: "doc.text.image")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(colorScheme == .dark ? Color.black : Color.white)
     }
 
     // MARK: - Lifecycle Methods
@@ -794,12 +947,21 @@ struct NoteEditView: View {
             // Parse content and load images
             attributedContent = parseContentWithImages(note.content)
 
-            // Load image attachments
-            imageAttachments = note.imageAttachments.compactMap { UIImage(data: $0) }
+            // Load images from URLs using ImageCacheManager (lazy loading)
+            Task {
+                var loadedImages: [UIImage] = []
+                for imageUrl in note.imageUrls {
+                    if let image = await ImageCacheManager.shared.getImage(url: imageUrl) {
+                        loadedImages.append(image)
+                    }
+                }
+                await MainActor.run {
+                    self.imageAttachments = loadedImages
+                }
+            }
 
             noteIsLocked = note.isLocked
             selectedFolderId = note.folderId
-            draftNoteId = note.id // Set the draft ID if editing existing note
 
             // If note is locked, require Face ID to unlock
             if note.isLocked {
@@ -815,37 +977,91 @@ struct NoteEditView: View {
     }
 
     private func onDisappearAction() {
-        // Save note when leaving the view
-        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            saveNote()
-        }
+        // Notes are only saved explicitly via save button or swipe down
+        // No auto-save on disappear
     }
 
     // MARK: - Actions
 
-    private func saveNote() {
+    private func saveNoteAndDismiss() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return }
-
-        // Convert attributed content to plain text
         let contentToSave = convertAttributedContentToText()
+        let trimmedContent = contentToSave.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Convert images to Data
-        let imageData = imageAttachments.compactMap { $0.jpegData(compressionQuality: 0.8) }
+        // Don't save completely empty notes
+        guard !trimmedContent.isEmpty || !trimmedTitle.isEmpty || !imageAttachments.isEmpty else {
+            isPresented = false
+            return
+        }
 
+        // If title is empty but content exists, generate title with AI
+        if trimmedTitle.isEmpty && (!trimmedContent.isEmpty || !imageAttachments.isEmpty) {
+            isGeneratingTitle = true
+            Task {
+                do {
+                    let generatedTitle = try await openAIService.generateNoteTitle(from: trimmedContent.isEmpty ? "Image attachment" : trimmedContent)
+                    await MainActor.run {
+                        self.title = generatedTitle
+                        performSave(title: generatedTitle, content: contentToSave)
+                        isGeneratingTitle = false
+                        isPresented = false
+                    }
+                } catch {
+                    // If AI fails, use timestamp as fallback
+                    await MainActor.run {
+                        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short)
+                        self.title = "Note \(timestamp)"
+                        performSave(title: self.title, content: contentToSave)
+                        isGeneratingTitle = false
+                        isPresented = false
+                    }
+                }
+            }
+            return
+        }
+
+        performSave(title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle, content: contentToSave)
+        isPresented = false
+    }
+
+    private func performSave(title: String, content: String) {
         if let existingNote = note {
-            var updatedNote = existingNote
-            updatedNote.title = trimmedTitle
-            updatedNote.content = contentToSave
-            updatedNote.isLocked = noteIsLocked
-            updatedNote.folderId = selectedFolderId
-            updatedNote.imageAttachments = imageData
-            notesManager.updateNote(updatedNote)
+            // Updating an existing note
+            Task {
+                var updatedNote = existingNote
+                updatedNote.title = title
+                updatedNote.content = content
+                updatedNote.isLocked = noteIsLocked
+                updatedNote.folderId = selectedFolderId
+
+                // Check if there are new images to upload (compare count)
+                if imageAttachments.count > existingNote.imageUrls.count {
+                    // Upload only new images
+                    let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
+                    let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
+                    updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
+                }
+
+                await MainActor.run {
+                    notesManager.updateNote(updatedNote)
+                }
+            }
         } else {
-            var newNote = Note(title: trimmedTitle, content: contentToSave, folderId: selectedFolderId)
-            newNote.isLocked = noteIsLocked
-            newNote.imageAttachments = imageData
-            notesManager.addNote(newNote)
+            // Create new note
+            Task {
+                var newNote = Note(title: title, content: content, folderId: selectedFolderId)
+                newNote.isLocked = noteIsLocked
+
+                // Upload all images for new note
+                if !imageAttachments.isEmpty {
+                    let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
+                    newNote.imageUrls = imageUrls
+                }
+
+                await MainActor.run {
+                    notesManager.addNote(newNote)
+                }
+            }
         }
     }
 
@@ -855,51 +1071,6 @@ struct NoteEditView: View {
         return content
     }
 
-    private func saveDraft() {
-        // Auto-save when user has typed something
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let contentToSave = convertAttributedContentToText()
-        let trimmedContent = contentToSave.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Only save if there's any content
-        guard !trimmedTitle.isEmpty || !trimmedContent.isEmpty else { return }
-
-        // Convert images to Data
-        let imageData = imageAttachments.compactMap { $0.jpegData(compressionQuality: 0.8) }
-
-        if let existingNote = note {
-            // Updating an existing note
-            var updatedNote = existingNote
-            updatedNote.title = trimmedTitle.isEmpty ? "Untitled" : trimmedTitle
-            updatedNote.content = contentToSave
-            updatedNote.isLocked = noteIsLocked
-            updatedNote.folderId = selectedFolderId
-            updatedNote.imageAttachments = imageData
-            notesManager.updateNote(updatedNote)
-        } else if let draftId = draftNoteId {
-            // Update existing auto-saved note that was created in this session
-            if let existingDraft = notesManager.notes.first(where: { $0.id == draftId }) {
-                var updatedNote = existingDraft
-                updatedNote.title = trimmedTitle.isEmpty ? "Untitled" : trimmedTitle
-                updatedNote.content = contentToSave
-                updatedNote.isLocked = noteIsLocked
-                updatedNote.folderId = selectedFolderId
-                updatedNote.imageAttachments = imageData
-                notesManager.updateNote(updatedNote)
-            }
-        } else {
-            // Create new note only once
-            var newNote = Note(
-                title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle,
-                content: contentToSave,
-                folderId: selectedFolderId
-            )
-            newNote.isLocked = noteIsLocked
-            newNote.imageAttachments = imageData
-            draftNoteId = newNote.id // Store the ID to update later
-            notesManager.addNote(newNote)
-        }
-    }
 
     private func deleteNote() {
         guard let note = note else { return }
@@ -1018,11 +1189,13 @@ struct NoteEditView: View {
                     ]
                 )
                 isProcessingCleanup = false
+                HapticManager.shared.aiActionComplete()
                 saveToUndoHistory()
             }
         } catch {
             await MainActor.run {
                 isProcessingCleanup = false
+                HapticManager.shared.error()
                 print("Error cleaning up text: \(error.localizedDescription)")
             }
         }
@@ -1066,14 +1239,130 @@ struct NoteEditView: View {
                     ]
                 )
                 isProcessingCustom = false
+                HapticManager.shared.aiActionComplete()
                 saveToUndoHistory()
             }
         } catch {
             await MainActor.run {
                 isProcessingCustom = false
+                HapticManager.shared.error()
                 print("Error with custom edit: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func processReceiptImage(_ image: UIImage) {
+        // Add image to attachments
+        imageAttachments.append(image)
+
+        // Process with AI
+        Task {
+            isProcessingReceipt = true
+
+            do {
+                let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
+
+                await MainActor.run {
+                    // Get or create the Receipts folder
+                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+
+                    // Set title if empty or update it
+                    if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        title = receiptTitle
+                    }
+
+                    // Automatically assign to Receipts folder
+                    selectedFolderId = receiptsFolderId
+
+                    // Append receipt content to existing content
+                    let newContent = content.isEmpty ? receiptContent : content + "\n\n" + receiptContent
+                    content = newContent
+
+                    // Convert markdown to attributed string
+                    attributedContent = convertMarkdownToAttributedString(newContent)
+
+                    isProcessingReceipt = false
+                    saveToUndoHistory()
+                }
+            } catch {
+                await MainActor.run {
+                    isProcessingReceipt = false
+                    print("Error analyzing receipt: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private func convertMarkdownToAttributedString(_ text: String) -> NSAttributedString {
+        let mutableAttributedString = NSMutableAttributedString()
+
+        // Default attributes
+        let defaultAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+        ]
+
+        // Split text into lines
+        let lines = text.components(separatedBy: .newlines)
+
+        for (index, line) in lines.enumerated() {
+            var currentLine = line
+            let lineAttributedString = NSMutableAttributedString()
+            var lastIndex = 0
+
+            // Find all **text** patterns for bold
+            let boldPattern = "\\*\\*([^*]+)\\*\\*"
+            if let regex = try? NSRegularExpression(pattern: boldPattern, options: []) {
+                let matches = regex.matches(in: currentLine, options: [], range: NSRange(currentLine.startIndex..., in: currentLine))
+
+                for match in matches {
+                    // Add text before the match
+                    if match.range.location > lastIndex {
+                        let beforeRange = NSRange(location: lastIndex, length: match.range.location - lastIndex)
+                        if let range = Range(beforeRange, in: currentLine) {
+                            let beforeText = String(currentLine[range])
+                            lineAttributedString.append(NSAttributedString(string: beforeText, attributes: defaultAttributes))
+                        }
+                    }
+
+                    // Add the bold text
+                    if let range = Range(match.range(at: 1), in: currentLine) {
+                        let boldText = String(currentLine[range])
+                        let boldAttributes: [NSAttributedString.Key: Any] = [
+                            .font: UIFont.systemFont(ofSize: 15, weight: .bold),
+                            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                        ]
+                        lineAttributedString.append(NSAttributedString(string: boldText, attributes: boldAttributes))
+                    }
+
+                    lastIndex = match.range.location + match.range.length
+                }
+
+                // Add remaining text after last match
+                if lastIndex < currentLine.count {
+                    let remainingRange = NSRange(location: lastIndex, length: currentLine.count - lastIndex)
+                    if let range = Range(remainingRange, in: currentLine) {
+                        let remainingText = String(currentLine[range])
+                        lineAttributedString.append(NSAttributedString(string: remainingText, attributes: defaultAttributes))
+                    }
+                }
+            }
+
+            // If no matches found, add the whole line with default attributes
+            if lineAttributedString.length == 0 {
+                lineAttributedString.append(NSAttributedString(string: currentLine, attributes: defaultAttributes))
+            }
+
+            // Add to main string
+            mutableAttributedString.append(lineAttributedString)
+
+            // Add newline if not last line
+            if index < lines.count - 1 {
+                mutableAttributedString.append(NSAttributedString(string: "\n", attributes: defaultAttributes))
+            }
+        }
+
+        return mutableAttributedString
     }
 }
 

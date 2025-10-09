@@ -1,30 +1,16 @@
 import SwiftUI
 
-struct EmailRow: View {
-    let email: Email
-    let onDelete: (Email) -> Void
-    let onMarkAsUnread: (Email) -> Void
+struct EmailCardWidget: View {
     @Environment(\.colorScheme) var colorScheme
+    @StateObject private var emailService = EmailService.shared
+    @Binding var selectedTab: TabSelection
 
-    // Avatar background color
-    private var avatarColor: Color {
-        if colorScheme == .dark {
-            // Dark mode: lighter blue
-            return Color(red: 0.40, green: 0.65, blue: 0.80)
-        } else {
-            // Light mode: darker blue
-            return Color(red: 0.20, green: 0.34, blue: 0.40)
-        }
+    private var unreadEmails: [Email] {
+        Array(emailService.inboxEmails.filter { !$0.isRead }.prefix(5))
     }
 
-    // Icon color inside avatar
-    private var iconColor: Color {
-        // White icon in both modes
-        return Color.white
-    }
-
-    // Generate an icon based on sender email or name
-    private var emailIcon: String? {
+    // Generate an icon based on sender email or name (same logic as MainAppView)
+    private func emailIcon(for email: Email) -> String? {
         let senderEmail = email.sender.email.lowercased()
         let senderName = (email.sender.name ?? "").lowercased()
         let sender = senderEmail + " " + senderName
@@ -202,118 +188,79 @@ struct EmailRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-                // Sender avatar with email-based color and AI-based icon
-                Circle()
-                    .fill(avatarColor)
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Group {
-                            if let icon = emailIcon {
-                                Image(systemName: icon)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(iconColor)
-                            } else {
-                                Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(iconColor)
-                            }
-                        }
-                    )
+        VStack(alignment: .leading, spacing: 8) {
+            // Header
+            Text("Unread Emails")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Email content
-                VStack(alignment: .leading, spacing: 3) {
-                    // Top row: sender name, subject preview, time
-                    HStack(alignment: .top, spacing: 6) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            // Sender name
-                            Text(email.sender.shortDisplayName)
-                                .font(.system(size: 13, weight: email.isRead ? .medium : .semibold))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                                .lineLimit(1)
-
-                            // Subject
-                            Text(email.subject)
-                                .font(.system(size: 12, weight: email.isRead ? .regular : .medium))
-                                .foregroundColor(
-                                    email.isRead ?
-                                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)) :
-                                    (colorScheme == .dark ? Color.white : Color.black)
-                                )
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-
-                        // Time and indicators
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Text(email.formattedTime)
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                            HStack(spacing: 3) {
-                                if email.isImportant {
-                                    Image(systemName: "exclamationmark")
-                                        .font(.system(size: 8, weight: .bold))
-                                        .foregroundColor(.orange)
-                                }
-
-                                if email.hasAttachments {
-                                    Image(systemName: "paperclip")
-                                        .font(.system(size: 8, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                }
-
-                                if !email.isRead {
+            // Emails list
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if unreadEmails.isEmpty {
+                        Text("No unread emails")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(unreadEmails) { email in
+                            Button(action: {
+                                HapticManager.shared.email()
+                                selectedTab = .email
+                            }) {
+                                HStack(spacing: 8) {
+                                    // Avatar circle with icon
                                     Circle()
-                                        .fill(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
-                                        .frame(width: 8, height: 8)
+                                        .fill(
+                                            colorScheme == .dark ?
+                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                                        )
+                                        .frame(width: 20, height: 20)
+                                        .overlay(
+                                            Group {
+                                                if let icon = emailIcon(for: email) {
+                                                    Image(systemName: icon)
+                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .foregroundColor(.white)
+                                                } else {
+                                                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .foregroundColor(.white)
+                                                }
+                                            }
+                                        )
+
+                                    // Only sender name
+                                    Text(email.sender.displayName)
+                                        .font(.shadcnTextXs)
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+
+                                    Spacer()
                                 }
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-
-                }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.clear)
-        .contentShape(Rectangle())
-        .contextMenu {
-            // Mark as Unread option (only show if email is read)
-            if email.isRead {
-                Button {
-                    onMarkAsUnread(email)
-                } label: {
-                    Label("Mark as Unread", systemImage: "envelope.badge")
                 }
             }
-
-            // Delete option
-            Button(role: .destructive) {
-                onDelete(email)
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
+            .frame(maxHeight: 150)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        .cornerRadius(12)
     }
 }
 
 #Preview {
-    VStack(spacing: 0) {
-        ForEach(Email.sampleEmails.prefix(3)) { email in
-            EmailRow(
-                email: email,
-                onDelete: { email in
-                    print("Delete email: \(email.subject)")
-                },
-                onMarkAsUnread: { email in
-                    print("Mark as unread: \(email.subject)")
-                }
-            )
-        }
-    }
-    .background(Color.shadcnBackground(.light))
+    EmailCardWidget(selectedTab: .constant(.home))
+        .background(Color.shadcnBackground(.light))
 }

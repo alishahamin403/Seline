@@ -32,6 +32,7 @@ struct HomeSectionButton: View {
             // Main button with title and badge
             Button(action: {
                 if let count = unreadCount, count > 0 {
+                    HapticManager.shared.cardTap()
                     withAnimation(.easeInOut(duration: 0.3)) {
                         isExpanded.toggle()
                     }
@@ -61,7 +62,10 @@ struct HomeSectionButton: View {
                         }
 
                         if let onAddAction = onAddAction {
-                            Button(action: onAddAction) {
+                            Button(action: {
+                                HapticManager.shared.buttonTap()
+                                onAddAction()
+                            }) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)

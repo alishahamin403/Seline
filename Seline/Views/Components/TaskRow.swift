@@ -6,6 +6,7 @@ struct TaskRow: View {
     let onDelete: () -> Void
     let onDeleteRecurringSeries: () -> Void
     let onMakeRecurring: () -> Void
+    let onView: (() -> Void)?
     let onEdit: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
@@ -44,21 +45,26 @@ struct TaskRow: View {
             }
             .buttonStyle(PlainButtonStyle())
 
-            // Task title with recurring indicator
-            HStack(spacing: 6) {
-                Text(task.title)
-                    .font(.shadcnTextSm)
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
-                    .strikethrough(task.isCompleted, color: blueColor)
-                    .animation(.easeInOut(duration: 0.2), value: task.isCompleted)
+            // Task title with recurring indicator - tappable to view details
+            Button(action: {
+                onView?()
+            }) {
+                HStack(spacing: 6) {
+                    Text(task.title)
+                        .font(.shadcnTextSm)
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .strikethrough(task.isCompleted, color: blueColor)
+                        .animation(.easeInOut(duration: 0.2), value: task.isCompleted)
 
-                // Recurring indicator
-                if task.isRecurring {
-                    Image(systemName: "repeat")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(blueColor.opacity(0.7))
+                    // Recurring indicator
+                    if task.isRecurring {
+                        Image(systemName: "repeat")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(blueColor.opacity(0.7))
+                    }
                 }
             }
+            .buttonStyle(PlainButtonStyle())
 
             Spacer()
 
@@ -73,6 +79,7 @@ struct TaskRow: View {
         .padding(.vertical, 4)
         .background(Color.clear)
         .offset(x: dragOffset.width)
+        .contentShape(Rectangle()) // Makes entire row area tappable
         .contextMenu {
             // Show edit option for all tasks
             if let onEdit = onEdit {
@@ -141,6 +148,7 @@ struct TaskRow: View {
             onDelete: {},
             onDeleteRecurringSeries: {},
             onMakeRecurring: {},
+            onView: {},
             onEdit: {}
         )
 
@@ -150,6 +158,7 @@ struct TaskRow: View {
             onDelete: {},
             onDeleteRecurringSeries: {},
             onMakeRecurring: {},
+            onView: {},
             onEdit: {}
         )
     }

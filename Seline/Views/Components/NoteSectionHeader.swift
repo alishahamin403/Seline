@@ -15,22 +15,23 @@ struct NoteSectionHeader: View {
             }
         }) {
             HStack {
-                // Section title - matching home page font and size
-                Text(title)
-                    .font(.system(size: 24, weight: .regular))
+                // Section title - matching email page font and size
+                Text(title.lowercased().capitalized)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
                 Spacer()
 
-                // Count badge - matching home page style
+                // Count badge - matching email page style
                 if count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .white)
-                        .frame(width: 20, height: 20)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .padding(.horizontal, 5)
                         .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
                         )
                 }
             }

@@ -16,8 +16,8 @@ class LocationService: NSObject, ObservableObject {
     override init() {
         super.init()
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyReduced
-        locationManager.distanceFilter = 1000 // Update every 1km
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.distanceFilter = 10 // Update every 10 meters
     }
 
     func requestLocationPermission() {
@@ -42,8 +42,12 @@ class LocationService: NSObject, ObservableObject {
         locationManager.startUpdatingLocation()
     }
 
-    private func stopLocationUpdates() {
+    func stopLocationUpdates() {
         locationManager.stopUpdatingLocation()
+    }
+
+    func refreshLocation() {
+        startLocationUpdates()
     }
 
     private func reverseGeocode(location: CLLocation) {
@@ -84,15 +88,20 @@ extension LocationService: CLLocationManagerDelegate {
         Task { @MainActor in
             guard let location = locations.last else { return }
 
-            self.currentLocation = location
-            self.isLoading = false
-            self.errorMessage = nil
+            // Only update if the location is recent and accurate
+            let age = abs(location.timestamp.timeIntervalSinceNow)
+            if age < 5.0 && location.horizontalAccuracy >= 0 && location.horizontalAccuracy < 100 {
+                self.currentLocation = location
+                self.isLoading = false
+                self.errorMessage = nil
 
-            // Reverse geocode to get location name
-            self.reverseGeocode(location: location)
+                // Reverse geocode to get location name
+                self.reverseGeocode(location: location)
 
-            // Stop updating after getting the first location
-            self.stopLocationUpdates()
+                print("📍 Location updated: \(location.coordinate.latitude), \(location.coordinate.longitude) (accuracy: \(location.horizontalAccuracy)m)")
+            } else {
+                print("⚠️ Ignoring inaccurate or stale location (age: \(age)s, accuracy: \(location.horizontalAccuracy)m)")
+            }
         }
     }
 

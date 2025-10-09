@@ -86,15 +86,11 @@
     <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Seline uses Face ID to securely lock and unlock your private notes.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Seline needs access to your camera to capture receipts and add photos to your notes.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Seline needs access to your photo library to select and attach images to your notes.</string>
 
-    <!-- Custom Fonts -->
-    <key>UIAppFonts</key>
-    <array>
-        <string>GeistSans-Regular.ttf</string>
-        <string>GeistSans-Medium.ttf</string>
-        <string>GeistSans-Semibold.ttf</string>
-        <string>GeistSans-Bold.ttf</string>
-    </array>
 
     <!-- App Query Schemes (iOS 9+ requirement for canOpenURL) -->
     <key>LSApplicationQueriesSchemes</key>
@@ -102,6 +98,11 @@
         <string>googlegmail</string>
         <string>x-gmail</string>
         <string>gmail</string>
+        <string>weather</string>
     </array>
+
+    <!-- API Keys -->
+    <key>OpenWeatherMapAPIKey</key>
+    <string>3e5e1f3f4e8e7c5c0c1b9f8e7d6c5b4a</string>
 </dict>
 </plist>

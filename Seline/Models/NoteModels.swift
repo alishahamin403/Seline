@@ -13,10 +13,15 @@ struct Note: Identifiable, Codable, Hashable {
     var isPinned: Bool
     var folderId: UUID?
     var isLocked: Bool
-    var isDraft: Bool
-    var imageAttachments: [Data] // Store images as Data array
+    var imageUrls: [String] // Store image URLs from Supabase Storage
 
-    init(title: String, content: String = "", folderId: UUID? = nil, isDraft: Bool = false) {
+    // Temporary compatibility - will be removed after migration
+    var imageAttachments: [Data] {
+        get { [] }
+        set { }
+    }
+
+    init(title: String, content: String = "", folderId: UUID? = nil) {
         self.id = UUID()
         self.title = title
         self.content = content
@@ -25,8 +30,7 @@ struct Note: Identifiable, Codable, Hashable {
         self.isPinned = false
         self.folderId = folderId
         self.isLocked = false
-        self.isDraft = isDraft
-        self.imageAttachments = []
+        self.imageUrls = []
     }
 
     var formattedDateModified: String {
@@ -93,6 +97,43 @@ struct NoteFolder: Identifiable, Codable, Hashable {
     }
 }
 
+// MARK: - Deleted Items Models
+
+struct DeletedNote: Identifiable, Codable, Hashable {
+    var id: UUID
+    var title: String
+    var content: String
+    var dateCreated: Date
+    var dateModified: Date
+    var deletedAt: Date
+    var isPinned: Bool
+    var folderId: UUID?
+    var isLocked: Bool
+    var imageUrls: [String]
+
+    var daysUntilPermanentDeletion: Int {
+        let calendar = Calendar.current
+        let daysSinceDeletion = calendar.dateComponents([.day], from: deletedAt, to: Date()).day ?? 0
+        return max(0, 30 - daysSinceDeletion)
+    }
+}
+
+struct DeletedFolder: Identifiable, Codable, Hashable {
+    let id: UUID
+    var name: String
+    var color: String
+    var parentFolderId: UUID?
+    var dateCreated: Date
+    var dateModified: Date
+    var deletedAt: Date
+
+    var daysUntilPermanentDeletion: Int {
+        let calendar = Calendar.current
+        let daysSinceDeletion = calendar.dateComponents([.day], from: deletedAt, to: Date()).day ?? 0
+        return max(0, 30 - daysSinceDeletion)
+    }
+}
+
 // MARK: - Notes Manager
 
 class NotesManager: ObservableObject {
@@ -100,6 +141,8 @@ class NotesManager: ObservableObject {
 
     @Published var notes: [Note] = []
     @Published var folders: [NoteFolder] = []
+    @Published var deletedNotes: [DeletedNote] = []
+    @Published var deletedFolders: [DeletedFolder] = []
     @Published var isLoading = false
 
     private let notesKey = "SavedNotes"
@@ -107,8 +150,13 @@ class NotesManager: ObservableObject {
     private let authManager = AuthenticationManager.shared
 
     private init() {
-        loadNotes()
-        loadFolders()
+        // CRITICAL FIX: Clear old UserDefaults data (was 89MB!)
+        migrateFromUserDefaultsToSupabase()
+
+        // Don't load from UserDefaults anymore
+        // loadNotes()
+        // loadFolders()
+
         addSampleDataIfNeeded()
 
         // Load notes from Supabase if user is authenticated
@@ -117,32 +165,40 @@ class NotesManager: ObservableObject {
         }
     }
 
+    // Migration: Remove old UserDefaults storage
+    private func migrateFromUserDefaultsToSupabase() {
+        // Remove the 89MB of data from UserDefaults
+        UserDefaults.standard.removeObject(forKey: notesKey)
+        UserDefaults.standard.removeObject(forKey: foldersKey)
+        print("✅ Cleared old UserDefaults notes storage (was 89MB)")
+    }
+
     // MARK: - Data Persistence
 
     private func saveNotes() {
-        if let encoded = try? JSONEncoder().encode(notes) {
-            UserDefaults.standard.set(encoded, forKey: notesKey)
-        }
+        // CRITICAL FIX: REMOVED UserDefaults storage - was causing 89MB limit exceeded!
+        // Notes are now ONLY stored in Supabase, not locally
+        // UserDefaults has 4MB limit, we were storing 89MB of image data
+
+        // Clear old data if it exists
+        UserDefaults.standard.removeObject(forKey: notesKey)
     }
 
     private func loadNotes() {
-        if let data = UserDefaults.standard.data(forKey: notesKey),
-           let decodedNotes = try? JSONDecoder().decode([Note].self, from: data) {
-            self.notes = decodedNotes
-        }
+        // CRITICAL FIX: Don't load from UserDefaults anymore
+        // Notes are loaded from Supabase only in loadNotesFromSupabase()
+        // This prevents the 89MB storage issue
     }
 
     private func saveFolders() {
-        if let encoded = try? JSONEncoder().encode(folders) {
-            UserDefaults.standard.set(encoded, forKey: foldersKey)
-        }
+        // CRITICAL FIX: Use Supabase only, not UserDefaults
+        // Folders are already synced to Supabase in saveFolderToSupabase()
+        UserDefaults.standard.removeObject(forKey: foldersKey)
     }
 
     private func loadFolders() {
-        if let data = UserDefaults.standard.data(forKey: foldersKey),
-           let decodedFolders = try? JSONDecoder().decode([NoteFolder].self, from: data) {
-            self.folders = decodedFolders
-        }
+        // CRITICAL FIX: Load from Supabase only
+        // Folders are loaded from Supabase in loadFoldersFromSupabase()
     }
 
     // MARK: - Note Operations
@@ -157,25 +213,42 @@ class NotesManager: ObservableObject {
         }
     }
 
-    // Upload image and return URL
-    func uploadImage(_ image: UIImage) async throws -> String {
+    // Upload image and return URL - used when adding new images to notes
+    func uploadNoteImage(_ image: UIImage, noteId: UUID) async throws -> String {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             throw NSError(domain: "NotesManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
 
-        // Convert image to JPEG data
-        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+        // Convert image to JPEG data with compression
+        guard let imageData = image.jpegData(compressionQuality: 0.7) else {
             throw NSError(domain: "NotesManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to convert image to data"])
         }
 
-        // Generate unique filename
-        let fileName = "\(UUID().uuidString).jpg"
+        // Generate filename with note ID and timestamp for uniqueness
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let fileName = "\(noteId.uuidString)_\(timestamp).jpg"
 
-        // Upload to Supabase
+        // Upload to Supabase Storage
         let imageUrl = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
 
         print("✅ Image uploaded successfully: \(imageUrl)")
         return imageUrl
+    }
+
+    // Upload multiple images and return their URLs
+    func uploadNoteImages(_ images: [UIImage], noteId: UUID) async -> [String] {
+        var uploadedUrls: [String] = []
+
+        for image in images {
+            do {
+                let url = try await uploadNoteImage(image, noteId: noteId)
+                uploadedUrls.append(url)
+            } catch {
+                print("❌ Failed to upload image: \(error.localizedDescription)")
+            }
+        }
+
+        return uploadedUrls
     }
 
     func updateNote(_ note: Note) {
@@ -193,12 +266,152 @@ class NotesManager: ObservableObject {
     }
 
     func deleteNote(_ note: Note) {
+        // Move to trash instead of permanent deletion
+        let deletedNote = DeletedNote(
+            id: note.id,
+            title: note.title,
+            content: note.content,
+            dateCreated: note.dateCreated,
+            dateModified: note.dateModified,
+            deletedAt: Date(),
+            isPinned: note.isPinned,
+            folderId: note.folderId,
+            isLocked: note.isLocked,
+            imageUrls: note.imageUrls
+        )
+
+        deletedNotes.append(deletedNote)
         notes.removeAll { $0.id == note.id }
         saveNotes()
 
         // Sync with Supabase
         Task {
-            await deleteNoteFromSupabase(note.id)
+            await moveNoteToTrash(deletedNote)
+        }
+    }
+
+    private func moveNoteToTrash(_ deletedNote: DeletedNote) async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, skipping Supabase sync")
+            return
+        }
+
+        let formatter = ISO8601DateFormatter()
+
+        let deletedNoteData: [String: PostgREST.AnyJSON] = [
+            "id": .string(deletedNote.id.uuidString),
+            "user_id": .string(userId.uuidString),
+            "title": .string(deletedNote.title),
+            "content": .string(deletedNote.content),
+            "folder_id": deletedNote.folderId != nil ? .string(deletedNote.folderId!.uuidString) : .null,
+            "is_pinned": .bool(deletedNote.isPinned),
+            "background_color": .null,
+            "created_at": .string(formatter.string(from: deletedNote.dateCreated)),
+            "updated_at": .string(formatter.string(from: deletedNote.dateModified)),
+            "deleted_at": .string(formatter.string(from: deletedNote.deletedAt))
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            // Insert into deleted_notes
+            try await client
+                .from("deleted_notes")
+                .insert(deletedNoteData)
+                .execute()
+
+            // Delete from notes table
+            try await client
+                .from("notes")
+                .delete()
+                .eq("id", value: deletedNote.id.uuidString)
+                .execute()
+
+            print("✅ Note moved to trash: \(deletedNote.title)")
+        } catch {
+            print("❌ Error moving note to trash: \(error)")
+        }
+    }
+
+    // Permanent deletion - used when emptying trash or after 30 days
+    func permanentlyDeleteNote(_ deletedNote: DeletedNote) {
+        deletedNotes.removeAll { $0.id == deletedNote.id }
+
+        Task {
+            await permanentlyDeleteNoteWithImages(deletedNote)
+        }
+    }
+
+    private func permanentlyDeleteNoteWithImages(_ deletedNote: DeletedNote) async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, skipping permanent deletion")
+            return
+        }
+
+        // Delete from deleted_notes table
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("deleted_notes")
+                .delete()
+                .eq("id", value: deletedNote.id.uuidString)
+                .execute()
+            print("✅ Note permanently deleted from database")
+        } catch {
+            print("❌ Error permanently deleting note: \(error)")
+        }
+
+        // Delete associated images from storage
+        for imageUrl in deletedNote.imageUrls {
+            if let filename = imageUrl.components(separatedBy: "/").last {
+                do {
+                    let storage = await SupabaseManager.shared.getStorageClient()
+                    let path = "\(userId.uuidString)/\(filename)"
+                    try await storage
+                        .from("note-images")
+                        .remove(paths: [path])
+                    print("🗑️ Deleted image: \(filename)")
+                } catch {
+                    print("❌ Failed to delete image \(filename): \(error)")
+                }
+            }
+        }
+    }
+
+    // Restore note from trash
+    func restoreNote(_ deletedNote: DeletedNote) {
+        let restoredNote = Note(title: deletedNote.title, content: deletedNote.content, folderId: deletedNote.folderId)
+        var note = restoredNote
+        note.id = deletedNote.id
+        note.dateCreated = deletedNote.dateCreated
+        note.dateModified = deletedNote.dateModified
+        note.isPinned = deletedNote.isPinned
+        note.isLocked = deletedNote.isLocked
+        note.imageUrls = deletedNote.imageUrls
+
+        notes.append(note)
+        deletedNotes.removeAll { $0.id == deletedNote.id }
+        saveNotes()
+
+        Task {
+            await restoreNoteFromTrash(note)
+        }
+    }
+
+    private func restoreNoteFromTrash(_ note: Note) async {
+        // Delete from deleted_notes and insert back to notes
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("deleted_notes")
+                .delete()
+                .eq("id", value: note.id.uuidString)
+                .execute()
+
+            // Re-insert to notes table
+            await saveNoteToSupabase(note)
+            print("✅ Note restored from trash: \(note.title)")
+        } catch {
+            print("❌ Error restoring note from trash: \(error)")
         }
     }
 
@@ -240,20 +453,160 @@ class NotesManager: ObservableObject {
     }
 
     func deleteFolder(_ folder: NoteFolder) {
-        // Move notes from this folder to no folder
-        for index in notes.indices {
-            if notes[index].folderId == folder.id {
-                notes[index].folderId = nil
+        // Recursively collect all subfolders
+        var foldersToDelete: Set<UUID> = [folder.id]
+        var currentLevelFolders = [folder.id]
+
+        while !currentLevelFolders.isEmpty {
+            let childFolders = folders.filter { folder in
+                currentLevelFolders.contains(folder.parentFolderId ?? UUID())
             }
+            currentLevelFolders = childFolders.map { $0.id }
+            foldersToDelete.formUnion(currentLevelFolders)
         }
 
-        folders.removeAll { $0.id == folder.id }
-        saveNotes()
+        // Collect notes to move to trash
+        let notesToDelete = notes.filter { note in
+            if let folderId = note.folderId {
+                return foldersToDelete.contains(folderId)
+            }
+            return false
+        }
+
+        // Move all notes in these folders to trash
+        for note in notesToDelete {
+            deleteNote(note)
+        }
+
+        // Move folders to trash
+        let foldersToMove = folders.filter { foldersToDelete.contains($0.id) }
+        for folderToDelete in foldersToMove {
+            let deletedFolder = DeletedFolder(
+                id: folderToDelete.id,
+                name: folderToDelete.name,
+                color: folderToDelete.color,
+                parentFolderId: folderToDelete.parentFolderId,
+                dateCreated: Date(),
+                dateModified: Date(),
+                deletedAt: Date()
+            )
+            deletedFolders.append(deletedFolder)
+        }
+
+        // Remove folders from active list
+        folders.removeAll { foldersToDelete.contains($0.id) }
+
         saveFolders()
 
         // Sync with Supabase
         Task {
-            await deleteFolderFromSupabase(folder.id)
+            for deletedFolder in deletedFolders.filter({ foldersToDelete.contains($0.id) }) {
+                await moveFolderToTrash(deletedFolder)
+            }
+        }
+    }
+
+    private func moveFolderToTrash(_ deletedFolder: DeletedFolder) async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, skipping Supabase sync")
+            return
+        }
+
+        let formatter = ISO8601DateFormatter()
+
+        let deletedFolderData: [String: PostgREST.AnyJSON] = [
+            "id": .string(deletedFolder.id.uuidString),
+            "user_id": .string(userId.uuidString),
+            "name": .string(deletedFolder.name),
+            "color": .string(deletedFolder.color),
+            "parent_folder_id": deletedFolder.parentFolderId != nil ? .string(deletedFolder.parentFolderId!.uuidString) : .null,
+            "created_at": .string(formatter.string(from: deletedFolder.dateCreated)),
+            "updated_at": .string(formatter.string(from: deletedFolder.dateModified)),
+            "deleted_at": .string(formatter.string(from: deletedFolder.deletedAt))
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            // Insert into deleted_folders
+            try await client
+                .from("deleted_folders")
+                .insert(deletedFolderData)
+                .execute()
+
+            // Delete from folders table
+            try await client
+                .from("folders")
+                .delete()
+                .eq("id", value: deletedFolder.id.uuidString)
+                .execute()
+
+            print("✅ Folder moved to trash: \(deletedFolder.name)")
+        } catch {
+            print("❌ Error moving folder to trash: \(error)")
+        }
+    }
+
+    // Permanent deletion of folder
+    func permanentlyDeleteFolder(_ deletedFolder: DeletedFolder) {
+        deletedFolders.removeAll { $0.id == deletedFolder.id }
+
+        Task {
+            await permanentlyDeleteFolderFromSupabase(deletedFolder.id)
+        }
+    }
+
+    private func permanentlyDeleteFolderFromSupabase(_ folderId: UUID) async {
+        guard SupabaseManager.shared.getCurrentUser() != nil else {
+            print("⚠️ No user ID, skipping permanent deletion")
+            return
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("deleted_folders")
+                .delete()
+                .eq("id", value: folderId.uuidString)
+                .execute()
+            print("✅ Folder permanently deleted from database")
+        } catch {
+            print("❌ Error permanently deleting folder: \(error)")
+        }
+    }
+
+    // Restore folder from trash
+    func restoreFolder(_ deletedFolder: DeletedFolder) {
+        let restoredFolder = NoteFolder(
+            id: deletedFolder.id,
+            name: deletedFolder.name,
+            color: deletedFolder.color,
+            parentFolderId: deletedFolder.parentFolderId
+        )
+
+        folders.append(restoredFolder)
+        deletedFolders.removeAll { $0.id == deletedFolder.id }
+        saveFolders()
+
+        Task {
+            await restoreFolderFromTrash(restoredFolder)
+        }
+    }
+
+    private func restoreFolderFromTrash(_ folder: NoteFolder) async {
+        // Delete from deleted_folders and insert back to folders
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("deleted_folders")
+                .delete()
+                .eq("id", value: folder.id.uuidString)
+                .execute()
+
+            // Re-insert to folders table
+            await saveFolderToSupabase(folder)
+            print("✅ Folder restored from trash: \(folder.name)")
+        } catch {
+            print("❌ Error restoring folder from trash: \(error)")
         }
     }
 
@@ -265,18 +618,26 @@ class NotesManager: ObservableObject {
         return folder.name
     }
 
+    func getOrCreateReceiptsFolder() -> UUID {
+        // Check if Receipts folder already exists
+        if let existingFolder = folders.first(where: { $0.name == "Receipts" }) {
+            return existingFolder.id
+        }
+
+        // Create new Receipts folder
+        let receiptsFolder = NoteFolder(name: "Receipts", color: "#F59E42") // Orange color for receipts
+        addFolder(receiptsFolder)
+        return receiptsFolder.id
+    }
+
     // MARK: - Computed Properties
 
     var pinnedNotes: [Note] {
-        notes.filter { $0.isPinned && !$0.isDraft }.sorted { $0.dateModified > $1.dateModified }
+        notes.filter { $0.isPinned }.sorted { $0.dateModified > $1.dateModified }
     }
 
     var recentNotes: [Note] {
-        notes.filter { !$0.isPinned && !$0.isDraft }.sorted { $0.dateModified > $1.dateModified }
-    }
-
-    var draftNotes: [Note] {
-        notes.filter { $0.isDraft }.sorted { $0.dateModified > $1.dateModified }
+        notes.filter { !$0.isPinned }.sorted { $0.dateModified > $1.dateModified }
     }
 
     func searchNotes(query: String) -> [Note] {
@@ -319,17 +680,8 @@ class NotesManager: ObservableObject {
 
         print("💾 Saving note to Supabase - User ID: \(userId.uuidString), Note ID: \(note.id.uuidString)")
 
-        // Upload images to Supabase Storage and get URLs
-        var imageUrls: [String] = []
-        for (index, imageData) in note.imageAttachments.enumerated() {
-            do {
-                let fileName = "\(note.id.uuidString)_\(index).jpg"
-                let url = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
-                imageUrls.append(url)
-            } catch {
-                print("❌ Error uploading image \(index): \(error)")
-            }
-        }
+        // OPTIMIZED: Use existing imageUrls from note (no re-upload needed)
+        let imageUrls = note.imageUrls
 
         let formatter = ISO8601DateFormatter()
 
@@ -345,7 +697,6 @@ class NotesManager: ObservableObject {
             "date_created": .string(formatter.string(from: note.dateCreated)),
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(note.isPinned),
-            "is_draft": .bool(note.isDraft),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray)
         ]
@@ -356,7 +707,7 @@ class NotesManager: ObservableObject {
                 .from("notes")
                 .insert(noteData)
                 .execute()
-            print("✅ Note saved to Supabase: \(note.title) with \(imageUrls.count) images")
+            print("✅ Note saved to Supabase: \(note.title) with \(imageUrls.count) image URLs")
         } catch {
             print("❌ Error saving note to Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
@@ -369,17 +720,8 @@ class NotesManager: ObservableObject {
             return
         }
 
-        // Upload images to Supabase Storage and get URLs
-        var imageUrls: [String] = []
-        for (index, imageData) in note.imageAttachments.enumerated() {
-            do {
-                let fileName = "\(note.id.uuidString)_\(index).jpg"
-                let url = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
-                imageUrls.append(url)
-            } catch {
-                print("❌ Error uploading image \(index): \(error)")
-            }
-        }
+        // OPTIMIZED: Use existing imageUrls from note (preserves existing URLs, no re-upload)
+        let imageUrls = note.imageUrls
 
         let formatter = ISO8601DateFormatter()
 
@@ -392,7 +734,6 @@ class NotesManager: ObservableObject {
             "is_locked": .bool(note.isLocked),
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(note.isPinned),
-            "is_draft": .bool(note.isDraft),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray)
         ]
@@ -404,7 +745,7 @@ class NotesManager: ObservableObject {
                 .update(noteData)
                 .eq("id", value: note.id.uuidString)
                 .execute()
-            print("✅ Note updated in Supabase: \(note.title) with \(imageUrls.count) images")
+            print("✅ Note updated in Supabase: \(note.title) with \(imageUrls.count) image URLs (no re-upload)")
         } catch {
             print("❌ Error updating note in Supabase: \(error)")
         }
@@ -451,25 +792,10 @@ class NotesManager: ObservableObject {
 
             print("📥 Received \(response.count) notes from Supabase")
 
-            // Parse notes and download images
+            // Parse notes with image URLs (no downloads!)
             var parsedNotes: [Note] = []
             for supabaseNote in response {
-                if var note = parseNoteFromSupabase(supabaseNote) {
-                    // Download images from Supabase Storage
-                    if let imageUrls = supabaseNote.image_attachments, !imageUrls.isEmpty {
-                        for imageUrl in imageUrls {
-                            do {
-                                guard let url = URL(string: imageUrl) else {
-                                    continue
-                                }
-
-                                let (data, _) = try await URLSession.shared.data(from: url)
-                                note.imageAttachments.append(data)
-                            } catch {
-                                print("❌ Error downloading image: \(error)")
-                            }
-                        }
-                    }
+                if let note = parseNoteFromSupabase(supabaseNote) {
                     parsedNotes.append(note)
                 }
             }
@@ -544,8 +870,10 @@ class NotesManager: ObservableObject {
         if let folderIdString = data.folder_id {
             note.folderId = UUID(uuidString: folderIdString)
         }
+        // Store image URLs directly - no download!
+        note.imageUrls = data.image_attachments ?? []
 
-        print("✅ Successfully parsed note: \(note.title)")
+        print("✅ Successfully parsed note: \(note.title) with \(note.imageUrls.count) image URLs")
         return note
     }
 
@@ -760,6 +1088,120 @@ class NotesManager: ObservableObject {
         print("✅ Successfully parsed folder: \(folder.name)")
         return folder
     }
+
+    // MARK: - Trash Management
+
+    func loadDeletedItemsFromSupabase() async {
+        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
+        let userId = await MainActor.run { authManager.supabaseUser?.id }
+
+        guard isAuthenticated, let userId = userId else {
+            print("User not authenticated, skipping trash load")
+            return
+        }
+
+        print("📥 Loading deleted items from Supabase for user: \(userId.uuidString)")
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // Load deleted notes
+            let deletedNotesResponse: [DeletedNoteSupabaseData] = try await client
+                .from("deleted_notes")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            // Load deleted folders
+            let deletedFoldersResponse: [DeletedFolderSupabaseData] = try await client
+                .from("deleted_folders")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            await MainActor.run {
+                self.deletedNotes = deletedNotesResponse.compactMap { parseDeletedNoteFromSupabase($0) }
+                self.deletedFolders = deletedFoldersResponse.compactMap { parseDeletedFolderFromSupabase($0) }
+                print("✅ Loaded \(self.deletedNotes.count) deleted notes and \(self.deletedFolders.count) deleted folders")
+            }
+        } catch {
+            print("❌ Error loading deleted items: \(error)")
+        }
+    }
+
+    private func parseDeletedNoteFromSupabase(_ data: DeletedNoteSupabaseData) -> DeletedNote? {
+        guard let id = UUID(uuidString: data.id) else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        guard let createdAt = formatter.date(from: data.created_at) ?? ISO8601DateFormatter().date(from: data.created_at),
+              let updatedAt = formatter.date(from: data.updated_at) ?? ISO8601DateFormatter().date(from: data.updated_at),
+              let deletedAt = formatter.date(from: data.deleted_at) ?? ISO8601DateFormatter().date(from: data.deleted_at) else {
+            return nil
+        }
+
+        return DeletedNote(
+            id: id,
+            title: data.title,
+            content: data.content,
+            dateCreated: createdAt,
+            dateModified: updatedAt,
+            deletedAt: deletedAt,
+            isPinned: data.is_pinned,
+            folderId: data.folder_id != nil ? UUID(uuidString: data.folder_id!) : nil,
+            isLocked: false,
+            imageUrls: []
+        )
+    }
+
+    private func parseDeletedFolderFromSupabase(_ data: DeletedFolderSupabaseData) -> DeletedFolder? {
+        guard let id = UUID(uuidString: data.id) else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        guard let createdAt = formatter.date(from: data.created_at) ?? ISO8601DateFormatter().date(from: data.created_at),
+              let updatedAt = formatter.date(from: data.updated_at) ?? ISO8601DateFormatter().date(from: data.updated_at),
+              let deletedAt = formatter.date(from: data.deleted_at) ?? ISO8601DateFormatter().date(from: data.deleted_at) else {
+            return nil
+        }
+
+        return DeletedFolder(
+            id: id,
+            name: data.name,
+            color: data.color,
+            parentFolderId: data.parent_folder_id != nil ? UUID(uuidString: data.parent_folder_id!) : nil,
+            dateCreated: createdAt,
+            dateModified: updatedAt,
+            deletedAt: deletedAt
+        )
+    }
+
+    // Clean up items older than 30 days
+    func cleanupOldDeletedItems() {
+        let calendar = Calendar.current
+        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+
+        // Find items to permanently delete
+        let expiredNotes = deletedNotes.filter { $0.deletedAt < thirtyDaysAgo }
+        let expiredFolders = deletedFolders.filter { $0.deletedAt < thirtyDaysAgo }
+
+        // Permanently delete expired items
+        for note in expiredNotes {
+            permanentlyDeleteNote(note)
+        }
+
+        for folder in expiredFolders {
+            permanentlyDeleteFolder(folder)
+        }
+
+        if !expiredNotes.isEmpty || !expiredFolders.isEmpty {
+            print("🗑️ Cleaned up \(expiredNotes.count) notes and \(expiredFolders.count) folders older than 30 days")
+        }
+    }
 }
 
 // MARK: - Supabase Data Structures
@@ -813,4 +1255,27 @@ struct FolderSupabaseData: Codable {
     let parent_folder_id: String?
     let created_at: String?
     let updated_at: String?
+}
+
+struct DeletedNoteSupabaseData: Codable {
+    let id: String
+    let user_id: String
+    let title: String
+    let content: String
+    let folder_id: String?
+    let is_pinned: Bool
+    let created_at: String
+    let updated_at: String
+    let deleted_at: String
+}
+
+struct DeletedFolderSupabaseData: Codable {
+    let id: String
+    let user_id: String
+    let name: String
+    let color: String
+    let parent_folder_id: String?
+    let created_at: String
+    let updated_at: String
+    let deleted_at: String
 }

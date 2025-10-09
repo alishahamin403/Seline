@@ -61,7 +61,7 @@ struct EmailTabButton: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return selectedColor.opacity(colorScheme == .dark ? 0.2 : 0.1)
+            return selectedColor
         }
         return Color.clear
     }
@@ -72,16 +72,16 @@ struct EmailTabButton: View {
         }) {
             HStack(spacing: ShadcnSpacing.sm) {
                 Image(systemName: tab.icon)
-                    .font(FontManager.geist(size: .body, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
 
                 Text(tab.rawValue)
-                    .font(FontManager.geist(size: .body, weight: isSelected ? .semibold : .medium))
+                    .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
             }
             .foregroundColor(
-                isSelected ? selectedColor : .gray
+                isSelected ? .white : .gray
             )
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: ShadcnRadius.md)
                     .fill(backgroundColor)

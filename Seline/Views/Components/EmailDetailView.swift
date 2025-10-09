@@ -7,6 +7,8 @@ struct EmailDetailView: View {
     @StateObject private var emailService = EmailService.shared
     @StateObject private var openAIService = OpenAIService.shared
     @State private var isOriginalEmailExpanded: Bool = false
+    @State private var fullEmail: Email? = nil
+    @State private var isLoadingFullBody: Bool = false
 
     var body: some View {
         NavigationView {
@@ -97,9 +99,38 @@ struct EmailDetailView: View {
             if !email.isRead {
                 emailService.markAsRead(email)
             }
+
+            // Fetch full email body if not already loaded
+            Task {
+                await fetchFullEmailBodyIfNeeded()
+            }
         }
     }
 
+
+    // MARK: - Full Email Body Fetching
+
+    private func fetchFullEmailBodyIfNeeded() async {
+        // Only fetch if we don't have a body or if body is empty/snippet only
+        guard let messageId = email.gmailMessageId else { return }
+        guard email.body == nil || email.body?.isEmpty == true else {
+            fullEmail = email
+            return
+        }
+
+        isLoadingFullBody = true
+
+        do {
+            let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId)
+            fullEmail = fetchedEmail
+            print("✅ Fetched full email body for: \(email.subject)")
+        } catch {
+            print("❌ Failed to fetch full email body: \(error.localizedDescription)")
+            fullEmail = email // Fallback to original email
+        }
+
+        isLoadingFullBody = false
+    }
 
     // MARK: - AI Summary Generation
 
@@ -110,8 +141,10 @@ struct EmailDetailView: View {
         }
 
         do {
-            // Generate summary using OpenAI
-            let emailBody = email.body ?? email.snippet
+            // Use full email body if available, otherwise use snippet
+            let emailToSummarize = fullEmail ?? email
+            let emailBody = emailToSummarize.body ?? emailToSummarize.snippet
+
             let summary = try await openAIService.summarizeEmail(
                 subject: email.subject,
                 body: emailBody
@@ -165,7 +198,7 @@ struct EmailDetailView: View {
                 .padding(.vertical, 16)
                 .background(
                     colorScheme == .dark ?
-                        Color.black.opacity(0.3) :
+                        Color.white.opacity(0.05) :
                         Color.gray.opacity(0.1)
                 )
             }
@@ -173,7 +206,23 @@ struct EmailDetailView: View {
 
             // Expandable content (full width, no padding)
             if isOriginalEmailExpanded {
-                if let htmlBody = email.body, htmlBody.contains("<") {
+                if isLoadingFullBody {
+                    // Show loading indicator while fetching full body
+                    VStack {
+                        ShadcnSpinner(size: .medium)
+                            .padding()
+                        Text("Loading email content...")
+                            .font(FontManager.geist(size: .caption, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                    }
+                    .frame(height: 200)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        colorScheme == .dark ?
+                            Color.black :
+                            Color.white
+                    )
+                } else if let displayEmail = fullEmail ?? email as Email?, let htmlBody = displayEmail.body, htmlBody.contains("<") {
                     // Display HTML content using WebView with zoom
                     ZoomableHTMLContentView(htmlContent: htmlBody)
                         .frame(height: 500)
@@ -185,7 +234,7 @@ struct EmailDetailView: View {
                 } else {
                     // Display plain text
                     ScrollView {
-                        Text(email.body ?? email.snippet)
+                        Text((fullEmail ?? email).body ?? (fullEmail ?? email).snippet)
                             .font(FontManager.geist(size: .body, weight: .regular))
                             .foregroundColor(Color.shadcnForeground(colorScheme))
                             .multilineTextAlignment(.leading)

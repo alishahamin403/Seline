@@ -31,7 +31,7 @@ struct EmailView: View, Searchable {
             let topPadding = CGFloat(4)
 
             VStack(spacing: 0) {
-                VStack(spacing: 8) {
+                VStack(spacing: 0) {
                     // Tab selector and unread filter button
                     HStack(spacing: 12) {
                         EmailTabView(selectedTab: $selectedTab)
@@ -50,13 +50,14 @@ struct EmailView: View, Searchable {
                             }
                         }) {
                             Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
-                                .font(.system(size: 18, weight: .medium))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(
                                     showUnreadOnly ?
                                         (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :
                                         Color.gray
                                 )
-                                .frame(width: 44, height: 44)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(
@@ -68,17 +69,20 @@ struct EmailView: View, Searchable {
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, topPadding)
+                    .padding(.bottom, 12)
 
-                    // Category filter buttons
+                    // Category filter slider - Gmail style
                     EmailCategoryFilterView(selectedCategory: $selectedCategory)
                         .onChange(of: selectedCategory) { _ in
                             // Category change doesn't require reloading data, just filtering
                             // The currentSections computed property will handle the filtering
                         }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, topPadding)
-                .padding(.bottom, 8)
+                .background(
+                    (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                )
 
                 // Email list - only categorized view, no search results
                 EmailListWithCategories(
@@ -132,7 +136,7 @@ struct EmailView: View, Searchable {
                             .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                     }
                     .padding(.trailing, 20)
-                    .padding(.bottom, 60) // Move lower, closer to maps icon
+                    .padding(.bottom, 30) // Move lower, closer to maps icon
                 }
             }
             )

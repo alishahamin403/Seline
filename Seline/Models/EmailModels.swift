@@ -179,6 +179,22 @@ struct EmailAddress: Codable, Hashable {
         let parts = email.components(separatedBy: "@")
         return parts.first ?? email
     }
+
+    var initials: String {
+        if let name = name, !name.isEmpty {
+            let components = name.components(separatedBy: " ")
+            if components.count >= 2 {
+                let firstInitial = components[0].prefix(1).uppercased()
+                let lastInitial = components[1].prefix(1).uppercased()
+                return "\(firstInitial)\(lastInitial)"
+            } else if let first = components.first {
+                return first.prefix(1).uppercased()
+            }
+        }
+
+        // Fallback to first letter of email
+        return email.prefix(1).uppercased()
+    }
 }
 
 enum EmailFolder: String, CaseIterable {
@@ -400,22 +416,36 @@ extension Email {
 // MARK: - Email Category System
 
 enum EmailCategory: String, CaseIterable, Identifiable {
-    case important = "Important"
+    case primary = "Primary"
+    case social = "Social"
+    case promotions = "Promotions"
     case updates = "Updates"
-    case promotional = "Promo"
+    case forums = "Forums"
 
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .important: return "star.fill"
-        case .promotional: return "megaphone.fill"
+        case .primary: return "envelope.fill"
+        case .social: return "person.2.fill"
+        case .promotions: return "megaphone.fill"
         case .updates: return "bell.fill"
+        case .forums: return "bubble.left.and.bubble.right.fill"
         }
     }
 
     var displayName: String {
         return rawValue
+    }
+
+    var gmailLabel: String {
+        switch self {
+        case .primary: return "CATEGORY_PRIMARY"
+        case .social: return "CATEGORY_SOCIAL"
+        case .promotions: return "CATEGORY_PROMOTIONS"
+        case .updates: return "CATEGORY_UPDATES"
+        case .forums: return "CATEGORY_FORUMS"
+        }
     }
 }
 
@@ -423,40 +453,69 @@ enum EmailCategory: String, CaseIterable, Identifiable {
 
 extension Email {
     var category: EmailCategory {
-        // Check for promotional emails first (most specific)
-        if isPromotionalEmail {
-            return .promotional
+        // Check Gmail native labels first (most reliable)
+        if labels.contains("CATEGORY_SOCIAL") {
+            return .social
         }
 
-        // Check for update emails second
+        if labels.contains("CATEGORY_PROMOTIONS") {
+            return .promotions
+        }
+
+        if labels.contains("CATEGORY_UPDATES") {
+            return .updates
+        }
+
+        if labels.contains("CATEGORY_FORUMS") {
+            return .forums
+        }
+
+        if labels.contains("CATEGORY_PRIMARY") {
+            return .primary
+        }
+
+        // Fallback: Use heuristics if Gmail labels are not present
+
+        // Check for social media emails
+        if isSocialEmail {
+            return .social
+        }
+
+        // Check for promotional emails
+        if isPromotionalEmail {
+            return .promotions
+        }
+
+        // Check for update/notification emails
         if isUpdateEmail {
             return .updates
         }
 
-        // Check if email is marked as important or has important indicators
-        if isImportant || hasImportantIndicators {
-            return .important
+        // Check for forum/mailing list emails
+        if isForumEmail {
+            return .forums
         }
 
-        // Default based on email characteristics
-        // Personal emails from known domains get Important
-        let personalDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"]
-        let senderDomain = sender.email.lowercased()
+        // Default to primary for everything else (personal/important emails)
+        return .primary
+    }
 
-        if personalDomains.contains(where: { senderDomain.contains($0) }) {
-            return .important
+    private var isSocialEmail: Bool {
+        let senderEmail = sender.email.lowercased()
+        let senderName = sender.name?.lowercased() ?? ""
+
+        let socialPlatforms = [
+            "facebook", "instagram", "twitter", "linkedin", "tiktok", "snapchat",
+            "pinterest", "reddit", "tumblr", "youtube", "whatsapp", "telegram",
+            "discord", "slack", "signal"
+        ]
+
+        return socialPlatforms.contains { platform in
+            senderEmail.contains(platform) || senderName.contains(platform)
         }
-
-        // Default to important for everything else to ensure emails don't get hidden
-        return .important
     }
 
     private var isPromotionalEmail: Bool {
-        // First check if Gmail has labeled this as promotional
-        if labels.contains("CATEGORY_PROMOTIONS") {
-            return true
-        }
-
         let subject = subject.lowercased()
         let senderEmail = sender.email.lowercased()
         let senderName = sender.name?.lowercased() ?? ""
@@ -469,16 +528,13 @@ extension Email {
         ]
 
         let promotionalSenders = [
-            "marketing", "promo", "newsletter", "offers", "deals", "sales", "no-reply",
-            "noreply", "donotreply", "support", "info", "hello", "team"
+            "marketing", "promo", "newsletter", "offers", "deals", "sales"
         ]
 
-        // Check if any promotional keywords are in subject or snippet
         let hasPromotionalKeywords = promotionalKeywords.contains { keyword in
             subject.contains(keyword) || snippet.contains(keyword)
         }
 
-        // Check if sender email contains promotional indicators
         let hasPromotionalSender = promotionalSenders.contains { indicator in
             senderEmail.contains(indicator) || senderName.contains(indicator)
         }
@@ -487,32 +543,25 @@ extension Email {
     }
 
     private var isUpdateEmail: Bool {
-        // First check if Gmail has labeled this as updates
-        if labels.contains("CATEGORY_UPDATES") {
-            return true
-        }
-
         let subject = subject.lowercased()
         let senderEmail = sender.email.lowercased()
         let snippet = snippet.lowercased()
 
         let updateKeywords = [
             "update", "notification", "digest", "summary", "weekly", "daily", "monthly",
-            "reminder", "alert", "notice", "report", "activity", "new comment",
-            "new message", "new activity", "system", "automated"
+            "reminder", "alert", "notice", "report", "activity", "confirmation",
+            "receipt", "invoice", "order", "shipment", "delivery", "tracking"
         ]
 
         let updateSenders = [
-            "notification", "updates", "alerts", "system", "automated", "digest",
-            "github", "gitlab", "slack", "discord", "twitter", "facebook", "linkedin"
+            "notification", "updates", "alerts", "noreply", "no-reply", "donotreply",
+            "automated", "system"
         ]
 
-        // Check if any update keywords are in subject or snippet
         let hasUpdateKeywords = updateKeywords.contains { keyword in
             subject.contains(keyword) || snippet.contains(keyword)
         }
 
-        // Check if sender email contains update indicators
         let hasUpdateSender = updateSenders.contains { indicator in
             senderEmail.contains(indicator)
         }
@@ -520,17 +569,28 @@ extension Email {
         return hasUpdateKeywords || hasUpdateSender
     }
 
-    private var hasImportantIndicators: Bool {
+    private var isForumEmail: Bool {
         let subject = subject.lowercased()
+        let senderEmail = sender.email.lowercased()
 
-        let importantKeywords = [
-            "urgent", "important", "asap", "deadline", "action required", "please review",
-            "immediate", "priority", "critical", "time sensitive"
+        let forumKeywords = [
+            "mailing list", "discussion", "forum", "group", "community",
+            "thread", "reply to:", "re:", "fwd:"
         ]
 
-        return importantKeywords.contains { keyword in
+        let forumDomains = [
+            "googlegroups", "groups.io", "listserv", "mailman"
+        ]
+
+        let hasForumKeywords = forumKeywords.contains { keyword in
             subject.contains(keyword)
         }
+
+        let hasForumDomain = forumDomains.contains { domain in
+            senderEmail.contains(domain)
+        }
+
+        return hasForumKeywords || hasForumDomain
     }
 }
 

@@ -25,7 +25,7 @@ struct AuthenticationView: View {
                     // Welcome Section
                     VStack(spacing: 12) {
                         Text("Welcome back!")
-                            .font(.geistExtraLarge)
+                            .font(FontManager.geist(size: .extraLarge, weight: .regular))
                             .foregroundColor(colorScheme == .dark ?
                                 Color(red: 0.95, green: 0.95, blue: 0.96) : // slate-100
                                 Color(red: 0.07, green: 0.09, blue: 0.11)   // slate-900
@@ -50,12 +50,12 @@ struct AuthenticationView: View {
                     if authManager.isLoading {
                         // Loading state with consistent layout properties
                         VStack {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                                .tint(colorScheme == .dark ?
+                            ShadcnSpinner(
+                                size: .large,
+                                color: colorScheme == .dark ?
                                     Color(red: 0.64, green: 0.68, blue: 0.73) : // slate-400
                                     Color(red: 0.37, green: 0.42, blue: 0.48)   // slate-600
-                                )
+                            )
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)

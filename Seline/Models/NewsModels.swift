@@ -1,5 +1,27 @@
 import Foundation
 
+enum NewsCategory: String, CaseIterable, Codable {
+    case general = "general"
+    case technology = "technology"
+    case science = "science"
+    case business = "business"
+    case health = "health"
+    case sports = "sports"
+    case entertainment = "entertainment"
+
+    var displayName: String {
+        switch self {
+        case .general: return "Top Stories"
+        case .technology: return "Tech"
+        case .science: return "Science"
+        case .business: return "Business"
+        case .health: return "Health"
+        case .sports: return "Sports"
+        case .entertainment: return "Entertainment"
+        }
+    }
+}
+
 struct NewsArticle: Identifiable, Codable {
     let id: UUID
     let title: String

@@ -13,13 +13,13 @@ struct EmailListWithCategories: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            VStack(spacing: 12) {
                 switch loadingState {
                 case .idle:
                     EmptyView()
 
                 case .loading:
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         ForEach(TimePeriod.allCases, id: \.self) { period in
                             CategoryLoadingPlaceholder(timePeriod: period)
                         }
@@ -29,6 +29,7 @@ struct EmailListWithCategories: View {
                     if sections.isEmpty {
                         EmptyEmailsView()
                     } else {
+                        // Only show cards with emails
                         ForEach(sections) { section in
                             EmailCategorySection(
                                 section: section,
@@ -59,8 +60,9 @@ struct EmailListWithCategories: View {
                     })
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 2)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 80) // Extra padding at bottom for compose button
         }
         .hideScrollContentInsetIfAvailable()
         .refreshable {
@@ -76,53 +78,69 @@ struct CategoryLoadingPlaceholder: View {
     let timePeriod: TimePeriod
     @Environment(\.colorScheme) var colorScheme
 
+    private var cardBackground: Color {
+        colorScheme == .dark ? Color.black : Color.white
+    }
+
+    private var headerBackground: Color {
+        colorScheme == .dark ? Color.black : Color.white
+    }
+
+    private var strokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+    }
+
+    private var shadowColor: Color {
+        colorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.05)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header placeholder
-            HStack {
-                Image(systemName: timePeriod.icon)
-                    .font(FontManager.geist(size: .body, weight: .medium))
-                    .foregroundColor(Color.shadcnMutedForeground(colorScheme).opacity(0.5))
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Rectangle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                        .frame(width: 80, height: 14)
-                        .clipShape(RoundedRectangle(cornerRadius: 2))
-
-                    Rectangle()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                        .frame(width: 120, height: 10)
-                        .clipShape(RoundedRectangle(cornerRadius: 2))
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.down")
-                    .font(FontManager.geist(size: .caption, weight: .medium))
-                    .foregroundColor(Color.shadcnMutedForeground(colorScheme).opacity(0.3))
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
-            .background(Color.shadcnMuted(colorScheme).opacity(0.2))
+            // Card header placeholder
+            placeholderHeader
 
             // Email row placeholders
-            VStack(spacing: 0) {
-                ForEach(0..<2, id: \.self) { _ in
-                    EmailRowPlaceholder()
-                    Divider()
-                        .background(Color.shadcnBorder(colorScheme))
-                        .padding(.leading, 20)
-                }
+            placeholderRows
+        }
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(strokeColor, lineWidth: 1)
+        )
+        .shadow(color: shadowColor, radius: 8, x: 0, y: 2)
+    }
+
+    private var placeholderHeader: some View {
+        HStack(spacing: 12) {
+            placeholderRect(width: 90, height: 15, opacity: 0.3)
+
+            Spacer()
+
+            Circle()
+                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                .frame(width: 18, height: 18)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(headerBackground)
+    }
+
+    private var placeholderRows: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<2, id: \.self) { index in
+                EmailRowPlaceholder()
             }
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: ShadcnRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                .stroke(Color.shadcnBorder(colorScheme).opacity(0.5), lineWidth: 1)
-        )
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+
+    private func placeholderRect(width: CGFloat, height: CGFloat, opacity: Double) -> some View {
+        Rectangle()
+            .fill(colorScheme == .dark ? Color.white.opacity(opacity) : Color.black.opacity(opacity))
+            .frame(width: width, height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 2))
     }
 }
 
@@ -130,29 +148,23 @@ struct EmailRowPlaceholder: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             // Avatar placeholder
             Circle()
                 .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                .frame(width: 40, height: 40)
+                .frame(width: 32, height: 32)
 
-            VStack(alignment: .leading, spacing: 6) {
-                // Subject placeholder
+            VStack(alignment: .leading, spacing: 4) {
+                // Sender name placeholder
                 Rectangle()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                    .frame(width: 200, height: 16)
+                    .frame(width: 140, height: 13)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
 
-                // Snippet placeholder
-                Rectangle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                    .frame(width: 280, height: 12)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-
-                // Sender placeholder
+                // Subject placeholder
                 Rectangle()
                     .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                    .frame(width: 120, height: 10)
+                    .frame(width: 200, height: 12)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
             }
 
@@ -161,11 +173,11 @@ struct EmailRowPlaceholder: View {
             // Time placeholder
             Rectangle()
                 .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                .frame(width: 40, height: 12)
+                .frame(width: 35, height: 10)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 

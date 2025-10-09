@@ -140,10 +140,20 @@ class SupabaseManager: ObservableObject {
         let storage = await getStorageClient()
         let path = "\(userId.uuidString)/\(fileName)"
 
-        // Use upsert to replace existing files
+        // Upload with optimized cache headers for CDN caching
+        // Cache-Control: max-age=31536000 (1 year), immutable
+        // This dramatically reduces cached egress by enabling browser + CDN caching
         try await storage
             .from("note-images")
-            .upload(path: path, file: imageData, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            .upload(
+                path: path,
+                file: imageData,
+                options: FileOptions(
+                    cacheControl: "public, max-age=31536000, immutable",
+                    contentType: "image/jpeg",
+                    upsert: true
+                )
+            )
 
         // Return the public URL
         let publicURL = try await storage
@@ -151,5 +161,60 @@ class SupabaseManager: ObservableObject {
             .getPublicURL(path: path)
 
         return publicURL.absoluteString
+    }
+
+    // MARK: - User Location Preferences
+
+    func saveLocationPreferences(_ preferences: UserLocationPreferences) async throws {
+        guard let userId = getCurrentUser()?.id else {
+            throw NSError(domain: "SupabaseManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        let client = await getPostgrestClient()
+        let preferencesData: [String: PostgREST.AnyJSON] = [
+            "location1_address": preferences.location1Address != nil ? .string(preferences.location1Address!) : .null,
+            "location1_latitude": preferences.location1Latitude != nil ? .double(preferences.location1Latitude!) : .null,
+            "location1_longitude": preferences.location1Longitude != nil ? .double(preferences.location1Longitude!) : .null,
+            "location1_icon": preferences.location1Icon != nil ? .string(preferences.location1Icon!) : .null,
+            "location2_address": preferences.location2Address != nil ? .string(preferences.location2Address!) : .null,
+            "location2_latitude": preferences.location2Latitude != nil ? .double(preferences.location2Latitude!) : .null,
+            "location2_longitude": preferences.location2Longitude != nil ? .double(preferences.location2Longitude!) : .null,
+            "location2_icon": preferences.location2Icon != nil ? .string(preferences.location2Icon!) : .null,
+            "location3_address": preferences.location3Address != nil ? .string(preferences.location3Address!) : .null,
+            "location3_latitude": preferences.location3Latitude != nil ? .double(preferences.location3Latitude!) : .null,
+            "location3_longitude": preferences.location3Longitude != nil ? .double(preferences.location3Longitude!) : .null,
+            "location3_icon": preferences.location3Icon != nil ? .string(preferences.location3Icon!) : .null,
+            "is_first_time_setup": .bool(preferences.isFirstTimeSetup),
+            "updated_at": .string(ISO8601DateFormatter().string(from: Date()))
+        ]
+
+        try await client
+            .from("user_profiles")
+            .update(preferencesData)
+            .eq("id", value: userId.uuidString)
+            .execute()
+
+        print("✅ Location preferences saved for user: \(userId)")
+    }
+
+    func loadLocationPreferences() async throws -> UserLocationPreferences {
+        guard let userId = getCurrentUser()?.id else {
+            throw NSError(domain: "SupabaseManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        let client = await getPostgrestClient()
+        let response: [UserProfileSupabaseData] = try await client
+            .from("user_profiles")
+            .select()
+            .eq("id", value: userId.uuidString)
+            .execute()
+            .value
+
+        guard let profileData = response.first else {
+            throw NSError(domain: "SupabaseManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "User profile not found"])
+        }
+
+        print("✅ Location preferences loaded for user: \(userId)")
+        return profileData.toLocationPreferences()
     }
 }

@@ -6,26 +6,13 @@ struct MapsView: View, Searchable {
     @StateObject private var openAIService = OpenAIService.shared
     @Environment(\.colorScheme) var colorScheme
 
-    @State private var searchText = ""
     @State private var selectedCategory: String? = nil
     @State private var selectedPlace: SavedPlace? = nil
     @State private var showingPlaceDetail = false
-    @State private var isSearchExpanded = false
-    @State private var searchResults: [PlaceSearchResult] = []
-    @State private var recentSearches: [PlaceSearchResult] = []
-    @State private var isSearching = false
-    @State private var isLoadingPopular = false
-    @State private var isLoadingRecent = false
-    @FocusState private var isSearchFieldFocused: Bool
+    @State private var showSearchModal = false
 
     var filteredPlaces: [SavedPlace] {
-        let places = locationsManager.getPlaces(for: selectedCategory)
-
-        if searchText.isEmpty {
-            return places
-        }
-
-        return locationsManager.searchPlaces(query: searchText)
+        return locationsManager.getPlaces(for: selectedCategory)
     }
 
     var body: some View {
@@ -37,26 +24,24 @@ struct MapsView: View, Searchable {
                         // Spacer for fixed header
                         Rectangle()
                             .fill(Color.clear)
-                            .frame(height: isSearchExpanded ? (searchText.isEmpty ? 60 : 280) : 120)
+                            .frame(height: selectedCategory == nil ? 120 : 60)
 
                         // Saved places list
-                        if filteredPlaces.isEmpty && !isLoadingPopular {
+                        if filteredPlaces.isEmpty {
                             // Empty state
                             VStack(spacing: 16) {
                                 Image(systemName: "map")
                                     .font(.system(size: 48, weight: .light))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
-                                Text(searchText.isEmpty ? "No saved places yet" : "No places found")
+                                Text("No saved places yet")
                                     .font(.system(size: 18, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
-                                if searchText.isEmpty {
-                                    Text("Search for places and save them")
-                                        .font(.system(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                        .multilineTextAlignment(.center)
-                                }
+                                Text("Tap + to search and save places")
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                    .multilineTextAlignment(.center)
                             }
                             .padding(.top, 60)
                         } else {
@@ -98,89 +83,28 @@ struct MapsView: View, Searchable {
             // Fixed header
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    if !isSearchExpanded {
-                        // Search icon button
+                    if selectedCategory == nil {
+                        // Title when showing all categories
+                        Text("Maps")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .padding(.leading, 20)
+                    } else {
+                        // Back button when in category
                         Button(action: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                isSearchExpanded = true
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                isSearchFieldFocused = true
+                            withAnimation(.spring(response: 0.3)) {
+                                selectedCategory = nil
                             }
                         }) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                            HStack(spacing: 8) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text(selectedCategory!)
+                                    .font(.system(size: 20, weight: .bold))
+                            }
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
                         .padding(.leading, 20)
-                    } else {
-                        // Expanded search bar
-                        HStack(spacing: 12) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 16))
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-
-                            TextField("Search saved places or new locations...", text: $searchText)
-                                .font(.shadcnTextBase)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                                .focused($isSearchFieldFocused)
-                                .onChange(of: searchText) { newValue in
-                                    if !newValue.isEmpty {
-                                        performSearch(query: newValue)
-                                    } else {
-                                        // Show recent searches when field is empty
-                                        searchResults = recentSearches
-                                    }
-                                }
-                                .onChange(of: isSearchFieldFocused) { isFocused in
-                                    if isFocused && searchText.isEmpty {
-                                        loadRecentSearches()
-                                    }
-                                }
-
-                            if !searchText.isEmpty {
-                                Button(action: {
-                                    searchText = ""
-                                    searchResults = []
-                                }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 16))
-                                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                                }
-                            }
-
-                            Button(action: {
-                                searchText = ""
-                                searchResults = []
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    isSearchExpanded = false
-                                }
-                                isSearchFieldFocused = false
-                            }) {
-                                Text("Cancel")
-                                    .font(.shadcnTextBase)
-                                    .foregroundColor(Color.shadcnPrimary)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: ShadcnRadius.lg)
-                                .fill(
-                                    colorScheme == .dark ?
-                                        Color.black.opacity(0.3) : Color.gray.opacity(0.1)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
-                                        .stroke(
-                                            colorScheme == .dark ?
-                                                Color.white.opacity(0.1) : Color.black.opacity(0.1),
-                                            lineWidth: 1
-                                        )
-                                )
-                        )
-                        .padding(.horizontal, 20)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
 
                     Spacer()
@@ -191,8 +115,8 @@ struct MapsView: View, Searchable {
                         Color.gmailDarkBackground : Color.white
                 )
 
-                // Category filters (only show when not searching)
-                if !isSearchExpanded && !locationsManager.categories.isEmpty {
+                // Category filters
+                if selectedCategory == nil && !locationsManager.categories.isEmpty {
                     CategoryFilterView(
                         selectedCategory: $selectedCategory,
                         categories: Array(locationsManager.categories)
@@ -203,110 +127,40 @@ struct MapsView: View, Searchable {
                             Color.gmailDarkBackground : Color.white
                     )
                 }
-
-                // Search results or recent searches
-                if isSearchExpanded {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Show header for recent searches
-                            if searchText.isEmpty && !recentSearches.isEmpty {
-                                Text("Most Searched Places")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                    .padding(.horizontal, 20)
-                                    .padding(.top, 8)
-                            }
-
-                            if isSearching || isLoadingRecent {
-                                ProgressView()
-                                    .padding(.vertical, 20)
-                            } else if searchResults.isEmpty && !isLoadingRecent {
-                                Text(searchText.isEmpty ? "No recent searches" : "No results found")
-                                    .font(.shadcnTextSm)
-                                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                                    .padding(.vertical, 20)
-                                    .frame(maxWidth: .infinity)
-                            } else {
-                                LazyVStack(spacing: 0) {
-                                    ForEach(searchResults) { result in
-                                        PlaceSearchResultRow(
-                                            result: result,
-                                            isSaved: locationsManager.isPlaceSaved(googlePlaceId: result.id),
-                                            onSave: {
-                                                savePlace(result)
-                                            },
-                                            onTap: {
-                                                mapsService.openInGoogleMaps(searchResult: result)
-                                            }
-                                        )
-
-                                        if result.id != searchResults.last?.id {
-                                            Rectangle()
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-                                                .frame(height: 1)
-                                                .padding(.leading, 56)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 12)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 200)
-                    .background(
-                        colorScheme == .dark ?
-                            Color.gmailDarkBackground : Color.white
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
             }
             .frame(maxWidth: .infinity)
         }
         .overlay(
-            // Floating action button
+            // Floating + button
             VStack {
                 Spacer()
                 HStack {
                     Spacer()
                     Button(action: {
-                        loadPopularPlaces()
+                        showSearchModal = true
                     }) {
-                        if isLoadingPopular {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .frame(width: 56, height: 56)
-                                .background(
-                                    Circle()
-                                        .fill(
-                                            colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)
-                                        )
-                                )
-                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
-                                .background(
-                                    Circle()
-                                        .fill(
-                                            colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)
-                                        )
-                                )
-                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        }
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 60, height: 60)
+                            .background(
+                                Circle()
+                                    .fill(
+                                        colorScheme == .dark ?
+                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                                    )
+                            )
+                            .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
                     }
                     .padding(.trailing, 20)
-                    .padding(.bottom, 60)
-                    .disabled(isLoadingPopular)
+                    .padding(.bottom, 80)
                 }
             }
         )
+        .sheet(isPresented: $showSearchModal) {
+            LocationSearchModal()
+        }
         .sheet(isPresented: $showingPlaceDetail) {
             if let place = selectedPlace {
                 PlaceDetailSheet(place: place) {
@@ -316,105 +170,6 @@ struct MapsView: View, Searchable {
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
-        }
-    }
-
-    // MARK: - Actions
-
-    private func performSearch(query: String) {
-        isSearching = true
-
-        Task {
-            do {
-                let results = try await mapsService.searchPlaces(query: query)
-                await MainActor.run {
-                    searchResults = results
-                    isSearching = false
-                }
-            } catch {
-                await MainActor.run {
-                    print("❌ Search failed: \(error)")
-                    searchResults = []
-                    isSearching = false
-                }
-            }
-        }
-    }
-
-    private func savePlace(_ searchResult: PlaceSearchResult) {
-        Task {
-            do {
-                // Get full place details
-                let details = try await mapsService.getPlaceDetails(placeId: searchResult.id)
-
-                // Create SavedPlace
-                var place = details.toSavedPlace(googlePlaceId: searchResult.id)
-
-                // Categorize with AI
-                let category = try await openAIService.categorizeLocation(
-                    name: place.name,
-                    address: place.address,
-                    types: details.types
-                )
-
-                place.category = category
-
-                // Save to manager
-                await MainActor.run {
-                    locationsManager.addPlace(place)
-                }
-
-                print("✅ Place saved: \(place.name) - Category: \(category)")
-            } catch {
-                print("❌ Failed to save place: \(error)")
-            }
-        }
-    }
-
-    private func loadPopularPlaces() {
-        isLoadingPopular = true
-
-        Task {
-            do {
-                let popularPlaces = try await mapsService.getPopularPlaces()
-                await MainActor.run {
-                    searchResults = popularPlaces
-                    isLoadingPopular = false
-                }
-            } catch {
-                await MainActor.run {
-                    print("❌ Failed to load popular places: \(error)")
-                    isLoadingPopular = false
-                }
-            }
-        }
-    }
-
-    private func loadRecentSearches() {
-        // Only load if we don't have recent searches already
-        guard recentSearches.isEmpty else {
-            searchResults = recentSearches
-            return
-        }
-
-        isLoadingRecent = true
-
-        Task {
-            do {
-                let recent = try await mapsService.getMostSearchedPlaces()
-                await MainActor.run {
-                    recentSearches = recent
-                    searchResults = recent
-                    isLoadingRecent = false
-                }
-            } catch {
-                await MainActor.run {
-                    print("❌ Failed to load recent searches: \(error)")
-                    recentSearches = []
-                    searchResults = []
-                    isLoadingRecent = false
-                }
-            }
         }
     }
 

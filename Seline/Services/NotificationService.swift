@@ -43,7 +43,7 @@ class NotificationService: ObservableObject {
 
     // MARK: - Email Notifications
 
-    func scheduleNewEmailNotification(emailCount: Int, latestSender: String?, latestSubject: String?) async {
+    func scheduleNewEmailNotification(emailCount: Int, latestSender: String?, latestSubject: String?, latestEmailId: String?) async {
         // Check if we have authorization
         guard isAuthorized else {
             print("Notification authorization not granted")
@@ -76,8 +76,12 @@ class NotificationService: ObservableObject {
         content.badge = NSNumber(value: emailCount)
         content.categoryIdentifier = "email"
 
-        // Add action buttons
-        content.userInfo = ["type": "new_email", "count": emailCount]
+        // Add action buttons and email ID for deep linking
+        var userInfo: [String: Any] = ["type": "new_email", "count": emailCount]
+        if let emailId = latestEmailId {
+            userInfo["emailId"] = emailId
+        }
+        content.userInfo = userInfo
 
         let request = UNNotificationRequest(
             identifier: "new-email-\(Date().timeIntervalSince1970)",

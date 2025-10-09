@@ -8,7 +8,7 @@ struct SettingsTile<Trailing: View>: View {
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
-        themeManager.getCurrentEffectiveColorScheme(systemColorScheme: colorScheme) == .dark
+        themeManager.getCurrentEffectiveColorScheme() == .dark
     }
 
     init(title: String, @ViewBuilder trailing: @escaping () -> Trailing) {

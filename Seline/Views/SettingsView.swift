@@ -8,12 +8,7 @@ struct SettingsView: View {
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
-        themeManager.getCurrentEffectiveColorScheme(systemColorScheme: colorScheme) == .dark
-    }
-
-    // Check if dark mode toggle should be enabled (only if not system theme)
-    private var isDarkModeToggleEnabled: Bool {
-        themeManager.selectedTheme == .dark
+        themeManager.getCurrentEffectiveColorScheme() == .dark
     }
 
     // Settings states (some are mockup for now)
@@ -42,6 +37,9 @@ struct SettingsView: View {
 
                         // General Settings Section
                         generalSettingsSection
+
+                        // Storage & Cache Section
+                        storageSection
 
                         Spacer(minLength: 50)
 
@@ -112,20 +110,31 @@ struct SettingsView: View {
                 .foregroundColor(isDarkMode ? .white : .black)
 
             VStack(spacing: 16) {
-                // Dark Mode toggle
-                SettingsTile(title: "Dark Mode") {
-                    Toggle("", isOn: Binding(
-                        get: { isDarkModeToggleEnabled },
-                        set: { newValue in
-                            if newValue {
-                                themeManager.setTheme(.dark)
-                            } else {
-                                themeManager.setTheme(.light)
+                // Theme Picker
+                SettingsTile(title: "Appearance") {
+                    Menu {
+                        ForEach(AppTheme.allCases, id: \.self) { theme in
+                            Button {
+                                themeManager.setTheme(theme)
+                            } label: {
+                                HStack {
+                                    Image(systemName: theme.icon)
+                                    Text(theme.displayName)
+                                    if themeManager.selectedTheme == theme {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
                             }
                         }
-                    ))
-                    .labelsHidden()
-                    .tint(Color(red: 0.4, green: 0.4, blue: 0.4))
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: themeManager.selectedTheme.icon)
+                                .font(.system(size: 14))
+                            Text(themeManager.selectedTheme.displayName)
+                                .font(.system(size: 14))
+                        }
+                        .foregroundColor(.gray)
+                    }
                 }
 
                 // Notification toggle
@@ -170,6 +179,55 @@ struct SettingsView: View {
                 .frame(height: 50)
                 .background(isDarkMode ? Color.white : Color.black)
                 .cornerRadius(12)
+        }
+    }
+
+    // MARK: - Storage & Cache Section
+    private var storageSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Section header
+            Text("Storage & Data")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(isDarkMode ? .white : .black)
+
+            VStack(spacing: 16) {
+                // Cache size display
+                SettingsTile(title: "Image Cache") {
+                    HStack(spacing: 8) {
+                        Text(String(format: "%.1f MB", ImageCacheManager.shared.getCacheSize()))
+                            .font(.system(size: 14))
+                            .foregroundColor(isDarkMode ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+                }
+
+                // Clear cache button
+                Button(action: {
+                    ImageCacheManager.shared.clearCache()
+                }) {
+                    HStack {
+                        Image(systemName: "trash")
+                            .font(.system(size: 16))
+                            .foregroundColor(.red)
+
+                        Text("Clear Image Cache")
+                            .font(.system(size: 15))
+                            .foregroundColor(.red)
+
+                        Spacer()
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(isDarkMode ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
+                    )
+                }
+
+                // Info text
+                Text("Clearing cache will free up storage but images will need to be re-downloaded.")
+                    .font(.system(size: 12))
+                    .foregroundColor(isDarkMode ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .padding(.horizontal, 4)
+            }
         }
     }
 

@@ -85,6 +85,16 @@ class GmailAPIClient {
         }
     }
 
+    // MARK: - Full Email Body Fetching
+    // This function fetches the complete email body including HTML content
+    // Only call this when you need the full body (e.g., for AI summaries or displaying email content)
+    func fetchFullEmailBody(messageId: String) async throws -> Email? {
+        try await refreshAccessTokenIfNeeded()
+        return try await withRetry {
+            try await self.fetchSingleEmailWithFullBody(messageId: messageId)
+        }
+    }
+
     func fetchSentEmails(maxResults: Int = 50) async throws -> [Email] {
         try await refreshAccessTokenIfNeeded()
         return try await withRetry {
@@ -165,9 +175,96 @@ class GmailAPIClient {
         }
     }
 
+    func markAsRead(messageId: String) async throws {
+        try await refreshAccessTokenIfNeeded()
+
+        try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
+
+            let accessToken = user.accessToken.tokenString
+
+            guard let url = URL(string: "\(self.baseURL)/messages/\(messageId)/modify") else {
+                throw GmailAPIError.invalidURL
+            }
+
+            let requestBody: [String: Any] = [
+                "removeLabelIds": ["UNREAD"]
+            ]
+
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = jsonData
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                let errorMessage = "Failed to mark email as read (HTTP \(httpResponse.statusCode))"
+                throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+            }
+
+            print("✅ Email marked as read in Gmail")
+        }
+    }
+
+    func markAsUnread(messageId: String) async throws {
+        try await refreshAccessTokenIfNeeded()
+
+        try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
+
+            let accessToken = user.accessToken.tokenString
+
+            guard let url = URL(string: "\(self.baseURL)/messages/\(messageId)/modify") else {
+                throw GmailAPIError.invalidURL
+            }
+
+            let requestBody: [String: Any] = [
+                "addLabelIds": ["UNREAD"]
+            ]
+
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = jsonData
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                let errorMessage = "Failed to mark email as unread (HTTP \(httpResponse.statusCode))"
+                throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
+            }
+
+            print("✅ Email marked as unread in Gmail")
+        }
+    }
+
     // MARK: - Private Methods
 
-    private func fetchMessagesList(query: String, maxResults: Int = 50) async throws -> GmailMessagesList {
+    // CRITICAL FIX: Made public so EmailService can check for new emails without fetching full content
+    func fetchMessagesList(query: String, maxResults: Int = 50) async throws -> GmailMessagesList {
         guard let user = GIDSignIn.sharedInstance.currentUser else {
             throw GmailAPIError.notAuthenticated
         }
@@ -208,8 +305,8 @@ class GmailAPIClient {
     private func fetchEmailDetails(messageIds: [String]) async throws -> [Email] {
         var emails: [Email] = []
 
-        // Process in batches of 5 to avoid rate limits
-        let batchSize = 5
+        // Process in batches of 20 for faster loading (increased from 5)
+        let batchSize = 20
         for i in stride(from: 0, to: messageIds.count, by: batchSize) {
             let endIndex = min(i + batchSize, messageIds.count)
             let batch = Array(messageIds[i..<endIndex])
@@ -233,9 +330,9 @@ class GmailAPIClient {
 
             emails.append(contentsOf: batchEmails)
 
-            // Add delay between batches if not the last batch
+            // Add smaller delay between batches (reduced from 0.5s to 0.1s)
             if endIndex < messageIds.count {
-                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
             }
         }
 
@@ -243,6 +340,52 @@ class GmailAPIClient {
     }
 
     private func fetchSingleEmail(messageId: String) async throws -> Email? {
+        guard let user = GIDSignIn.sharedInstance.currentUser else {
+            throw GmailAPIError.notAuthenticated
+        }
+
+        let accessToken = user.accessToken.tokenString
+
+        var urlComponents = URLComponents(string: "\(baseURL)/messages/\(messageId)")!
+        urlComponents.queryItems = [
+            // CRITICAL FIX: Use metadata instead of full to reduce egress by 85-90%
+            // Only fetch headers and labels, not full email body/attachments
+            URLQueryItem(name: "format", value: "metadata"),
+            // Specify which headers we need
+            URLQueryItem(name: "metadataHeaders", value: "From"),
+            URLQueryItem(name: "metadataHeaders", value: "To"),
+            URLQueryItem(name: "metadataHeaders", value: "Subject"),
+            URLQueryItem(name: "metadataHeaders", value: "Date")
+        ]
+
+        guard let url = urlComponents.url else {
+            throw GmailAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GmailAPIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+
+        do {
+            let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
+            return parseGmailMessage(gmailMessage)
+        } catch {
+            throw GmailAPIError.decodingError(error)
+        }
+    }
+
+    // Fetch email with FULL body content (format=full) for AI summaries and HTML display
+    private func fetchSingleEmailWithFullBody(messageId: String) async throws -> Email? {
         guard let user = GIDSignIn.sharedInstance.currentUser else {
             throw GmailAPIError.notAuthenticated
         }

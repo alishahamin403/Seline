@@ -12,12 +12,46 @@ class AuthenticationManager: ObservableObject {
     @Published var supabaseUser: User?
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var showLocationSetup = false
 
     private let supabaseManager = SupabaseManager.shared
 
     private init() {
-        // For now, just initialize without auth state listener
-        // We'll add Supabase integration once Google Sign-In works
+        // Check for existing session on init
+        Task {
+            await checkExistingSession()
+        }
+    }
+
+    func checkExistingSession() async {
+        do {
+            // Try to get current session from Supabase
+            let session = try await supabaseManager.authClient.session
+
+            // If we have a valid session, restore authentication state
+            self.supabaseUser = session.user
+            self.isAuthenticated = true
+
+            // Try to restore Google Sign-In state
+            GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
+                Task { @MainActor in
+                    if let user = user {
+                        self?.currentUser = user
+                    }
+                }
+            }
+
+            print("✅ Session restored for user: \(session.user.email ?? "unknown")")
+
+            // Sync tasks and notes from Supabase
+            await TaskManager.shared.syncTasksOnLogin()
+            await NotesManager.shared.syncNotesOnLogin()
+
+        } catch {
+            // No valid session found, user needs to sign in
+            print("No existing session found: \(error.localizedDescription)")
+            self.isAuthenticated = false
+        }
     }
 
     func signInWithGoogle() async {
@@ -70,6 +104,12 @@ class AuthenticationManager: ObservableObject {
             Task {
                 await TaskManager.shared.syncTasksOnLogin()
                 await NotesManager.shared.syncNotesOnLogin()
+                await LocationsManager.shared.syncPlacesOnLogin()
+            }
+
+            // Check if first-time setup is needed
+            Task {
+                await checkFirstTimeSetup()
             }
 
         } catch {
@@ -78,6 +118,19 @@ class AuthenticationManager: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    private func checkFirstTimeSetup() async {
+        do {
+            let preferences = try await supabaseManager.loadLocationPreferences()
+            if preferences.isFirstTimeSetup {
+                self.showLocationSetup = true
+            }
+        } catch {
+            print("❌ Failed to check first-time setup: \(error)")
+            // If we can't load preferences, assume first-time and show setup
+            self.showLocationSetup = true
+        }
     }
 
     func signOut() async {
@@ -106,8 +159,16 @@ class AuthenticationManager: ObservableObject {
     }
 
     func refreshSession() async {
-        // TODO: Implement session refresh with Supabase
-        print("Session refresh not yet implemented")
+        do {
+            // Refresh the session with Supabase
+            let session = try await supabaseManager.authClient.session
+            self.supabaseUser = session.user
+            self.isAuthenticated = true
+            print("✅ Session refreshed successfully")
+        } catch {
+            print("❌ Failed to refresh session: \(error.localizedDescription)")
+            self.isAuthenticated = false
+        }
     }
 }
 

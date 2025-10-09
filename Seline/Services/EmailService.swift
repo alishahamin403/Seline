@@ -22,7 +22,7 @@ class EmailService: ObservableObject {
     // Cache management
     private var cacheTimestamps: [EmailFolder: Date] = [:]
     private let cacheExpirationTime: TimeInterval = 604800 // 7 days for longer persistence
-    private let newEmailCheckInterval: TimeInterval = 120 // 2 minutes for more frequent checks
+    private let newEmailCheckInterval: TimeInterval = 300 // 5 minutes for near real-time notifications (Gmail API - no Supabase egress!)
 
     // Persistent cache keys
     private enum CacheKeys {
@@ -38,6 +38,7 @@ class EmailService: ObservableObject {
 
     // New email checking
     private var newEmailTimer: Timer?
+    private var isAppActive = false // Track if app is in foreground
 
     private let authManager = AuthenticationManager.shared
     private let gmailAPIClient = GmailAPIClient.shared
@@ -46,7 +47,8 @@ class EmailService: ObservableObject {
 
     private init() {
         loadCachedData()
-        startNewEmailPolling()
+        // Don't start polling on init - only when app becomes active
+        setupAppLifecycleObservers()
     }
 
     deinit {
@@ -58,12 +60,9 @@ class EmailService: ObservableObject {
     }
 
     func loadTodaysEmails() async {
-        // Load sequentially to avoid rate limits
+        // CRITICAL FIX: Only load inbox on app start, not sent
+        // Sent emails only load when user navigates to sent tab (on-demand)
         await loadEmailsForFolder(.inbox)
-
-        // Add delay to respect rate limits
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-        await loadEmailsForFolder(.sent)
     }
 
     func loadEmailsForFolder(_ folder: EmailFolder, forceRefresh: Bool = false) async {
@@ -85,9 +84,11 @@ class EmailService: ObservableObject {
 
                 switch folder {
                 case .inbox:
-                    emails = try await gmailAPIClient.fetchInboxEmails(maxResults: 100)
+                    // Fetch recent 10 emails (Gmail API - doesn't count toward Supabase egress)
+                    emails = try await gmailAPIClient.fetchInboxEmails(maxResults: 10)
                 case .sent:
-                    emails = try await gmailAPIClient.fetchSentEmails(maxResults: 100)
+                    // Fetch recent 10 emails (Gmail API - doesn't count toward Supabase egress)
+                    emails = try await gmailAPIClient.fetchSentEmails(maxResults: 10)
                 default:
                     // For other folders, we can extend this later
                     emails = []
@@ -141,8 +142,8 @@ class EmailService: ObservableObject {
         isSearching = true
 
         do {
-            // Use Gmail API search
-            let emails = try await gmailAPIClient.searchEmails(query: query, maxResults: 50)
+            // Use Gmail API search (doesn't count toward Supabase egress)
+            let emails = try await gmailAPIClient.searchEmails(query: query, maxResults: 15)
             let todaysEmails = filterTodaysEmails(emails)
             searchResults = todaysEmails
         } catch {
@@ -455,6 +456,17 @@ class EmailService: ObservableObject {
 
         // Only save and update if something actually changed
         if wasUpdated {
+            // Mark as read in Gmail
+            if let gmailMessageId = email.gmailMessageId {
+                Task {
+                    do {
+                        try await GmailAPIClient.shared.markAsRead(messageId: gmailMessageId)
+                    } catch {
+                        print("❌ Failed to mark email as read in Gmail: \(error)")
+                    }
+                }
+            }
+
             // Save updated data to persistent cache
             saveCachedData(for: .inbox)
             saveCachedData(for: .sent)
@@ -529,6 +541,21 @@ class EmailService: ObservableObject {
         }
 
         if wasUpdated {
+            // Mark as unread in Gmail
+            if let gmailMessageId = email.gmailMessageId {
+                Task {
+                    do {
+                        try await GmailAPIClient.shared.markAsUnread(messageId: gmailMessageId)
+                    } catch {
+                        print("❌ Failed to mark email as unread in Gmail: \(error)")
+                    }
+                }
+            }
+
+            // Save updated data to persistent cache
+            saveCachedData(for: .inbox)
+            saveCachedData(for: .sent)
+
             Task {
                 // Update app badge with new unread count
                 let unreadCount = inboxEmails.filter { !$0.isRead }.count
@@ -636,15 +663,72 @@ class EmailService: ObservableObject {
         print("✅ Finished pre-loading AI summaries")
     }
 
-    // MARK: - New Email Polling
+    // MARK: - App Lifecycle Management
+
+    private func setupAppLifecycleObservers() {
+        // Observe when app becomes active
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
+        // Observe when app goes to background
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    @objc private func appDidBecomeActive() {
+        print("📧 EmailService: App became active")
+        isAppActive = true
+
+        // Fetch emails when app opens
+        Task { @MainActor in
+            await loadTodaysEmails()
+        }
+
+        // Start 6-hour background polling
+        startNewEmailPolling()
+    }
+
+    @objc private func appDidEnterBackground() {
+        print("📧 EmailService: App entered background - stopping email polling")
+        isAppActive = false
+        stopNewEmailPolling()
+    }
+
+    // MARK: - New Email Polling (Only when app is active)
 
     private func startNewEmailPolling() {
+        // Only start if app is active
+        guard isAppActive else {
+            print("⚠️ EmailService: Not starting polling - app is not active")
+            return
+        }
+
         newEmailTimer?.invalidate()
         newEmailTimer = Timer.scheduledTimer(withTimeInterval: newEmailCheckInterval, repeats: true) { _ in
             Task { @MainActor in
+                // Only check if app is still active
+                guard self.isAppActive else {
+                    print("⚠️ EmailService: Skipping email check - app is not active")
+                    return
+                }
                 await self.checkForNewEmails()
             }
         }
+        print("✅ EmailService: Email polling started (interval: \(newEmailCheckInterval)s)")
+    }
+
+    private func stopNewEmailPolling() {
+        newEmailTimer?.invalidate()
+        newEmailTimer = nil
+        print("🛑 EmailService: Email polling stopped")
     }
 
     private func showNewEmailNotification(newEmails: [Email]) async {
@@ -654,7 +738,8 @@ class EmailService: ObservableObject {
         await notificationService.scheduleNewEmailNotification(
             emailCount: newEmails.count,
             latestSender: latestEmail?.sender.displayName,
-            latestSubject: latestEmail?.subject
+            latestSubject: latestEmail?.subject,
+            latestEmailId: latestEmail?.id
         )
 
         // Update app badge with total unread count
@@ -663,32 +748,36 @@ class EmailService: ObservableObject {
     }
 
     private func checkForNewEmails() async {
+        // CRITICAL FIX: Only check for new email COUNT, don't fetch content
+        // User must manually refresh to actually load new emails
+
         // Only check for new emails if we have cached data
         guard !inboxEmails.isEmpty else { return }
 
-        // Quick check for new emails in inbox only
         do {
-            let latestEmails = try await gmailAPIClient.fetchInboxEmails(maxResults: 10)
-            let todaysLatest = filterTodaysEmails(latestEmails)
+            // Just check message list count, don't fetch full emails
+            let messageList = try await gmailAPIClient.fetchMessagesList(query: "in:inbox", maxResults: 3)
+            let messageIds = messageList.messages?.map { $0.id } ?? []
 
-            // Check if we have any new emails that aren't in our current list
-            let newEmails = todaysLatest.filter { newEmail in
+            // Check if we have any new message IDs that aren't in our current list
+            let newMessageIds = messageIds.filter { newId in
                 !inboxEmails.contains { existingEmail in
-                    existingEmail.id == newEmail.id
+                    existingEmail.id == newId
                 }
             }
 
-            if !newEmails.isEmpty {
-                // Prepend new emails to the existing list
-                inboxEmails = (newEmails + inboxEmails).sorted { $0.timestamp > $1.timestamp }
+            if !newMessageIds.isEmpty {
+                // Show notification for new emails WITHOUT fetching content
+                // Create minimal notification without full email data
+                print("📧 Detected \(newMessageIds.count) new emails - user must refresh to load")
 
-                // Save updated cache
-                saveCachedData(for: .inbox)
-
-                // Show notification for new emails
-                await showNewEmailNotification(newEmails: newEmails)
-
-                print("📧 Found \(newEmails.count) new emails")
+                // Show generic notification (no email ID since we don't fetch full content)
+                await notificationService.scheduleNewEmailNotification(
+                    emailCount: newMessageIds.count,
+                    latestSender: nil,
+                    latestSubject: "New email(s) received",
+                    latestEmailId: nil
+                )
             }
         } catch {
             print("Error checking for new emails: \(error)")

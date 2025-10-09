@@ -23,32 +23,33 @@ struct NoteRow: View {
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
 
-                        if !note.imageAttachments.isEmpty {
+                        if !note.imageUrls.isEmpty {
                             Image(systemName: "paperclip")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
 
                         Text(note.title)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .lineLimit(1)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     // Note preview or date/folder info
                     HStack(spacing: 8) {
                         Text(note.formattedDateModified)
-                            .font(.system(size: 13, weight: .regular))
+                            .font(.system(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                         if let folderId = note.folderId {
                             Text("•")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.system(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
                             Text(notesManager.getFolderName(for: folderId))
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.system(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                         }
 
@@ -63,18 +64,18 @@ struct NoteRow: View {
                     onPinToggle(note)
                 }) {
                     Image(systemName: note.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(
                             note.isPinned ?
                                 (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :
                                 (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         )
-                        .frame(width: 20, height: 20)
+                        .frame(width: 18, height: 18)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())

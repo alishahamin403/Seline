@@ -182,6 +182,7 @@ enum WeekDay: String, CaseIterable, Identifiable, Codable {
 struct TaskItem: Identifiable, Codable, Equatable {
     var id: String
     var title: String
+    var description: String? // Optional description field for additional event details
     var isCompleted: Bool
     var completedDate: Date?
     let weekday: WeekDay
@@ -195,9 +196,10 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var reminderTime: ReminderTime? // When to remind the user
     var isDeleted: Bool = false // Flag for soft deletion when Supabase deletion fails
 
-    init(title: String, weekday: WeekDay, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, parentRecurringTaskId: String? = nil) {
+    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, parentRecurringTaskId: String? = nil) {
         self.id = UUID().uuidString
         self.title = title
+        self.description = description
         self.isCompleted = false
         self.completedDate = nil
         self.weekday = weekday
@@ -252,7 +254,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func addTask(title: String, to weekday: WeekDay, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil) {
+    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // Use provided target date, or default to the current week's date for this weekday
@@ -260,6 +262,7 @@ class TaskManager: ObservableObject {
         let newTask = TaskItem(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             weekday: weekday,
+            description: description,
             scheduledTime: scheduledTime,
             targetDate: finalTargetDate,
             reminderTime: reminderTime,
@@ -896,8 +899,8 @@ class TaskManager: ObservableObject {
         switch frequency {
         case .daily:
             // Daily tasks appear every day (not just the original weekday)
-            // Check if the task should appear on this date regardless of weekday
-            return targetDate >= startDate
+            // Simply check if we're on or after the start date
+            return daysDifference >= 0
         case .weekly:
             // Weekly tasks appear on the same weekday every week
             let taskWeekdayComponent = calendar.component(.weekday, from: date)
@@ -1211,7 +1214,10 @@ class TaskManager: ObservableObject {
             return nil
         }
 
-        var taskItem = TaskItem(title: title, weekday: weekday)
+        // Parse description
+        let description = taskDict["description"] as? String
+
+        var taskItem = TaskItem(title: title, weekday: weekday, description: description)
         taskItem.id = id
         taskItem.isCompleted = isCompleted
         taskItem.createdAt = createdAt
@@ -1260,12 +1266,15 @@ class TaskManager: ObservableObject {
     private func saveTaskToSupabase(_ task: TaskItem) async {
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
+            print("⚠️ Cannot save task to Supabase: User not authenticated")
             return
         }
 
         do {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
             let client = await supabaseManager.getPostgrestClient()
+
+            print("💾 Saving task to Supabase: '\(task.title)' - Recurring: \(task.isRecurring), Frequency: \(task.recurrenceFrequency?.rawValue ?? "none")")
 
             try await client
                 .from("tasks")
@@ -1339,6 +1348,12 @@ class TaskManager: ObservableObject {
             "is_recurring": AnyJSON.bool(task.isRecurring)
             // Note: is_deleted column doesn't exist in Supabase yet, so we don't sync it
         ]
+
+        if let description = task.description {
+            taskData["description"] = AnyJSON.string(description)
+        } else {
+            taskData["description"] = AnyJSON.null
+        }
 
         if let completedDate = task.completedDate {
             taskData["completed_date"] = AnyJSON.string(formatter.string(from: completedDate))

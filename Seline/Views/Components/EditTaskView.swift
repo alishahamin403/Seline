@@ -8,6 +8,7 @@ struct EditTaskView: View {
     let onDeleteRecurringSeries: ((TaskItem) -> Void)?
 
     @State private var title: String
+    @State private var description: String
     @State private var selectedDate: Date
     @State private var hasTime: Bool
     @State private var selectedTime: Date
@@ -28,6 +29,7 @@ struct EditTaskView: View {
         self.onDeleteRecurringSeries = onDeleteRecurringSeries
 
         _title = State(initialValue: task.title)
+        _description = State(initialValue: task.description ?? "")
         _selectedDate = State(initialValue: task.targetDate ?? task.weekday.dateForCurrentWeek())
         _hasTime = State(initialValue: task.scheduledTime != nil)
         _selectedTime = State(initialValue: task.scheduledTime ?? Date())
@@ -54,6 +56,28 @@ struct EditTaskView: View {
                         .foregroundColor(Color.shadcnForeground(colorScheme))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                        )
+                }
+
+                // Description Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Description (Optional)")
+                        .font(.shadcnTextSm)
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                    TextField("Add additional details...", text: $description, axis: .vertical)
+                        .font(.shadcnTextBase)
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .lineLimit(3...6)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
@@ -236,12 +260,15 @@ struct EditTaskView: View {
 
                     Button("Save") {
                         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
                         let timeToSave = hasTime ? selectedTime : nil
                         let reminderToSave = selectedReminder == .none ? nil : selectedReminder
 
                         var updatedTask = TaskItem(
                             title: trimmedTitle,
                             weekday: task.weekday,
+                            description: descriptionToSave,
                             scheduledTime: timeToSave,
                             targetDate: selectedDate,
                             reminderTime: reminderToSave,
@@ -279,6 +306,7 @@ struct EditTaskView: View {
         )
         .navigationTitle("Edit Event")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
@@ -289,6 +317,7 @@ struct EditTaskView: View {
                     }
                 }) {
                     Image(systemName: "trash")
+                        .font(.system(size: 16))
                         .foregroundColor(.red)
                 }
             }

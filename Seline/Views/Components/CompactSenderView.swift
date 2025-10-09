@@ -302,7 +302,7 @@ struct CompactSenderView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .fill(colorScheme == .dark ? Color.black : Color.white)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
         )
         .shadow(
             color: colorScheme == .dark ? .clear : .gray.opacity(0.15),

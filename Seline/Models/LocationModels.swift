@@ -1,13 +1,15 @@
 import Foundation
 import SwiftUI
 import PostgREST
+import CoreLocation
 
 // MARK: - Location Models
 
 struct SavedPlace: Identifiable, Codable, Hashable {
     var id: UUID
     var googlePlaceId: String
-    var name: String
+    var name: String // Original Google Maps name
+    var customName: String? // User's custom name/title
     var address: String
     var phone: String?
     var latitude: Double
@@ -22,6 +24,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.id = UUID()
         self.googlePlaceId = googlePlaceId
         self.name = name
+        self.customName = nil
         self.address = address
         self.phone = phone
         self.latitude = latitude
@@ -31,6 +34,11 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.rating = rating
         self.dateCreated = Date()
         self.dateModified = Date()
+    }
+
+    // Display name - shows custom name if set, otherwise original name
+    var displayName: String {
+        return customName ?? name
     }
 
     var formattedAddress: String {
@@ -80,14 +88,55 @@ class LocationsManager: ObservableObject {
     @Published var categories: Set<String> = []
 
     private let placesKey = "SavedPlaces"
+    private let searchHistoryKey = "MapsSearchHistory"
     private let authManager = AuthenticationManager.shared
 
     private init() {
         loadSavedPlaces()
+        loadSearchHistory()
 
         // Load places from Supabase if user is authenticated
         Task {
             await loadPlacesFromSupabase()
+        }
+    }
+
+    // MARK: - Search History Management
+
+    func addToSearchHistory(_ result: PlaceSearchResult) {
+        // Remove if already exists to avoid duplicates
+        searchHistory.removeAll { $0.id == result.id }
+
+        // Add to beginning (most recent first)
+        searchHistory.insert(result, at: 0)
+
+        // Keep only last 50 searches
+        if searchHistory.count > 50 {
+            searchHistory = Array(searchHistory.prefix(50))
+        }
+
+        saveSearchHistory()
+    }
+
+    func getRecentSearches(limit: Int = 10) -> [PlaceSearchResult] {
+        return Array(searchHistory.prefix(limit))
+    }
+
+    func clearSearchHistory() {
+        searchHistory.removeAll()
+        saveSearchHistory()
+    }
+
+    private func saveSearchHistory() {
+        if let encoded = try? JSONEncoder().encode(searchHistory) {
+            UserDefaults.standard.set(encoded, forKey: searchHistoryKey)
+        }
+    }
+
+    private func loadSearchHistory() {
+        if let data = UserDefaults.standard.data(forKey: searchHistoryKey),
+           let decoded = try? JSONDecoder().decode([PlaceSearchResult].self, from: data) {
+            searchHistory = decoded
         }
     }
 
@@ -200,6 +249,7 @@ class LocationsManager: ObservableObject {
             "user_id": .string(userId.uuidString),
             "google_place_id": .string(place.googlePlaceId),
             "name": .string(place.name),
+            "custom_name": place.customName != nil ? .string(place.customName!) : .null,
             "address": .string(place.address),
             "phone": place.phone != nil ? .string(place.phone!) : .null,
             "latitude": .double(place.latitude),
@@ -233,6 +283,7 @@ class LocationsManager: ObservableObject {
         let formatter = ISO8601DateFormatter()
         let placeData: [String: PostgREST.AnyJSON] = [
             "name": .string(place.name),
+            "custom_name": place.customName != nil ? .string(place.customName!) : .null,
             "address": .string(place.address),
             "phone": place.phone != nil ? .string(place.phone!) : .null,
             "latitude": .double(place.latitude),
@@ -365,6 +416,7 @@ class LocationsManager: ObservableObject {
             rating: data.rating
         )
         place.id = id
+        place.customName = data.custom_name
         place.category = data.category
         place.dateCreated = dateCreated
         place.dateModified = dateModified
@@ -378,6 +430,47 @@ class LocationsManager: ObservableObject {
     }
 }
 
+// MARK: - User Location Preferences
+
+struct UserLocationPreferences: Codable {
+    var location1Address: String?
+    var location1Latitude: Double?
+    var location1Longitude: Double?
+    var location1Icon: String?
+    var location2Address: String?
+    var location2Latitude: Double?
+    var location2Longitude: Double?
+    var location2Icon: String?
+    var location3Address: String?
+    var location3Latitude: Double?
+    var location3Longitude: Double?
+    var location3Icon: String?
+    var isFirstTimeSetup: Bool
+
+    // Computed properties for coordinates
+    var location1Coordinate: CLLocationCoordinate2D? {
+        guard let lat = location1Latitude, let lon = location1Longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    var location2Coordinate: CLLocationCoordinate2D? {
+        guard let lat = location2Latitude, let lon = location2Longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    var location3Coordinate: CLLocationCoordinate2D? {
+        guard let lat = location3Latitude, let lon = location3Longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    init() {
+        self.isFirstTimeSetup = true
+        self.location1Icon = "house.fill"
+        self.location2Icon = "briefcase.fill"
+        self.location3Icon = "fork.knife"
+    }
+}
+
 // MARK: - Supabase Data Structures
 
 struct PlaceSupabaseData: Codable {
@@ -385,6 +478,7 @@ struct PlaceSupabaseData: Codable {
     let user_id: String
     let google_place_id: String
     let name: String
+    let custom_name: String?
     let address: String
     let phone: String?
     let latitude: Double
@@ -394,4 +488,41 @@ struct PlaceSupabaseData: Codable {
     let rating: Double?
     let date_created: String
     let date_modified: String
+}
+
+struct UserProfileSupabaseData: Codable {
+    let id: String
+    let email: String?
+    let full_name: String?
+    let location1_address: String?
+    let location1_latitude: Double?
+    let location1_longitude: Double?
+    let location1_icon: String?
+    let location2_address: String?
+    let location2_latitude: Double?
+    let location2_longitude: Double?
+    let location2_icon: String?
+    let location3_address: String?
+    let location3_latitude: Double?
+    let location3_longitude: Double?
+    let location3_icon: String?
+    let is_first_time_setup: Bool?
+
+    func toLocationPreferences() -> UserLocationPreferences {
+        var prefs = UserLocationPreferences()
+        prefs.location1Address = location1_address
+        prefs.location1Latitude = location1_latitude
+        prefs.location1Longitude = location1_longitude
+        prefs.location1Icon = location1_icon ?? "house.fill"
+        prefs.location2Address = location2_address
+        prefs.location2Latitude = location2_latitude
+        prefs.location2Longitude = location2_longitude
+        prefs.location2Icon = location2_icon ?? "briefcase.fill"
+        prefs.location3Address = location3_address
+        prefs.location3Latitude = location3_latitude
+        prefs.location3Longitude = location3_longitude
+        prefs.location3Icon = location3_icon ?? "fork.knife"
+        prefs.isFirstTimeSetup = is_first_time_setup ?? true
+        return prefs
+    }
 }

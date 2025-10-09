@@ -7,26 +7,27 @@ struct HeaderSection: View {
     @State private var showingSettings = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Motivational greeting with user's name
+        ZStack {
+            // Centered user name
             MotivationalGreeting()
                 .environmentObject(authManager)
 
-            Spacer()
+            // Settings icon on the right
+            HStack {
+                Spacer()
 
-            // Settings icon on the right with some padding
-            Button(action: {
-                showingSettings = true
-            }) {
-                Image(systemName: "person.circle")
-                    .font(FontManager.geist(size: 24, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                Button(action: {
+                    showingSettings = true
+                }) {
+                    Image(systemName: "person.circle")
+                        .font(FontManager.geist(size: 24, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
-            .padding(.leading, 16)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .background(
             colorScheme == .dark ? Color.gmailDarkBackground : Color.white
         )

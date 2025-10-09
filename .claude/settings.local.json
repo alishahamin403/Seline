@@ -84,7 +84,19 @@
       "Bash(__NEW_LINE__ sips -z 500 500 \"/Users/alishahamin/Downloads/Seline Icon Light.png\" --out seline-logo-light.png)",
       "Bash(__NEW_LINE__ sips -z 1000 1000 \"/Users/alishahamin/Downloads/Seline Icon Light.png\" --out seline-logo-light@2x.png)",
       "Bash(__NEW_LINE__ sips -z 1500 1500 \"/Users/alishahamin/Downloads/Seline Icon Light.png\" --out seline-logo-light@3x.png)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "WebFetch(domain:zenquotes.io)",
+      "Bash(awk:*)",
+      "Bash(git reset:*)",
+      "WebFetch(domain:newsapi.org)",
+      "Bash(cp:*)",
+      "Bash(file=\"Screenshot 2025-10-04 at 3.18.54 PM.png\")",
+      "Bash(qlmanage:*)",
+      "WebFetch(domain:api.open-meteo.com)",
+      "mcp__supabase-db__get_logs",
+      "Bash(xcrun simctl spawn:*)",
+      "mcp__supabase-db__get_advisors",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

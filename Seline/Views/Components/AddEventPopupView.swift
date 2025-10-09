@@ -2,9 +2,10 @@ import SwiftUI
 
 struct AddEventPopupView: View {
     @Binding var isPresented: Bool
-    let onSave: (String, Date, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void
+    let onSave: (String, String?, Date, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void
 
     @State private var title: String = ""
+    @State private var description: String = ""
     @State private var selectedDate: Date = Date()
     @State private var hasTime: Bool = false
     @State private var selectedTime: Date = Date()
@@ -85,6 +86,24 @@ struct AddEventPopupView: View {
                                         )
                                 )
                                 .focused($isTitleFocused)
+                        }
+
+                        // Description Input
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Description (Optional)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                            TextField("Add additional details...", text: $description, axis: .vertical)
+                                .font(.system(size: 15))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .lineLimit(3...6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
+                                )
                         }
 
                         // Date & Time
@@ -202,11 +221,14 @@ struct AddEventPopupView: View {
 
                     Button("Create") {
                         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
                         let timeToSave = hasTime ? selectedTime : nil
                         let reminderToSave = selectedReminder == .none ? nil : selectedReminder
 
                         onSave(
                             trimmedTitle,
+                            descriptionToSave,
                             selectedDate,
                             timeToSave,
                             reminderToSave,
@@ -238,7 +260,7 @@ struct AddEventPopupView: View {
                 )
             }
             .frame(maxWidth: min(UIScreen.main.bounds.width - 32, 480))
-            .frame(maxHeight: min(UIScreen.main.bounds.height * 0.8, 600))
+            .frame(height: min(UIScreen.main.bounds.height * 0.85, 700))
             .background(
                 // Glassy background effect
                 ZStack {
@@ -288,8 +310,8 @@ struct AddEventPopupView: View {
 
         AddEventPopupView(
             isPresented: .constant(true),
-            onSave: { title, date, time, reminder, recurring, frequency in
-                print("Created: \(title)")
+            onSave: { title, description, date, time, reminder, recurring, frequency in
+                print("Created: \(title), Description: \(description ?? "None")")
             }
         )
     }

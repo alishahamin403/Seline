@@ -8,69 +8,129 @@ struct EmailCategorySection: View {
     let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
 
+    // Computed properties for colors
+    private var iconColor: Color {
+        colorScheme == .dark ? Color.white : Color(red: 0.20, green: 0.34, blue: 0.40)
+    }
+
+    private var subtitleColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)
+    }
+
+    private var badgeColor: Color {
+        colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40)
+    }
+
+    private var headerBackground: Color {
+        Color.clear
+    }
+
+    private var cardBackground: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+    }
+
+    private var strokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+    }
+
+    private var shadowColor: Color {
+        colorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.05)
+    }
+
+    private var dividerColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1)
+    }
+
+    private var emptyTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Section header - matching home page style with count badge
-            Button(action: {
+            // Card header with title and count
+            cardHeader
+
+            // Email list - collapsible
+            if isExpanded {
                 if section.emailCount > 0 {
+                    emailList
+                } else {
+                    emptyState
+                }
+            }
+        }
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: shadowColor, radius: 8, x: 0, y: 2)
+    }
+
+    private var cardHeader: some View {
+        HStack(spacing: 12) {
+            Text(section.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+
+            Spacer()
+
+            // Count badge - clickable to expand/collapse
+            if section.emailCount > 0 {
+                Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         isExpanded.toggle()
                     }
+                }) {
+                    countBadge
                 }
-            }) {
-                HStack {
-                    Text(section.title.uppercased())
-                        .font(.system(size: 23, weight: .regular))
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                    Spacer()
-
-                    // Count badge - matching home page style
-                    if section.emailCount > 0 {
-                        Text("\(section.emailCount)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .white)
-                            .frame(width: 20, height: 20)
-                            .background(
-                                Circle()
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40))
-                            )
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
-            .padding(.vertical, 12)
-            .disabled(section.emailCount == 0)
-
-            // Email list
-            if isExpanded {
-                LazyVStack(spacing: 0) {
-                    ForEach(section.emails) { email in
-                        Button(action: {
-                            onEmailTap(email)
-                        }) {
-                            EmailRow(
-                                email: email,
-                                onDelete: onDeleteEmail,
-                                onMarkAsUnread: onMarkAsUnread
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                }
-                .transition(.asymmetric(
-                    insertion: .move(edge: .top).combined(with: .opacity),
-                    removal: .move(edge: .top).combined(with: .opacity)
-                ))
-            }
-
-            // Separator line - always show (whether expanded or collapsed)
-            Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                .frame(height: 1)
-                .padding(.top, isExpanded ? 8 : 0)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(headerBackground)
+    }
+
+    private var countBadge: some View {
+        Text("\(section.emailCount)")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(.white)
+            .frame(minWidth: 18, minHeight: 18)
+            .padding(.horizontal, 5)
+            .background(Capsule().fill(badgeColor))
+    }
+
+    private var emailList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(section.emails.enumerated()), id: \.element.id) { index, email in
+                emailRowButton(email: email)
+            }
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+
+    private func emailRowButton(email: Email) -> some View {
+        Button(action: {
+            HapticManager.shared.email()
+            onEmailTap(email)
+        }) {
+            EmailRow(
+                email: email,
+                onDelete: onDeleteEmail,
+                onMarkAsUnread: onMarkAsUnread
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var emptyState: some View {
+        HStack {
+            Spacer()
+            Text("No emails")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(emptyTextColor)
+            Spacer()
+        }
+        .padding(.vertical, 20)
     }
 }
 

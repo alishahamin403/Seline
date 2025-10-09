@@ -1,0 +1,10 @@
+import Foundation
+
+// INSTRUCTIONS:
+// 1. Copy this file and rename it to "Config.swift"
+// 2. Replace "YOUR_OPENAI_API_KEY_HERE" with your actual OpenAI API key
+// 3. Config.swift is gitignored and will not be committed to the repository
+
+struct Config {
+    static let openAIAPIKey = "YOUR_OPENAI_API_KEY_HERE"
+}

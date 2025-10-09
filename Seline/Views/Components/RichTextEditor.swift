@@ -12,14 +12,21 @@ struct FormattableTextEditor: UIViewRepresentable {
         let textView = CustomTextView()
         textView.delegate = context.coordinator
         textView.backgroundColor = .clear
+        // CRITICAL FIX: Disable internal scrolling - let outer ScrollView handle it
         textView.isScrollEnabled = false
-        textView.textContainerInset = UIEdgeInsets(top: 0, left: 32, bottom: 0, right: 32)
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         textView.coordinator = context.coordinator
+        textView.textAlignment = .left
+        textView.isEditable = true
+        textView.isUserInteractionEnabled = true
 
         // Configure text container for proper wrapping
         textView.textContainer.lineBreakMode = .byWordWrapping
-        // Set explicit width for wrapping (screen width minus horizontal padding)
-        textView.textContainer.size.width = UIScreen.main.bounds.width - 128
+        textView.textContainer.widthTracksTextView = true
+        textView.textContainer.lineFragmentPadding = 0
+
+        // Ensure the text view expands to fill available width
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         // Set initial attributed text with default attributes
         let mutableAttrString = NSMutableAttributedString(attributedString: attributedText)
@@ -60,6 +67,16 @@ struct FormattableTextEditor: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: CustomTextView, context: Context) -> CGSize? {
+        // Use the proposed width to constrain the text view
+        if let width = proposal.width {
+            uiView.frame.size.width = width
+            let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            return CGSize(width: width, height: size.height)
+        }
+        return nil
     }
 
     class Coordinator: NSObject, UITextViewDelegate {

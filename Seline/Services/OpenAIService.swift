@@ -1,22 +1,11 @@
 import Foundation
+import UIKit
 
 class OpenAIService: ObservableObject {
     static let shared = OpenAIService()
 
-    // API key loaded from environment or stored securely
-    // Set OPENAI_API_KEY in your environment or update this to use secure storage
-    private let apiKey: String = {
-        // Try to load from environment variable first
-        if let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !envKey.isEmpty {
-            return envKey
-        }
-        // Fallback to UserDefaults (you should set this in Settings)
-        if let storedKey = UserDefaults.standard.string(forKey: "openai_api_key"), !storedKey.isEmpty {
-            return storedKey
-        }
-        // TODO: Set your API key in Settings or as environment variable
-        return ""
-    }()
+    // API key loaded from Config.swift (not committed to git)
+    private let apiKey = Config.openAIAPIKey
     private let baseURL = "https://api.openai.com/v1/chat/completions"
 
     // Rate limiting properties
@@ -816,6 +805,239 @@ class OpenAIService: ObservableObject {
         } catch {
             throw SummaryError.networkError(error)
         }
+    }
+
+    // MARK: - Note Title Generation
+
+    func generateNoteTitle(from content: String) async throws -> String {
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        // Truncate content if too long
+        let maxContentLength = 2000
+        let truncatedContent = content.count > maxContentLength ? String(content.prefix(maxContentLength)) + "..." : content
+
+        let systemPrompt = """
+        Generate a concise, descriptive title (3-6 words) for this note content.
+        - Capture the main topic or theme
+        - Use title case
+        - Be specific but brief
+        - No quotes or special formatting
+        - Return ONLY the title, nothing else
+        """
+
+        let userPrompt = """
+        Generate a title for this note:
+
+        \(truncatedContent)
+
+        Title:
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userPrompt]
+            ],
+            "max_tokens": 20,
+            "temperature": 0.3
+        ]
+
+        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+    }
+
+    // MARK: - Location Categorization
+
+    func categorizeLocation(name: String, address: String, types: [String]) async throws -> String {
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        let typesString = types.joined(separator: ", ")
+
+        let systemPrompt = """
+        You are a helpful assistant that categorizes locations into clear, user-friendly categories.
+        - Choose ONE specific category that best describes this place
+        - Use simple, common category names (e.g., "Restaurants", "Coffee Shops", "Shopping", "Healthcare")
+        - Be specific but not overly detailed (e.g., "Italian Restaurant" -> "Restaurants")
+        - Return ONLY the category name, nothing else
+        """
+
+        let userPrompt = """
+        Categorize this location:
+
+        Name: \(name)
+        Address: \(address)
+        Place Types: \(typesString)
+
+        Category:
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userPrompt]
+            ],
+            "max_tokens": 20,
+            "temperature": 0.3
+        ]
+
+        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+    }
+
+    // MARK: - Receipt Analysis with Vision
+
+    func analyzeReceiptImage(_ image: UIImage) async throws -> (title: String, content: String) {
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        // Convert image to base64
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            throw SummaryError.apiError("Failed to convert image to JPEG")
+        }
+        let base64Image = imageData.base64EncodedString()
+
+        let systemPrompt = """
+        You are a helpful assistant that analyzes receipt images and extracts key information in a clean, organized format.
+        """
+
+        let userPrompt = """
+        Analyze this image. If it's a receipt, extract all key details in the format below. If not, briefly describe what you see.
+
+        Format your response EXACTLY as:
+        TITLE: Receipt - [Business Name] - [Date in MM/DD/YYYY format]
+        CONTENT:
+        📍 **Merchant:** [Business Name]
+        📅 **Date:** [Date]
+        ⏰ **Time:** [Time if visible]
+
+        **Items Purchased:**
+        • [Item 1] - $[Amount]
+        • [Item 2] - $[Amount]
+        • [Add more items as bullet points]
+
+        **Summary:**
+        Subtotal: $[Amount]
+        Tax: $[Amount]
+        **Total: $[Amount]**
+
+        💳 **Payment:** [Payment method if visible]
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                [
+                    "role": "system",
+                    "content": systemPrompt
+                ],
+                [
+                    "role": "user",
+                    "content": [
+                        [
+                            "type": "text",
+                            "text": userPrompt
+                        ],
+                        [
+                            "type": "image_url",
+                            "image_url": [
+                                "url": "data:image/jpeg;base64,\(base64Image)"
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+            "max_tokens": 1000,
+            "temperature": 0.1
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            throw SummaryError.networkError(error)
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse {
+                guard httpResponse.statusCode == 200 else {
+                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let error = errorData["error"] as? [String: Any],
+                       let message = error["message"] as? String {
+
+                        if httpResponse.statusCode == 429 || message.contains("Rate limit") {
+                            let retryAfter = extractRetryAfterFromMessage(message)
+                            throw SummaryError.rateLimitExceeded(retryAfter: retryAfter)
+                        }
+
+                        throw SummaryError.apiError(message)
+                    } else {
+                        throw SummaryError.apiError("HTTP \(httpResponse.statusCode)")
+                    }
+                }
+            }
+
+            guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = jsonResponse["choices"] as? [[String: Any]],
+                  let firstChoice = choices.first,
+                  let message = firstChoice["message"] as? [String: Any],
+                  let content = message["content"] as? String else {
+                throw SummaryError.decodingError
+            }
+
+            // Parse the response to extract title and content
+            let (title, receiptContent) = parseReceiptResponse(content)
+            return (title, receiptContent)
+
+        } catch let error as SummaryError {
+            throw error
+        } catch {
+            throw SummaryError.networkError(error)
+        }
+    }
+
+    private func parseReceiptResponse(_ response: String) -> (title: String, content: String) {
+        var title = "Receipt"
+        var content = ""
+
+        let lines = response.components(separatedBy: .newlines)
+        var isContent = false
+
+        for line in lines {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmedLine.hasPrefix("TITLE:") {
+                title = trimmedLine.replacingOccurrences(of: "TITLE:", with: "").trimmingCharacters(in: .whitespaces)
+                isContent = false
+            } else if trimmedLine.hasPrefix("CONTENT:") {
+                isContent = true
+            } else if isContent && !trimmedLine.isEmpty {
+                content += trimmedLine + "\n"
+            }
+        }
+
+        // If parsing failed, use the full response as content
+        if content.isEmpty {
+            content = response
+        }
+
+        return (title, content.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 

@@ -32,7 +32,7 @@ struct AISummaryCard: View {
             // Header - always visible, no bullet point
             HStack(spacing: 12) {
                 Text("AI Summary")
-                    .font(FontManager.geist(size: .title3, weight: .semibold))
+                    .font(FontManager.geist(size: .body, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
                 Spacer()
@@ -61,7 +61,7 @@ struct AISummaryCard: View {
         }
         .background(
             RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .fill(colorScheme == .dark ? Color.black : Color.white)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
         )
         .shadow(
             color: colorScheme == .dark ? .clear : .gray.opacity(0.15),
@@ -92,13 +92,11 @@ struct AISummaryCard: View {
 
     private var loadingView: some View {
         HStack(spacing: 12) {
-            ProgressView()
-                .scaleEffect(0.8)
-                .tint(Color.shadcnMuted(colorScheme))
+            ShadcnSpinner(size: .medium)
 
             Text("Generating AI summary...")
                 .font(FontManager.geist(size: .body, weight: .regular))
-                .foregroundColor(Color.shadcnMuted(colorScheme))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Spacer()
         }
@@ -115,7 +113,7 @@ struct AISummaryCard: View {
                         .frame(width: 6, height: 6)
                         .padding(.top, 6)
 
-                    // Bullet text (1 point smaller)
+                    // Bullet text
                     Text(bullet)
                         .font(FontManager.geist(size: 13, weight: .regular))
                         .foregroundColor(Color.shadcnForeground(colorScheme))

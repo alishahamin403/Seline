@@ -4,9 +4,31 @@ struct NewsCarouselView: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var newsService = NewsService.shared
     @State private var currentPage = 0
+    @State private var selectedCategory: NewsCategory = .general
 
     var body: some View {
         VStack(spacing: 0) {
+            // Category filter chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(NewsCategory.allCases, id: \.self) { category in
+                        CategoryChip(
+                            category: category,
+                            isSelected: selectedCategory == category,
+                            colorScheme: colorScheme
+                        ) {
+                            HapticManager.shared.selection()
+                            selectedCategory = category
+                            Task {
+                                await newsService.fetchNews(for: category)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            }
+            .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
             if newsService.isLoading && newsService.topNews.isEmpty {
                 // Loading state
                 HStack(alignment: .center, spacing: ShadcnSpacing.sm) {
@@ -43,7 +65,7 @@ struct NewsCarouselView: View {
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: 60)
+                    .frame(height: 50)
 
                     // Custom page indicator dots
                     HStack(spacing: 6) {
@@ -58,13 +80,45 @@ struct NewsCarouselView: View {
                     }
                     .padding(.bottom, 4)
                 }
-                .padding(.vertical, ShadcnSpacing.sm)
+                .padding(.vertical, 8)
                 .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             }
         }
         .task {
-            await newsService.fetchTopWorldNews()
+            await newsService.fetchNews(for: selectedCategory)
         }
+    }
+}
+
+struct CategoryChip: View {
+    let category: NewsCategory
+    let isSelected: Bool
+    let colorScheme: ColorScheme
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(category.displayName)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ?
+                    .white :
+                    (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(isSelected ?
+                            (colorScheme == .dark ?
+                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                            (colorScheme == .dark ?
+                                Color.white.opacity(0.1) :
+                                Color.black.opacity(0.05))
+                        )
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -79,21 +133,12 @@ struct NewsCardView: View {
             }
         }) {
             VStack(spacing: 4) {
-                // Source name
-                Text(article.source)
-                    .font(.shadcnTextXs)
-                    .foregroundColor(colorScheme == .dark ?
-                        Color(red: 0.518, green: 0.792, blue: 0.914) :
-                        Color(red: 0.20, green: 0.34, blue: 0.40))
-                    .textCase(.uppercase)
-                    .fontWeight(.semibold)
-
                 // News title
                 Text(article.title)
                     .font(.shadcnTextXs)
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20)
