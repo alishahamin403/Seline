@@ -2,9 +2,17 @@ import Foundation
 
 // INSTRUCTIONS:
 // 1. Copy this file and rename it to "Config.swift"
-// 2. Replace "YOUR_OPENAI_API_KEY_HERE" with your actual OpenAI API key
+// 2. Replace the placeholder values below with your actual API keys
 // 3. Config.swift is gitignored and will not be committed to the repository
 
 struct Config {
+    // OpenAI API Key - Get from: https://platform.openai.com/api-keys
     static let openAIAPIKey = "YOUR_OPENAI_API_KEY_HERE"
+
+    // Google APIs - Get from: https://console.cloud.google.com/
+    static let googleMapsAPIKey = "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+    static let googleReversedClientID = "YOUR_GOOGLE_REVERSED_CLIENT_ID_HERE"
+
+    // OpenWeatherMap API Key - Get from: https://openweathermap.org/api
+    static let openWeatherMapAPIKey = "YOUR_OPENWEATHERMAP_API_KEY_HERE"
 }

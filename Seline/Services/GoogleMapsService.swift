@@ -4,12 +4,8 @@ import UIKit
 class GoogleMapsService: ObservableObject {
     static let shared = GoogleMapsService()
 
-    // Google Places API Key - Get from Google Cloud Console
-    // TODO: Replace with your actual Google Maps API key
-    // 1. Go to https://console.cloud.google.com/
-    // 2. Enable "Places API (New)"
-    // 3. Create API Key in "Credentials"
-    private let apiKey = "AIzaSyDL864Gd2OuJBIuL9380kQFbb0jJAJilQ8"
+    // Google Places API Key - loaded from Config.swift (not committed to git)
+    private let apiKey = Config.googleMapsAPIKey
     private let placesBaseURL = "https://places.googleapis.com/v1"
 
     private init() {}

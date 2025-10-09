@@ -99,3 +99,6 @@ Seline/Services/SupabaseConfig.swift
 
 # OpenAI API Key Config
 Seline/Config.swift
+
+# Local Info.plist with actual API keys
+Seline/Info-Local.plist

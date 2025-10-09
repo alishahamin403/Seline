@@ -58,8 +58,8 @@
             <string>GoogleAuth</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <!-- REVERSED_CLIENT_ID from GoogleService-Info.plist -->
-                <string>com.googleusercontent.apps.729504866074-jp0dk33q729oh942d70fl7nu68ofnff3</string>
+                <!-- REVERSED_CLIENT_ID - Add your value from GoogleService-Info.plist -->
+                <string>YOUR_REVERSED_CLIENT_ID_HERE</string>
             </array>
         </dict>
         <!-- Supabase OAuth URL Scheme -->
@@ -103,6 +103,6 @@
 
     <!-- API Keys -->
     <key>OpenWeatherMapAPIKey</key>
-    <string>3e5e1f3f4e8e7c5c0c1b9f8e7d6c5b4a</string>
+    <string>YOUR_OPENWEATHERMAP_API_KEY_HERE</string>
 </dict>
 </plist>
