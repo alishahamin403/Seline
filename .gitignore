@@ -94,6 +94,9 @@ iOSInjectionProject/
 # Cursor IDE - Contains sensitive API keys
 .cursor/
 
+# Claude Code - Local configuration
+.claude/
+
 # Supabase Config
 Seline/Services/SupabaseConfig.swift
 
