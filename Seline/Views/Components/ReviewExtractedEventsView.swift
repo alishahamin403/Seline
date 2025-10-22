@@ -1,8 +1,13 @@
 import SwiftUI
 
 struct ReviewExtractedEventsView: View {
-    @State var extractionResponse: CalendarPhotoExtractionResponse
+    @State private var extractionResponse: CalendarPhotoExtractionResponse
     var onDismiss: () -> Void
+
+    init(extractionResponse: CalendarPhotoExtractionResponse, onDismiss: @escaping () -> Void) {
+        _extractionResponse = State(initialValue: extractionResponse)
+        self.onDismiss = onDismiss
+    }
 
     @StateObject private var taskManager = TaskManager.shared
     @State private var selectedCalendar: String = "default"
@@ -186,19 +191,13 @@ struct ReviewExtractedEventsView: View {
             for event in extractionResponse.events where event.isSelected {
                 // Create TaskItem from extracted event
                 let taskItem = TaskItem(
-                    id: UUID().uuidString,
                     title: event.title,
-                    description: event.notes.isEmpty ? nil : event.notes,
-                    isCompleted: false,
                     weekday: weekdayFromDate(event.startTime),
-                    createdAt: Date(),
-                    isRecurring: false,
+                    description: event.notes.isEmpty ? nil : event.notes,
                     scheduledTime: event.startTime,
                     endTime: event.endTime,
                     targetDate: event.startTime,
-                    reminderTime: .oneHour,
-                    isDeleted: false,
-                    completedDates: []
+                    reminderTime: .oneHour
                 )
 
                 // Add the task via TaskManager
