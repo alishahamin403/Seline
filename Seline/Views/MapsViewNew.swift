@@ -391,7 +391,7 @@ struct CategoryCard: View {
                     RoundedRectangle(cornerRadius: 20)
                         .fill(
                             colorScheme == .dark ?
-                                Color.white.opacity(0.05) : Color.white
+                                Color.white.opacity(0.05) : Color.black.opacity(0.05)
                         )
 
                     // Grid of small location photos/initials (2x2)
@@ -427,7 +427,7 @@ struct CategoryCard: View {
                 // Folder name below
                 Text(category)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
