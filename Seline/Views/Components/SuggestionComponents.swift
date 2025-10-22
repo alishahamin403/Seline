@@ -47,24 +47,22 @@ struct FilterPillButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(
                     isSelected ?
-                        .white :
-                        (colorScheme == .dark ? .white : .black)
+                        (colorScheme == .dark ? .white : .black) :
+                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(
                     Capsule()
                         .fill(
                             isSelected ?
                                 (colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
-                                (colorScheme == .dark ?
-                                    Color.black.opacity(0.3) :
-                                    Color.gray.opacity(0.1))
+                                    Color.white.opacity(0.15) :
+                                    Color.black.opacity(0.15)) :
+                                Color.clear
                         )
                 )
                 .overlay(
@@ -72,8 +70,8 @@ struct FilterPillButton: View {
                         .stroke(
                             isSelected ? Color.clear :
                                 (colorScheme == .dark ?
-                                    Color.white.opacity(0.1) :
-                                    Color.black.opacity(0.05)),
+                                    Color.white.opacity(0.2) :
+                                    Color.black.opacity(0.1)),
                             lineWidth: 1
                         )
                 )
