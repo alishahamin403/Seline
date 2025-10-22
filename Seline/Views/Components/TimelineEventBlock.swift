@@ -133,6 +133,10 @@ struct TimelineEventBlock: View {
             x: 0,
             y: 1
         )
+        .onTapGesture {
+            HapticManager.shared.light()
+            onTap()
+        }
         .onLongPressGesture(minimumDuration: 0.5) {
             HapticManager.shared.cardTap()
             showActions = true
