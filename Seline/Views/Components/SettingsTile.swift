@@ -32,22 +32,16 @@ struct SettingsTile<Trailing: View>: View {
                 .fill(isDarkMode ? Color.black : Color.white)
         )
         .shadow(
-            color: isDarkMode ? .white.opacity(0.08) : .gray.opacity(0.15),
-            radius: isDarkMode ? 8 : 12,
+            color: .gray.opacity(0.15),
+            radius: 12,
             x: 0,
-            y: isDarkMode ? 3 : 4
+            y: 4
         )
         .shadow(
-            color: isDarkMode ? .white.opacity(0.04) : .gray.opacity(0.08),
-            radius: isDarkMode ? 4 : 6,
+            color: .gray.opacity(0.08),
+            radius: 6,
             x: 0,
-            y: isDarkMode ? 1 : 2
-        )
-        .shadow(
-            color: isDarkMode ? .white.opacity(0.02) : .clear,
-            radius: isDarkMode ? 8 : 0,
-            x: 0,
-            y: isDarkMode ? 2 : 0
+            y: 2
         )
     }
 }

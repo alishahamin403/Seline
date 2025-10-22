@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TaskRow: View {
     let task: TaskItem
+    let date: Date? // Date this task is being displayed for (used for recurring tasks)
     let onToggleCompletion: () -> Void
     let onDelete: () -> Void
     let onDeleteRecurringSeries: () -> Void
@@ -18,8 +19,16 @@ struct TaskRow: View {
             Color(red: 0.20, green: 0.34, blue: 0.40)     // #345766 (dark blue for light mode)
     }
 
+    // Check if task is completed on the specific date (for recurring tasks)
+    private var isTaskCompleted: Bool {
+        if let date = date {
+            return task.isCompletedOn(date: date)
+        }
+        return task.isCompleted
+    }
+
     private var checkboxColor: Color {
-        if task.isCompleted {
+        if isTaskCompleted {
             return blueColor
         }
         return colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6)
@@ -39,7 +48,7 @@ struct TaskRow: View {
                     onToggleCompletion()
                 }
             }) {
-                Image(systemName: task.isCompleted ? "checkmark.square.fill" : "square")
+                Image(systemName: isTaskCompleted ? "checkmark.square.fill" : "square")
                     .foregroundColor(checkboxColor)
                     .font(.system(size: 18, weight: .medium))
             }
@@ -53,8 +62,8 @@ struct TaskRow: View {
                     Text(task.title)
                         .font(.shadcnTextSm)
                         .foregroundColor(Color.shadcnForeground(colorScheme))
-                        .strikethrough(task.isCompleted, color: blueColor)
-                        .animation(.easeInOut(duration: 0.2), value: task.isCompleted)
+                        .strikethrough(isTaskCompleted, color: blueColor)
+                        .animation(.easeInOut(duration: 0.2), value: isTaskCompleted)
 
                     // Recurring indicator
                     if task.isRecurring {
@@ -144,6 +153,7 @@ struct TaskRow: View {
     VStack(spacing: 12) {
         TaskRow(
             task: TaskItem(title: "Sample completed task", weekday: .monday),
+            date: Date(),
             onToggleCompletion: {},
             onDelete: {},
             onDeleteRecurringSeries: {},
@@ -154,6 +164,7 @@ struct TaskRow: View {
 
         TaskRow(
             task: TaskItem(title: "Sample incomplete task", weekday: .monday),
+            date: Date(),
             onToggleCompletion: {},
             onDelete: {},
             onDeleteRecurringSeries: {},

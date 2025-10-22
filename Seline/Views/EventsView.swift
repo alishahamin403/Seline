@@ -8,6 +8,13 @@ struct EventsView: View {
     @State private var selectedTaskForViewing: TaskItem?
     @State private var selectedTaskForEditing: TaskItem?
     @State private var isTransitioningToEdit: Bool = false
+    @State private var selectedView: EventViewType = .events
+    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+
+    enum EventViewType: Hashable {
+        case events
+        case stats
+    }
 
     enum ActiveSheet: Identifiable {
         case calendar
@@ -20,113 +27,52 @@ struct EventsView: View {
         }
     }
 
-    private var next6Days: [(date: Date, weekday: WeekDay)] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
-        return (0..<7).compactMap { dayOffset in
-            guard let futureDate = calendar.date(byAdding: .day, value: dayOffset, to: today) else { return nil }
-            let weekdayIndex = calendar.component(.weekday, from: futureDate)
-
-            // Convert Calendar weekday (1=Sunday, 2=Monday, etc.) to WeekDay enum
-            let weekday: WeekDay
-            switch weekdayIndex {
-            case 1: weekday = .sunday
-            case 2: weekday = .monday
-            case 3: weekday = .tuesday
-            case 4: weekday = .wednesday
-            case 5: weekday = .thursday
-            case 6: weekday = .friday
-            case 7: weekday = .saturday
-            default: return nil
-            }
-
-            return (futureDate, weekday)
-        }
-    }
-
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                    ForEach(Array(next6Days.enumerated()), id: \.element.weekday) { index, dayInfo in
-                    DayCard(
-                        weekday: dayInfo.weekday,
-                        date: dayInfo.date,
-                        tasks: taskManager.getTasksForDate(dayInfo.date).filter { task in
-                            // For future dates (next week's Monday/Tuesday), only show uncompleted tasks
-                            let calendar = Calendar.current
-                            let today = calendar.startOfDay(for: Date())
-                            let cardDate = calendar.startOfDay(for: dayInfo.date)
+        ZStack {
+            GeometryReader { geometry in
+                let topPadding = CGFloat(4)
 
-                            if cardDate > today {
-                                // Future date - only show incomplete tasks
-                                return !task.isCompleted
-                            } else {
-                                // Today or current week - show all tasks
-                                return true
+                VStack(spacing: 0) {
+                    // Tab selector at the top
+                    tabSelector
+                        .padding(.horizontal, 20)
+                        .padding(.top, topPadding)
+                        .padding(.bottom, 12)
+                        .background(
+                            colorScheme == .dark ?
+                                Color.black : Color.white
+                        )
+
+                    // Content based on selected view
+                    if selectedView == .events {
+                        eventsContent
+                    } else {
+                        EventStatsView()
+                    }
+                }
+                .background(
+                    colorScheme == .dark ?
+                        Color.black : Color.white
+                )
+            }
+            .overlay(
+                // Floating calendar button (only show in events view)
+                Group {
+                    if selectedView == .events {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                FloatingCalendarButton {
+                                    activeSheet = .calendar
+                                }
+                                .padding(.trailing, 20)
+                                .padding(.bottom, 30)
                             }
-                        },
-                        onAddTask: { title, scheduledTime, reminderTime in
-                            taskManager.addTask(title: title, to: dayInfo.weekday, scheduledTime: scheduledTime, reminderTime: reminderTime)
-                        },
-                        onToggleTask: { task in
-                            taskManager.toggleTaskCompletion(task)
-                        },
-                        onDeleteTask: { task in
-                            taskManager.deleteTask(task)
-                        },
-                        onDeleteRecurringSeries: { task in
-                            taskManager.deleteRecurringTask(task)
-                        },
-                        onMakeRecurring: { task in
-                            selectedTaskForRecurring = task
-                            activeSheet = .recurring
-                        },
-                        onViewTask: { task in
-                            selectedTaskForViewing = task
-                            activeSheet = .viewTask
-                        },
-                        onEditTask: { task in
-                            selectedTaskForEditing = task
-                            activeSheet = .editTask
                         }
-                    )
-
-                    // Add separator line between days (but not after the last day)
-                    if index < next6Days.count - 1 {
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-                            .padding(.vertical, 12)
                     }
                 }
-
-                    // Bottom spacing for better scrolling experience
-                    Spacer()
-                        .frame(height: 100)
-                }
-            }
-            .background(
-                colorScheme == .dark ?
-                    Color.gmailDarkBackground : Color.white
             )
-        }
-        .overlay(
-            // Floating calendar button
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    FloatingCalendarButton {
-                        activeSheet = .calendar
-                    }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 30) // Match + icon spacing
-                }
-            }
-        )
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -255,6 +201,154 @@ struct EventsView: View {
                 isTransitioningToEdit = false
             }
         }
+    }
+
+    // MARK: - Tab Selector
+
+    private var tabSelector: some View {
+        HStack(spacing: 0) {
+            ForEach([EventViewType.events, EventViewType.stats], id: \.self) { viewType in
+                EventTabButton(
+                    title: viewType == .events ? "Events" : "Stats",
+                    viewType: viewType,
+                    selectedView: $selectedView,
+                    colorScheme: colorScheme
+                )
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
+        )
+    }
+
+    // MARK: - Events Content
+
+    private var eventsContent: some View {
+        VStack(spacing: 0) {
+            // Day slider
+            DaySliderView(selectedDate: $selectedDate)
+
+            // All day events section
+            AllDayEventsSection(
+                tasks: taskManager.getTasksForDate(selectedDate),
+                date: selectedDate,
+                onTapTask: { task in
+                    selectedTaskForViewing = task
+                    activeSheet = .viewTask
+                },
+                onToggleCompletion: { task in
+                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                }
+            )
+
+            // Timeline view
+            TimelineView(
+                tasks: taskManager.getTasksForDate(selectedDate),
+                date: selectedDate,
+                onTapTask: { task in
+                    selectedTaskForViewing = task
+                    activeSheet = .viewTask
+                },
+                onToggleCompletion: { task in
+                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                },
+                onAddEvent: { title, description, date, time, endTime, reminder, recurring, frequency in
+                    // Determine the weekday from the selected date
+                    let calendar = Calendar.current
+                    let weekdayIndex = calendar.component(.weekday, from: date)
+                    let weekday: WeekDay
+                    switch weekdayIndex {
+                    case 1: weekday = .sunday
+                    case 2: weekday = .monday
+                    case 3: weekday = .tuesday
+                    case 4: weekday = .wednesday
+                    case 5: weekday = .thursday
+                    case 6: weekday = .friday
+                    case 7: weekday = .saturday
+                    default: weekday = .monday
+                    }
+
+                    taskManager.addTask(
+                        title: title,
+                        to: weekday,
+                        description: description,
+                        scheduledTime: time,
+                        endTime: endTime,
+                        targetDate: date,
+                        reminderTime: reminder,
+                        isRecurring: recurring,
+                        recurrenceFrequency: frequency
+                    )
+                },
+                onEditEvent: { task in
+                    selectedTaskForEditing = task
+                    activeSheet = .editTask
+                },
+                onDeleteEvent: { task in
+                    if task.isRecurring {
+                        taskManager.deleteRecurringTask(task)
+                    } else {
+                        taskManager.deleteTask(task)
+                    }
+                }
+            )
+        }
+        .background(
+            colorScheme == .dark ?
+                Color.black : Color.white
+        )
+    }
+}
+
+struct EventTabButton: View {
+    let title: String
+    let viewType: EventsView.EventViewType
+    @Binding var selectedView: EventsView.EventViewType
+    let colorScheme: ColorScheme
+
+    private var isSelected: Bool {
+        selectedView == viewType
+    }
+
+    private var selectedColor: Color {
+        if colorScheme == .dark {
+            // Much darker gray for dark mode - #1a1a1a
+            return Color(red: 0.1, green: 0.1, blue: 0.1)
+        } else {
+            // Dark gray for light mode - #4a4a4a
+            return Color(red: 0.29, green: 0.29, blue: 0.29)
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return selectedColor
+        }
+        return Color.clear
+    }
+
+    var body: some View {
+        Button(action: {
+            HapticManager.shared.selection()
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedView = viewType
+            }
+        }) {
+            Text(title)
+                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(
+                    isSelected ? .white : .gray
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(backgroundColor)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .animation(.easeInOut(duration: 0.2), value: isSelected)
     }
 }
 

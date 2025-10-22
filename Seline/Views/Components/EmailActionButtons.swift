@@ -6,7 +6,17 @@ struct EmailActionButtons: View {
     let onForward: () -> Void
     let onDelete: () -> Void
     let onMarkAsUnread: () -> Void
+    let onAddEvent: (() -> Void)?
     @Environment(\.colorScheme) var colorScheme
+
+    init(email: Email, onReply: @escaping () -> Void, onForward: @escaping () -> Void, onDelete: @escaping () -> Void, onMarkAsUnread: @escaping () -> Void, onAddEvent: (() -> Void)? = nil) {
+        self.email = email
+        self.onReply = onReply
+        self.onForward = onForward
+        self.onDelete = onDelete
+        self.onMarkAsUnread = onMarkAsUnread
+        self.onAddEvent = onAddEvent
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -26,12 +36,24 @@ struct EmailActionButtons: View {
                 colorScheme: colorScheme
             )
 
+            // Add Event Button (if provided)
+            if let onAddEvent = onAddEvent {
+                ActionButtonWithText(
+                    icon: "calendar.badge.plus",
+                    text: "Event",
+                    action: onAddEvent,
+                    colorScheme: colorScheme,
+                    isHighlighted: true
+                )
+            }
+
             // Delete Button
             ActionButtonWithText(
                 icon: "trash",
                 text: "Delete",
                 action: onDelete,
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                isDangerous: true
             )
         }
         .padding(.horizontal, 16)
@@ -45,18 +67,33 @@ struct ActionButtonWithText: View {
     let text: String
     let action: () -> Void
     let colorScheme: ColorScheme
+    let isDangerous: Bool
+    let isHighlighted: Bool
+
+    init(icon: String, text: String, action: @escaping () -> Void, colorScheme: ColorScheme, isDangerous: Bool = false, isHighlighted: Bool = false) {
+        self.icon = icon
+        self.text = text
+        self.action = action
+        self.colorScheme = colorScheme
+        self.isDangerous = isDangerous
+        self.isHighlighted = isHighlighted
+    }
 
     var body: some View {
         Button(action: action) {
             Text(text)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor((isDangerous || isHighlighted) ? .white : (colorScheme == .dark ? .white : .black))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                .fill(
+                    isDangerous ? Color.red :
+                    isHighlighted ? Color(red: 0.29, green: 0.29, blue: 0.29) :
+                    (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                )
         )
         .buttonStyle(PlainButtonStyle())
     }
@@ -110,7 +147,8 @@ struct MinimalisticActionButton: View {
             onReply: { print("Reply tapped") },
             onForward: { print("Forward tapped") },
             onDelete: { print("Delete tapped") },
-            onMarkAsUnread: { print("Mark as unread tapped") }
+            onMarkAsUnread: { print("Mark as unread tapped") },
+            onAddEvent: { print("Add Event tapped") }
         )
 
         EmailActionButtons(
@@ -118,7 +156,8 @@ struct MinimalisticActionButton: View {
             onReply: { print("Reply tapped") },
             onForward: { print("Forward tapped") },
             onDelete: { print("Delete tapped") },
-            onMarkAsUnread: { print("Mark as unread tapped") }
+            onMarkAsUnread: { print("Mark as unread tapped") },
+            onAddEvent: { print("Add Event tapped") }
         )
         .preferredColorScheme(.dark)
     }

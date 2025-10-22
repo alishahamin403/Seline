@@ -1,8 +1,13 @@
 import SwiftUI
+import QuickLook
 
 struct AttachmentRow: View {
     let attachment: EmailAttachment
     @Environment(\.colorScheme) var colorScheme
+    @State private var downloadedURL: URL?
+    @State private var isDownloading = false
+    @State private var showShareSheet = false
+    @State private var showQuickLook = false
 
     var body: some View {
         Button(action: {
@@ -34,10 +39,15 @@ struct AttachmentRow: View {
 
                 Spacer()
 
-                // View indicator
-                Image(systemName: "eye")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                // Loading or view indicator
+                if isDownloading {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "eye")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -55,30 +65,125 @@ struct AttachmentRow: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button(action: {
+                downloadAndShare()
+            }) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+
+            Button(action: {
+                openAttachment()
+            }) {
+                Label("Open", systemImage: "eye")
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = downloadedURL {
+                ShareSheet(activityItems: [url])
+            }
+        }
+        .sheet(isPresented: $showQuickLook) {
+            if let url = downloadedURL {
+                QuickLookView(url: url)
+            }
+        }
     }
 
     private func openAttachment() {
-        // In a real implementation, this would:
-        // 1. Download the attachment if needed
-        // 2. Open it in the appropriate viewer
-        // 3. For images, show in a photo viewer
-        // 4. For PDFs, open in PDF viewer
-        // 5. For other files, use QuickLook or external app
+        Task {
+            await downloadAndView()
+        }
+    }
 
-        print("Opening attachment: \(attachment.name)")
+    private func downloadAndShare() {
+        Task {
+            if let url = await downloadAttachment() {
+                await MainActor.run {
+                    downloadedURL = url
+                    showShareSheet = true
+                }
+            }
+        }
+    }
 
-        // For now, we'll just show an alert indicating the action
-        // In production, you would implement proper file handling here
+    private func downloadAndView() async {
+        if let url = await downloadAttachment() {
+            await MainActor.run {
+                downloadedURL = url
+                showQuickLook = true
+            }
+        }
+    }
 
-        if attachment.isImage {
-            // Open image viewer
-            print("📸 Opening image: \(attachment.name)")
-        } else if attachment.isPDF {
-            // Open PDF viewer
-            print("📄 Opening PDF: \(attachment.name)")
-        } else {
-            // Open with system default app
-            print("📎 Opening file: \(attachment.name)")
+    private func downloadAttachment() async -> URL? {
+        guard let urlString = attachment.url,
+              let downloadURL = URL(string: urlString) else {
+            print("❌ Invalid attachment URL")
+            return nil
+        }
+
+        await MainActor.run {
+            isDownloading = true
+        }
+
+        do {
+            // Download the file
+            let (data, _) = try await URLSession.shared.data(from: downloadURL)
+
+            // Save to temporary directory
+            let tempDir = FileManager.default.temporaryDirectory
+            let fileURL = tempDir.appendingPathComponent(attachment.name)
+
+            try data.write(to: fileURL)
+
+            await MainActor.run {
+                isDownloading = false
+            }
+
+            print("✅ Downloaded attachment: \(attachment.name)")
+            return fileURL
+
+        } catch {
+            print("❌ Failed to download attachment: \(error)")
+            await MainActor.run {
+                isDownloading = false
+            }
+            return nil
+        }
+    }
+}
+
+// MARK: - QuickLook View
+
+struct QuickLookView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let parent: QuickLookView
+
+        init(_ parent: QuickLookView) {
+            self.parent = parent
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+            return 1
+        }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            return parent.url as QLPreviewItem
         }
     }
 }

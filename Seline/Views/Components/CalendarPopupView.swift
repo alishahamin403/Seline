@@ -424,11 +424,16 @@ struct TaskRowCalendar: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var showingDeleteAlert = false
 
+    // Check if task is completed on this specific date
+    private var isTaskCompleted: Bool {
+        return task.isCompletedOn(date: selectedDate)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // Checkbox (completed or incomplete)
-            Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(task.isCompleted ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
+            Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(isTaskCompleted ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
                 .font(.system(size: 18, weight: .medium))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -436,7 +441,7 @@ struct TaskRowCalendar: View {
                 Text(task.title)
                     .font(.shadcnTextSm)
                     .foregroundColor(Color.shadcnForeground(colorScheme))
-                    .strikethrough(task.isCompleted, color: Color.shadcnMutedForeground(colorScheme))
+                    .strikethrough(isTaskCompleted, color: Color.shadcnMutedForeground(colorScheme))
 
                 // Show only time if there's a scheduled time
                 if !task.formattedTime.isEmpty {
@@ -746,6 +751,8 @@ struct ShadcnDayCell: View {
 
     private var textColor: Color {
         if isSelected {
+            // In dark mode: white background with black text
+            // In light mode: primary color background with white text
             return colorScheme == .dark ? Color.black : Color.white
         } else if isToday {
             return Color.shadcnPrimary
@@ -758,7 +765,9 @@ struct ShadcnDayCell: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.shadcnPrimary
+            // In dark mode: white fill for selected day
+            // In light mode: primary color fill
+            return colorScheme == .dark ? Color.white : Color.shadcnPrimary
         } else if isToday {
             return Color.shadcnPrimary.opacity(0.1)
         } else {

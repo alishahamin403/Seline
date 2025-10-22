@@ -22,16 +22,16 @@ struct NoteSectionHeader: View {
 
                 Spacer()
 
-                // Count badge - matching email page style
+                // Count badge - black/white styling
                 if count > 0 {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(minWidth: 18, minHeight: 18)
                         .padding(.horizontal, 5)
                         .background(
                             Capsule()
-                                .fill(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
                         )
                 }
             }

@@ -10,7 +10,7 @@ struct EmailCategorySection: View {
 
     // Computed properties for colors
     private var iconColor: Color {
-        colorScheme == .dark ? Color.white : Color(red: 0.20, green: 0.34, blue: 0.40)
+        colorScheme == .dark ? Color.white : Color.black
     }
 
     private var subtitleColor: Color {
@@ -18,7 +18,7 @@ struct EmailCategorySection: View {
     }
 
     private var badgeColor: Color {
-        colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40)
+        Color(red: 0.29, green: 0.29, blue: 0.29)
     }
 
     private var headerBackground: Color {
@@ -92,10 +92,10 @@ struct EmailCategorySection: View {
     private var countBadge: some View {
         Text("\(section.emailCount)")
             .font(.system(size: 10, weight: .semibold))
-            .foregroundColor(.white)
+            .foregroundColor(colorScheme == .dark ? .white : .black)
             .frame(minWidth: 18, minHeight: 18)
             .padding(.horizontal, 5)
-            .background(Capsule().fill(badgeColor))
+            .background(Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)))
     }
 
     private var emailList: some View {

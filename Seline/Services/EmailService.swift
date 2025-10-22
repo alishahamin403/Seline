@@ -22,7 +22,7 @@ class EmailService: ObservableObject {
     // Cache management
     private var cacheTimestamps: [EmailFolder: Date] = [:]
     private let cacheExpirationTime: TimeInterval = 604800 // 7 days for longer persistence
-    private let newEmailCheckInterval: TimeInterval = 300 // 5 minutes for near real-time notifications (Gmail API - no Supabase egress!)
+    private let newEmailCheckInterval: TimeInterval = 60 // 1 minute for real-time notifications (uses <1% of Gmail API quota)
 
     // Persistent cache keys
     private enum CacheKeys {
@@ -47,6 +47,13 @@ class EmailService: ObservableObject {
 
     private init() {
         loadCachedData()
+        // Set initial loading states based on cached data
+        if !inboxEmails.isEmpty {
+            inboxLoadingState = .loaded(inboxEmails)
+        }
+        if !sentEmails.isEmpty {
+            sentLoadingState = .loaded(sentEmails)
+        }
         // Don't start polling on init - only when app becomes active
         setupAppLifecycleObservers()
     }
@@ -102,9 +109,13 @@ class EmailService: ObservableObject {
                 // Filter to include only today's emails
                 let filteredEmails = filterTodaysEmails(emails)
 
+                // CRITICAL FIX: Preserve AI summaries from existing cached emails
+                let existingEmails = getEmails(for: folder)
+                let mergedEmails = mergeWithExistingAISummaries(newEmails: filteredEmails, existingEmails: existingEmails)
+
                 // Update the appropriate email list
-                updateEmailsForFolder(folder, emails: filteredEmails)
-                setLoadingState(for: folder, state: .loaded(filteredEmails))
+                updateEmailsForFolder(folder, emails: mergedEmails)
+                setLoadingState(for: folder, state: .loaded(mergedEmails))
 
                 // Update cache timestamp and save to persistent storage
                 updateCacheTimestamp(for: folder)
@@ -112,7 +123,7 @@ class EmailService: ObservableObject {
 
                 // Pre-generate AI summaries for emails without them (in background)
                 Task.detached(priority: .background) {
-                    await self.preloadAISummaries(for: filteredEmails)
+                    await self.preloadAISummaries(for: mergedEmails)
                 }
 
             } catch {
@@ -270,20 +281,44 @@ class EmailService: ObservableObject {
     // MARK: - Email Actions
 
     func replyToEmail(_ email: Email) {
-        guard let subject = email.subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let senderEmail = email.sender.email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            print("Failed to encode email data for reply")
+        guard let senderEmail = email.sender.email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return
         }
 
         // Construct reply subject with "Re: " prefix if not already present
-        let replySubject = email.subject.hasPrefix("Re: ") ? subject : "Re:%20\(subject)"
+        let replySubjectRaw = email.subject.hasPrefix("Re: ") ? email.subject : "Re: \(email.subject)"
+        guard let replySubject = replySubjectRaw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
 
-        // Try Gmail compose URL schemes for reply
+        // Create a formatted reply with original email content
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .full
+        dateFormatter.timeStyle = .short
+
+        // Add attachment info if email has attachments
+        var attachmentInfo = ""
+        if email.hasAttachments && !email.attachments.isEmpty {
+            attachmentInfo = "\n\n[Original email has \(email.attachments.count) attachment(s): \(email.attachments.map { $0.name }.joined(separator: ", "))]"
+        }
+
+        let replyContent = """
+
+
+
+        On \(dateFormatter.string(from: email.timestamp)), \(email.sender.displayName) wrote:
+        > \(email.body ?? email.snippet)\(attachmentInfo)
+        """
+
+        guard let emailBody = replyContent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
+
+        // Try Gmail compose URL schemes for reply with original content
         let replyURLs = [
-            "googlegmail://co?to=\(senderEmail)&subject=\(replySubject)",
-            "googlegmail:///co?to=\(senderEmail)&subject=\(replySubject)",
-            "mailto:\(senderEmail)?subject=\(replySubject)" // Fallback to system mail
+            "googlegmail://co?to=\(senderEmail)&subject=\(replySubject)&body=\(emailBody)",
+            "googlegmail:///co?to=\(senderEmail)&subject=\(replySubject)&body=\(emailBody)",
+            "mailto:\(senderEmail)?subject=\(replySubject)&body=\(emailBody)" // Fallback to system mail
         ]
 
         openEmailURL(replyURLs, action: "reply")
@@ -291,7 +326,6 @@ class EmailService: ObservableObject {
 
     func forwardEmail(_ email: Email) {
         guard let subject = email.subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            print("Failed to encode email subject for forward")
             return
         }
 
@@ -303,17 +337,22 @@ class EmailService: ObservableObject {
         dateFormatter.dateStyle = .full
         dateFormatter.timeStyle = .short
 
+        // Add attachment info if email has attachments
+        var attachmentInfo = ""
+        if email.hasAttachments && !email.attachments.isEmpty {
+            attachmentInfo = "\n\n[This email has \(email.attachments.count) attachment(s): \(email.attachments.map { $0.name }.joined(separator: ", "))]"
+        }
+
         let forwardedContent = """
         ---------- Forwarded message ---------
         From: \(email.sender.displayName) <\(email.sender.email)>
         Date: \(dateFormatter.string(from: email.timestamp))
         Subject: \(email.subject)
 
-        \(email.body ?? email.snippet)
+        \(email.body ?? email.snippet)\(attachmentInfo)
         """
 
         guard let emailBody = forwardedContent.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            print("Failed to encode email body for forward")
             return
         }
 
@@ -331,20 +370,11 @@ class EmailService: ObservableObject {
         for urlString in urls {
             if let url = URL(string: urlString) {
                 if UIApplication.shared.canOpenURL(url) {
-                    UIApplication.shared.open(url) { success in
-                        if success {
-                            print("✅ Successfully opened Gmail for \(action) with: \(urlString)")
-                        } else {
-                            print("❌ Failed to open Gmail for \(action)")
-                        }
-                    }
+                    UIApplication.shared.open(url) { _ in }
                     return
                 }
             }
         }
-
-        // If all Gmail schemes failed, show a message
-        print("Gmail app is not installed or none of the URL schemes worked for \(action)")
     }
 
     func deleteEmail(_ email: Email) async throws {
@@ -358,7 +388,6 @@ class EmailService: ObservableObject {
         // Then remove from local storage
         await MainActor.run {
             removeEmailFromLocalStorage(email)
-            print("🗑️ Deleted email: \(email.subject)")
         }
     }
 
@@ -476,8 +505,6 @@ class EmailService: ObservableObject {
                 let unreadCount = inboxEmails.filter { !$0.isRead }.count
                 notificationService.updateAppBadge(count: unreadCount)
             }
-
-            print("📧 Marked email as read: \(email.subject)")
         }
     }
 
@@ -561,7 +588,6 @@ class EmailService: ObservableObject {
                 let unreadCount = inboxEmails.filter { !$0.isRead }.count
                 notificationService.updateAppBadge(count: unreadCount)
             }
-            print("📧 Marked email as unread: \(email.subject)")
         }
     }
 
@@ -625,27 +651,44 @@ class EmailService: ObservableObject {
             // Save updated data to persistent cache
             saveCachedData(for: .inbox)
             saveCachedData(for: .sent)
-            print("🤖 Updated AI summary for email: \(email.subject)")
         }
     }
 
     // MARK: - AI Summary Pre-loading
 
     private func preloadAISummaries(for emails: [Email]) async {
-        // Filter emails that don't have AI summaries yet
-        let emailsNeedingSummary = emails.filter { $0.aiSummary == nil }
-
-        guard !emailsNeedingSummary.isEmpty else {
-            print("📧 All emails already have AI summaries")
-            return
+        // Filter emails that don't have AI summaries yet (or have empty summaries)
+        let emailsNeedingSummary = emails.filter { email in
+            email.aiSummary == nil || email.aiSummary?.isEmpty == true
         }
 
-        print("🤖 Pre-loading AI summaries for \(emailsNeedingSummary.count) emails...")
+        guard !emailsNeedingSummary.isEmpty else {
+            return
+        }
 
         // Generate summaries one at a time to respect rate limits
         for email in emailsNeedingSummary {
             do {
-                let emailBody = email.body ?? email.snippet
+                // CRITICAL FIX: Fetch raw email body optimized for AI processing
+                // This gets clean HTML/text without display wrapping
+                var rawEmailBody: String?
+
+                if let gmailMessageId = email.gmailMessageId {
+                    // Use the new AI-optimized body extraction
+                    rawEmailBody = try await gmailAPIClient.fetchBodyForAI(messageId: gmailMessageId)
+
+                    // Debug logging to track content extraction
+                    if rawEmailBody == nil || rawEmailBody?.isEmpty == true {
+                        print("⚠️ No body content extracted for email: '\(email.subject)' (ID: \(gmailMessageId))")
+                    } else {
+                        let contentLength = rawEmailBody?.count ?? 0
+                        print("✅ Extracted \(contentLength) characters for AI summary: '\(email.subject.prefix(50))'")
+                    }
+                }
+
+                // Fall back to snippet if body is unavailable
+                let emailBody = rawEmailBody ?? email.snippet
+
                 let summary = try await openAIService.summarizeEmail(
                     subject: email.subject,
                     body: emailBody
@@ -655,12 +698,10 @@ class EmailService: ObservableObject {
                 await updateEmailWithAISummary(email, summary: summary)
 
             } catch {
-                // Log error but continue with other emails
+                // Log detailed error but continue with other emails
                 print("⚠️ Failed to generate summary for '\(email.subject)': \(error.localizedDescription)")
             }
         }
-
-        print("✅ Finished pre-loading AI summaries")
     }
 
     // MARK: - App Lifecycle Management
@@ -684,7 +725,6 @@ class EmailService: ObservableObject {
     }
 
     @objc private func appDidBecomeActive() {
-        print("📧 EmailService: App became active")
         isAppActive = true
 
         // Fetch emails when app opens
@@ -697,7 +737,6 @@ class EmailService: ObservableObject {
     }
 
     @objc private func appDidEnterBackground() {
-        print("📧 EmailService: App entered background - stopping email polling")
         isAppActive = false
         stopNewEmailPolling()
     }
@@ -707,7 +746,6 @@ class EmailService: ObservableObject {
     private func startNewEmailPolling() {
         // Only start if app is active
         guard isAppActive else {
-            print("⚠️ EmailService: Not starting polling - app is not active")
             return
         }
 
@@ -716,19 +754,16 @@ class EmailService: ObservableObject {
             Task { @MainActor in
                 // Only check if app is still active
                 guard self.isAppActive else {
-                    print("⚠️ EmailService: Skipping email check - app is not active")
                     return
                 }
                 await self.checkForNewEmails()
             }
         }
-        print("✅ EmailService: Email polling started (interval: \(newEmailCheckInterval)s)")
     }
 
     private func stopNewEmailPolling() {
         newEmailTimer?.invalidate()
         newEmailTimer = nil
-        print("🛑 EmailService: Email polling stopped")
     }
 
     private func showNewEmailNotification(newEmails: [Email]) async {
@@ -748,14 +783,14 @@ class EmailService: ObservableObject {
     }
 
     private func checkForNewEmails() async {
-        // CRITICAL FIX: Only check for new email COUNT, don't fetch content
-        // User must manually refresh to actually load new emails
+        // Check for new emails and show detailed notifications
+        // Only fetches metadata (5 quota units per email) for lightweight checks
 
         // Only check for new emails if we have cached data
         guard !inboxEmails.isEmpty else { return }
 
         do {
-            // Just check message list count, don't fetch full emails
+            // Fetch latest 3 emails from inbox
             let messageList = try await gmailAPIClient.fetchMessagesList(query: "in:inbox", maxResults: 3)
             let messageIds = messageList.messages?.map { $0.id } ?? []
 
@@ -767,17 +802,36 @@ class EmailService: ObservableObject {
             }
 
             if !newMessageIds.isEmpty {
-                // Show notification for new emails WITHOUT fetching content
-                // Create minimal notification without full email data
-                print("📧 Detected \(newMessageIds.count) new emails - user must refresh to load")
+                // CRITICAL FIX: Reload inbox emails to show new emails in UI
+                await loadEmailsForFolder(.inbox, forceRefresh: true)
 
-                // Show generic notification (no email ID since we don't fetch full content)
-                await notificationService.scheduleNewEmailNotification(
-                    emailCount: newMessageIds.count,
-                    latestSender: nil,
-                    latestSubject: "New email(s) received",
-                    latestEmailId: nil
-                )
+                // Fetch metadata for the latest new email to show in notification
+                // This uses format=metadata which is lightweight (only ~5 quota units)
+                var latestSender: String?
+                var latestSubject: String?
+                var latestEmailId: String?
+
+                if let firstNewId = newMessageIds.first {
+                    if let newEmail = try? await gmailAPIClient.fetchSingleEmail(messageId: firstNewId) {
+                        latestSender = newEmail.sender.displayName
+                        latestSubject = newEmail.subject
+                        latestEmailId = newEmail.id
+                    }
+                }
+
+                // CRITICAL FIX: Only show notification if app is in background
+                if !isAppActive {
+                    await notificationService.scheduleNewEmailNotification(
+                        emailCount: newMessageIds.count,
+                        latestSender: latestSender,
+                        latestSubject: latestSubject,
+                        latestEmailId: latestEmailId
+                    )
+                }
+
+                // Update badge count
+                let currentUnreadCount = inboxEmails.filter { !$0.isRead }.count
+                notificationService.updateAppBadge(count: currentUnreadCount)
             }
         } catch {
             print("Error checking for new emails: \(error)")
@@ -889,6 +943,39 @@ class EmailService: ObservableObject {
     }
 
     // MARK: - Private Methods
+
+    /// Merges new emails with existing emails, preserving AI summaries that were already generated
+    private func mergeWithExistingAISummaries(newEmails: [Email], existingEmails: [Email]) -> [Email] {
+        // Create a dictionary of existing emails by their ID for quick lookup
+        let existingSummaries = Dictionary(uniqueKeysWithValues: existingEmails.map { ($0.id, $0.aiSummary) })
+
+        // Map through new emails and restore AI summaries if they exist
+        return newEmails.map { newEmail in
+            // If this email had an AI summary before, restore it
+            if let existingSummary = existingSummaries[newEmail.id], existingSummary != nil && !existingSummary!.isEmpty {
+                return Email(
+                    id: newEmail.id,
+                    threadId: newEmail.threadId,
+                    sender: newEmail.sender,
+                    recipients: newEmail.recipients,
+                    ccRecipients: newEmail.ccRecipients,
+                    subject: newEmail.subject,
+                    snippet: newEmail.snippet,
+                    body: newEmail.body,
+                    timestamp: newEmail.timestamp,
+                    isRead: newEmail.isRead,
+                    isImportant: newEmail.isImportant,
+                    hasAttachments: newEmail.hasAttachments,
+                    attachments: newEmail.attachments,
+                    labels: newEmail.labels,
+                    aiSummary: existingSummary, // Restore the existing AI summary
+                    gmailMessageId: newEmail.gmailMessageId,
+                    gmailThreadId: newEmail.gmailThreadId
+                )
+            }
+            return newEmail
+        }
+    }
 
     private func filterTodaysEmails(_ emails: [Email]) -> [Email] {
         let calendar = Calendar.current

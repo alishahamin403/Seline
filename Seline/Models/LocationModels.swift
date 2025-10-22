@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import PostgREST
 import CoreLocation
+import MapKit
 
 // MARK: - Location Models
 
@@ -17,10 +18,12 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var category: String // AI-generated category
     var photos: [String] // URLs to photos
     var rating: Double?
+    var openingHours: [String]? // Opening hours weekday descriptions
+    var isOpenNow: Bool?
     var dateCreated: Date
     var dateModified: Date
 
-    init(googlePlaceId: String, name: String, address: String, latitude: Double, longitude: Double, phone: String? = nil, photos: [String] = [], rating: Double? = nil) {
+    init(googlePlaceId: String, name: String, address: String, latitude: Double, longitude: Double, phone: String? = nil, photos: [String] = [], rating: Double? = nil, openingHours: [String]? = nil, isOpenNow: Bool? = nil) {
         self.id = UUID()
         self.googlePlaceId = googlePlaceId
         self.name = name
@@ -32,6 +35,8 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.category = "Uncategorized" // Will be set by AI
         self.photos = photos
         self.rating = rating
+        self.openingHours = openingHours
+        self.isOpenNow = isOpenNow
         self.dateCreated = Date()
         self.dateModified = Date()
     }
@@ -56,14 +61,16 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     }
 
     var googleMapsURL: URL? {
-        // Create Google Maps deep link
-        let query = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // Create Google Maps deep link using name, address, and coordinates
+        // This ensures the exact location opens with full details
+        let query = "\(displayName) \(address)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         return URL(string: "comgooglemaps://?q=\(query)&center=\(latitude),\(longitude)")
     }
 
     var appleMapsURL: URL? {
         // Fallback to Apple Maps
-        return URL(string: "maps://?q=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&ll=\(latitude),\(longitude)")
+        let query = displayName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "maps://?q=\(query)&ll=\(latitude),\(longitude)")
     }
 }
 
@@ -221,6 +228,179 @@ class LocationsManager: ObservableObject {
         }.sorted { $0.dateModified > $1.dateModified }
     }
 
+    // MARK: - Nearby Places
+
+    /// Get places within a certain radius of the current location (OLD METHOD - uses distance)
+    /// - Parameters:
+    ///   - currentLocation: The user's current location
+    ///   - radiusInKm: The search radius in kilometers (default: 20km)
+    ///   - category: Optional category filter
+    /// - Returns: Array of SavedPlace objects sorted by distance (closest first)
+    func getNearbyPlaces(from currentLocation: CLLocation, radiusInKm: Double = 20.0, category: String? = nil) -> [SavedPlace] {
+        let radiusInMeters = radiusInKm * 1000.0
+
+        var places = savedPlaces
+
+        // Filter by category if specified
+        if let category = category {
+            places = places.filter { $0.category == category }
+        }
+
+        // Filter places within radius and calculate distances
+        let nearbyPlaces = places.compactMap { place -> (place: SavedPlace, distance: Double)? in
+            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let distance = currentLocation.distance(from: placeLocation)
+
+            // Return place if within radius
+            if distance <= radiusInMeters {
+                return (place, distance)
+            }
+            return nil
+        }
+
+        // Sort by distance (closest first) and return just the places
+        return nearbyPlaces.sorted { $0.distance < $1.distance }
+            .map { $0.place }
+    }
+
+    /// Get places within a certain driving time from current location
+    /// - Parameters:
+    ///   - currentLocation: The user's current location
+    ///   - maxTravelTimeMinutes: Maximum travel time in minutes (e.g., 10, 20, 30)
+    ///   - category: Optional category filter
+    /// - Returns: Array of SavedPlace objects sorted by ETA (fastest first)
+    func getNearbyPlacesByETA(from currentLocation: CLLocation, maxTravelTimeMinutes: Int, category: String? = nil) async -> [SavedPlace] {
+        var places = savedPlaces
+
+        // Filter by category if specified
+        if let category = category {
+            places = places.filter { $0.category == category }
+        }
+
+        // First, filter by distance to reduce number of ETA requests
+        // Use a rough estimate: assume average speed of 40 km/h
+        let estimatedMaxDistance = Double(maxTravelTimeMinutes) * (40.0 / 60.0) * 1000.0 // in meters
+        let distanceFiltered = places.filter { place in
+            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let distance = currentLocation.distance(from: placeLocation)
+            return distance <= estimatedMaxDistance * 1.5 // 1.5x buffer for non-straight routes
+        }
+
+        // Calculate ETA for filtered places with rate limiting
+        var placesWithETA: [(place: SavedPlace, eta: TimeInterval)] = []
+
+        // Process in batches of 5 to avoid rate limiting
+        let batchSize = 5
+        let batches = stride(from: 0, to: distanceFiltered.count, by: batchSize).map {
+            Array(distanceFiltered[$0..<min($0 + batchSize, distanceFiltered.count)])
+        }
+
+        for batch in batches {
+            // Process batch concurrently
+            await withTaskGroup(of: (SavedPlace, TimeInterval).self) { group in
+                for place in batch {
+                    group.addTask {
+                        if let eta = await self.calculateETA(from: currentLocation, to: place) {
+                            return (place, eta)
+                        }
+                        // Fallback to distance-based estimation if ETA fails
+                        let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                        let distance = currentLocation.distance(from: placeLocation)
+                        // Assume average speed of 30 km/h in city
+                        let estimatedETA = (distance / 1000.0) / 30.0 * 3600.0 // seconds
+                        return (place, estimatedETA)
+                    }
+                }
+
+                for await result in group {
+                    let (place, eta) = result
+                    let etaMinutes = eta / 60.0
+                    // Only include places within the time limit
+                    if etaMinutes <= Double(maxTravelTimeMinutes) {
+                        placesWithETA.append((place, eta))
+                    }
+                }
+            }
+
+            // Add delay between batches to avoid rate limiting
+            if batch != batches.last {
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms delay
+            }
+        }
+
+        // Sort by ETA (fastest first) and return just the places
+        return placesWithETA.sorted { $0.eta < $1.eta }
+            .map { $0.place }
+    }
+
+    /// Calculate actual driving ETA to a place using MapKit
+    /// - Parameters:
+    ///   - currentLocation: User's current location
+    ///   - place: The destination place
+    /// - Returns: ETA in seconds, or nil if calculation fails
+    private func calculateETA(from currentLocation: CLLocation, to place: SavedPlace) async -> TimeInterval? {
+        let sourcePlacemark = MKPlacemark(coordinate: currentLocation.coordinate)
+        let destinationPlacemark = MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
+        )
+
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: sourcePlacemark)
+        request.destination = MKMapItem(placemark: destinationPlacemark)
+        request.transportType = .automobile
+
+        let directions = MKDirections(request: request)
+
+        // Add timeout to avoid hanging requests
+        return await withTaskGroup(of: TimeInterval?.self) { group in
+            group.addTask {
+                do {
+                    let response = try await directions.calculate()
+                    if let route = response.routes.first {
+                        return route.expectedTravelTime
+                    }
+                } catch {
+                    // Silently fail - we'll use distance-based estimation as fallback
+                }
+                return nil
+            }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 second timeout
+                return nil
+            }
+
+            // Return first result (either ETA or timeout)
+            if let result = await group.next() {
+                group.cancelAll()
+                return result
+            }
+
+            return nil
+        }
+    }
+
+    /// Format distance in a human-readable way
+    /// - Parameter meters: Distance in meters
+    /// - Returns: Formatted string like "1.2 km" or "500 m"
+    static func formatDistance(_ meters: Double) -> String {
+        if meters < 1000 {
+            return String(format: "%.0f m", meters)
+        } else {
+            return String(format: "%.1f km", meters / 1000.0)
+        }
+    }
+
+    /// Calculate distance between current location and a saved place
+    /// - Parameters:
+    ///   - place: The saved place
+    ///   - currentLocation: The user's current location
+    /// - Returns: Distance in meters
+    static func distance(from place: SavedPlace, to currentLocation: CLLocation) -> Double {
+        let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+        return currentLocation.distance(from: placeLocation)
+    }
+
     // MARK: - Category Management
 
     func categorizePlace(_ place: SavedPlace, with category: String) async {
@@ -244,7 +424,7 @@ class LocationsManager: ObservableObject {
         print("💾 Saving place to Supabase - User ID: \(userId.uuidString), Place ID: \(place.id.uuidString)")
 
         let formatter = ISO8601DateFormatter()
-        let placeData: [String: PostgREST.AnyJSON] = [
+        var placeData: [String: PostgREST.AnyJSON] = [
             "id": .string(place.id.uuidString),
             "user_id": .string(userId.uuidString),
             "google_place_id": .string(place.googlePlaceId),
@@ -261,13 +441,16 @@ class LocationsManager: ObservableObject {
             "date_modified": .string(formatter.string(from: place.dateModified))
         ]
 
+        // Add opening_hours and is_open_now (migration completed)
+        placeData["opening_hours"] = place.openingHours != nil ? .string(try! JSONEncoder().encode(place.openingHours!).base64EncodedString()) : .null
+        placeData["is_open_now"] = place.isOpenNow != nil ? .bool(place.isOpenNow!) : .null
+
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
             try await client
                 .from("saved_places")
                 .insert(placeData)
                 .execute()
-            print("✅ Place saved to Supabase: \(place.name)")
         } catch {
             print("❌ Error saving place to Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
@@ -281,7 +464,7 @@ class LocationsManager: ObservableObject {
         }
 
         let formatter = ISO8601DateFormatter()
-        let placeData: [String: PostgREST.AnyJSON] = [
+        var placeData: [String: PostgREST.AnyJSON] = [
             "name": .string(place.name),
             "custom_name": place.customName != nil ? .string(place.customName!) : .null,
             "address": .string(place.address),
@@ -294,6 +477,10 @@ class LocationsManager: ObservableObject {
             "date_modified": .string(formatter.string(from: place.dateModified))
         ]
 
+        // Add opening_hours and is_open_now (migration completed)
+        placeData["opening_hours"] = place.openingHours != nil ? .string(try! JSONEncoder().encode(place.openingHours!).base64EncodedString()) : .null
+        placeData["is_open_now"] = place.isOpenNow != nil ? .bool(place.isOpenNow!) : .null
+
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
             try await client
@@ -301,7 +488,6 @@ class LocationsManager: ObservableObject {
                 .update(placeData)
                 .eq("id", value: place.id.uuidString)
                 .execute()
-            print("✅ Place updated in Supabase: \(place.name)")
         } catch {
             print("❌ Error updating place in Supabase: \(error)")
         }
@@ -320,7 +506,6 @@ class LocationsManager: ObservableObject {
                 .delete()
                 .eq("id", value: placeId.uuidString)
                 .execute()
-            print("✅ Place deleted from Supabase")
         } catch {
             print("❌ Error deleting place from Supabase: \(error)")
         }
@@ -358,7 +543,6 @@ class LocationsManager: ObservableObject {
                         self.savedPlaces = parsedPlaces
                         self.categories = Set(parsedPlaces.map { $0.category })
                         savePlacesToStorage()
-                        print("✅ Loaded \(parsedPlaces.count) places from Supabase")
                     } else {
                         print("⚠️ Failed to parse any places from Supabase, keeping \(self.savedPlaces.count) local places")
                     }
@@ -405,6 +589,14 @@ class LocationsManager: ObservableObject {
             photos = decodedPhotos
         }
 
+        // Decode opening hours array
+        var openingHours: [String]? = nil
+        if let hoursString = data.opening_hours,
+           let hoursData = Data(base64Encoded: hoursString),
+           let decodedHours = try? JSONDecoder().decode([String].self, from: hoursData) {
+            openingHours = decodedHours
+        }
+
         var place = SavedPlace(
             googlePlaceId: data.google_place_id,
             name: data.name,
@@ -413,7 +605,9 @@ class LocationsManager: ObservableObject {
             longitude: data.longitude,
             phone: data.phone,
             photos: photos,
-            rating: data.rating
+            rating: data.rating,
+            openingHours: openingHours,
+            isOpenNow: data.is_open_now
         )
         place.id = id
         place.customName = data.custom_name
@@ -421,12 +615,50 @@ class LocationsManager: ObservableObject {
         place.dateCreated = dateCreated
         place.dateModified = dateModified
 
-        print("✅ Successfully parsed place: \(place.name)")
         return place
     }
 
     func syncPlacesOnLogin() async {
         await loadPlacesFromSupabase()
+    }
+
+    // MARK: - Refresh Opening Hours
+
+    /// Refresh opening hours for all saved places that are missing this data
+    func refreshOpeningHoursForAllPlaces() async {
+        // Refresh all places to get the most current open/closed status
+        print("🔄 Refreshing opening hours for \(savedPlaces.count) places...")
+
+        for place in savedPlaces {
+            do {
+                // Fetch updated details from Google Places API
+                let placeDetails = try await GoogleMapsService.shared.getPlaceDetails(placeId: place.googlePlaceId)
+
+                // Update the saved place with new data
+                if let index = savedPlaces.firstIndex(where: { $0.id == place.id }) {
+                    savedPlaces[index].isOpenNow = placeDetails.isOpenNow
+                    savedPlaces[index].openingHours = placeDetails.openingHours
+                }
+
+                print("✅ Updated opening hours for: \(place.name)")
+
+                // Small delay to avoid rate limiting
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+            } catch {
+                print("⚠️ Failed to refresh opening hours for \(place.name): \(error)")
+            }
+        }
+
+        // Save updated data
+        await MainActor.run {
+            savePlacesToStorage()
+            print("✅ Opening hours refresh complete")
+        }
+
+        // Sync to Supabase
+        for place in savedPlaces {
+            await updatePlaceInSupabase(place)
+        }
     }
 }
 
@@ -486,6 +718,8 @@ struct PlaceSupabaseData: Codable {
     let category: String
     let photos: String // Base64 encoded JSON array
     let rating: Double?
+    let opening_hours: String? // Base64 encoded JSON array
+    let is_open_now: Bool?
     let date_created: String
     let date_modified: String
 }

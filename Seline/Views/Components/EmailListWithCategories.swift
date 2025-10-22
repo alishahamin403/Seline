@@ -185,21 +185,10 @@ struct EmptyEmailsView: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "envelope")
-                .font(.system(size: 48, weight: .light))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-
-            VStack(spacing: 8) {
-                Text("No emails found")
-                    .font(FontManager.geist(size: .title3, weight: .semibold))
-                    .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                Text("There are no emails in this folder for today.")
-                    .font(FontManager.geist(size: .body, weight: .regular))
-                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                    .multilineTextAlignment(.center)
-            }
+        VStack(spacing: 0) {
+            Text("No Emails Today")
+                .font(FontManager.geist(size: .title2, weight: .semibold))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
         }
         .padding(.top, 40)
     }

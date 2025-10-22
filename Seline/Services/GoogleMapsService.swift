@@ -157,7 +157,7 @@ class GoogleMapsService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
-        request.setValue("displayName,formattedAddress,location,internationalPhoneNumber,photos,rating,userRatingCount,reviews,websiteUri,regularOpeningHours,priceLevel,types", forHTTPHeaderField: "X-Goog-FieldMask")
+        request.setValue("displayName,formattedAddress,location,internationalPhoneNumber,photos,rating,userRatingCount,reviews,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types", forHTTPHeaderField: "X-Goog-FieldMask")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -243,9 +243,19 @@ class GoogleMapsService: ObservableObject {
             // Extract opening hours (new API structure)
             var isOpenNow: Bool? = nil
             var weekdayText: [String] = []
+
+            // First try to get current opening status from currentOpeningHours
+            if let currentOpeningHours = place["currentOpeningHours"] as? [String: Any] {
+                if let openNow = currentOpeningHours["openNow"] as? Bool {
+                    isOpenNow = openNow
+                }
+            }
+
+            // Get regular opening hours for weekday descriptions
             if let openingHours = place["regularOpeningHours"] as? [String: Any] {
-                if let periods = openingHours["periods"] as? [[String: Any]], !periods.isEmpty {
-                    isOpenNow = true // Simplified - would need more logic to determine current status
+                // Fallback to regularOpeningHours openNow if currentOpeningHours not available
+                if isOpenNow == nil, let openNow = openingHours["openNow"] as? Bool {
+                    isOpenNow = openNow
                 }
                 if let weekdayDescriptions = openingHours["weekdayDescriptions"] as? [String] {
                     weekdayText = weekdayDescriptions
@@ -407,7 +417,9 @@ struct PlaceDetails {
             longitude: longitude,
             phone: phone,
             photos: photoURLs,
-            rating: rating
+            rating: rating,
+            openingHours: openingHours,
+            isOpenNow: isOpenNow
         )
     }
 }

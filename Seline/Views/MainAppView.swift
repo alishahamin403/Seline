@@ -5,20 +5,25 @@ struct MainAppView: View {
     @StateObject private var emailService = EmailService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
+    @StateObject private var locationService = LocationService.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectedNoteToOpen: Note? = nil
     @State private var showingNewNoteSheet = false
     @State private var showingAddEventPopup = false
-    @State private var showingSearch = false
-    @State private var searchBarOffset: CGFloat = -100
+    @State private var searchText = ""
     @State private var searchSelectedNote: Note? = nil
     @State private var searchSelectedEmail: Email? = nil
     @State private var searchSelectedTask: TaskItem? = nil
+    @State private var searchSelectedLocation: SavedPlace? = nil
+    @State private var searchSelectedFolder: String? = nil
     @State private var showingEditTask = false
     @State private var notificationEmailId: String? = nil
     @State private var notificationTaskId: String? = nil
+    @FocusState private var isSearchFocused: Bool
+    @State private var showingVoiceAssistant = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -38,6 +43,134 @@ struct MainAppView: View {
         return formatter.string(from: date)
     }
 
+    private var searchResults: [OverlaySearchResult] {
+        guard !searchText.isEmpty else { return [] }
+        var results: [OverlaySearchResult] = []
+        let lowercasedSearch = searchText.lowercased()
+
+        // Search tasks/events
+        let allTasks = taskManager.tasks.values.flatMap { $0 }
+        let matchingTasks = allTasks.filter {
+            $0.title.lowercased().contains(lowercasedSearch)
+        }
+
+        for task in matchingTasks.prefix(5) {
+            results.append(OverlaySearchResult(
+                type: .event,
+                title: task.title,
+                subtitle: task.scheduledTime != nil ? formatTime(task.scheduledTime!) : "No time set",
+                icon: "calendar",
+                task: task,
+                email: nil,
+                note: nil,
+                location: nil,
+                category: nil
+            ))
+        }
+
+        // Search emails
+        let allEmails = emailService.inboxEmails + emailService.sentEmails
+        let matchingEmails = allEmails.filter {
+            $0.subject.lowercased().contains(lowercasedSearch) ||
+            $0.sender.displayName.lowercased().contains(lowercasedSearch) ||
+            ($0.snippet ?? "").lowercased().contains(lowercasedSearch)
+        }
+
+        for email in matchingEmails.prefix(5) {
+            results.append(OverlaySearchResult(
+                type: .email,
+                title: email.subject,
+                subtitle: "from \(email.sender.displayName)",
+                icon: "envelope",
+                task: nil,
+                email: email,
+                note: nil,
+                location: nil,
+                category: nil
+            ))
+        }
+
+        // Search notes
+        let matchingNotes = notesManager.notes.filter {
+            $0.title.lowercased().contains(lowercasedSearch) ||
+            $0.content.lowercased().contains(lowercasedSearch)
+        }
+
+        for note in matchingNotes.prefix(5) {
+            results.append(OverlaySearchResult(
+                type: .note,
+                title: note.title,
+                subtitle: note.formattedDateModified,
+                icon: "note.text",
+                task: nil,
+                email: nil,
+                note: note,
+                location: nil,
+                category: nil
+            ))
+        }
+
+        // Search locations
+        let locationsManager = LocationsManager.shared
+        let matchingLocations = locationsManager.savedPlaces.filter {
+            $0.name.lowercased().contains(lowercasedSearch) ||
+            $0.address.lowercased().contains(lowercasedSearch) ||
+            ($0.customName?.lowercased().contains(lowercasedSearch) ?? false)
+        }
+
+        for location in matchingLocations.prefix(5) {
+            results.append(OverlaySearchResult(
+                type: .location,
+                title: location.displayName,
+                subtitle: location.address,
+                icon: "mappin.circle.fill",
+                task: nil,
+                email: nil,
+                note: nil,
+                location: location,
+                category: nil
+            ))
+        }
+
+        return results
+    }
+
+    private func handleSearchResultTap(_ result: OverlaySearchResult) {
+        HapticManager.shared.selection()
+
+        switch result.type {
+        case .note:
+            if let note = result.note {
+                searchSelectedNote = note
+            }
+        case .email:
+            if let email = result.email {
+                searchSelectedEmail = email
+            }
+        case .event:
+            if let task = result.task {
+                searchSelectedTask = task
+            }
+        case .location:
+            if let location = result.location {
+                GoogleMapsService.shared.openInGoogleMaps(place: location)
+            }
+            // Dismiss search for locations
+            isSearchFocused = false
+            searchText = ""
+            return
+        case .folder:
+            if let category = result.category {
+                selectedTab = .maps
+                searchSelectedFolder = category
+            }
+        }
+
+        // Dismiss search after setting the state
+        isSearchFocused = false
+        searchText = ""
+    }
+
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
@@ -50,6 +183,11 @@ struct MainAppView: View {
                         }
                         .navigationViewStyle(StackNavigationViewStyle())
                         .navigationBarHidden(true)
+                        .onAppear {
+                            Task {
+                                await emailService.loadEmailsForFolder(.inbox)
+                            }
+                        }
                     case .email:
                         EmailView()
                     case .events:
@@ -57,7 +195,7 @@ struct MainAppView: View {
                     case .notes:
                         NotesView()
                     case .maps:
-                        MapsViewNew()
+                        MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
                     }
                 }
 
@@ -69,8 +207,12 @@ struct MainAppView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(
                 colorScheme == .dark ?
-                    Color.gmailDarkBackground : Color.white
+                    Color.black : Color.white
             )
+            .onAppear {
+                // Pre-load location services for Maps tab
+                locationService.requestLocationPermission()
+            }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
                     keyboardHeight = keyboardFrame.cgRectValue.height
@@ -79,7 +221,7 @@ struct MainAppView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardHeight = 0
             }
-            .onReceive(NotificationCenter.default.publisher(for: .navigateToEmail)) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToEmail)) { notification in
                 handleEmailNotification(notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
@@ -159,11 +301,14 @@ struct MainAppView: View {
                     showingEditTask = false
                 }
             }
+            .fullScreenCover(isPresented: $showingVoiceAssistant) {
+                VoiceAssistantView()
+            }
             .overlay {
                 if showingAddEventPopup {
                     AddEventPopupView(
                         isPresented: $showingAddEventPopup,
-                        onSave: { title, description, date, time, reminder, recurring, frequency in
+                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency in
                             // Determine the weekday from the selected date
                             let calendar = Calendar.current
                             let weekdayIndex = calendar.component(.weekday, from: date)
@@ -186,6 +331,7 @@ struct MainAppView: View {
                                 to: weekday,
                                 description: description,
                                 scheduledTime: time,
+                                endTime: endTime,
                                 targetDate: date,
                                 reminderTime: reminder,
                                 isRecurring: recurring,
@@ -391,12 +537,7 @@ struct MainAppView: View {
                 ForEach(Array(unreadEmails.enumerated()), id: \.element.id) { index, email in
                     Button(action: {
                         HapticManager.shared.email()
-                        selectedTab = .email
-                        // Optional: Add slight delay to show tab switch
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            // This will trigger navigation to email detail view
-                            // The email view will handle showing the specific email
-                        }
+                        searchSelectedEmail = email
                     }) {
                         HStack(spacing: 8) {
                             // Avatar circle with blue background and icon
@@ -606,110 +747,223 @@ struct MainAppView: View {
         }
     }
 
+    // MARK: - Search Bar Components
+
+    private var searchBarView: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+            TextField("Search emails, events, notes, locations...", text: $searchText)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .focused($isSearchFocused)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+
+            Button(action: {
+                HapticManager.shared.selection()
+                showingVoiceAssistant = true
+            }) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            }
+
+            if !searchText.isEmpty {
+                Button(action: {
+                    searchText = ""
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            colorScheme == .dark ?
+                Color(red: 0.15, green: 0.15, blue: 0.15) :
+                Color(red: 0.95, green: 0.95, blue: 0.95)
+        )
+    }
+
+    private var searchResultsDropdown: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if searchResults.isEmpty {
+                        Text("No results found")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .padding(.vertical, 20)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    } else {
+                        ForEach(searchResults) { result in
+                            searchResultRow(for: result)
+                        }
+                    }
+                }
+                .padding(8)
+            }
+            .frame(maxHeight: 300)
+        }
+        .background(
+            colorScheme == .dark ?
+                Color(red: 0.15, green: 0.15, blue: 0.15) :
+                Color(red: 0.95, green: 0.95, blue: 0.95)
+        )
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+    }
+
+    private func searchResultRow(for result: OverlaySearchResult) -> some View {
+        Button(action: {
+            handleSearchResultTap(result)
+        }) {
+            HStack(spacing: 12) {
+                // Icon
+                Image(systemName: result.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                    .frame(width: 24)
+
+                // Content
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(result.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .lineLimit(1)
+
+                    Text(result.subtitle)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // Type badge
+                Text(result.type.rawValue.capitalized)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        colorScheme == .dark ?
+                            Color.white.opacity(0.1) :
+                            Color.black.opacity(0.05)
+                    )
+                    .cornerRadius(4)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                colorScheme == .dark ?
+                    Color.white.opacity(0.03) :
+                    Color.black.opacity(0.02)
+            )
+            .cornerRadius(6)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var searchBarContainer: some View {
+        VStack(spacing: 0) {
+            searchBarView
+
+            if !searchText.isEmpty {
+                searchResultsDropdown
+                    .transition(.opacity)
+            }
+        }
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(!searchText.isEmpty ? 0.15 : 0.05), radius: !searchText.isEmpty ? 12 : 4, x: 0, y: !searchText.isEmpty ? 6 : 2)
+        .padding(.horizontal, 12)
+        .zIndex(100)
+        .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
+    }
+
+    private var mainContentWidgets: some View {
+        VStack(spacing: 12) {
+            // Weather widget - only fetch when on home tab
+            WeatherWidget(isVisible: selectedTab == .home)
+
+            // News carousel
+            NewsCarouselView()
+
+            // Events card
+            EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
+
+            // 60/40 split: Unread Emails and Pinned Notes
+            emailAndNotesCards
+        }
+    }
+
+    private var emailAndNotesCards: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 8) {
+                // Unread Emails card (60%)
+                EmailCardWidget(selectedTab: $selectedTab, selectedEmail: $searchSelectedEmail)
+                    .frame(width: (geometry.size.width - 8) * 0.6)
+
+                // Pinned Notes card (40%)
+                NotesCardWidget(selectedNoteToOpen: $selectedNoteToOpen, showingNewNoteSheet: $showingNewNoteSheet)
+                    .frame(width: (geometry.size.width - 8) * 0.4)
+            }
+        }
+        .frame(height: 200)
+        .padding(.horizontal, 12)
+    }
+
     // MARK: - Home Content
     private var homeContent: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // Fixed Header
-                HeaderSection(selectedTab: $selectedTab)
-                    .padding(.bottom, 16)
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Fixed Header with search
+                    HeaderSection(
+                        selectedTab: $selectedTab,
+                        searchText: $searchText,
+                        showingVoiceAssistant: $showingVoiceAssistant,
+                        isSearchFocused: $isSearchFocused
+                    )
+                    .padding(.bottom, 8)
 
-                // Fixed content (non-scrollable)
-                VStack(spacing: 12) {
-                    // Weather widget - only fetch when on home tab
-                    WeatherWidget(isVisible: selectedTab == .home)
+                    // Search results dropdown
+                    if !searchText.isEmpty {
+                        searchResultsDropdown
+                            .padding(.horizontal, 20)
+                            .transition(.opacity)
+                    }
 
-                    // News carousel
-                    NewsCarouselView()
+                    // Main content
+                    ZStack(alignment: .top) {
+                        mainContentWidgets
+                            .opacity(searchText.isEmpty ? 1 : 0.3)
+                            .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
 
-                    // Events card
-                    EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
-
-                    // 60/40 split: Unread Emails and Pinned Notes
-                    GeometryReader { geometry in
-                        HStack(spacing: 8) {
-                            // Unread Emails card (60%)
-                            EmailCardWidget(selectedTab: $selectedTab)
-                                .frame(width: (geometry.size.width - 8) * 0.6)
-
-                            // Pinned Notes card (40%)
-                            NotesCardWidget(selectedNoteToOpen: $selectedNoteToOpen, showingNewNoteSheet: $showingNewNoteSheet)
-                                .frame(width: (geometry.size.width - 8) * 0.4)
+                        // Overlay to dismiss search when tapping outside
+                        if !searchText.isEmpty {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    isSearchFocused = false
+                                    searchText = ""
+                                }
                         }
                     }
-                    .frame(height: 200)
-                    .padding(.horizontal, 12)
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
-
-                Spacer()
+                .frame(minHeight: geometry.size.height)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(
                 colorScheme == .dark ?
-                    Color.gmailDarkBackground : Color.white
+                    Color.black : Color.white
             )
-            .gesture(
-                DragGesture(minimumDistance: 30, coordinateSpace: .local)
-                    .onChanged { value in
-                        // Track the drag to animate search bar
-                        if value.translation.height > 0 && value.translation.height < 200 {
-                            searchBarOffset = -100 + value.translation.height
-                        }
-                    }
-                    .onEnded { value in
-                        // Swipe down to search
-                        if value.translation.height > 100 && value.translation.height > abs(value.translation.width) {
-                            HapticManager.shared.selection()
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                showingSearch = true
-                                searchBarOffset = 0
-                            }
-                        } else {
-                            // Reset if not enough swipe
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                searchBarOffset = -100
-                            }
-                        }
-                    }
-            )
-            .overlay(alignment: .top) {
-                if showingSearch || searchBarOffset > -100 {
-                    ZStack {
-                        // Semi-transparent background
-                        if showingSearch {
-                            Color.black.opacity(0.3)
-                                .ignoresSafeArea()
-                                .onTapGesture {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                        showingSearch = false
-                                        searchBarOffset = -100
-                                    }
-                                }
-                        }
-
-                        // Search bar at top
-                        VStack(spacing: 0) {
-                            SearchOverlayBar(
-                                isPresented: $showingSearch,
-                                selectedTab: $selectedTab,
-                                selectedNote: $searchSelectedNote,
-                                selectedEmail: $searchSelectedEmail,
-                                selectedTask: $searchSelectedTask,
-                                onDismiss: {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                        showingSearch = false
-                                        searchBarOffset = -100
-                                    }
-                                }
-                            )
-                            .offset(y: showingSearch ? 0 : searchBarOffset)
-
-                            Spacer()
-                        }
-                    }
-                    .transition(.opacity)
-                }
-            }
         }
     }
 

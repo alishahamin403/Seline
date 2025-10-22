@@ -350,7 +350,7 @@ struct LocationDetailView: View {
 
         let latitude = placeDetails.latitude
         let longitude = placeDetails.longitude
-        let name = placeDetails.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let _ = placeDetails.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
 
         // Try Google Maps app first
         let googleMapsURL = URL(string: "comgooglemaps://?daddr=\(latitude),\(longitude)&directionsmode=driving")

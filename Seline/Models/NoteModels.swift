@@ -14,6 +14,8 @@ struct Note: Identifiable, Codable, Hashable {
     var folderId: UUID?
     var isLocked: Bool
     var imageUrls: [String] // Store image URLs from Supabase Storage
+    var tables: [NoteTable] // Store embedded tables
+    var todoLists: [NoteTodoList] // Store embedded todo lists
 
     // Temporary compatibility - will be removed after migration
     var imageAttachments: [Data] {
@@ -31,6 +33,8 @@ struct Note: Identifiable, Codable, Hashable {
         self.folderId = folderId
         self.isLocked = false
         self.imageUrls = []
+        self.tables = []
+        self.todoLists = []
     }
 
     var formattedDateModified: String {
@@ -110,6 +114,8 @@ struct DeletedNote: Identifiable, Codable, Hashable {
     var folderId: UUID?
     var isLocked: Bool
     var imageUrls: [String]
+    var tables: [NoteTable]
+    var todoLists: [NoteTodoList]
 
     var daysUntilPermanentDeletion: Int {
         let calendar = Calendar.current
@@ -170,7 +176,6 @@ class NotesManager: ObservableObject {
         // Remove the 89MB of data from UserDefaults
         UserDefaults.standard.removeObject(forKey: notesKey)
         UserDefaults.standard.removeObject(forKey: foldersKey)
-        print("✅ Cleared old UserDefaults notes storage (was 89MB)")
     }
 
     // MARK: - Data Persistence
@@ -231,7 +236,6 @@ class NotesManager: ObservableObject {
         // Upload to Supabase Storage
         let imageUrl = try await SupabaseManager.shared.uploadImage(imageData, fileName: fileName, userId: userId)
 
-        print("✅ Image uploaded successfully: \(imageUrl)")
         return imageUrl
     }
 
@@ -277,7 +281,9 @@ class NotesManager: ObservableObject {
             isPinned: note.isPinned,
             folderId: note.folderId,
             isLocked: note.isLocked,
-            imageUrls: note.imageUrls
+            imageUrls: note.imageUrls,
+            tables: note.tables,
+            todoLists: note.todoLists
         )
 
         deletedNotes.append(deletedNote)
@@ -326,7 +332,6 @@ class NotesManager: ObservableObject {
                 .eq("id", value: deletedNote.id.uuidString)
                 .execute()
 
-            print("✅ Note moved to trash: \(deletedNote.title)")
         } catch {
             print("❌ Error moving note to trash: \(error)")
         }
@@ -355,7 +360,6 @@ class NotesManager: ObservableObject {
                 .delete()
                 .eq("id", value: deletedNote.id.uuidString)
                 .execute()
-            print("✅ Note permanently deleted from database")
         } catch {
             print("❌ Error permanently deleting note: \(error)")
         }
@@ -387,6 +391,7 @@ class NotesManager: ObservableObject {
         note.isPinned = deletedNote.isPinned
         note.isLocked = deletedNote.isLocked
         note.imageUrls = deletedNote.imageUrls
+        note.tables = deletedNote.tables
 
         notes.append(note)
         deletedNotes.removeAll { $0.id == deletedNote.id }
@@ -409,7 +414,6 @@ class NotesManager: ObservableObject {
 
             // Re-insert to notes table
             await saveNoteToSupabase(note)
-            print("✅ Note restored from trash: \(note.title)")
         } catch {
             print("❌ Error restoring note from trash: \(error)")
         }
@@ -540,7 +544,6 @@ class NotesManager: ObservableObject {
                 .eq("id", value: deletedFolder.id.uuidString)
                 .execute()
 
-            print("✅ Folder moved to trash: \(deletedFolder.name)")
         } catch {
             print("❌ Error moving folder to trash: \(error)")
         }
@@ -568,7 +571,6 @@ class NotesManager: ObservableObject {
                 .delete()
                 .eq("id", value: folderId.uuidString)
                 .execute()
-            print("✅ Folder permanently deleted from database")
         } catch {
             print("❌ Error permanently deleting folder: \(error)")
         }
@@ -604,7 +606,6 @@ class NotesManager: ObservableObject {
 
             // Re-insert to folders table
             await saveFolderToSupabase(folder)
-            print("✅ Folder restored from trash: \(folder.name)")
         } catch {
             print("❌ Error restoring folder from trash: \(error)")
         }
@@ -628,6 +629,183 @@ class NotesManager: ObservableObject {
         let receiptsFolder = NoteFolder(name: "Receipts", color: "#F59E42") // Orange color for receipts
         addFolder(receiptsFolder)
         return receiptsFolder.id
+    }
+
+    // MARK: - Receipt Organization by Month/Year
+
+    // Extract month and year from receipt title (e.g., "Receipt - Store - December 15, 2024" -> (12, 2024))
+    func extractMonthYearFromTitle(_ title: String) -> (month: Int, year: Int)? {
+        // Common date patterns in receipt titles
+        let datePatterns = [
+            // "December 15, 2024" or "Dec 15, 2024"
+            "([A-Z][a-z]+)\\s+(\\d{1,2}),?\\s+(\\d{4})",
+            // "12/15/2024" or "12-15-2024"
+            "(\\d{1,2})[/-](\\d{1,2})[/-](\\d{4})",
+            // "2024-12-15"
+            "(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})"
+        ]
+
+        let calendar = Calendar.current
+        let monthSymbols = calendar.monthSymbols
+
+        for pattern in datePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                let range = NSRange(title.startIndex..<title.endIndex, in: title)
+                if let match = regex.firstMatch(in: title, range: range) {
+                    if pattern.contains("A-Z") {
+                        // Month name pattern
+                        if match.numberOfRanges >= 3,
+                           let monthRange = Range(match.range(at: 1), in: title),
+                           let yearRange = Range(match.range(at: 3), in: title) {
+                            let monthName = String(title[monthRange])
+                            if let monthIndex = monthSymbols.firstIndex(where: { $0.hasPrefix(monthName) }) {
+                                if let year = Int(String(title[yearRange])) {
+                                    return (month: monthIndex + 1, year: year)
+                                }
+                            }
+                        }
+                    } else if pattern.contains("\\d{4})[/-](\\d{1,2})") {
+                        // ISO format (YYYY-MM-DD)
+                        if match.numberOfRanges >= 3,
+                           let yearRange = Range(match.range(at: 1), in: title),
+                           let monthRange = Range(match.range(at: 2), in: title) {
+                            if let year = Int(String(title[yearRange])),
+                               let month = Int(String(title[monthRange])) {
+                                return (month: month, year: year)
+                            }
+                        }
+                    } else {
+                        // MM/DD/YYYY or MM-DD-YYYY format
+                        if match.numberOfRanges >= 3,
+                           let monthRange = Range(match.range(at: 1), in: title),
+                           let yearRange = Range(match.range(at: 3), in: title) {
+                            if let month = Int(String(title[monthRange])),
+                               let year = Int(String(title[yearRange])) {
+                                return (month: month, year: year)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // Get month name from month number
+    func getMonthName(_ month: Int) -> String {
+        let calendar = Calendar.current
+        let monthSymbols = calendar.monthSymbols
+        guard month >= 1 && month <= 12 else { return "Unknown" }
+        return monthSymbols[month - 1]
+    }
+
+    // Get or create the year folder under Receipts
+    private func getOrCreateYearFolder(_ year: Int, parentFolderId: UUID) -> UUID {
+        let yearFolderName = String(year)
+        if let existingFolder = folders.first(where: {
+            $0.name == yearFolderName && $0.parentFolderId == parentFolderId
+        }) {
+            return existingFolder.id
+        }
+
+        let yearFolder = NoteFolder(name: yearFolderName, color: "#E8A87C", parentFolderId: parentFolderId)
+        addFolder(yearFolder)
+        return yearFolder.id
+    }
+
+    // Get or create the month folder under year folder
+    private func getOrCreateMonthFolder(_ month: Int, year: Int, yearFolderId: UUID) -> UUID {
+        let monthName = getMonthName(month)
+        if let existingFolder = folders.first(where: {
+            $0.name == monthName && $0.parentFolderId == yearFolderId
+        }) {
+            return existingFolder.id
+        }
+
+        let monthFolder = NoteFolder(name: monthName, color: "#D4956F", parentFolderId: yearFolderId)
+        addFolder(monthFolder)
+        return monthFolder.id
+    }
+
+    // Get or create the full month/year folder structure and return the month folder ID
+    func getOrCreateReceiptMonthFolder(month: Int, year: Int) -> UUID {
+        // Step 1: Get or create Receipts root folder
+        let receiptsFolderId = getOrCreateReceiptsFolder()
+
+        // Step 2: Get or create Year folder (e.g., "2024")
+        let yearFolderId = getOrCreateYearFolder(year, parentFolderId: receiptsFolderId)
+
+        // Step 3: Get or create Month folder (e.g., "December")
+        let monthFolderId = getOrCreateMonthFolder(month, year: year, yearFolderId: yearFolderId)
+
+        return monthFolderId
+    }
+
+    // Organize all receipts in the receipts folder into month/year structure
+    func organizeReceiptsIntoMonthYears() {
+        guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
+            print("❌ Receipts folder not found")
+            return
+        }
+
+        // Get all notes in the Receipts folder (directly or in any subfolder)
+        let allReceiptsNotes = notes.filter { note in
+            guard let folderId = note.folderId else { return false }
+
+            var currentFolderId: UUID? = folderId
+            var isInReceiptsFolder = false
+
+            // Check if this note is in the receipts folder hierarchy
+            while let currentId = currentFolderId {
+                if currentId == receiptsFolderId {
+                    isInReceiptsFolder = true
+                    break
+                }
+                currentFolderId = folders.first(where: { $0.id == currentId })?.parentFolderId
+            }
+
+            return isInReceiptsFolder
+        }
+
+        var movedCount = 0
+        var movedWithoutDateCount = 0
+
+        for receipt in allReceiptsNotes {
+            // Try to extract month/year from title
+            if let (month, year) = extractMonthYearFromTitle(receipt.title) {
+                let monthFolderId = getOrCreateReceiptMonthFolder(month: month, year: year)
+                if receipt.folderId != monthFolderId {
+                    var updatedReceipt = receipt
+                    updatedReceipt.folderId = monthFolderId
+                    updateNote(updatedReceipt)
+                    movedCount += 1
+                    print("✅ Moved receipt '\(receipt.title)' to \(getMonthName(month)) \(year)")
+                }
+            } else {
+                // If we can't extract date from title, try to use the note's creation/modification date
+                let calendar = Calendar.current
+                let components = calendar.dateComponents([.month, .year], from: receipt.dateModified)
+
+                if let month = components.month, let year = components.year {
+                    let monthFolderId = getOrCreateReceiptMonthFolder(month: month, year: year)
+                    if receipt.folderId != monthFolderId {
+                        var updatedReceipt = receipt
+                        updatedReceipt.folderId = monthFolderId
+                        updateNote(updatedReceipt)
+                        movedWithoutDateCount += 1
+                        print("⚠️ Moved receipt '\(receipt.title)' to \(getMonthName(month)) \(year) (using modification date)")
+                    }
+                }
+            }
+        }
+
+        let totalMoved = movedCount + movedWithoutDateCount
+        if totalMoved > 0 {
+            print("✅ Successfully organized \(totalMoved) receipts into month/year folders (\(movedCount) by title date, \(movedWithoutDateCount) by modification date)")
+        } else {
+            print("ℹ️ No receipts needed reorganization")
+        }
     }
 
     // MARK: - Computed Properties
@@ -670,6 +848,194 @@ class NotesManager: ObservableObject {
         }
     }
 
+    // MARK: - Public Receipt Organization Method
+
+    // Public method to organize all receipts into month/year folders
+    func organizeAllReceiptsIntoMonthYears() {
+        // Run on main thread to ensure UI updates properly
+        DispatchQueue.main.async { [weak self] in
+            self?.organizeReceiptsIntoMonthYears()
+        }
+    }
+
+    // MARK: - Receipt Statistics
+
+    /// Extract year and month from the folder hierarchy for a receipt
+    /// - Parameter folderId: The folder ID of the receipt
+    /// - Returns: Tuple containing (year as Int?, month as String?)
+    private func extractYearAndMonthFromFolderHierarchy(_ folderId: UUID?) -> (year: Int?, month: String?) {
+        guard let folderId = folderId else { return (nil, nil) }
+
+        // Get the month folder (first level - should contain month name)
+        guard let monthFolder = folders.first(where: { $0.id == folderId }) else {
+            return (nil, nil)
+        }
+
+        let monthName = monthFolder.name
+
+        // Get the year folder (second level - should contain year as string)
+        guard let yearFolder = folders.first(where: { $0.id == monthFolder.parentFolderId }) else {
+            return (nil, monthName)
+        }
+
+        let yearString = yearFolder.name
+        let year = Int(yearString)
+
+        return (year, monthName)
+    }
+
+    /// Get receipt statistics organized by year and month
+    /// - Parameter year: Optional year to filter by. If nil, returns all years.
+    /// - Returns: Array of YearlyReceiptSummary sorted by year (most recent first)
+    func getReceiptStatistics(year: Int? = nil) -> [YearlyReceiptSummary] {
+        guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
+            print("❌ Receipts folder not found")
+            return []
+        }
+
+        // Get all notes in the Receipts folder hierarchy
+        let allReceiptsNotes = notes.filter { note in
+            guard let folderId = note.folderId else { return false }
+
+            var currentFolderId: UUID? = folderId
+            while let currentId = currentFolderId {
+                if currentId == receiptsFolderId {
+                    return true
+                }
+                currentFolderId = folders.first(where: { $0.id == currentId })?.parentFolderId
+            }
+            return false
+        }
+
+        // Convert notes to ReceiptStat with year and month extracted from folder hierarchy
+        let receiptStats = allReceiptsNotes.map { note in
+            let (folderYear, folderMonth) = extractYearAndMonthFromFolderHierarchy(note.folderId)
+            return ReceiptStat(from: note, year: folderYear, month: folderMonth)
+        }
+
+        // Group by year from folder hierarchy
+        var yearlyStats: [Int: [ReceiptStat]] = [:]
+
+        for receipt in receiptStats {
+            if let receiptYear = receipt.year {
+                if yearlyStats[receiptYear] == nil {
+                    yearlyStats[receiptYear] = []
+                }
+                yearlyStats[receiptYear]?.append(receipt)
+            }
+        }
+
+        // Filter by year if specified
+        if let specifiedYear = year {
+            yearlyStats = yearlyStats.filter { $0.key == specifiedYear }
+        }
+
+        // Create yearly summaries with monthly breakdowns
+        var yearlySummaries: [YearlyReceiptSummary] = []
+
+        for (yearKey, receipts) in yearlyStats {
+            // Group receipts by month from folder hierarchy
+            var monthlyStats: [String: [ReceiptStat]] = [:]
+
+            for receipt in receipts {
+                if let monthName = receipt.month {
+                    if monthlyStats[monthName] == nil {
+                        monthlyStats[monthName] = []
+                    }
+                    monthlyStats[monthName]?.append(receipt)
+                }
+            }
+
+            // Create monthly summaries
+            var monthlySummaries: [MonthlyReceiptSummary] = []
+
+            for (monthName, monthReceipts) in monthlyStats {
+                // Convert month name to month number for date creation
+                let calendar = Calendar.current
+                let monthSymbols = calendar.monthSymbols
+                let monthNumber = monthSymbols.firstIndex(of: monthName).map { $0 + 1 } ?? 1
+
+                // Create a date for sorting
+                var dateComponents = DateComponents()
+                dateComponents.year = yearKey
+                dateComponents.month = monthNumber
+                dateComponents.day = 1
+                let monthDate = calendar.date(from: dateComponents) ?? Date()
+
+                let monthSummary = MonthlyReceiptSummary(
+                    month: monthName,
+                    monthDate: monthDate,
+                    receipts: monthReceipts
+                )
+                monthlySummaries.append(monthSummary)
+            }
+
+            let yearlySummary = YearlyReceiptSummary(year: yearKey, monthlySummaries: monthlySummaries)
+            yearlySummaries.append(yearlySummary)
+        }
+
+        // Sort by year (most recent first)
+        return yearlySummaries.sorted { $0.year > $1.year }
+    }
+
+    /// Get all available years with receipts
+    /// - Returns: Array of years sorted in descending order
+    func getAvailableReceiptYears() -> [Int] {
+        let statistics = getReceiptStatistics()
+        return statistics.map { $0.year }.sorted(by: >)
+    }
+
+    // Debug method to print receipt information
+    func debugPrintReceipts() {
+        guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
+            print("❌ Receipts folder not found")
+            return
+        }
+
+        print("\n📋 === RECEIPT DEBUG INFO ===")
+        print("Total notes: \(notes.count)")
+        print("Total folders: \(folders.count)")
+
+        // Get all receipts
+        let allReceiptsNotes = notes.filter { note in
+            guard let folderId = note.folderId else { return false }
+            var currentFolderId: UUID? = folderId
+            while let currentId = currentFolderId {
+                if currentId == receiptsFolderId {
+                    return true
+                }
+                currentFolderId = folders.first(where: { $0.id == currentId })?.parentFolderId
+            }
+            return false
+        }
+
+        print("\nReceipts in Receipts folder: \(allReceiptsNotes.count)")
+        for (index, receipt) in allReceiptsNotes.enumerated() {
+            let folderName = receipt.folderId.flatMap { id in folders.first(where: { $0.id == id })?.name } ?? "Unknown"
+            print("  \(index + 1). '\(receipt.title)' - Folder: \(folderName) - Modified: \(receipt.dateModified)")
+            if let (month, year) = extractMonthYearFromTitle(receipt.title) {
+                print("     → Extracted date: \(getMonthName(month)) \(year)")
+            } else {
+                let components = Calendar.current.dateComponents([.month, .year], from: receipt.dateModified)
+                if let month = components.month, let year = components.year {
+                    print("     → Fallback date: \(getMonthName(month)) \(year)")
+                }
+            }
+        }
+
+        // Print folder structure
+        print("\n📁 Folder structure:")
+        for folder in folders.sorted(by: { $0.name < $1.name }) {
+            if let parentId = folder.parentFolderId {
+                let parentName = folders.first(where: { $0.id == parentId })?.name ?? "Unknown"
+                print("  - \(folder.name) (parent: \(parentName))")
+            } else {
+                print("  - \(folder.name) (root)")
+            }
+        }
+        print("=== END DEBUG ===\n")
+    }
+
     // MARK: - Supabase Sync
 
     private func saveNoteToSupabase(_ note: Note) async {
@@ -688,6 +1054,46 @@ class NotesManager: ObservableObject {
         // Convert image URLs to AnyJSON array
         let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
 
+        // Convert tables to JSON data
+        var tablesJSON: PostgREST.AnyJSON = .null
+        if !note.tables.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let tablesData = try encoder.encode(note.tables)
+                let jsonObject = try JSONSerialization.jsonObject(with: tablesData)
+                tablesJSON = try convertToAnyJSON(jsonObject)
+                print("✅ Successfully encoded \(note.tables.count) table(s) for note: \(note.title)")
+            } catch {
+                print("❌ Error encoding tables for note \(note.title): \(error)")
+                print("❌ Tables data: \(note.tables)")
+            }
+        }
+
+        // Convert todo lists to JSON data
+        var todoListsJSON: PostgREST.AnyJSON = .null
+        if !note.todoLists.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let todoListsData = try encoder.encode(note.todoLists)
+                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
+                todoListsJSON = try convertToAnyJSON(jsonObject)
+                print("✅ Successfully encoded \(note.todoLists.count) todo list(s) for note: \(note.title)")
+            } catch {
+                print("❌ Error encoding todo lists for note \(note.title): \(error)")
+                print("❌ Todo lists data: \(note.todoLists)")
+            }
+        }
+
         let noteData: [String: PostgREST.AnyJSON] = [
             "id": .string(note.id.uuidString),
             "user_id": .string(userId.uuidString),
@@ -698,7 +1104,9 @@ class NotesManager: ObservableObject {
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(note.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray)
+            "image_attachments": .array(imageUrlsArray),
+            "tables": tablesJSON,
+            "todo_lists": todoListsJSON
         ]
 
         do {
@@ -707,15 +1115,44 @@ class NotesManager: ObservableObject {
                 .from("notes")
                 .insert(noteData)
                 .execute()
-            print("✅ Note saved to Supabase: \(note.title) with \(imageUrls.count) image URLs")
         } catch {
             print("❌ Error saving note to Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
         }
     }
 
+    private func convertToAnyJSON(_ object: Any) throws -> PostgREST.AnyJSON {
+        if let dict = object as? [String: Any] {
+            var result: [String: PostgREST.AnyJSON] = [:]
+            for (key, value) in dict {
+                result[key] = try convertToAnyJSON(value)
+            }
+            return .object(result)
+        } else if let array = object as? [Any] {
+            return .array(try array.map { try convertToAnyJSON($0) })
+        } else if let string = object as? String {
+            return .string(string)
+        } else if let bool = object as? Bool {
+            return .bool(bool)
+        } else if let number = object as? NSNumber {
+            // Check if it's a boolean encoded as NSNumber
+            if CFNumberGetType(number as CFNumber) == .charType {
+                return .bool(number.boolValue)
+            }
+            // Keep as number for proper JSONB encoding (timestamps, counts, etc.)
+            if number.doubleValue.truncatingRemainder(dividingBy: 1) == 0 {
+                return .integer(number.intValue)
+            } else {
+                return .double(number.doubleValue)
+            }
+        } else if object is NSNull {
+            return .null
+        }
+        throw NSError(domain: "ConversionError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported type: \(type(of: object))"])
+    }
+
     private func updateNoteInSupabase(_ note: Note) async {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
             print("⚠️ No user ID, skipping Supabase sync")
             return
         }
@@ -728,6 +1165,46 @@ class NotesManager: ObservableObject {
         // Convert image URLs to AnyJSON array
         let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
 
+        // Convert tables to JSON data
+        var tablesJSON: PostgREST.AnyJSON = .null
+        if !note.tables.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let tablesData = try encoder.encode(note.tables)
+                let jsonObject = try JSONSerialization.jsonObject(with: tablesData)
+                tablesJSON = try convertToAnyJSON(jsonObject)
+                print("✅ Successfully encoded \(note.tables.count) table(s) for UPDATE of note: \(note.title)")
+            } catch {
+                print("❌ Error encoding tables for UPDATE of note \(note.title): \(error)")
+                print("❌ Tables data: \(note.tables)")
+            }
+        }
+
+        // Convert todo lists to JSON data
+        var todoListsJSON: PostgREST.AnyJSON = .null
+        if !note.todoLists.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let todoListsData = try encoder.encode(note.todoLists)
+                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
+                todoListsJSON = try convertToAnyJSON(jsonObject)
+                print("✅ Successfully encoded \(note.todoLists.count) todo list(s) for UPDATE of note: \(note.title)")
+            } catch {
+                print("❌ Error encoding todo lists for UPDATE of note \(note.title): \(error)")
+                print("❌ Todo lists data: \(note.todoLists)")
+            }
+        }
+
         let noteData: [String: PostgREST.AnyJSON] = [
             "title": .string(note.title),
             "content": .string(note.content),
@@ -735,7 +1212,9 @@ class NotesManager: ObservableObject {
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(note.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray)
+            "image_attachments": .array(imageUrlsArray),
+            "tables": tablesJSON,
+            "todo_lists": todoListsJSON
         ]
 
         do {
@@ -745,9 +1224,10 @@ class NotesManager: ObservableObject {
                 .update(noteData)
                 .eq("id", value: note.id.uuidString)
                 .execute()
-            print("✅ Note updated in Supabase: \(note.title) with \(imageUrls.count) image URLs (no re-upload)")
+            print("✅ Successfully updated note in Supabase: \(note.title)")
         } catch {
             print("❌ Error updating note in Supabase: \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
         }
     }
 
@@ -764,7 +1244,6 @@ class NotesManager: ObservableObject {
                 .delete()
                 .eq("id", value: noteId.uuidString)
                 .execute()
-            print("✅ Note deleted from Supabase")
         } catch {
             print("❌ Error deleting note from Supabase: \(error)")
         }
@@ -807,7 +1286,6 @@ class NotesManager: ObservableObject {
                     if !parsedNotes.isEmpty {
                         self.notes = parsedNotes
                         saveNotes()
-                        print("✅ Loaded \(parsedNotes.count) notes from Supabase")
                     } else {
                         print("⚠️ Failed to parse any notes from Supabase, keeping \(self.notes.count) local notes")
                     }
@@ -872,8 +1350,11 @@ class NotesManager: ObservableObject {
         }
         // Store image URLs directly - no download!
         note.imageUrls = data.image_attachments ?? []
+        // Store tables
+        note.tables = data.tables ?? []
+        // Store todo lists
+        note.todoLists = data.todo_lists ?? []
 
-        print("✅ Successfully parsed note: \(note.title) with \(note.imageUrls.count) image URLs")
         return note
     }
 
@@ -902,7 +1383,6 @@ class NotesManager: ObservableObject {
             return
         }
 
-        print("🔄 Syncing \(localFolders.count) local folders to Supabase")
 
         // Sort folders by hierarchy level to ensure parents are uploaded before children
         let sortedFolders = sortFoldersByHierarchy(localFolders)
@@ -912,7 +1392,6 @@ class NotesManager: ObservableObject {
             await saveFolderToSupabase(folder)
         }
 
-        print("✅ Finished syncing local folders to Supabase")
     }
 
     // Sort folders so parents come before children
@@ -971,7 +1450,6 @@ class NotesManager: ObservableObject {
                 .from("folders")
                 .upsert(folderData)
                 .execute()
-            print("✅ Folder saved to Supabase: \(folder.name)")
         } catch {
             print("❌ Error saving folder to Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
@@ -997,7 +1475,6 @@ class NotesManager: ObservableObject {
                 .update(folderData)
                 .eq("id", value: folder.id.uuidString)
                 .execute()
-            print("✅ Folder updated in Supabase: \(folder.name)")
         } catch {
             print("❌ Error updating folder in Supabase: \(error)")
         }
@@ -1016,7 +1493,6 @@ class NotesManager: ObservableObject {
                 .delete()
                 .eq("id", value: folderId.uuidString)
                 .execute()
-            print("✅ Folder deleted from Supabase")
         } catch {
             print("❌ Error deleting folder from Supabase: \(error)")
         }
@@ -1053,7 +1529,6 @@ class NotesManager: ObservableObject {
                     if !parsedFolders.isEmpty {
                         self.folders = parsedFolders
                         saveFolders()
-                        print("✅ Loaded \(parsedFolders.count) folders from Supabase")
                     } else {
                         print("⚠️ Failed to parse any folders from Supabase, keeping \(self.folders.count) local folders")
                     }
@@ -1085,7 +1560,6 @@ class NotesManager: ObservableObject {
             parentFolderId: parentFolderId
         )
 
-        print("✅ Successfully parsed folder: \(folder.name)")
         return folder
     }
 
@@ -1124,7 +1598,6 @@ class NotesManager: ObservableObject {
             await MainActor.run {
                 self.deletedNotes = deletedNotesResponse.compactMap { parseDeletedNoteFromSupabase($0) }
                 self.deletedFolders = deletedFoldersResponse.compactMap { parseDeletedFolderFromSupabase($0) }
-                print("✅ Loaded \(self.deletedNotes.count) deleted notes and \(self.deletedFolders.count) deleted folders")
             }
         } catch {
             print("❌ Error loading deleted items: \(error)")
@@ -1153,7 +1626,9 @@ class NotesManager: ObservableObject {
             isPinned: data.is_pinned,
             folderId: data.folder_id != nil ? UUID(uuidString: data.folder_id!) : nil,
             isLocked: false,
-            imageUrls: []
+            imageUrls: [],
+            tables: [],
+            todoLists: []
         )
     }
 
@@ -1206,6 +1681,60 @@ class NotesManager: ObservableObject {
 
 // MARK: - Supabase Data Structures
 
+// Helper to decode any JSON value
+struct AnyCodable: Codable {
+    let value: Any
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if container.decodeNil() {
+            value = NSNull()
+        } else if let bool = try? container.decode(Bool.self) {
+            value = bool
+        } else if let int = try? container.decode(Int.self) {
+            value = int
+        } else if let double = try? container.decode(Double.self) {
+            value = double
+        } else if let string = try? container.decode(String.self) {
+            value = string
+        } else if let array = try? container.decode([AnyCodable].self) {
+            value = array.map { $0.value }
+        } else if let dictionary = try? container.decode([String: AnyCodable].self) {
+            value = dictionary.mapValues { $0.value }
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode value")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch value {
+        case is NSNull:
+            try container.encodeNil()
+        case let bool as Bool:
+            try container.encode(bool)
+        case let int as Int:
+            try container.encode(int)
+        case let double as Double:
+            try container.encode(double)
+        case let string as String:
+            try container.encode(string)
+        case let array as [Any]:
+            try container.encode(array.map { AnyCodable(value: $0) })
+        case let dictionary as [String: Any]:
+            try container.encode(dictionary.mapValues { AnyCodable(value: $0) })
+        default:
+            throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: encoder.codingPath, debugDescription: "Cannot encode value"))
+        }
+    }
+
+    init(value: Any) {
+        self.value = value
+    }
+}
+
 struct NoteSupabaseData: Codable {
     let id: String
     let user_id: String
@@ -1217,9 +1746,11 @@ struct NoteSupabaseData: Codable {
     let is_pinned: Bool
     let folder_id: String?
     let image_attachments: [String]? // Array of image URLs from JSONB
+    let tables: [NoteTable]? // Array of tables from JSONB
+    let todo_lists: [NoteTodoList]? // Array of todo lists from JSONB
 
     enum CodingKeys: String, CodingKey {
-        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, image_attachments
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, image_attachments, tables, todo_lists
     }
 
     init(from decoder: Decoder) throws {
@@ -1243,6 +1774,79 @@ struct NoteSupabaseData: Codable {
             image_attachments = array
         } else {
             image_attachments = nil
+        }
+
+        // Decode tables array
+        // The JSONB from Supabase needs special handling for dates (timeIntervalSinceReferenceDate)
+        do {
+            if container.contains(.tables) {
+                let rawValue = try container.decode(AnyCodable.self, forKey: .tables)
+
+                // Check if value is null or empty
+                if rawValue.value is NSNull {
+                    tables = nil
+                    print("ℹ️ Tables field is null")
+                } else if let arrayValue = rawValue.value as? [Any], arrayValue.isEmpty {
+                    tables = []
+                    print("ℹ️ Tables field is empty array")
+                } else if let arrayValue = rawValue.value as? [Any], JSONSerialization.isValidJSONObject(arrayValue) {
+                    // Convert to JSON data and re-decode with proper date strategy
+                    let jsonData = try JSONSerialization.data(withJSONObject: arrayValue)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .custom { decoder in
+                        let container = try decoder.singleValueContainer()
+                        let timeInterval = try container.decode(Double.self)
+                        return Date(timeIntervalSinceReferenceDate: timeInterval)
+                    }
+                    tables = try decoder.decode([NoteTable].self, from: jsonData)
+                    print("✅ Successfully decoded \(tables?.count ?? 0) table(s)")
+                } else {
+                    tables = nil
+                    print("⚠️ Tables data is not a valid JSON array")
+                }
+            } else {
+                tables = nil
+                print("ℹ️ No tables field found")
+            }
+        } catch {
+            print("⚠️ Failed to decode tables: \(error.localizedDescription)")
+            tables = nil
+        }
+
+        // Decode todo lists array
+        do {
+            if container.contains(.todo_lists) {
+                let rawValue = try container.decode(AnyCodable.self, forKey: .todo_lists)
+
+                // Check if value is null or empty
+                if rawValue.value is NSNull {
+                    todo_lists = nil
+                    print("ℹ️ Todo lists field is null")
+                } else if let arrayValue = rawValue.value as? [Any], arrayValue.isEmpty {
+                    todo_lists = []
+                    print("ℹ️ Todo lists field is empty array")
+                } else if let arrayValue = rawValue.value as? [Any], JSONSerialization.isValidJSONObject(arrayValue) {
+                    // Convert to JSON data and re-decode with proper date strategy
+                    let jsonData = try JSONSerialization.data(withJSONObject: arrayValue)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .custom { decoder in
+                        let container = try decoder.singleValueContainer()
+                        let timeInterval = try container.decode(Double.self)
+                        return Date(timeIntervalSinceReferenceDate: timeInterval)
+                    }
+                    todo_lists = try decoder.decode([NoteTodoList].self, from: jsonData)
+                    print("✅ Successfully decoded \(todo_lists?.count ?? 0) todo list(s)")
+                } else {
+                    todo_lists = nil
+                    print("⚠️ Todo lists data is not a valid JSON array")
+                }
+            } else {
+                todo_lists = nil
+                print("ℹ️ No todo_lists field found")
+            }
+        } catch {
+            print("⚠️ Failed to decode todo lists: \(error.localizedDescription)")
+            todo_lists = nil
         }
     }
 }

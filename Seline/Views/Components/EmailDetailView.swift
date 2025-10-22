@@ -9,6 +9,7 @@ struct EmailDetailView: View {
     @State private var isOriginalEmailExpanded: Bool = false
     @State private var fullEmail: Email? = nil
     @State private var isLoadingFullBody: Bool = false
+    @State private var showAddEventSheet: Bool = false
 
     var body: some View {
         NavigationView {
@@ -28,8 +29,8 @@ struct EmailDetailView: View {
                             // AI Summary Section - always show
                             AISummaryCard(
                                 email: email,
-                                onGenerateSummary: { email in
-                                    await generateAISummary(for: email)
+                                onGenerateSummary: { email, forceRegenerate in
+                                    await generateAISummary(for: email, forceRegenerate: forceRegenerate)
                                 }
                             )
                             .padding(.horizontal, 20)
@@ -74,6 +75,9 @@ struct EmailDetailView: View {
                             onMarkAsUnread: {
                                 emailService.markAsUnread(email)
                                 dismiss()
+                            },
+                            onAddEvent: {
+                                showAddEventSheet = true
                             }
                         )
                         .padding(.horizontal, 20)
@@ -94,6 +98,9 @@ struct EmailDetailView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(isPresented: $showAddEventSheet) {
+            AddEventFromEmailView(email: email)
+        }
         .onAppear {
             // Mark email as read when view appears
             if !email.isRead {
@@ -134,26 +141,42 @@ struct EmailDetailView: View {
 
     // MARK: - AI Summary Generation
 
-    private func generateAISummary(for email: Email) async -> Result<String, Error> {
-        // Check if email already has a summary
-        if let existingSummary = email.aiSummary {
+    private func generateAISummary(for email: Email, forceRegenerate: Bool = false) async -> Result<String, Error> {
+        // Check if email already has a summary (unless force regeneration is requested)
+        if !forceRegenerate, let existingSummary = email.aiSummary {
             return .success(existingSummary)
         }
 
         do {
+            // CRITICAL: When regenerating, always fetch the latest full email body
+            // This ensures we use the improved extraction logic
+            if forceRegenerate || fullEmail == nil {
+                await fetchFullEmailBodyIfNeeded()
+            }
+
             // Use full email body if available, otherwise use snippet
             let emailToSummarize = fullEmail ?? email
             let emailBody = emailToSummarize.body ?? emailToSummarize.snippet
+
+            // Check if we have any meaningful content to summarize
+            // Remove HTML tags and check actual text content length
+            let plainTextContent = stripHTMLTags(from: emailBody)
+            if plainTextContent.trimmingCharacters(in: .whitespacesAndNewlines).count < 20 {
+                return .success("No content available")
+            }
 
             let summary = try await openAIService.summarizeEmail(
                 subject: email.subject,
                 body: emailBody
             )
 
-            // Cache the summary in the email service
-            await emailService.updateEmailWithAISummary(email, summary: summary)
+            // If the summary is empty, show "No content available"
+            let finalSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No content available" : summary
 
-            return .success(summary)
+            // Cache the summary in the email service
+            await emailService.updateEmailWithAISummary(email, summary: finalSummary)
+
+            return .success(finalSummary)
         } catch {
             print("Failed to generate AI summary: \(error)")
             return .failure(error)
@@ -222,7 +245,10 @@ struct EmailDetailView: View {
                             Color.black :
                             Color.white
                     )
-                } else if let displayEmail = fullEmail ?? email as Email?, let htmlBody = displayEmail.body, htmlBody.contains("<") {
+                } else if let displayEmail = fullEmail ?? email as Email?,
+                          let htmlBody = displayEmail.body,
+                          !htmlBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                          htmlBody.contains("<") {
                     // Display HTML content using WebView with zoom
                     ZoomableHTMLContentView(htmlContent: htmlBody)
                         .frame(height: 500)
@@ -232,14 +258,35 @@ struct EmailDetailView: View {
                                 Color.white
                         )
                 } else {
-                    // Display plain text
+                    // Display plain text or show "no content" message
+                    let bodyText = (fullEmail ?? email).body ?? (fullEmail ?? email).snippet
+
                     ScrollView {
-                        Text((fullEmail ?? email).body ?? (fullEmail ?? email).snippet)
-                            .font(FontManager.geist(size: .body, weight: .regular))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 40, weight: .light))
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                Text("No content available")
+                                    .font(FontManager.geist(size: .body, weight: .medium))
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                Text("This email does not contain any readable content.")
+                                    .font(FontManager.geist(size: .caption, weight: .regular))
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding(20)
+                        } else {
+                            Text(bodyText)
+                                .font(FontManager.geist(size: .body, weight: .regular))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(20)
+                        }
                     }
                     .frame(height: 300)
                     .background(
@@ -265,6 +312,36 @@ struct EmailDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Helper Methods
+    private func stripHTMLTags(from html: String) -> String {
+        var text = html
+
+        // Remove script and style tags with their content
+        text = text.replacingOccurrences(
+            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Remove all HTML tags
+        text = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Decode common HTML entities
+        let entities = [
+            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+            "&quot;": "\"", "&apos;": "'"
+        ]
+        for (entity, replacement) in entities {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        return text
     }
 }
 

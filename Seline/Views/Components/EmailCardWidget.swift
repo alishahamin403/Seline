@@ -4,6 +4,7 @@ struct EmailCardWidget: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var emailService = EmailService.shared
     @Binding var selectedTab: TabSelection
+    @Binding var selectedEmail: Email?
 
     private var unreadEmails: [Email] {
         Array(emailService.inboxEmails.filter { !$0.isRead }.prefix(5))
@@ -192,7 +193,7 @@ struct EmailCardWidget: View {
             // Header
             Text("Unread Emails")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             // Emails list
@@ -208,7 +209,7 @@ struct EmailCardWidget: View {
                         ForEach(unreadEmails) { email in
                             Button(action: {
                                 HapticManager.shared.email()
-                                selectedTab = .email
+                                selectedEmail = email
                             }) {
                                 HStack(spacing: 8) {
                                     // Avatar circle with icon
@@ -252,7 +253,7 @@ struct EmailCardWidget: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
@@ -261,6 +262,6 @@ struct EmailCardWidget: View {
 }
 
 #Preview {
-    EmailCardWidget(selectedTab: .constant(.home))
+    EmailCardWidget(selectedTab: .constant(.home), selectedEmail: .constant(nil))
         .background(Color.shadcnBackground(.light))
 }

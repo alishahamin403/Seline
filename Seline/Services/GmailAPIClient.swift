@@ -20,7 +20,6 @@ class GmailAPIClient {
         let expirationDate = currentToken.expirationDate
 
         if let expirationDate = expirationDate, expirationDate.timeIntervalSinceNow < 300 {
-            print("🔄 Access token expiring soon, refreshing...")
             try await refreshAccessToken()
         }
     }
@@ -34,13 +33,12 @@ class GmailAPIClient {
                     return
                 }
 
-                guard let user = user else {
+                guard user != nil else {
                     print("❌ No user after refresh attempt")
                     continuation.resume(throwing: GmailAPIError.notAuthenticated)
                     return
                 }
 
-                print("✅ Access token refreshed successfully")
                 continuation.resume(returning: ())
             }
         }
@@ -57,7 +55,6 @@ class GmailAPIClient {
                 case .apiError(let statusCode, _):
                     // If it's a 401 error, try refreshing the token and retry
                     if statusCode == 401 && attempt < maxAttempts {
-                        print("🔄 Got 401 error, attempting to refresh token (attempt \(attempt)/\(maxAttempts))...")
                         try? await refreshAccessToken()
                         lastError = error
                         continue
@@ -92,6 +89,51 @@ class GmailAPIClient {
         try await refreshAccessTokenIfNeeded()
         return try await withRetry {
             try await self.fetchSingleEmailWithFullBody(messageId: messageId)
+        }
+    }
+
+    /// Fetches raw email body content specifically for AI processing (no display wrapping)
+    /// Returns clean HTML or plain text without any formatting for web display
+    func fetchBodyForAI(messageId: String) async throws -> String? {
+        try await refreshAccessTokenIfNeeded()
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
+
+            let accessToken = user.accessToken.tokenString
+
+            var urlComponents = URLComponents(string: "\(self.baseURL)/messages/\(messageId)")!
+            urlComponents.queryItems = [
+                URLQueryItem(name: "format", value: "full")
+            ]
+
+            guard let url = urlComponents.url else {
+                throw GmailAPIError.invalidURL
+            }
+
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                throw GmailAPIError.apiError(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+            }
+
+            let gmailMessage = try JSONDecoder().decode(GmailMessage.self, from: data)
+
+            // Extract raw body for AI processing
+            guard let payload = gmailMessage.payload else {
+                return nil
+            }
+
+            return self.extractBodyForAI(from: payload)
         }
     }
 
@@ -213,8 +255,6 @@ class GmailAPIClient {
                 let errorMessage = "Failed to mark email as read (HTTP \(httpResponse.statusCode))"
                 throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
             }
-
-            print("✅ Email marked as read in Gmail")
         }
     }
 
@@ -256,8 +296,6 @@ class GmailAPIClient {
                 let errorMessage = "Failed to mark email as unread (HTTP \(httpResponse.statusCode))"
                 throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
             }
-
-            print("✅ Email marked as unread in Gmail")
         }
     }
 
@@ -339,7 +377,7 @@ class GmailAPIClient {
         return emails.sorted { $0.timestamp > $1.timestamp }
     }
 
-    private func fetchSingleEmail(messageId: String) async throws -> Email? {
+    func fetchSingleEmail(messageId: String) async throws -> Email? {
         guard let user = GIDSignIn.sharedInstance.currentUser else {
             throw GmailAPIError.notAuthenticated
         }
@@ -563,22 +601,64 @@ class GmailAPIClient {
             return processEmailContent(decodedContent, mimeType: payload.mimeType)
         }
 
-        // Check parts for text content - prefer HTML for rich content
+        // Recursively search through parts for text content
+        // This handles nested multipart structures (e.g., multipart/mixed > multipart/alternative > text/html)
         if let parts = payload.parts {
-            // First pass: look for HTML content to preserve formatting
-            for part in parts {
-                if part.mimeType == "text/html",
-                   let bodyData = part.body?.data {
-                    let htmlContent = decodeBase64String(bodyData)
-                    return processEmailContent(htmlContent, mimeType: "text/html")
-                }
+            // First pass: look for HTML content to preserve formatting (recursively)
+            if let htmlContent = findContentInParts(parts, mimeType: "text/html") {
+                return processEmailContent(htmlContent, mimeType: "text/html")
             }
 
-            // Second pass: fall back to plain text
-            for part in parts {
-                if part.mimeType == "text/plain",
-                   let bodyData = part.body?.data {
-                    return decodeBase64String(bodyData)
+            // Second pass: fall back to plain text (recursively)
+            if let plainContent = findContentInParts(parts, mimeType: "text/plain") {
+                return plainContent
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - AI Processing Body Extraction
+
+    /// Extracts raw email body content for AI processing (no display formatting)
+    /// This returns clean HTML or text without wrapping in display HTML structure
+    private func extractBodyForAI(from payload: GmailMessagePayload) -> String? {
+        // First, try to get the main body
+        if let body = payload.body?.data {
+            let decodedContent = decodeBase64String(body)
+            // Return raw content without display processing
+            return decodedContent
+        }
+
+        // Recursively search through parts for text content
+        if let parts = payload.parts {
+            // First pass: look for HTML content (recursively)
+            if let htmlContent = findContentInParts(parts, mimeType: "text/html") {
+                return htmlContent
+            }
+
+            // Second pass: fall back to plain text (recursively)
+            if let plainContent = findContentInParts(parts, mimeType: "text/plain") {
+                return plainContent
+            }
+        }
+
+        return nil
+    }
+
+    // Recursively search through nested parts to find content with specific mime type
+    private func findContentInParts(_ parts: [GmailMessagePart], mimeType: String) -> String? {
+        for part in parts {
+            // Check if this part has the mime type we're looking for
+            if part.mimeType == mimeType,
+               let bodyData = part.body?.data {
+                return decodeBase64String(bodyData)
+            }
+
+            // Recursively check nested parts (for multipart/alternative, multipart/mixed, etc.)
+            if let nestedParts = part.parts {
+                if let foundContent = findContentInParts(nestedParts, mimeType: mimeType) {
+                    return foundContent
                 }
             }
         }

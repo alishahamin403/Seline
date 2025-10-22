@@ -15,11 +15,30 @@ struct DayCard: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var newTaskText: String = ""
     @State private var isAddingTask: Bool = false
-    @State private var isExpanded: Bool = false
+    @State private var isExpanded: Bool
     @State private var selectedTime: Date = Date()
     @State private var selectedReminder: ReminderTime = .none
     @State private var showReminderPicker: Bool = false
     @FocusState private var isTextFieldFocused: Bool
+
+    init(weekday: WeekDay, date: Date?, tasks: [TaskItem], onAddTask: @escaping (String, Date?, ReminderTime?) -> Void, onToggleTask: @escaping (TaskItem) -> Void, onDeleteTask: @escaping (TaskItem) -> Void, onDeleteRecurringSeries: @escaping (TaskItem) -> Void, onMakeRecurring: @escaping (TaskItem) -> Void, onViewTask: @escaping (TaskItem) -> Void, onEditTask: @escaping (TaskItem) -> Void) {
+        self.weekday = weekday
+        self.date = date
+        self.tasks = tasks
+        self.onAddTask = onAddTask
+        self.onToggleTask = onToggleTask
+        self.onDeleteTask = onDeleteTask
+        self.onDeleteRecurringSeries = onDeleteRecurringSeries
+        self.onMakeRecurring = onMakeRecurring
+        self.onViewTask = onViewTask
+        self.onEditTask = onEditTask
+
+        // Expand the current day by default
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let cardDate = date.map { calendar.startOfDay(for: $0) } ?? weekday.dateForCurrentWeek()
+        self._isExpanded = State(initialValue: calendar.isDate(cardDate, inSameDayAs: today))
+    }
 
     private var shouldShowAddTaskInput: Bool {
         weekday == .monday || isAddingTask
@@ -104,7 +123,7 @@ struct DayCard: View {
             }) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(weekday.displayName)
-                        .font(.system(size: 32, weight: .regular))
+                        .font(.system(size: 37, weight: .regular))
                         .foregroundColor(dayTitleColor)
 
                     // Only show date when expanded
@@ -127,6 +146,7 @@ struct DayCard: View {
                     ForEach(tasks) { task in
                         TaskRow(
                             task: task,
+                            date: date,
                             onToggleCompletion: {
                                 onToggleTask(task)
                             },

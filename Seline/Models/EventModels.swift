@@ -191,12 +191,43 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var recurrenceFrequency: RecurrenceFrequency?
     var recurrenceEndDate: Date?
     var parentRecurringTaskId: String? // For tracking which recurring task this belongs to
-    var scheduledTime: Date?
+    var scheduledTime: Date? // Start time of the event
+    var endTime: Date? // End time of the event
     var targetDate: Date? // Specific date this task is intended for
     var reminderTime: ReminderTime? // When to remind the user
     var isDeleted: Bool = false // Flag for soft deletion when Supabase deletion fails
+    var completedDates: [Date] = [] // For recurring tasks: track which specific dates were completed
 
-    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, parentRecurringTaskId: String? = nil) {
+    // Email attachment fields
+    var emailId: String?
+    var emailSubject: String?
+    var emailSenderName: String?
+    var emailSenderEmail: String?
+    var emailSnippet: String?
+    var emailTimestamp: Date?
+    var emailBody: String?
+    var emailIsImportant: Bool = false
+    var emailAiSummary: String?
+
+    var hasEmailAttachment: Bool {
+        return emailId != nil
+    }
+
+    // Check if this recurring task is completed on a specific date
+    func isCompletedOn(date: Date) -> Bool {
+        if !isRecurring {
+            // For non-recurring tasks, use the regular isCompleted flag
+            return isCompleted
+        }
+
+        // For recurring tasks, check if this specific date is in completedDates
+        let calendar = Calendar.current
+        return completedDates.contains { completedDate in
+            calendar.isDate(completedDate, inSameDayAs: date)
+        }
+    }
+
+    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, parentRecurringTaskId: String? = nil) {
         self.id = UUID().uuidString
         self.title = title
         self.description = description
@@ -205,6 +236,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         self.weekday = weekday
         self.createdAt = Date()
         self.scheduledTime = scheduledTime
+        self.endTime = endTime
         self.targetDate = targetDate
         self.reminderTime = reminderTime
         self.isRecurring = isRecurring
@@ -218,6 +250,18 @@ struct TaskItem: Identifiable, Codable, Equatable {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: scheduledTime)
+    }
+
+    var formattedTimeRange: String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+
+        if let start = scheduledTime, let end = endTime {
+            return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
+        } else if let start = scheduledTime {
+            return formatter.string(from: start)
+        }
+        return ""
     }
 
     static func == (lhs: TaskItem, rhs: TaskItem) -> Bool {
@@ -254,7 +298,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil) {
+    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // Use provided target date, or default to the current week's date for this weekday
@@ -264,6 +308,7 @@ class TaskManager: ObservableObject {
             weekday: weekday,
             description: description,
             scheduledTime: scheduledTime,
+            endTime: endTime,
             targetDate: finalTargetDate,
             reminderTime: reminderTime,
             isRecurring: isRecurring,
@@ -292,20 +337,47 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func toggleTaskCompletion(_ task: TaskItem) {
+    func toggleTaskCompletion(_ task: TaskItem, forDate: Date? = nil) {
         guard let weekdayTasks = tasks[task.weekday],
               let index = weekdayTasks.firstIndex(where: { $0.id == task.id }) else { return }
 
-        tasks[task.weekday]?[index].isCompleted.toggle()
+        // For recurring tasks, track completion per date instead of marking the task complete
+        if task.isRecurring {
+            let calendar = Calendar.current
+            // Use the provided date or the task's target date or today
+            let completionDate = calendar.startOfDay(for: forDate ?? task.targetDate ?? Date())
 
-        // Set or clear completion date
-        if tasks[task.weekday]?[index].isCompleted == true {
-            tasks[task.weekday]?[index].completedDate = Date()
-        } else {
+
+            // Check if this date is already in completedDates
+            if let existingIndex = tasks[task.weekday]?[index].completedDates.firstIndex(where: { calendar.isDate($0, inSameDayAs: completionDate) }) {
+                // Remove the date (marking as incomplete)
+                tasks[task.weekday]?[index].completedDates.remove(at: existingIndex)
+            } else {
+                // Add the date (marking as complete)
+                tasks[task.weekday]?[index].completedDates.append(completionDate)
+            }
+
+            // IMPORTANT: Keep the parent task itself as incomplete
+            tasks[task.weekday]?[index].isCompleted = false
             tasks[task.weekday]?[index].completedDate = nil
+        } else {
+            // For non-recurring tasks, use the original toggle logic
+            tasks[task.weekday]?[index].isCompleted.toggle()
+
+            // Set or clear completion date
+            if tasks[task.weekday]?[index].isCompleted == true {
+                tasks[task.weekday]?[index].completedDate = Date()
+            } else {
+                tasks[task.weekday]?[index].completedDate = nil
+            }
         }
 
         saveTasks()
+
+        // Trigger UI update to ensure views refresh with new completion status
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+        }
 
         // Sync with Supabase
         if let updatedTask = tasks[task.weekday]?[index] {
@@ -316,6 +388,14 @@ class TaskManager: ObservableObject {
     }
 
     func deleteTask(_ task: TaskItem) {
+        // IMPORTANT: Don't allow deletion of recurring tasks through this method
+        // Use deleteRecurringTask() instead
+        if task.isRecurring {
+            print("⚠️ Cannot delete recurring task using deleteTask() - use deleteRecurringTask() instead")
+            print("⚠️ This prevents accidental deletion of recurring tasks")
+            return
+        }
+
         guard let weekdayTasks = tasks[task.weekday],
               let index = weekdayTasks.firstIndex(where: { $0.id == task.id }) else { return }
 
@@ -332,7 +412,6 @@ class TaskManager: ObservableObject {
                     // Remove completely if Supabase deletion succeeded
                     tasks[task.weekday]?.remove(at: index)
                     saveTasks()
-                    print("✅ Task deleted successfully from both Supabase and local storage")
                 } else {
                     // Mark as deleted locally if Supabase deletion failed
                     tasks[task.weekday]?[index].isDeleted = true
@@ -344,8 +423,6 @@ class TaskManager: ObservableObject {
     }
 
     func editTask(_ task: TaskItem, newTitle: String, newDate: Date, newTime: Date?) {
-        print("🔄 Editing task: '\(task.title)' -> '\(newTitle)'")
-        print("🔄 Date change: \(task.targetDate?.description ?? "nil") -> \(newDate.description)")
 
         // Only allow editing non-recurring tasks
         guard !task.isRecurring && task.parentRecurringTaskId == nil else {
@@ -370,7 +447,6 @@ class TaskManager: ObservableObject {
 
         // If the weekday changed, move the task to the new weekday
         if newWeekday != task.weekday {
-            print("🔄 Moving task from \(task.weekday) to \(newWeekday)")
             // Remove from old weekday
             tasks[task.weekday]?.remove(at: index)
 
@@ -404,7 +480,6 @@ class TaskManager: ObservableObject {
         }
 
         saveTasks()
-        print("✅ Task saved locally")
 
         // Trigger UI update
         DispatchQueue.main.async {
@@ -416,7 +491,6 @@ class TaskManager: ObservableObject {
             tasks[newWeekday]?.first(where: { $0.id == task.id }) ?? updatedTask :
             updatedTask
 
-        print("🔄 Syncing to Supabase: '\(taskToSync.title)' on \(taskToSync.weekday)")
 
         Task {
             await updateTaskInSupabase(taskToSync)
@@ -424,8 +498,6 @@ class TaskManager: ObservableObject {
     }
 
     func editTask(_ updatedTask: TaskItem) {
-        print("🔄 Editing task: '\(updatedTask.title)'")
-        print("🔄 Recurring: \(updatedTask.isRecurring), Frequency: \(updatedTask.recurrenceFrequency?.rawValue ?? "none")")
 
         guard let weekdayTasks = tasks[updatedTask.weekday],
               let index = weekdayTasks.firstIndex(where: { $0.id == updatedTask.id }) else {
@@ -437,7 +509,6 @@ class TaskManager: ObservableObject {
 
         // Handle conversion from recurring to single event
         if originalTask.isRecurring && !updatedTask.isRecurring {
-            print("🔄 Converting recurring task to single event")
             // Remove this specific instance from all recurring instances
             // Keep only this one instance as a single event
             removeAllRecurringInstances(originalTask)
@@ -445,13 +516,11 @@ class TaskManager: ObservableObject {
 
         // Handle conversion from single event to recurring
         if !originalTask.isRecurring && updatedTask.isRecurring {
-            print("🔄 Converting single event to recurring task")
             // This will create new instances based on the recurrence frequency
         }
 
         // Handle updates to existing recurring tasks (title, time, date changes only)
         if originalTask.isRecurring && updatedTask.isRecurring {
-            print("🔄 Updating recurring task and all its instances")
             updateAllRecurringInstances(originalTask, with: updatedTask)
             return // Early return since we've handled all updates
         }
@@ -466,7 +535,6 @@ class TaskManager: ObservableObject {
             let newWeekday = weekdayFromCalendarComponent(calendar.component(.weekday, from: targetDate)) ?? updatedTask.weekday
 
             if newWeekday != updatedTask.weekday {
-                print("🔄 Moving task from \(updatedTask.weekday) to \(newWeekday)")
                 // Remove from old weekday
                 tasks[updatedTask.weekday]?.remove(at: index)
 
@@ -503,7 +571,6 @@ class TaskManager: ObservableObject {
         }
 
         saveTasks()
-        print("✅ Task updated locally")
 
         // Cancel old reminder and schedule new one if needed
         NotificationService.shared.cancelTaskReminder(taskId: finalTask.id)
@@ -528,7 +595,6 @@ class TaskManager: ObservableObject {
         }
 
         // Sync with Supabase
-        print("🔄 Syncing updated task to Supabase")
         Task {
             await updateTaskInSupabase(finalTask)
 
@@ -549,7 +615,6 @@ class TaskManager: ObservableObject {
     }
 
     private func updateAllRecurringInstances(_ originalTask: TaskItem, with updatedTask: TaskItem) {
-        print("🔄 Updating main recurring task and all instances")
 
         var updatedTasks: [TaskItem] = []
 
@@ -568,7 +633,6 @@ class TaskManager: ObservableObject {
 
                     tasks[weekday]?[index] = updatedMainTask
                     updatedTasks.append(updatedMainTask)
-                    print("✅ Updated main recurring task: \(updatedMainTask.title)")
                 }
                 // Update all instances that belong to this recurring task
                 else if task.parentRecurringTaskId == originalTask.id {
@@ -592,7 +656,6 @@ class TaskManager: ObservableObject {
 
                     tasks[weekday]?[index] = updatedInstance
                     updatedTasks.append(updatedInstance)
-                    print("✅ Updated instance: \(updatedInstance.title) on \(weekday)")
                 }
             }
         }
@@ -612,7 +675,6 @@ class TaskManager: ObservableObject {
             }
         }
 
-        print("✅ Updated \(updatedTasks.count) recurring tasks and instances")
     }
 
 
@@ -620,7 +682,6 @@ class TaskManager: ObservableObject {
     private func createRecurringInstances(for task: TaskItem, frequency: RecurrenceFrequency) async {
         // Create future instances based on the recurrence frequency
         // This would extend the existing recurring task creation logic
-        print("🔄 Creating recurring instances for updated task")
 
         guard let startDate = task.targetDate else { return }
         let calendar = Calendar.current
@@ -694,14 +755,21 @@ class TaskManager: ObservableObject {
 
         // Get all tasks that should appear on this specific date
         let allTasks = tasks.values.flatMap { $0 }
+        let recurringTasks = allTasks.filter { $0.isRecurring }
 
-        return allTasks.filter { task in
+        if !recurringTasks.isEmpty {
+        }
+
+        let filteredTasks = allTasks.filter { task in
             // First filter out deleted tasks
             guard !task.isDeleted else { return false }
 
             // For recurring tasks, use the recurring logic
             if task.isRecurring {
-                return shouldRecurringTaskAppearOn(task: task, date: targetDate)
+                let shouldAppear = shouldRecurringTaskAppearOn(task: task, date: targetDate)
+                if shouldAppear {
+                }
+                return shouldAppear
             } else {
                 // For non-recurring tasks, check weekday match
                 if task.weekday == weekday {
@@ -716,7 +784,13 @@ class TaskManager: ObservableObject {
                 }
                 return false
             }
-        }.sorted { task1, task2 in
+        }
+
+        if !recurringTasks.isEmpty {
+            print("📋 Returning \(filteredTasks.count) tasks for \(weekday.displayName)")
+        }
+
+        return filteredTasks.sorted { task1, task2 in
             // Sort by scheduled time if available, otherwise by creation date
             if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
                 return time1 < time2
@@ -821,11 +895,23 @@ class TaskManager: ObservableObject {
         let allTasks = tasks.values.flatMap { $0 }
 
         return allTasks.filter { task in
-            guard !task.isDeleted,
-                  task.isCompleted,
-                  let completedDate = task.completedDate else { return false }
+            guard !task.isDeleted else { return false }
+
+            // For recurring tasks, check if completed on this specific date
+            if task.isRecurring {
+                return task.isCompletedOn(date: date)
+            }
+
+            // For non-recurring tasks, check completion date as before
+            guard task.isCompleted, let completedDate = task.completedDate else { return false }
             return calendar.isDate(completedDate, inSameDayAs: date)
         }.sorted { task1, task2 in
+            // For recurring tasks, they don't have a specific completion date to sort by
+            // So just sort by creation date
+            if task1.isRecurring || task2.isRecurring {
+                return task1.createdAt > task2.createdAt
+            }
+
             guard let date1 = task1.completedDate,
                   let date2 = task2.completedDate else { return false }
             return date1 > date2 // Most recent first
@@ -837,42 +923,40 @@ class TaskManager: ObservableObject {
         let allTasks = tasks.values.flatMap { $0 }
 
         return allTasks.filter { task in
-            if task.isCompleted {
-                // For completed tasks, check completion date
-                guard let completedDate = task.completedDate else { return false }
-                return calendar.isDate(completedDate, inSameDayAs: date)
+            guard !task.isDeleted else { return false }
+
+            // Check if task should appear on this date
+            let shouldAppear: Bool
+            if task.isRecurring {
+                shouldAppear = shouldRecurringTaskAppearOn(task: task, date: date)
             } else {
-                // For incomplete tasks, check if they should appear on this date
-                if task.isRecurring {
-                    // For recurring tasks, check if this date should have this task
-                    return shouldRecurringTaskAppearOn(task: task, date: date)
+                // For regular tasks, check target date if available, otherwise use weekday matching
+                if let targetDate = task.targetDate {
+                    shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
                 } else {
-                    // For regular tasks, check target date if available, otherwise use weekday matching
-                    if let targetDate = task.targetDate {
-                        return calendar.isDate(targetDate, inSameDayAs: date)
+                    // Fallback to weekday matching for tasks without target dates
+                    let weekdayComponent = calendar.component(.weekday, from: date)
+                    if let targetWeekday = weekdayFromCalendarComponent(weekdayComponent) {
+                        shouldAppear = task.weekday == targetWeekday
                     } else {
-                        // Fallback to weekday matching for tasks without target dates
-                        let weekdayComponent = calendar.component(.weekday, from: date)
-                        if let targetWeekday = weekdayFromCalendarComponent(weekdayComponent) {
-                            return task.weekday == targetWeekday
-                        }
+                        shouldAppear = false
                     }
                 }
-                return false
-            }
-        }.sorted { task1, task2 in
-            // Sort completed tasks first, then by completion/creation date
-            if task1.isCompleted != task2.isCompleted {
-                return task1.isCompleted && !task2.isCompleted
             }
 
-            if task1.isCompleted && task2.isCompleted {
-                guard let date1 = task1.completedDate,
-                      let date2 = task2.completedDate else { return false }
-                return date1 > date2
-            } else {
-                return task1.createdAt > task2.createdAt
+            return shouldAppear
+        }.sorted { task1, task2 in
+            // Check completion status for this specific date
+            let isCompleted1 = task1.isCompletedOn(date: date)
+            let isCompleted2 = task2.isCompletedOn(date: date)
+
+            // Sort completed tasks first
+            if isCompleted1 != isCompleted2 {
+                return isCompleted1 && !isCompleted2
             }
+
+            // Then by creation date
+            return task1.createdAt > task2.createdAt
         }
     }
 
@@ -942,13 +1026,44 @@ class TaskManager: ObservableObject {
 
 
     func getCompletedTasks(between startDate: Date, endDate: Date) -> [TaskItem] {
+        let calendar = Calendar.current
         let allTasks = tasks.values.flatMap { $0 }
 
-        return allTasks.filter { task in
-            guard task.isCompleted,
-                  let completedDate = task.completedDate else { return false }
-            return completedDate >= startDate && completedDate <= endDate
-        }.sorted { task1, task2 in
+        var completedTasksInRange: [TaskItem] = []
+
+        for task in allTasks {
+            guard !task.isDeleted else { continue }
+
+            if task.isRecurring {
+                // For recurring tasks, check each date in the range
+                var currentDate = calendar.startOfDay(for: startDate)
+                let end = calendar.startOfDay(for: endDate)
+
+                while currentDate <= end {
+                    if task.isCompletedOn(date: currentDate) {
+                        // Add this task once for the range (don't duplicate)
+                        if !completedTasksInRange.contains(where: { $0.id == task.id }) {
+                            completedTasksInRange.append(task)
+                        }
+                        break
+                    }
+                    currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+                }
+            } else {
+                // For non-recurring tasks, check completion date
+                if task.isCompleted, let completedDate = task.completedDate {
+                    if completedDate >= startDate && completedDate <= endDate {
+                        completedTasksInRange.append(task)
+                    }
+                }
+            }
+        }
+
+        return completedTasksInRange.sorted { task1, task2 in
+            if task1.isRecurring || task2.isRecurring {
+                return task1.createdAt > task2.createdAt
+            }
+
             guard let date1 = task1.completedDate,
                   let date2 = task2.completedDate else { return false }
             return date1 > date2 // Most recent first
@@ -965,16 +1080,19 @@ class TaskManager: ObservableObject {
     }
 
     func makeTaskRecurring(_ task: TaskItem, frequency: RecurrenceFrequency) {
+
         // First, make the original task recurring
         guard let weekdayTasks = tasks[task.weekday],
-              let index = weekdayTasks.firstIndex(where: { $0.id == task.id }) else { return }
+              let index = weekdayTasks.firstIndex(where: { $0.id == task.id }) else {
+            print("❌ Could not find task to make recurring")
+            return
+        }
 
         // Check if task is already recurring
         if tasks[task.weekday]?[index].isRecurring == true {
+            print("⚠️ Task is already recurring")
             return // Already recurring, don't create duplicates
         }
-
-        let parentTaskId = task.id
 
         // Ensure the original task has a target date set to current week
         if tasks[task.weekday]?[index].targetDate == nil {
@@ -986,16 +1104,22 @@ class TaskManager: ObservableObject {
         tasks[task.weekday]?[index].recurrenceFrequency = frequency
         tasks[task.weekday]?[index].recurrenceEndDate = Calendar.current.date(byAdding: .year, value: 10, to: Date())
 
+        print("   - isRecurring: \(tasks[task.weekday]?[index].isRecurring ?? false)")
+        print("   - frequency: \(tasks[task.weekday]?[index].recurrenceFrequency?.rawValue ?? "nil")")
+        print("   - targetDate: \(tasks[task.weekday]?[index].targetDate?.description ?? "nil")")
+
         // Note: The recurring logic in shouldRecurringTaskAppearOn will dynamically display
         // this task on the appropriate days based on the frequency. We don't need to
         // create duplicate instances since the display logic handles it automatically.
 
         saveTasks()
+        print("💾 Task saved to local storage")
 
         // Sync the updated task to Supabase
         if let updatedTask = tasks[task.weekday]?[index] {
             Task {
                 await updateTaskInSupabase(updatedTask)
+                print("☁️ Task synced to Supabase")
             }
         }
     }
@@ -1105,7 +1229,6 @@ class TaskManager: ObservableObject {
                         }
                     }
                     saveTasks()
-                    print("✅ All recurring task instances deleted successfully")
                 } else {
                     print("❌ Some deletions failed in Supabase, keeping tasks locally")
                 }
@@ -1123,17 +1246,57 @@ class TaskManager: ObservableObject {
     private func loadTasks() {
         guard let data = userDefaults.data(forKey: tasksKey),
               let savedTasks = try? JSONDecoder().decode([TaskItem].self, from: data) else {
+            print("📂 No saved tasks found in local storage, adding sample tasks")
             addSampleTasks()
             return
         }
 
+        print("📂 Loading \(savedTasks.count) tasks from local storage")
+
+        // Fix any recurring tasks that were accidentally marked as completed
+        let fixedTasks = savedTasks.map { task -> TaskItem in
+            var fixedTask = task
+            if task.isRecurring && task.isCompleted {
+                print("🔧 FIXING: Recurring task '\(task.title)' was marked complete - setting to incomplete")
+                fixedTask.isCompleted = false
+                fixedTask.completedDate = nil
+            }
+            return fixedTask
+        }
+
         var tasksByWeekday: [WeekDay: [TaskItem]] = [:]
         for weekday in WeekDay.allCases {
-            tasksByWeekday[weekday] = savedTasks.filter { $0.weekday == weekday }
+            tasksByWeekday[weekday] = fixedTasks.filter { $0.weekday == weekday }
+        }
+
+        // Debug: Print recurring tasks
+        let recurringTasks = fixedTasks.filter { $0.isRecurring }
+        if !recurringTasks.isEmpty {
+            for task in recurringTasks {
+                print("   - '\(task.title)': \(task.recurrenceFrequency?.rawValue ?? "nil"), isCompleted: \(task.isCompleted)")
+            }
         }
 
         self.tasks = tasksByWeekday
         initializeEmptyDays()
+
+        // Save the fixed tasks back to storage if any were fixed
+        let tasksToFix = fixedTasks.filter { task in
+            savedTasks.first(where: { $0.id == task.id })?.isCompleted != task.isCompleted
+        }
+
+        if !tasksToFix.isEmpty {
+            print("💾 Saving \(tasksToFix.count) fixed recurring tasks to local storage")
+            saveTasks()
+
+            // Also sync fixes to Supabase
+            Task {
+                for task in tasksToFix {
+                    print("☁️ Syncing fixed recurring task '\(task.title)' to Supabase")
+                    await updateTaskInSupabase(task)
+                }
+            }
+        }
     }
 
     private func addSampleTasks() {
@@ -1179,7 +1342,7 @@ class TaskManager: ObservableObject {
 
                 for taskDict in tasksArray {
                     if let taskItem = parseTaskFromSupabase(taskDict) {
-                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), targetDate: \(taskItem.targetDate?.description ?? "nil")")
+                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil")")
                         supabaseTasks.append(taskItem)
                     }
                 }
@@ -1191,9 +1354,41 @@ class TaskManager: ObservableObject {
                         tasksByWeekday[weekday] = supabaseTasks.filter { $0.weekday == weekday }
                     }
 
+                    // Debug: Print recurring tasks loaded from Supabase
+                    let recurringTasks = supabaseTasks.filter { $0.isRecurring }
+                    if !recurringTasks.isEmpty {
+                        for task in recurringTasks {
+                            print("   - '\(task.title)': \(task.recurrenceFrequency?.rawValue ?? "nil"), isCompleted: \(task.isCompleted), targetDate: \(task.targetDate?.description ?? "nil")")
+                        }
+                    }
+
                     self.tasks = tasksByWeekday
                     initializeEmptyDays()
-                    print("✅ Loaded \(supabaseTasks.count) tasks from Supabase")
+
+                    // IMPORTANT: Save loaded tasks to local cache so they persist across rebuilds
+                    // This ensures email attachments and all data are available even if Supabase is unreachable
+                    self.saveTasks()
+                    print("💾 Cached \(supabaseTasks.count) tasks from Supabase to local storage")
+
+                    // Check if any recurring tasks were fixed (marked incomplete)
+                    let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
+                    let tasksNeedingFix = supabaseTasks.filter { task in
+                        if let originalArray = originalTasksArray,
+                           let originalTask = originalArray.first(where: { ($0["id"] as? String) == task.id }),
+                           let wasCompleted = originalTask["is_completed"] as? Bool {
+                            return task.isRecurring && wasCompleted && !task.isCompleted
+                        }
+                        return false
+                    }
+
+                    if !tasksNeedingFix.isEmpty {
+                        print("☁️ Syncing \(tasksNeedingFix.count) fixed recurring tasks back to Supabase")
+                        Task {
+                            for task in tasksNeedingFix {
+                                await updateTaskInSupabase(task)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1219,12 +1414,30 @@ class TaskManager: ObservableObject {
 
         var taskItem = TaskItem(title: title, weekday: weekday, description: description)
         taskItem.id = id
-        taskItem.isCompleted = isCompleted
         taskItem.createdAt = createdAt
 
+        // Check if this is a recurring task
+        if let isRecurring = taskDict["is_recurring"] as? Bool, isRecurring {
+            // IMPORTANT: Recurring tasks should NEVER be marked as completed
+            // If a recurring task was accidentally marked complete, fix it
+            if isCompleted {
+                print("🔧 FIXING: Recurring task '\(title)' was marked complete - setting to incomplete")
+                taskItem.isCompleted = false
+                taskItem.completedDate = nil
+            } else {
+                taskItem.isCompleted = false
+            }
+        } else {
+            // Regular tasks can be marked complete normally
+            taskItem.isCompleted = isCompleted
+        }
+
         // Parse optional fields
-        if let completedDateString = taskDict["completed_date"] as? String {
-            taskItem.completedDate = ISO8601DateFormatter().date(from: completedDateString)
+        // IMPORTANT: Don't set completed date for recurring tasks
+        if !taskItem.isRecurring {
+            if let completedDateString = taskDict["completed_date"] as? String {
+                taskItem.completedDate = ISO8601DateFormatter().date(from: completedDateString)
+            }
         }
 
         if let isRecurring = taskDict["is_recurring"] as? Bool {
@@ -1247,6 +1460,10 @@ class TaskManager: ObservableObject {
             taskItem.scheduledTime = ISO8601DateFormatter().date(from: scheduledTimeString)
         }
 
+        if let endTimeString = taskDict["end_time"] as? String {
+            taskItem.endTime = ISO8601DateFormatter().date(from: endTimeString)
+        }
+
         if let targetDateString = taskDict["target_date"] as? String {
             taskItem.targetDate = ISO8601DateFormatter().date(from: targetDateString)
         }
@@ -1254,6 +1471,52 @@ class TaskManager: ObservableObject {
         if let reminderTimeString = taskDict["reminder_time"] as? String {
             taskItem.reminderTime = ReminderTime(rawValue: reminderTimeString)
         }
+
+        // Parse email attachment fields
+        if let emailId = taskDict["email_id"] as? String {
+            taskItem.emailId = emailId
+        }
+
+        if let emailSubject = taskDict["email_subject"] as? String {
+            taskItem.emailSubject = emailSubject
+        }
+
+        if let emailSenderName = taskDict["email_sender_name"] as? String {
+            taskItem.emailSenderName = emailSenderName
+        }
+
+        if let emailSenderEmail = taskDict["email_sender_email"] as? String {
+            taskItem.emailSenderEmail = emailSenderEmail
+        }
+
+        if let emailSnippet = taskDict["email_snippet"] as? String {
+            taskItem.emailSnippet = emailSnippet
+        }
+
+        if let emailTimestampString = taskDict["email_timestamp"] as? String {
+            taskItem.emailTimestamp = ISO8601DateFormatter().date(from: emailTimestampString)
+        }
+
+        if let emailBody = taskDict["email_body"] as? String {
+            taskItem.emailBody = emailBody
+        }
+
+        if let emailIsImportant = taskDict["email_is_important"] as? Bool {
+            taskItem.emailIsImportant = emailIsImportant
+        }
+
+        // Parse completed dates for recurring tasks
+        if let completedDatesJson = taskDict["completed_dates_json"] as? String,
+           let jsonData = completedDatesJson.data(using: .utf8),
+           let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
+            let formatter = ISO8601DateFormatter()
+            taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
+        }
+
+        // Note: email_ai_summary column doesn't exist in Supabase yet
+        // if let emailAiSummary = taskDict["email_ai_summary"] as? String {
+        //     taskItem.emailAiSummary = emailAiSummary
+        // }
 
         // Note: is_deleted field is not in Supabase yet, so it defaults to false
         // if let isDeleted = taskDict["is_deleted"] as? Bool {
@@ -1281,7 +1544,6 @@ class TaskManager: ObservableObject {
                 .upsert(taskData)
                 .execute()
 
-            print("✅ Saved task to Supabase: \(task.title)")
 
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
@@ -1305,7 +1567,6 @@ class TaskManager: ObservableObject {
                 .eq("id", value: task.id)
                 .execute()
 
-            print("✅ Updated task in Supabase: \(task.title)")
 
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")
@@ -1326,7 +1587,6 @@ class TaskManager: ObservableObject {
                 .eq("id", value: taskId)
                 .execute()
 
-            print("✅ Deleted task from Supabase: \(taskId)")
             return true
 
         } catch {
@@ -1338,11 +1598,19 @@ class TaskManager: ObservableObject {
     private func convertTaskToSupabaseFormat(_ task: TaskItem, userId: String) -> [String: AnyJSON] {
         let formatter = ISO8601DateFormatter()
 
+        // IMPORTANT: Recurring tasks should NEVER be marked as completed
+        let isCompleted = task.isRecurring ? false : task.isCompleted
+        let completedDate = task.isRecurring ? nil : task.completedDate
+
+        if task.isRecurring && (task.isCompleted || task.completedDate != nil) {
+            print("🔧 FIXING: Preventing recurring task '\(task.title)' from being saved as complete")
+        }
+
         var taskData: [String: AnyJSON] = [
             "id": AnyJSON.string(task.id),
             "user_id": AnyJSON.string(userId),
             "title": AnyJSON.string(task.title),
-            "is_completed": AnyJSON.bool(task.isCompleted),
+            "is_completed": AnyJSON.bool(isCompleted),
             "weekday": AnyJSON.string(task.weekday.rawValue),
             "created_at": AnyJSON.string(formatter.string(from: task.createdAt)),
             "is_recurring": AnyJSON.bool(task.isRecurring)
@@ -1355,7 +1623,7 @@ class TaskManager: ObservableObject {
             taskData["description"] = AnyJSON.null
         }
 
-        if let completedDate = task.completedDate {
+        if let completedDate = completedDate {
             taskData["completed_date"] = AnyJSON.string(formatter.string(from: completedDate))
         } else {
             taskData["completed_date"] = AnyJSON.null
@@ -1385,6 +1653,12 @@ class TaskManager: ObservableObject {
             taskData["scheduled_time"] = AnyJSON.null
         }
 
+        if let endTime = task.endTime {
+            taskData["end_time"] = AnyJSON.string(formatter.string(from: endTime))
+        } else {
+            taskData["end_time"] = AnyJSON.null
+        }
+
         if let targetDate = task.targetDate {
             taskData["target_date"] = AnyJSON.string(formatter.string(from: targetDate))
         } else {
@@ -1396,6 +1670,71 @@ class TaskManager: ObservableObject {
         } else {
             taskData["reminder_time"] = AnyJSON.null
         }
+
+        // Add email attachment fields
+        if let emailId = task.emailId {
+            taskData["email_id"] = AnyJSON.string(emailId)
+        } else {
+            taskData["email_id"] = AnyJSON.null
+        }
+
+        if let emailSubject = task.emailSubject {
+            taskData["email_subject"] = AnyJSON.string(emailSubject)
+        } else {
+            taskData["email_subject"] = AnyJSON.null
+        }
+
+        if let emailSenderName = task.emailSenderName {
+            taskData["email_sender_name"] = AnyJSON.string(emailSenderName)
+        } else {
+            taskData["email_sender_name"] = AnyJSON.null
+        }
+
+        if let emailSenderEmail = task.emailSenderEmail {
+            taskData["email_sender_email"] = AnyJSON.string(emailSenderEmail)
+        } else {
+            taskData["email_sender_email"] = AnyJSON.null
+        }
+
+        if let emailSnippet = task.emailSnippet {
+            taskData["email_snippet"] = AnyJSON.string(emailSnippet)
+        } else {
+            taskData["email_snippet"] = AnyJSON.null
+        }
+
+        if let emailTimestamp = task.emailTimestamp {
+            taskData["email_timestamp"] = AnyJSON.string(formatter.string(from: emailTimestamp))
+        } else {
+            taskData["email_timestamp"] = AnyJSON.null
+        }
+
+        if let emailBody = task.emailBody {
+            taskData["email_body"] = AnyJSON.string(emailBody)
+        } else {
+            taskData["email_body"] = AnyJSON.null
+        }
+
+        taskData["email_is_important"] = AnyJSON.bool(task.emailIsImportant)
+
+        // Save completed dates for recurring tasks (as JSON array of ISO8601 strings)
+        if !task.completedDates.isEmpty {
+            let completedDatesStrings = task.completedDates.map { formatter.string(from: $0) }
+            if let jsonData = try? JSONEncoder().encode(completedDatesStrings),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                taskData["completed_dates_json"] = AnyJSON.string(jsonString)
+            } else {
+                taskData["completed_dates_json"] = AnyJSON.null
+            }
+        } else {
+            taskData["completed_dates_json"] = AnyJSON.null
+        }
+
+        // Note: email_ai_summary column doesn't exist in Supabase yet, so we don't sync it
+        // if let emailAiSummary = task.emailAiSummary {
+        //     taskData["email_ai_summary"] = AnyJSON.string(emailAiSummary)
+        // } else {
+        //     taskData["email_ai_summary"] = AnyJSON.null
+        // }
 
         return taskData
     }
@@ -1415,7 +1754,6 @@ class TaskManager: ObservableObject {
             return
         }
 
-        print("🔄 Retrying \(deletedTasks.count) failed deletions...")
 
         for task in deletedTasks {
             let success = await deleteTaskFromSupabase(task.id)
@@ -1454,8 +1792,7 @@ class TaskManager: ObservableObject {
         let _ = Calendar.current
         for weekday in WeekDay.allCases {
             let date = weekday.dateForCurrentWeek()
-            let shouldAppear = shouldRecurringTaskAppearOn(task: testTask, date: date)
-            print("📅 Should '\(testTask.title)' appear on \(weekday.displayName)? \(shouldAppear)")
+            _ = shouldRecurringTaskAppearOn(task: testTask, date: date)
         }
     }
 
@@ -1485,5 +1822,362 @@ class TaskManager: ObservableObject {
                 scheduledTime: reminderDate
             )
         }
+    }
+
+    // MARK: - Stats Methods
+
+    /// Get all completed events for a specific month
+    func getCompletedEventsForMonth(_ date: Date) -> [TaskItem] {
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+              let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) else {
+            return []
+        }
+
+        let allTasks = tasks.values.flatMap { $0 }
+        return allTasks.filter { task in
+            guard !task.isDeleted,
+                  task.isCompleted,
+                  let completedDate = task.completedDate else { return false }
+            return completedDate >= monthStart && completedDate <= monthEnd
+        }.sorted { task1, task2 in
+            guard let date1 = task1.completedDate,
+                  let date2 = task2.completedDate else { return false }
+            return date1 > date2
+        }
+    }
+
+    /// Get monthly event breakdown (total, completed, incomplete)
+    func getMonthlyEventBreakdown(_ date: Date) -> (total: Int, completed: Int, incomplete: Int) {
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+              let nextMonthStart = calendar.date(byAdding: DateComponents(month: 1), to: monthStart),
+              let monthEnd = calendar.date(byAdding: .second, value: -1, to: nextMonthStart) else {
+            return (0, 0, 0)
+        }
+
+        let allTasks = tasks.values.flatMap { $0 }
+        var totalCount = 0
+        var completedCount = 0
+
+        // Iterate through all tasks and count instances in this month
+        for task in allTasks {
+            guard !task.isDeleted else { continue }
+
+            if task.isRecurring {
+                // For recurring tasks, check each date in the month
+                var currentDate = monthStart
+                while currentDate <= monthEnd {
+                    if shouldRecurringTaskAppearOn(task: task, date: currentDate) {
+                        totalCount += 1
+                        if task.isCompletedOn(date: currentDate) {
+                            completedCount += 1
+                        }
+                    }
+                    currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+                }
+            } else {
+                // For non-recurring tasks, check if scheduled/targeted or completed in this month
+                var includeTask = false
+
+                // Include if completed in this month
+                if task.isCompleted, let completedDate = task.completedDate {
+                    if completedDate >= monthStart && completedDate <= monthEnd {
+                        includeTask = true
+                    }
+                }
+
+                // Include if scheduled/targeted for this month
+                if let targetDate = task.targetDate {
+                    if targetDate >= monthStart && targetDate <= monthEnd {
+                        includeTask = true
+                    }
+                }
+
+                if includeTask {
+                    totalCount += 1
+                    if task.isCompleted {
+                        completedCount += 1
+                    }
+                }
+            }
+        }
+
+        let incomplete = totalCount - completedCount
+        return (totalCount, completedCount, incomplete)
+    }
+
+    /// Get recurring events stats (completed vs incomplete to date)
+    func getRecurringEventsStats() -> (completed: Int, incomplete: Int, totalInstances: Int) {
+        let allTasks = tasks.values.flatMap { $0 }
+        let today = Calendar.current.startOfDay(for: Date())
+
+        // Get all recurring events that should have occurred by now
+        var completedCount = 0
+        var incompleteCount = 0
+        var totalInstancesCount = 0
+
+        // Track parent recurring tasks we've already processed
+        var processedParents: Set<String> = []
+
+        for task in allTasks {
+            guard !task.isDeleted else { continue }
+
+            // Process main recurring tasks
+            if task.isRecurring {
+                // Avoid double counting
+                if processedParents.contains(task.id) { continue }
+                processedParents.insert(task.id)
+
+                // Count instances of this recurring task that should have occurred by now
+                let instancesUpToToday = countRecurringInstances(task: task, upToDate: today)
+                totalInstancesCount += instancesUpToToday
+
+                // Count completed instances
+                let completedInstances = allTasks.filter { relatedTask in
+                    // Check if this is the parent task itself or an instance of it
+                    let isRelated = (relatedTask.id == task.id || relatedTask.parentRecurringTaskId == task.id)
+                    let isCompletedBeforeToday = relatedTask.isCompleted &&
+                                                 (relatedTask.targetDate ?? relatedTask.createdAt) <= today
+                    return isRelated && isCompletedBeforeToday && !relatedTask.isDeleted
+                }.count
+
+                completedCount += completedInstances
+                incompleteCount += (instancesUpToToday - completedInstances)
+            }
+        }
+
+        return (completedCount, incompleteCount, totalInstancesCount)
+    }
+
+    /// Count how many instances of a recurring task should have occurred up to a given date
+    private func countRecurringInstances(task: TaskItem, upToDate: Date) -> Int {
+        guard task.isRecurring,
+              let frequency = task.recurrenceFrequency else { return 0 }
+
+        let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: task.targetDate ?? task.createdAt)
+        let endDate = calendar.startOfDay(for: upToDate)
+
+        guard endDate >= startDate else { return 0 }
+
+        let daysDifference = calendar.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+
+        switch frequency {
+        case .daily:
+            return daysDifference + 1 // Include the start day
+        case .weekly:
+            return (daysDifference / 7) + 1
+        case .biweekly:
+            return (daysDifference / 14) + 1
+        case .monthly:
+            let monthsDifference = calendar.dateComponents([.month], from: startDate, to: endDate).month ?? 0
+            return monthsDifference + 1
+        case .yearly:
+            let yearsDifference = calendar.dateComponents([.year], from: startDate, to: endDate).year ?? 0
+            return yearsDifference + 1
+        }
+    }
+
+    // MARK: - Advanced Stats Methods for Recurring Events
+
+    /// Get missed recurring events for a specific week
+    func getMissedRecurringEventsForWeek(_ weekStartDate: Date) -> WeeklyMissedEventSummary {
+        let calendar = Calendar.current
+        let weekEndDate = calendar.date(byAdding: .day, value: 6, to: weekStartDate) ?? weekStartDate
+        let allTasks = tasks.values.flatMap { $0 }
+
+        var missedEvents: [WeeklyMissedEventSummary.MissedEventDetail] = []
+        var processedParents: Set<String> = []
+
+        for task in allTasks {
+            guard !task.isDeleted, task.isRecurring else { continue }
+
+            // Avoid double counting
+            if processedParents.contains(task.id) { continue }
+            processedParents.insert(task.id)
+
+            // Count instances expected in this week
+            var expectedCount = 0
+            var missedCount = 0
+
+            var currentDate = weekStartDate
+            while currentDate <= weekEndDate {
+                if shouldRecurringTaskAppearOn(task: task, date: currentDate) {
+                    expectedCount += 1
+
+                    // Check if completed on this specific date using the new per-date tracking
+                    let wasCompleted = task.isCompletedOn(date: currentDate)
+
+                    if !wasCompleted {
+                        missedCount += 1
+                    }
+                }
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+            }
+
+            if missedCount > 0 {
+                let detail = WeeklyMissedEventSummary.MissedEventDetail(
+                    id: task.id,
+                    eventName: task.title,
+                    frequency: task.recurrenceFrequency ?? .daily,
+                    missedCount: missedCount,
+                    expectedCount: expectedCount
+                )
+                missedEvents.append(detail)
+            }
+        }
+
+        let totalMissed = missedEvents.reduce(0) { $0 + $1.missedCount }
+
+        return WeeklyMissedEventSummary(
+            weekStartDate: weekStartDate,
+            weekEndDate: weekEndDate,
+            missedEvents: missedEvents,
+            totalMissedCount: totalMissed
+        )
+    }
+
+    /// Get comprehensive monthly summary - shows what was actually completed
+    func getMonthlySummary(_ date: Date) -> MonthlySummary {
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+              let nextMonthStart = calendar.date(byAdding: DateComponents(month: 1), to: monthStart),
+              let monthEnd = calendar.date(byAdding: .second, value: -1, to: nextMonthStart) else {
+            return MonthlySummary(
+                monthDate: date,
+                totalEvents: 0,
+                completedEvents: 0,
+                incompleteEvents: 0,
+                completionRate: 0.0,
+                recurringCompletedCount: 0,
+                recurringMissedCount: 0,
+                oneTimeCompletedCount: 0,
+                topCompletedEvents: []
+            )
+        }
+
+        let allTasks = tasks.values.flatMap { $0 }
+        var completedTaskInstances: [(task: TaskItem, date: Date)] = []
+
+        // Iterate through all tasks and count completed instances in this month
+        for task in allTasks {
+            guard !task.isDeleted else { continue }
+
+            if task.isRecurring {
+                // For recurring tasks, check each date in the month
+                var currentDate = monthStart
+                while currentDate <= monthEnd {
+                    if shouldRecurringTaskAppearOn(task: task, date: currentDate) && task.isCompletedOn(date: currentDate) {
+                        completedTaskInstances.append((task, currentDate))
+                    }
+                    currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+                }
+            } else {
+                // For non-recurring tasks, check if completed in this month
+                if task.isCompleted, let completedDate = task.completedDate {
+                    if completedDate >= monthStart && completedDate <= monthEnd {
+                        completedTaskInstances.append((task, completedDate))
+                    }
+                }
+            }
+        }
+
+        // Separate recurring from one-time based on completed instances
+        let recurringCompleted = completedTaskInstances.filter { $0.task.isRecurring }.count
+        let oneTimeCompleted = completedTaskInstances.filter { !$0.task.isRecurring }.count
+
+        // Group by title and count occurrences for top events
+        var eventCounts: [String: Int] = [:]
+        for instance in completedTaskInstances {
+            eventCounts[instance.task.title, default: 0] += 1
+        }
+
+        // Sort by count and get top 5
+        let topEvents = eventCounts.sorted { $0.value > $1.value }
+            .prefix(5)
+            .map { $0.key }
+
+        let totalCompleted = completedTaskInstances.count
+
+        return MonthlySummary(
+            monthDate: date,
+            totalEvents: totalCompleted, // Just show completed count
+            completedEvents: totalCompleted,
+            incompleteEvents: 0, // Not tracking incomplete for this simple view
+            completionRate: 1.0, // 100% of what we're showing is completed
+            recurringCompletedCount: recurringCompleted,
+            recurringMissedCount: 0, // Not tracking missed in this simple view
+            oneTimeCompletedCount: oneTimeCompleted,
+            topCompletedEvents: Array(topEvents)
+        )
+    }
+
+    /// Get detailed recurring event breakdown for a specific month
+    /// Only includes daily, weekly, and biweekly events
+    func getRecurringEventBreakdownForMonth(_ date: Date) -> [RecurringEventStat] {
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+              let nextMonthStart = calendar.date(byAdding: DateComponents(month: 1), to: monthStart),
+              let monthEnd = calendar.date(byAdding: .second, value: -1, to: nextMonthStart) else {
+            return []
+        }
+
+        let allTasks = tasks.values.flatMap { $0 }
+        var stats: [RecurringEventStat] = []
+        var processedParents: Set<String> = []
+
+        for task in allTasks {
+            guard !task.isDeleted, task.isRecurring else { continue }
+
+            // Filter for only daily, weekly, and biweekly events
+            guard let frequency = task.recurrenceFrequency,
+                  (frequency == .daily || frequency == .weekly || frequency == .biweekly) else {
+                continue
+            }
+
+            // Avoid double counting
+            if processedParents.contains(task.id) { continue }
+            processedParents.insert(task.id)
+
+            // Count expected instances in this month
+            var expectedCount = 0
+            var completedCount = 0
+            var missedDates: [Date] = []
+
+            var currentDate = monthStart
+            while currentDate <= monthEnd {
+                if shouldRecurringTaskAppearOn(task: task, date: currentDate) {
+                    expectedCount += 1
+
+                    // Check if completed on this specific date using the new per-date tracking
+                    let wasCompleted = task.isCompletedOn(date: currentDate)
+
+                    if wasCompleted {
+                        completedCount += 1
+                    } else {
+                        // Only add to missed dates if the date is in the past
+                        if currentDate <= Date() {
+                            missedDates.append(currentDate)
+                        }
+                    }
+                }
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+            }
+
+            if expectedCount > 0 {
+                let stat = RecurringEventStat(
+                    id: task.id,
+                    eventName: task.title,
+                    frequency: frequency,
+                    expectedCount: expectedCount,
+                    completedCount: completedCount,
+                    missedDates: missedDates
+                )
+                stats.append(stat)
+            }
+        }
+
+        return stats.sorted { $0.eventName < $1.eventName }
     }
 }

@@ -35,7 +35,7 @@ struct EmailTabView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
+                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
         )
     }
 }
@@ -51,11 +51,11 @@ struct EmailTabButton: View {
 
     private var selectedColor: Color {
         if colorScheme == .dark {
-            // Light blue for dark mode - #84cae9
-            return Color(red: 0.518, green: 0.792, blue: 0.914)
+            // Much darker gray for dark mode - #1a1a1a
+            return Color(red: 0.1, green: 0.1, blue: 0.1)
         } else {
-            // Dark blue for light mode - #345766
-            return Color(red: 0.20, green: 0.34, blue: 0.40)
+            // Dark gray for light mode - #4a4a4a
+            return Color(red: 0.29, green: 0.29, blue: 0.29)
         }
     }
 

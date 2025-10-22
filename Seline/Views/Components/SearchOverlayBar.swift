@@ -6,11 +6,14 @@ struct SearchOverlayBar: View {
     @Binding var selectedNote: Note?
     @Binding var selectedEmail: Email?
     @Binding var selectedTask: TaskItem?
+    @Binding var selectedLocation: SavedPlace?
+    @Binding var selectedFolder: String?
     let onDismiss: () -> Void
 
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var emailService = EmailService.shared
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     @State private var searchText = ""
@@ -26,10 +29,20 @@ struct SearchOverlayBar: View {
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                 // Text field
-                TextField("Search emails, events, notes...", text: $searchText)
+                TextField("Search emails, events, notes, locations...", text: $searchText)
                     .font(.system(size: 16, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .focused($isSearchFocused)
+
+                // Microphone button
+                Button(action: {
+                    // TODO: Implement voice search
+                    HapticManager.shared.selection()
+                }) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                }
 
                 // Clear button
                 if !searchText.isEmpty {
@@ -133,6 +146,20 @@ struct SearchOverlayBar: View {
             if let task = result.task {
                 selectedTask = task
             }
+        case .location:
+            // For locations, open directly in Google Maps
+            if let location = result.location {
+                GoogleMapsService.shared.openInGoogleMaps(place: location)
+            }
+            // Dismiss immediately for locations since we're opening an external app
+            onDismiss()
+            return
+        case .folder:
+            // For folders, navigate to Maps tab and set the selected folder
+            if let category = result.category {
+                selectedTab = .maps
+                selectedFolder = category
+            }
         }
 
         // Dismiss search overlay after setting the state
@@ -158,7 +185,9 @@ struct SearchOverlayBar: View {
                 icon: "calendar",
                 task: task,
                 email: nil,
-                note: nil
+                note: nil,
+                location: nil,
+                category: nil
             ))
         }
 
@@ -178,7 +207,9 @@ struct SearchOverlayBar: View {
                 icon: "envelope",
                 task: nil,
                 email: email,
-                note: nil
+                note: nil,
+                location: nil,
+                category: nil
             ))
         }
 
@@ -196,8 +227,69 @@ struct SearchOverlayBar: View {
                 icon: "note.text",
                 task: nil,
                 email: nil,
-                note: note
+                note: note,
+                location: nil,
+                category: nil
             ))
+        }
+
+        // Search locations
+        let matchingLocations = locationsManager.savedPlaces.filter {
+            $0.name.lowercased().contains(lowercasedSearch) ||
+            $0.address.lowercased().contains(lowercasedSearch) ||
+            ($0.customName?.lowercased().contains(lowercasedSearch) ?? false)
+        }
+
+        for location in matchingLocations.prefix(5) {
+            results.append(OverlaySearchResult(
+                type: .location,
+                title: location.displayName,
+                subtitle: location.address,
+                icon: "mappin.circle.fill",
+                task: nil,
+                email: nil,
+                note: nil,
+                location: location,
+                category: nil
+            ))
+        }
+
+        // Search folders/categories
+        // When searching for a folder, also include locations within that folder
+        let matchingCategories = locationsManager.categories.filter {
+            $0.lowercased().contains(lowercasedSearch)
+        }
+
+        for category in matchingCategories.prefix(3) {
+            let locationsInFolder = locationsManager.getPlaces(for: category)
+            let subtitle = locationsInFolder.isEmpty ? "Empty folder" : "\(locationsInFolder.count) location\(locationsInFolder.count == 1 ? "" : "s")"
+
+            results.append(OverlaySearchResult(
+                type: .folder,
+                title: category,
+                subtitle: subtitle,
+                icon: "folder.fill",
+                task: nil,
+                email: nil,
+                note: nil,
+                location: nil,
+                category: category
+            ))
+
+            // Also add locations within the matching folder (limit to 3 per folder)
+            for location in locationsInFolder.prefix(3) {
+                results.append(OverlaySearchResult(
+                    type: .location,
+                    title: location.displayName,
+                    subtitle: "\(category): \(location.address)",
+                    icon: "mappin.circle.fill",
+                    task: nil,
+                    email: nil,
+                    note: nil,
+                    location: location,
+                    category: category
+                ))
+            }
         }
 
         return results
@@ -274,10 +366,14 @@ struct OverlaySearchResult: Identifiable {
     let task: TaskItem?
     let email: Email?
     let note: Note?
+    let location: SavedPlace?
+    let category: String?
 }
 
 enum OverlaySearchResultType: String {
     case email
     case event
     case note
+    case location
+    case folder
 }

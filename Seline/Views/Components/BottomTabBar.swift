@@ -48,12 +48,6 @@ struct BottomTabBar: View {
         .background(
             colorScheme == .dark ? Color.black : Color.white
         )
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(.gray.opacity(0.3)),
-            alignment: .top
-        )
     }
 }
 

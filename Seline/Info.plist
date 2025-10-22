@@ -58,8 +58,8 @@
             <string>GoogleAuth</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <!-- REVERSED_CLIENT_ID - Add your value from GoogleService-Info.plist -->
-                <string>YOUR_REVERSED_CLIENT_ID_HERE</string>
+                <!-- REVERSED_CLIENT_ID from GoogleService-Info.plist -->
+                <string>com.googleusercontent.apps.729504866074-jp0dk33q729oh942d70fl7nu68ofnff3</string>
             </array>
         </dict>
         <!-- Supabase OAuth URL Scheme -->
@@ -80,6 +80,8 @@
     <string>Seline needs access to your contacts to help with email management and suggestions.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Seline needs access to your microphone for voice commands and email dictation.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Seline uses speech recognition to understand your voice queries and help you search through your calendar, notes, and locations.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -98,6 +100,7 @@
         <string>googlegmail</string>
         <string>x-gmail</string>
         <string>gmail</string>
+        <string>comgooglemaps</string>
         <string>weather</string>
     </array>
 

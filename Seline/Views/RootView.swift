@@ -7,7 +7,12 @@ struct RootView: View {
     var body: some View {
         Group {
             if authManager.isAuthenticated {
-                MainAppView()
+                if #available(iOS 18.0, *) {
+                    MainAppView()
+                } else {
+                    // Fallback for older iOS versions
+                    Text("iOS 18.0 or newer is required")
+                }
             } else {
                 AuthenticationView()
             }

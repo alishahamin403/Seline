@@ -12,12 +12,12 @@ struct EditTaskView: View {
     @State private var selectedDate: Date
     @State private var hasTime: Bool
     @State private var selectedTime: Date
+    @State private var selectedEndTime: Date
     @State private var isRecurring: Bool
     @State private var recurrenceFrequency: RecurrenceFrequency
     @State private var selectedReminder: ReminderTime
     @State private var showingRecurrenceOptions: Bool = false
     @State private var showingReminderOptions: Bool = false
-    @State private var showingDeleteOptions: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var taskManager = TaskManager.shared
 
@@ -33,6 +33,7 @@ struct EditTaskView: View {
         _selectedDate = State(initialValue: task.targetDate ?? task.weekday.dateForCurrentWeek())
         _hasTime = State(initialValue: task.scheduledTime != nil)
         _selectedTime = State(initialValue: task.scheduledTime ?? Date())
+        _selectedEndTime = State(initialValue: task.endTime ?? (task.scheduledTime?.addingTimeInterval(3600) ?? Date().addingTimeInterval(3600)))
         _isRecurring = State(initialValue: task.isRecurring)
         _recurrenceFrequency = State(initialValue: task.recurrenceFrequency ?? .weekly)
         _selectedReminder = State(initialValue: task.reminderTime ?? .none)
@@ -44,9 +45,9 @@ struct EditTaskView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: 12) {
                 // Title Input
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Event Title")
                         .font(.shadcnTextSm)
                         .foregroundColor(Color.shadcnMuted(colorScheme))
@@ -67,7 +68,7 @@ struct EditTaskView: View {
                 }
 
                 // Description Input
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Description (Optional)")
                         .font(.shadcnTextSm)
                         .foregroundColor(Color.shadcnMuted(colorScheme))
@@ -89,7 +90,7 @@ struct EditTaskView: View {
                 }
 
                 // Date Picker
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Date")
                         .font(.shadcnTextSm)
                         .foregroundColor(Color.shadcnMuted(colorScheme))
@@ -114,9 +115,33 @@ struct EditTaskView: View {
                     }
 
                     if hasTime {
-                        DatePicker("Time", selection: $selectedTime, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(WheelDatePickerStyle())
-                            .labelsHidden()
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Start Time
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Start Time")
+                                    .font(.shadcnTextXs)
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                DatePicker("Start Time", selection: $selectedTime, displayedComponents: .hourAndMinute)
+                                    .datePickerStyle(WheelDatePickerStyle())
+                                    .labelsHidden()
+                                    .onChange(of: selectedTime) { newStartTime in
+                                        // Auto-update end time to be 1 hour after start time
+                                        selectedEndTime = newStartTime.addingTimeInterval(3600)
+                                    }
+                            }
+
+                            // End Time
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("End Time")
+                                    .font(.shadcnTextXs)
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                DatePicker("End Time", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
+                                    .datePickerStyle(WheelDatePickerStyle())
+                                    .labelsHidden()
+                            }
+                        }
                     }
                 }
 
@@ -131,7 +156,7 @@ struct EditTaskView: View {
                     }
 
                     if isRecurring {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 6) {
                             Text("Repeat")
                                 .font(.shadcnTextSm)
                                 .foregroundColor(Color.shadcnMuted(colorScheme))
@@ -199,7 +224,7 @@ struct EditTaskView: View {
                 }
 
                 // Reminder Picker
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Reminder")
                         .font(.shadcnTextSm)
                         .foregroundColor(Color.shadcnMuted(colorScheme))
@@ -263,6 +288,7 @@ struct EditTaskView: View {
                         let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
                         let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
                         let timeToSave = hasTime ? selectedTime : nil
+                        let endTimeToSave = hasTime ? selectedEndTime : nil
                         let reminderToSave = selectedReminder == .none ? nil : selectedReminder
 
                         var updatedTask = TaskItem(
@@ -270,6 +296,7 @@ struct EditTaskView: View {
                             weekday: task.weekday,
                             description: descriptionToSave,
                             scheduledTime: timeToSave,
+                            endTime: endTimeToSave,
                             targetDate: selectedDate,
                             reminderTime: reminderToSave,
                             isRecurring: isRecurring,
@@ -307,34 +334,6 @@ struct EditTaskView: View {
         .navigationTitle("Edit Event")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    if task.isRecurring {
-                        showingDeleteOptions = true
-                    } else {
-                        onDelete?(task)
-                    }
-                }) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 16))
-                        .foregroundColor(.red)
-                }
-            }
-        }
-        .confirmationDialog("Delete Event", isPresented: $showingDeleteOptions, titleVisibility: .visible) {
-            Button("Delete This Event Only", role: .destructive) {
-                onDelete?(task)
-            }
-
-            Button("Delete All Recurring Events", role: .destructive) {
-                onDeleteRecurringSeries?(task)
-            }
-
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This is a recurring event. What would you like to delete?")
-        }
     }
 }
 

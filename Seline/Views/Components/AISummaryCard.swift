@@ -11,8 +11,15 @@ enum AISummaryState {
 struct AISummaryCard: View {
     @State private var summaryState: AISummaryState = .collapsed
     let email: Email
-    let onGenerateSummary: (Email) async -> Result<String, Error>
+    let onGenerateSummary: (Email, Bool) async -> Result<String, Error>
     @Environment(\.colorScheme) var colorScheme
+
+    private var isLoading: Bool {
+        if case .loading = summaryState {
+            return true
+        }
+        return false
+    }
 
     private var summaryBullets: [String] {
         switch summaryState {
@@ -35,6 +42,29 @@ struct AISummaryCard: View {
                     .font(FontManager.geist(size: .body, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
+                // Refresh button
+                Button(action: {
+                    Task {
+                        await generateSummary(forceRegenerate: true)
+                    }
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                        .rotationEffect(isLoading ? .degrees(360) : .degrees(0))
+                        .animation(
+                            isLoading ?
+                                Animation.linear(duration: 1.0).repeatForever(autoreverses: false) :
+                                .default,
+                            value: isLoading
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isLoading)
+                .opacity(isLoading ? 0.5 : 1.0)
+
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -49,8 +79,13 @@ struct AISummaryCard: View {
                 case .loading:
                     loadingView
 
-                case .loaded:
-                    summaryContentView
+                case .loaded(let summary):
+                    // Check if it's a dummy/invalid summary
+                    if isDummySummary(summary) {
+                        noContentView
+                    } else {
+                        summaryContentView
+                    }
 
                 case .error(let errorMessage):
                     errorView(errorMessage)
@@ -76,19 +111,68 @@ struct AISummaryCard: View {
             y: colorScheme == .dark ? 0 : 2
         )
         .onAppear {
-            // If we already have a summary, show it immediately
+            // If we already have a summary, check if it's valid
             if let existingSummary = email.aiSummary {
-                summaryState = .loaded(existingSummary)
+                // If it's a dummy summary, regenerate it
+                if isDummySummary(existingSummary) {
+                    Task {
+                        await generateSummary(forceRegenerate: true)
+                    }
+                } else {
+                    summaryState = .loaded(existingSummary)
+                }
             } else {
                 // Automatically start generating summary when view appears
                 Task {
-                    await generateSummary()
+                    await generateSummary(forceRegenerate: false)
                 }
             }
         }
     }
 
+    // MARK: - Helper Functions
+
+    private func isDummySummary(_ summary: String) -> Bool {
+        let dummyPhrases = [
+            "Additional details mentioned",
+            "Further information provided",
+            "See email for more details",
+            "No content available"
+        ]
+
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Check if empty
+        if trimmed.isEmpty {
+            return true
+        }
+
+        // Check if contains dummy phrases
+        for phrase in dummyPhrases {
+            if trimmed.contains(phrase) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // MARK: - View Components
+
+    private var noContentView: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Color.shadcnMuted(colorScheme))
+
+            Text("No content available")
+                .font(FontManager.geist(size: .body, weight: .regular))
+                .foregroundColor(Color.shadcnMuted(colorScheme))
+
+            Spacer()
+        }
+        .padding(.vertical, 16)
+    }
 
     private var loadingView: some View {
         HStack(spacing: 12) {
@@ -142,7 +226,7 @@ struct AISummaryCard: View {
 
             Button(action: {
                 Task {
-                    await generateSummary()
+                    await generateSummary(forceRegenerate: true)
                 }
             }) {
                 Text(errorMessage.contains("Rate limit") ? "Retry Now" : "Try Again")
@@ -162,10 +246,10 @@ struct AISummaryCard: View {
 
     // MARK: - Actions
 
-    private func generateSummary() async {
+    private func generateSummary(forceRegenerate: Bool = false) async {
         summaryState = .loading
 
-        let result = await onGenerateSummary(email)
+        let result = await onGenerateSummary(email, forceRegenerate)
 
         await MainActor.run {
             switch result {
@@ -186,7 +270,15 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+
+        // Add error handling and security improvements
+        configuration.preferences.javaScriptEnabled = false // Disable JS to prevent crashes
+        configuration.suppressesIncrementalRendering = false
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
+
+        // Set navigation delegate for error handling
+        webView.navigationDelegate = context.coordinator
 
         // Enable zooming and scrolling
         webView.scrollView.isScrollEnabled = true
@@ -201,6 +293,16 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // Validate HTML content before rendering
+        guard !htmlContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            // Load empty page if no content
+            webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+            return
+        }
+
+        // Sanitize HTML content to prevent crashes
+        let sanitizedHTML = sanitizeHTML(htmlContent)
+
         // Wrap HTML with basic styling that matches Gmail, with zoom enabled
         let backgroundColor = colorScheme == .dark ? "#000000" : "#ffffff"
         let textColor = colorScheme == .dark ? "#ffffff" : "#000000"
@@ -236,12 +338,57 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
             </style>
         </head>
         <body>
-            \(htmlContent)
+            \(sanitizedHTML)
         </body>
         </html>
         """
 
         webView.loadHTMLString(styledHTML, baseURL: nil)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    // MARK: - Helper Functions
+
+    private func sanitizeHTML(_ html: String) -> String {
+        var sanitized = html
+
+        // Remove potentially problematic elements that can cause WebKit crashes
+        let problematicPatterns = [
+            // Remove script tags (even though JS is disabled, removing for safety)
+            "<script[^>]*>[\\s\\S]*?</script>",
+            // Remove object/embed tags that can cause issues
+            "<object[^>]*>[\\s\\S]*?</object>",
+            "<embed[^>]*>",
+            // Remove iframe tags
+            "<iframe[^>]*>[\\s\\S]*?</iframe>",
+            // Remove form elements that can cause issues
+            "<form[^>]*>[\\s\\S]*?</form>"
+        ]
+
+        for pattern in problematicPatterns {
+            sanitized = sanitized.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: .regularExpression
+            )
+        }
+
+        return sanitized
+    }
+
+    // MARK: - Coordinator
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("❌ WebView failed to load: \(error.localizedDescription)")
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("❌ WebView provisional navigation failed: \(error.localizedDescription)")
+        }
     }
 }
 
@@ -249,7 +396,7 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
     VStack(spacing: 20) {
         AISummaryCard(
             email: Email.sampleEmails[0],
-            onGenerateSummary: { email in
+            onGenerateSummary: { email, forceRegenerate in
                 // Mock function for preview
                 do {
                     try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay

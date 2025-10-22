@@ -17,11 +17,11 @@ struct NotesCardWidget: View {
                 HStack(spacing: 4) {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Text("Notes")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
                 Spacer()
@@ -76,6 +76,7 @@ struct NotesCardWidget: View {
             .frame(maxHeight: 150)
             .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))

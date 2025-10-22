@@ -212,12 +212,13 @@ struct EventsCardWidget: View {
                                     // Completion status icon - tappable
                                     Button(action: {
                                         HapticManager.shared.selection()
-                                        taskManager.toggleTaskCompletion(task)
+                                        taskManager.toggleTaskCompletion(task, forDate: selectedDate)
                                     }) {
-                                        Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                                        let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+                                        Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
                                             .font(.system(size: 12))
                                             .foregroundColor(
-                                                task.isCompleted ?
+                                                isTaskCompleted ?
                                                     (colorScheme == .dark ?
                                                         Color(red: 0.40, green: 0.65, blue: 0.80) :
                                                         Color(red: 0.20, green: 0.34, blue: 0.40)) :
@@ -229,10 +230,11 @@ struct EventsCardWidget: View {
                                     .buttonStyle(PlainButtonStyle())
 
                                     // Event title
+                                    let isTaskCompleted = task.isCompletedOn(date: selectedDate)
                                     Text(task.title)
                                         .font(.shadcnTextXs)
                                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                        .strikethrough(task.isCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                        .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                         .lineLimit(1)
                                         .truncationMode(.tail)
 
@@ -251,7 +253,7 @@ struct EventsCardWidget: View {
                     }
                 }
             }
-            .frame(maxHeight: 150)
+            .frame(maxHeight: 180)
             .padding(.top, 4)
         }
         .padding(.horizontal, 12)

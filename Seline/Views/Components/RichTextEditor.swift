@@ -36,7 +36,10 @@ struct FormattableTextEditor: UIViewRepresentable {
                 .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
             ], range: NSRange(location: 0, length: mutableAttrString.length))
         }
-        textView.attributedText = mutableAttrString
+
+        // Hide table and todo markers from display
+        let displayText = hideMarkers(mutableAttrString)
+        textView.attributedText = displayText
 
         return textView
     }
@@ -54,7 +57,9 @@ struct FormattableTextEditor: UIViewRepresentable {
                 }
             }
 
-            uiView.attributedText = mutableAttrString
+            // Hide table and todo markers from display
+            let displayText = hideMarkers(mutableAttrString)
+            uiView.attributedText = displayText
             uiView.selectedRange = currentSelectedRange
         }
 
@@ -66,7 +71,38 @@ struct FormattableTextEditor: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        return Coordinator(self)
+    }
+
+    // Helper function to hide table and todo markers from display
+    private func hideMarkers(_ attributedString: NSMutableAttributedString) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString(attributedString: attributedString)
+
+        // Hide table markers [TABLE:UUID]
+        let tablePattern = "\\[TABLE:[0-9A-F-]+\\]"
+        if let tableRegex = try? NSRegularExpression(pattern: tablePattern, options: .caseInsensitive) {
+            let text = result.string
+            let tableMatches = tableRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+            // Process matches in reverse order to maintain correct indices
+            for match in tableMatches.reversed() {
+                result.deleteCharacters(in: match.range)
+            }
+        }
+
+        // Hide todo markers [TODO:UUID]
+        let todoPattern = "\\[TODO:[0-9A-F-]+\\]"
+        if let todoRegex = try? NSRegularExpression(pattern: todoPattern, options: .caseInsensitive) {
+            let text = result.string
+            let todoMatches = todoRegex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+
+            // Process matches in reverse order to maintain correct indices
+            for match in todoMatches.reversed() {
+                result.deleteCharacters(in: match.range)
+            }
+        }
+
+        return result
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: CustomTextView, context: Context) -> CGSize? {
@@ -92,25 +128,49 @@ struct FormattableTextEditor: UIViewRepresentable {
             if let text = textView.text, let selectedRange = textView.selectedTextRange {
                 let cursorPosition = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
 
+                // Bounds check: ensure cursor position is valid
+                guard cursorPosition >= 0 && cursorPosition <= text.count else {
+                    if let attributedText = textView.attributedText {
+                        parent.onTextChange(attributedText)
+                    }
+                    return
+                }
+
                 // Check for "- " pattern (2 chars)
-                if cursorPosition >= 2 {
-                    let startIndex = text.index(text.startIndex, offsetBy: cursorPosition - 2)
-                    let endIndex = text.index(text.startIndex, offsetBy: cursorPosition)
+                if cursorPosition >= 2 && cursorPosition <= text.count {
+                    // Use safe index validation
+                    guard let startIndex = text.index(text.startIndex, offsetBy: cursorPosition - 2, limitedBy: text.endIndex),
+                          let endIndex = text.index(text.startIndex, offsetBy: cursorPosition, limitedBy: text.endIndex),
+                          startIndex < endIndex else {
+                        if let attributedText = textView.attributedText {
+                            parent.onTextChange(attributedText)
+                        }
+                        return
+                    }
+
                     let lastTwoChars = String(text[startIndex..<endIndex])
 
                     if lastTwoChars == "- " {
                         // Find start of line
                         var lineStart = cursorPosition - 2
-                        while lineStart > 0 {
-                            let index = text.index(text.startIndex, offsetBy: lineStart - 1)
-                            if text[index] == "\n" {
-                                break
+                        while lineStart > 0 && lineStart - 1 < text.count {
+                            if let index = text.index(text.startIndex, offsetBy: lineStart - 1, limitedBy: text.endIndex) {
+                                if text[index] == "\n" {
+                                    break
+                                }
                             }
                             lineStart -= 1
                         }
 
                         // Check if it's at the beginning of a line
-                        if lineStart == cursorPosition - 2 || (lineStart > 0 && text[text.index(text.startIndex, offsetBy: lineStart - 1)] == "\n") {
+                        var isAtLineStart = lineStart == cursorPosition - 2
+                        if !isAtLineStart && lineStart > 0 && lineStart - 1 < text.count {
+                            if let index = text.index(text.startIndex, offsetBy: lineStart - 1, limitedBy: text.endIndex) {
+                                isAtLineStart = text[index] == "\n"
+                            }
+                        }
+
+                        if isAtLineStart {
                             applyBulletFormatting(to: textView, lineStart: lineStart, cursorPosition: cursorPosition)
                             if let attributedText = textView.attributedText {
                                 parent.onTextChange(attributedText)
@@ -121,9 +181,17 @@ struct FormattableTextEditor: UIViewRepresentable {
                 }
 
                 // Check for "1. " or "2. " pattern (3 chars)
-                if cursorPosition >= 3 {
-                    let startIndex = text.index(text.startIndex, offsetBy: cursorPosition - 3)
-                    let endIndex = text.index(text.startIndex, offsetBy: cursorPosition)
+                if cursorPosition >= 3 && cursorPosition <= text.count {
+                    // Use safe index validation
+                    guard let startIndex = text.index(text.startIndex, offsetBy: cursorPosition - 3, limitedBy: text.endIndex),
+                          let endIndex = text.index(text.startIndex, offsetBy: cursorPosition, limitedBy: text.endIndex),
+                          startIndex < endIndex else {
+                        if let attributedText = textView.attributedText {
+                            parent.onTextChange(attributedText)
+                        }
+                        return
+                    }
+
                     let lastThreeChars = String(text[startIndex..<endIndex])
 
                     // Check if it matches number + period + space
@@ -135,16 +203,24 @@ struct FormattableTextEditor: UIViewRepresentable {
 
                         // Find start of line
                         var lineStart = cursorPosition - 3
-                        while lineStart > 0 {
-                            let index = text.index(text.startIndex, offsetBy: lineStart - 1)
-                            if text[index] == "\n" {
-                                break
+                        while lineStart > 0 && lineStart - 1 < text.count {
+                            if let index = text.index(text.startIndex, offsetBy: lineStart - 1, limitedBy: text.endIndex) {
+                                if text[index] == "\n" {
+                                    break
+                                }
                             }
                             lineStart -= 1
                         }
 
                         // Check if it's at the beginning of a line
-                        if lineStart == cursorPosition - 3 || (lineStart > 0 && text[text.index(text.startIndex, offsetBy: lineStart - 1)] == "\n") {
+                        var isAtLineStart = lineStart == cursorPosition - 3
+                        if !isAtLineStart && lineStart > 0 && lineStart - 1 < text.count {
+                            if let index = text.index(text.startIndex, offsetBy: lineStart - 1, limitedBy: text.endIndex) {
+                                isAtLineStart = text[index] == "\n"
+                            }
+                        }
+
+                        if isAtLineStart {
                             applyBulletFormatting(to: textView, lineStart: lineStart, cursorPosition: cursorPosition)
                             if let attributedText = textView.attributedText {
                                 parent.onTextChange(attributedText)
@@ -153,10 +229,54 @@ struct FormattableTextEditor: UIViewRepresentable {
                         }
                     }
                 }
+
+                // Maintain bullet formatting while typing on existing bullet lines
+                maintainBulletFormatting(textView: textView, cursorPosition: cursorPosition)
             }
 
             if let attributedText = textView.attributedText {
                 parent.onTextChange(attributedText)
+            }
+        }
+
+        private func maintainBulletFormatting(textView: UITextView, cursorPosition: Int) {
+            // Find the current line
+            let text = textView.text as NSString
+
+            // Bounds check
+            guard cursorPosition >= 0 && cursorPosition <= text.length else { return }
+
+            var lineStart = cursorPosition
+            while lineStart > 0 && lineStart - 1 < text.length && text.character(at: lineStart - 1) != 10 { // 10 is newline
+                lineStart -= 1
+            }
+
+            var lineEnd = cursorPosition
+            while lineEnd < text.length && text.character(at: lineEnd) != 10 {
+                lineEnd += 1
+            }
+
+            // Bounds check for line range
+            guard lineStart >= 0 && lineEnd <= text.length && lineStart <= lineEnd else { return }
+
+            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+            let currentLine = text.substring(with: lineRange)
+
+            // Check if the current line starts with a bullet
+            if currentLine.hasPrefix("- ") || currentLine.range(of: "^\\d+\\.\\s", options: .regularExpression) != nil {
+                let mutableAttrString = NSMutableAttributedString(attributedString: textView.attributedText)
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 25
+                paragraphStyle.firstLineHeadIndent = 0
+                paragraphStyle.lineBreakMode = .byWordWrapping
+
+                mutableAttrString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
+                textView.attributedText = mutableAttrString
+
+                // Restore cursor position
+                if let newPosition = textView.position(from: textView.beginningOfDocument, offset: cursorPosition) {
+                    textView.selectedTextRange = textView.textRange(from: newPosition, to: newPosition)
+                }
             }
         }
 
@@ -168,8 +288,22 @@ struct FormattableTextEditor: UIViewRepresentable {
             paragraphStyle.firstLineHeadIndent = 0
             paragraphStyle.lineBreakMode = .byWordWrapping
 
-            // Find the range of the current line
-            let lineRange = NSRange(location: lineStart, length: cursorPosition - lineStart)
+            // Find the end of the current line (or end of text)
+            let text = textView.text as NSString
+
+            // Bounds check
+            guard lineStart >= 0 && cursorPosition >= 0 && cursorPosition <= text.length else { return }
+
+            var lineEnd = cursorPosition
+            while lineEnd < text.length && text.character(at: lineEnd) != 10 { // 10 is newline
+                lineEnd += 1
+            }
+
+            // Bounds check for line range
+            guard lineStart <= lineEnd && lineEnd <= text.length else { return }
+
+            // Apply paragraph style to the entire line
+            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
             mutableAttrString.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
 
             textView.attributedText = mutableAttrString
@@ -183,6 +317,114 @@ struct FormattableTextEditor: UIViewRepresentable {
         func textViewDidChangeSelection(_ textView: UITextView) {
             self.textView = textView as? CustomTextView
             parent.onSelectionChange(textView.selectedRange)
+        }
+
+        // Handle Return key to continue bullet points
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            // Check if user pressed Return
+            guard text == "\n" else { return true }
+
+            let content = textView.text as NSString
+
+            // Bounds check
+            guard range.location <= content.length else { return true }
+
+            // Find the current line
+            var lineStart = range.location
+            while lineStart > 0 && lineStart - 1 < content.length && content.character(at: lineStart - 1) != 10 { // 10 is newline
+                lineStart -= 1
+            }
+
+            let lineEnd = range.location
+
+            // Bounds check for line range
+            guard lineStart >= 0 && lineEnd <= content.length && lineStart <= lineEnd else { return true }
+
+            let currentLine = content.substring(with: NSRange(location: lineStart, length: lineEnd - lineStart))
+
+            // Check if current line has a bullet point
+            let trimmedLine = currentLine.trimmingCharacters(in: .whitespaces)
+
+            // If the line only has the bullet marker (no content), remove the bullet
+            if trimmedLine == "-" || trimmedLine.matches(of: /^\d+\.$/).count > 0 {
+                // Remove the bullet marker
+                let deleteRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+                textView.textStorage.replaceCharacters(in: deleteRange, with: "")
+                return false
+            }
+
+            // Check for dash bullet
+            if currentLine.hasPrefix("- ") {
+                // Insert newline and new bullet
+                let mutableAttrString = NSMutableAttributedString(attributedString: textView.attributedText)
+
+                // Create paragraph style for bullet
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 25
+                paragraphStyle.firstLineHeadIndent = 0
+                paragraphStyle.lineBreakMode = .byWordWrapping
+
+                // Create new bullet line with attributes
+                let newBullet = NSAttributedString(
+                    string: "\n- ",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: parent.colorScheme == .dark ? UIColor.white : UIColor.black,
+                        .paragraphStyle: paragraphStyle
+                    ]
+                )
+
+                mutableAttrString.insert(newBullet, at: range.location)
+                textView.attributedText = mutableAttrString
+
+                // Move cursor after the new bullet
+                if let newPosition = textView.position(from: textView.beginningOfDocument, offset: range.location + 3) {
+                    textView.selectedTextRange = textView.textRange(from: newPosition, to: newPosition)
+                }
+
+                parent.onTextChange(mutableAttrString)
+                return false
+            }
+
+            // Check for numbered bullet (e.g., "1. ", "2. ")
+            let numberPattern = /^(\d+)\.\s/
+            if let match = currentLine.firstMatch(of: numberPattern) {
+                let currentNumber = Int(match.1) ?? 0
+                let nextNumber = currentNumber + 1
+
+                // Insert newline and new numbered bullet
+                let mutableAttrString = NSMutableAttributedString(attributedString: textView.attributedText)
+
+                // Create paragraph style for bullet
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 25
+                paragraphStyle.firstLineHeadIndent = 0
+                paragraphStyle.lineBreakMode = .byWordWrapping
+
+                // Create new bullet line with attributes
+                let newBullet = NSAttributedString(
+                    string: "\n\(nextNumber). ",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: parent.colorScheme == .dark ? UIColor.white : UIColor.black,
+                        .paragraphStyle: paragraphStyle
+                    ]
+                )
+
+                mutableAttrString.insert(newBullet, at: range.location)
+                textView.attributedText = mutableAttrString
+
+                // Move cursor after the new bullet
+                let bulletLength = "\n\(nextNumber). ".count
+                if let newPosition = textView.position(from: textView.beginningOfDocument, offset: range.location + bulletLength) {
+                    textView.selectedTextRange = textView.textRange(from: newPosition, to: newPosition)
+                }
+
+                parent.onTextChange(mutableAttrString)
+                return false
+            }
+
+            return true
         }
 
         @objc func makeBold() {

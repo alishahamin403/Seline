@@ -64,13 +64,11 @@ class SupabaseManager: ObservableObject {
             let client = await getPostgrestClient()
 
             // First, check if profile exists
-            let existingProfile = try await client
+            let _ = try await client
                 .from("user_profiles")
                 .select("id")
                 .eq("id", value: user.id.uuidString)
                 .execute()
-
-            print("Profile check result: \(existingProfile)")
 
             // If no profile exists, the trigger should have created it
             // Let's try updating with the latest info
@@ -85,8 +83,6 @@ class SupabaseManager: ObservableObject {
                 .update(userProfile)
                 .eq("id", value: user.id.uuidString)
                 .execute()
-
-            print("✅ User profile updated: \(user.id)")
 
         } catch {
             print("❌ Profile operation failed: \(error)")
@@ -193,8 +189,6 @@ class SupabaseManager: ObservableObject {
             .update(preferencesData)
             .eq("id", value: userId.uuidString)
             .execute()
-
-        print("✅ Location preferences saved for user: \(userId)")
     }
 
     func loadLocationPreferences() async throws -> UserLocationPreferences {
@@ -214,7 +208,6 @@ class SupabaseManager: ObservableObject {
             throw NSError(domain: "SupabaseManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "User profile not found"])
         }
 
-        print("✅ Location preferences loaded for user: \(userId)")
         return profileData.toLocationPreferences()
     }
 }

@@ -53,7 +53,7 @@ struct EmailView: View, Searchable {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(
                                     showUnreadOnly ?
-                                        (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                        (colorScheme == .dark ? .white : .black) :
                                         Color.gray
                                 )
                                 .padding(.horizontal, 12)
@@ -62,7 +62,7 @@ struct EmailView: View, Searchable {
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(
                                             showUnreadOnly ?
-                                                (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.1)) :
+                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
                                                 (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
                                         )
                                 )
@@ -81,7 +81,7 @@ struct EmailView: View, Searchable {
                         }
                 }
                 .background(
-                    (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                    (colorScheme == .dark ? Color.black : Color.white)
                 )
 
                 // Email list - only categorized view, no search results
@@ -108,7 +108,7 @@ struct EmailView: View, Searchable {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(
-                (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                (colorScheme == .dark ? Color.black : Color.white)
                     .ignoresSafeArea()
             )
             .ignoresSafeArea(.keyboard, edges: .bottom)

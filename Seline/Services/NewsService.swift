@@ -8,6 +8,9 @@ class NewsService: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var currentCategory: NewsCategory = .general
 
+    // Store news articles by category for voice assistant access
+    private var newsByCategory: [NewsCategory: [NewsArticle]] = [:]
+
     // App state tracking
     private var isAppActive = false
     private var newsRefreshTimer: Timer?
@@ -73,6 +76,9 @@ class NewsService: ObservableObject {
             await MainActor.run {
                 self.topNews = Array(sortedArticles)
                 self.isLoading = false
+
+                // Store in category dictionary for voice assistant
+                self.newsByCategory[category] = Array(sortedArticles)
 
                 // Cache the results
                 cacheNews(Array(sortedArticles), for: category)
@@ -203,10 +209,30 @@ class NewsService: ObservableObject {
     }
 
     private func loadCachedNews() {
-        // Load cached news for general category by default
-        if let data = UserDefaults.standard.data(forKey: "cachedTopNews_general"),
-           let articles = try? JSONDecoder().decode([NewsArticle].self, from: data) {
-            topNews = articles
+        // Load cached news for all categories
+        for category in NewsCategory.allCases {
+            if let data = UserDefaults.standard.data(forKey: "cachedTopNews_\(category.rawValue)"),
+               let articles = try? JSONDecoder().decode([NewsArticle].self, from: data) {
+                newsByCategory[category] = articles
+
+                // Set general category as default topNews
+                if category == .general {
+                    topNews = articles
+                }
+            }
         }
+    }
+
+    // Get all news articles across all categories for voice assistant
+    func getAllNews() -> [(category: String, articles: [NewsArticle])] {
+        var allNews: [(category: String, articles: [NewsArticle])] = []
+
+        for (category, articles) in newsByCategory {
+            if !articles.isEmpty {
+                allNews.append((category: category.displayName, articles: articles))
+            }
+        }
+
+        return allNews.sorted { $0.category < $1.category }
     }
 }

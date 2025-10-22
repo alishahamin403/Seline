@@ -59,27 +59,25 @@ struct FolderSidebarView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "note.text")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(selectedFolderId == nil ? .white : (colorScheme == .dark ? .white : .black))
+                                .foregroundColor(.white)
                                 .frame(width: 20)
 
                             Text("All Notes")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(selectedFolderId == nil ? .white : (colorScheme == .dark ? .white : .black))
+                                .foregroundColor(.white)
 
                             Spacer()
 
                             Text("\(notesManager.notes.count)")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(selectedFolderId == nil ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)))
+                                .foregroundColor(.white.opacity(0.8))
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(selectedFolderId == nil ?
-                                    (colorScheme == .dark ?
-                                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                        Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                    Color(red: 0.29, green: 0.29, blue: 0.29) :
                                     Color.clear
                                 )
                         )
@@ -232,9 +230,7 @@ struct FolderSidebarView: View {
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ?
-                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                Color(red: 0.20, green: 0.34, blue: 0.40))
+                            .fill(Color(red: 0.29, green: 0.29, blue: 0.29))
                     )
                 }
                 .padding(.horizontal, 16)
@@ -373,9 +369,7 @@ struct FolderRowView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(
                     isSelected ?
-                        (colorScheme == .dark ?
-                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                            Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                        Color(red: 0.29, green: 0.29, blue: 0.29) :
                         Color.clear
                 )
         )

@@ -2,13 +2,18 @@ import SwiftUI
 
 struct AddEventPopupView: View {
     @Binding var isPresented: Bool
-    let onSave: (String, String?, Date, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void
+    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void
+
+    // Optional initial values
+    let initialDate: Date?
+    let initialTime: Date?
 
     @State private var title: String = ""
     @State private var description: String = ""
-    @State private var selectedDate: Date = Date()
-    @State private var hasTime: Bool = false
-    @State private var selectedTime: Date = Date()
+    @State private var selectedDate: Date
+    @State private var hasTime: Bool
+    @State private var selectedTime: Date
+    @State private var selectedEndTime: Date
     @State private var isRecurring: Bool = false
     @State private var recurrenceFrequency: RecurrenceFrequency = .weekly
     @State private var selectedReminder: ReminderTime = .oneHour  // Default to 1 hour before
@@ -16,6 +21,26 @@ struct AddEventPopupView: View {
     @State private var showingReminderOptions: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @FocusState private var isTitleFocused: Bool
+
+    init(
+        isPresented: Binding<Bool>,
+        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void,
+        initialDate: Date? = nil,
+        initialTime: Date? = nil
+    ) {
+        self._isPresented = isPresented
+        self.onSave = onSave
+        self.initialDate = initialDate
+        self.initialTime = initialTime
+
+        // Initialize state variables
+        let date = initialDate ?? Date()
+        let time = initialTime ?? Date()
+        _selectedDate = State(initialValue: date)
+        _hasTime = State(initialValue: initialTime != nil)
+        _selectedTime = State(initialValue: time)
+        _selectedEndTime = State(initialValue: time.addingTimeInterval(3600))
+    }
 
     private var isValidInput: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -121,10 +146,34 @@ struct AddEventPopupView: View {
                                 .foregroundColor(Color.shadcnForeground(colorScheme))
 
                             if hasTime {
-                                DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
-                                    .datePickerStyle(WheelDatePickerStyle())
-                                    .labelsHidden()
-                                    .transition(.opacity.combined(with: .scale))
+                                VStack(alignment: .leading, spacing: 12) {
+                                    // Start Time
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Start Time")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                        DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
+                                            .datePickerStyle(WheelDatePickerStyle())
+                                            .labelsHidden()
+                                            .onChange(of: selectedTime) { newStartTime in
+                                                // Auto-update end time to be 1 hour after start time
+                                                selectedEndTime = newStartTime.addingTimeInterval(3600)
+                                            }
+                                    }
+
+                                    // End Time
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("End Time")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                        DatePicker("", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
+                                            .datePickerStyle(WheelDatePickerStyle())
+                                            .labelsHidden()
+                                    }
+                                }
+                                .transition(.opacity.combined(with: .scale))
                             }
                         }
 
@@ -224,6 +273,7 @@ struct AddEventPopupView: View {
                         let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
                         let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
                         let timeToSave = hasTime ? selectedTime : nil
+                        let endTimeToSave = hasTime ? selectedEndTime : nil
                         let reminderToSave = selectedReminder == .none ? nil : selectedReminder
 
                         onSave(
@@ -231,6 +281,7 @@ struct AddEventPopupView: View {
                             descriptionToSave,
                             selectedDate,
                             timeToSave,
+                            endTimeToSave,
                             reminderToSave,
                             isRecurring,
                             isRecurring ? recurrenceFrequency : nil
@@ -310,7 +361,7 @@ struct AddEventPopupView: View {
 
         AddEventPopupView(
             isPresented: .constant(true),
-            onSave: { title, description, date, time, reminder, recurring, frequency in
+            onSave: { title, description, date, time, endTime, reminder, recurring, frequency in
                 print("Created: \(title), Description: \(description ?? "None")")
             }
         )

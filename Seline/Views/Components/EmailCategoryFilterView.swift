@@ -49,9 +49,7 @@ struct EmailCategoryChip: View {
                 .background(
                     RoundedRectangle(cornerRadius: 16)
                         .fill(isSelected ?
-                            (colorScheme == .dark ?
-                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                            Color(red: 0.29, green: 0.29, blue: 0.29) :
                             (colorScheme == .dark ?
                                 Color.white.opacity(0.1) :
                                 Color.black.opacity(0.05))

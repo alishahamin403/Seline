@@ -11,6 +11,7 @@ struct NotesView: View, Searchable {
     @State private var expandedSections: Set<String> = ["RECENT"]
     @State private var showingFolderSidebar = false
     @State private var selectedFolderId: UUID? = nil
+    @State private var showReceiptStats = false
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -74,22 +75,85 @@ struct NotesView: View, Searchable {
             }
     }
 
+    var hasReceipts: Bool {
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+        guard let receiptsFolderId = receiptsFolder?.id else { return false }
+        return notesManager.notes.contains { note in
+            guard let folderId = note.folderId else { return false }
+            var currentFolderId: UUID? = folderId
+            while let currentId = currentFolderId {
+                if currentId == receiptsFolderId {
+                    return true
+                }
+                currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+            }
+            return false
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Search header
+                // Header with search and stats toggle
                 VStack(spacing: 8) {
-                    NotesSearchBar(
-                        searchText: $searchText,
-                        showingFolderSidebar: $showingFolderSidebar,
-                        selectedFolderId: $selectedFolderId
-                    )
+                    HStack(spacing: 16) {
+                        // Folders button
+                        Button(action: {
+                            withAnimation {
+                                showingFolderSidebar.toggle()
+                            }
+                        }) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        NotesSearchBar(
+                            searchText: $searchText,
+                            showingFolderSidebar: $showingFolderSidebar,
+                            selectedFolderId: $selectedFolderId
+                        )
+
+                        // Stats button (only shown if there are receipts)
+                        if hasReceipts {
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showReceiptStats.toggle()
+                                }
+                            }) {
+                                Image(systemName: "dollarsign")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .frame(width: 44, height: 44)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        } else {
+                            // Spacer to keep layout consistent when no receipts
+                            Color.clear
+                                .frame(width: 44, height: 44)
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 8)
 
-                // Notes list
-                ScrollView(.vertical, showsIndicators: false) {
+                // Conditional rendering: Stats view or Notes list
+                if showReceiptStats {
+                    ReceiptStatsView()
+                } else {
+                    // Notes list
+                    ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 16) {
                         // Pinned section card
                         if !filteredPinnedNotes.isEmpty {
@@ -252,13 +316,14 @@ struct NotesView: View, Searchable {
                     }
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
-                }
+                    }
 
-                Spacer()
+                    Spacer()
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
-                (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                (colorScheme == .dark ? Color.black : Color.white)
                     .ignoresSafeArea()
             )
             .overlay(
@@ -416,6 +481,8 @@ struct NoteEditView: View {
     @State private var isKeyboardVisible = false
     @State private var isProcessingReceipt = false
     @State private var isGeneratingTitle = false
+    @State private var noteTables: [NoteTable] = []
+    @State private var noteTodoLists: [NoteTodoList] = []
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingCustom || isProcessingReceipt || isGeneratingTitle
@@ -451,8 +518,14 @@ struct NoteEditView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .gesture(
-                    DragGesture()
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { gesture in
+                            // Dismiss keyboard when scrolling
+                            if abs(gesture.translation.height) > 20 {
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            }
+                        }
                         .onEnded { gesture in
                             // Swipe down to save and dismiss
                             if gesture.translation.height > 100 {
@@ -719,8 +792,7 @@ struct NoteEditView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
-            // Content - positioned right under title
-            // Text editor grows to fit content, ScrollView handles scrolling
+            // Content - single text editor (table markers are hidden in the editor)
             FormattableTextEditor(
                 attributedText: $attributedContent,
                 colorScheme: colorScheme,
@@ -735,6 +807,86 @@ struct NoteEditView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(.horizontal, 0)
             .padding(.top, 8)
+
+            // Render tables below text content
+            ForEach(noteTables.indices, id: \.self) { index in
+                TableEditorView(
+                    table: $noteTables[index],
+                    onTableUpdate: { updatedTable in
+                        noteTables[index] = updatedTable
+                        // Save note whenever table is updated
+                        saveNoteImmediately()
+                    },
+                    onDelete: {
+                        // Remove table marker from content
+                        let marker = TableMarker.marker(for: noteTables[index].id)
+                        content = content.replacingOccurrences(of: marker, with: "")
+                        attributedContent = NSAttributedString(
+                            string: content,
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                            ]
+                        )
+                        noteTables.remove(at: index)
+                        // Save note after deleting table
+                        saveNoteImmediately()
+                    }
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+
+            // Render todo lists below tables
+            ForEach(noteTodoLists.indices, id: \.self) { index in
+                TodoListEditorView(
+                    todoList: $noteTodoLists[index],
+                    onTodoUpdate: { updatedTodoList in
+                        noteTodoLists[index] = updatedTodoList
+                        // Save note whenever todo list is updated
+                        saveNoteImmediately()
+                    },
+                    onDelete: {
+                        // Remove todo marker from content
+                        let marker = TodoMarker.marker(for: noteTodoLists[index].id)
+                        content = content.replacingOccurrences(of: marker, with: "")
+                        attributedContent = NSAttributedString(
+                            string: content,
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                            ]
+                        )
+                        noteTodoLists.remove(at: index)
+                        // Save note after deleting todo list
+                        saveNoteImmediately()
+                    }
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+
+            // Tappable area to continue writing after tables/todos
+            Color.clear
+                .frame(minHeight: 300)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Ensure there's content after the last marker for cursor placement
+                    if !content.hasSuffix("\n\n") {
+                        let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
+                        let newlineString = NSAttributedString(
+                            string: "\n\n",
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                            ]
+                        )
+                        mutableAttrString.append(newlineString)
+                        attributedContent = mutableAttrString
+                        content = attributedContent.string
+                    }
+                    // Dismiss keyboard is now handled by scroll gesture
+                }
         }
     }
 
@@ -827,11 +979,10 @@ struct NoteEditView: View {
                     ShadcnSpinner(size: .small)
                         .frame(height: 36)
                 } else {
-                    Text("Clean up")
-                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
+                        .frame(width: 40, height: 36)
                 }
             }
             .background(
@@ -840,7 +991,7 @@ struct NoteEditView: View {
             )
             .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            // Custom button - allows user to enter their own prompt (up to 2 sentences)
+            // AI Custom Edit button - allows user to enter their own prompt (up to 2 sentences)
             Button(action: {
                 HapticManager.shared.buttonTap()
                 showingCustomPrompt = true
@@ -849,11 +1000,10 @@ struct NoteEditView: View {
                     ShadcnSpinner(size: .small)
                         .frame(height: 36)
                 } else {
-                    Text("Custom")
-                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
+                        .frame(width: 40, height: 36)
                 }
             }
             .background(
@@ -861,6 +1011,97 @@ struct NoteEditView: View {
                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
             )
             .disabled(isAnyProcessing)
+
+            // Table insert button - directly creates 3x3 table
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                // Create a 3x3 table directly
+                let newTable = NoteTable(rows: 3, columns: 3, headerRow: true)
+                noteTables.append(newTable)
+
+                // Insert table marker into content while preserving formatting
+                let marker = TableMarker.marker(for: newTable.id)
+                let markerString = NSAttributedString(
+                    string: "\n\(marker)\n",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                    ]
+                )
+
+                let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
+                mutableAttrString.append(markerString)
+                attributedContent = mutableAttrString
+                content = attributedContent.string
+            }) {
+                Image(systemName: "tablecells")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+
+            // Todo list button - creates interactive todo list
+            Button(action: {
+                HapticManager.shared.buttonTap()
+
+                // Check if there's selected text to convert
+                if selectedTextRange.length > 0 && selectedTextRange.location + selectedTextRange.length <= attributedContent.length {
+                    // Extract the selected text
+                    let selectedText = attributedContent.attributedSubstring(from: selectedTextRange).string
+
+                    // Try to convert selected text to todo list
+                    if let todoList = NoteTodoList.fromText(selectedText) {
+                        noteTodoLists.append(todoList)
+
+                        // Replace selected text with todo marker
+                        let marker = TodoMarker.marker(for: todoList.id)
+                        let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
+                        mutableAttrString.replaceCharacters(in: selectedTextRange, with: marker)
+
+                        attributedContent = mutableAttrString
+                        content = attributedContent.string
+                    } else {
+                        // If conversion failed, create empty todo list at cursor position
+                        let newTodoList = NoteTodoList()
+                        noteTodoLists.append(newTodoList)
+
+                        let marker = TodoMarker.marker(for: newTodoList.id)
+                        let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
+                        mutableAttrString.replaceCharacters(in: selectedTextRange, with: "\n\(marker)\n")
+
+                        attributedContent = mutableAttrString
+                        content = attributedContent.string
+                    }
+                } else {
+                    // No selection - create a new todo list with 5 empty items at the end
+                    let newTodoList = NoteTodoList()
+                    noteTodoLists.append(newTodoList)
+
+                    // Insert todo marker into content
+                    let marker = TodoMarker.marker(for: newTodoList.id)
+                    content += "\n\(marker)\n"
+                    attributedContent = NSAttributedString(
+                        string: content,
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                        ]
+                    )
+                }
+            }) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
 
             Spacer()
 
@@ -881,9 +1122,9 @@ struct NoteEditView: View {
                     if !imageAttachments.isEmpty {
                         Text("\(imageAttachments.count)")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                             .frame(width: 16, height: 16)
-                            .background(Circle().fill(Color.blue))
+                            .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
                             .offset(x: 8, y: -4)
                     }
                 }
@@ -960,6 +1201,12 @@ struct NoteEditView: View {
                 }
             }
 
+            // Load tables
+            noteTables = note.tables
+
+            // Load todo lists
+            noteTodoLists = note.todoLists
+
             noteIsLocked = note.isLocked
             selectedFolderId = note.folderId
 
@@ -1033,6 +1280,8 @@ struct NoteEditView: View {
                 updatedNote.content = content
                 updatedNote.isLocked = noteIsLocked
                 updatedNote.folderId = selectedFolderId
+                updatedNote.tables = noteTables
+                updatedNote.todoLists = noteTodoLists
 
                 // Check if there are new images to upload (compare count)
                 if imageAttachments.count > existingNote.imageUrls.count {
@@ -1051,6 +1300,8 @@ struct NoteEditView: View {
             Task {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
+                newNote.tables = noteTables
+                newNote.todoLists = noteTodoLists
 
                 // Upload all images for new note
                 if !imageAttachments.isEmpty {
@@ -1065,10 +1316,31 @@ struct NoteEditView: View {
         }
     }
 
+    // Save note immediately when tables are updated (without dismissing)
+    private func saveNoteImmediately() {
+        guard let existingNote = note else { return }
+
+        Task {
+            var updatedNote = existingNote
+            updatedNote.title = title.isEmpty ? "Untitled" : title
+            updatedNote.content = convertAttributedContentToText()
+            updatedNote.isLocked = noteIsLocked
+            updatedNote.folderId = selectedFolderId
+            updatedNote.tables = noteTables
+            updatedNote.todoLists = noteTodoLists
+            updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
+
+            await MainActor.run {
+                notesManager.updateNote(updatedNote)
+            }
+        }
+    }
+
     private func convertAttributedContentToText() -> String {
-        // For now, just return plain text without images
-        // Images are stored as attachments locally only
-        return content
+        // Save as plain text with table and todo markers preserved
+        // The markers will be hidden in the UI by the RichTextEditor's hideMarkers() function
+        // This is more reliable than RTF encoding and ensures markers are preserved
+        return attributedContent.string
     }
 
 
@@ -1158,8 +1430,33 @@ struct NoteEditView: View {
     // MARK: - Image Parsing
 
     private func parseContentWithImages(_ content: String) -> NSAttributedString {
-        // Just return plain text content as attributed string
-        // Images are stored locally only (not persisted to Supabase yet)
+        // Check if content is RTF-encoded (legacy format - for backwards compatibility)
+        if content.hasPrefix("[RTF_CONTENT]") {
+            let base64String = String(content.dropFirst("[RTF_CONTENT]".count))
+
+            // Decode base64 to get RTF data
+            if let rtfData = Data(base64Encoded: base64String),
+               let attributedString = try? NSAttributedString(
+                data: rtfData,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+               ) {
+                // Successfully loaded RTF content with formatting
+                return attributedString
+            } else {
+                // RTF parsing failed - strip the marker and use plain text
+                let plainContent = String(content.dropFirst("[RTF_CONTENT]".count))
+                return NSAttributedString(
+                    string: plainContent,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                    ]
+                )
+            }
+        }
+
+        // New format: plain text with table/todo markers (markers are hidden by RichTextEditor)
         return NSAttributedString(
             string: content,
             attributes: [
@@ -1180,13 +1477,16 @@ struct NoteEditView: View {
         do {
             let cleanedText = try await openAIService.cleanUpNoteText(content)
             await MainActor.run {
-                content = cleanedText
-                attributedContent = NSAttributedString(
-                    string: cleanedText,
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                    ]
+                // Parse and extract tables and todos from markdown
+                let processedText = parseAndExtractTablesAndTodos(from: cleanedText)
+
+                content = processedText
+                // Use MarkdownParser to properly render formatting
+                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+                attributedContent = MarkdownParser.shared.parseMarkdown(
+                    processedText,
+                    fontSize: 15,
+                    textColor: textColor
                 )
                 isProcessingCleanup = false
                 HapticManager.shared.aiActionComplete()
@@ -1199,6 +1499,128 @@ struct NoteEditView: View {
                 print("Error cleaning up text: \(error.localizedDescription)")
             }
         }
+    }
+
+    // Helper function to parse markdown tables and todos, creating interactive objects
+    private func parseAndExtractTablesAndTodos(from text: String) -> String {
+        var processedText = text
+
+        // Extract and replace markdown tables with table markers
+        processedText = extractMarkdownTables(from: processedText)
+
+        // Extract and replace markdown todos with todo markers
+        processedText = extractMarkdownTodos(from: processedText)
+
+        return processedText
+    }
+
+    private func extractMarkdownTables(from text: String) -> String {
+        var result = text
+        let lines = text.components(separatedBy: .newlines)
+        var i = 0
+        var tablesToCreate: [(range: Range<String.Index>, table: NoteTable)] = []
+
+        while i < lines.count {
+            let line = lines[i]
+            // Detect table start (line contains | and next line contains ---)
+            if line.contains("|") && i + 1 < lines.count && lines[i + 1].contains("---") {
+                // Found a table start
+                var tableLines: [String] = []
+                var j = i
+
+                // Collect all table lines
+                while j < lines.count && lines[j].contains("|") {
+                    tableLines.append(lines[j])
+                    j += 1
+                }
+
+                // Parse the table
+                if let table = NoteTable.fromMarkdown(tableLines.joined(separator: "\n")) {
+                    // Add table to our list
+                    noteTables.append(table)
+
+                    // Find the range of this table in the original text
+                    let tableText = tableLines.joined(separator: "\n")
+                    if let range = result.range(of: tableText) {
+                        tablesToCreate.append((range: range, table: table))
+                    }
+                }
+
+                i = j
+            } else {
+                i += 1
+            }
+        }
+
+        // Replace tables with markers (in reverse order to maintain ranges)
+        for (range, table) in tablesToCreate.reversed() {
+            let marker = TableMarker.marker(for: table.id)
+            result.replaceSubrange(range, with: marker)
+        }
+
+        return result
+    }
+
+    private func extractMarkdownTodos(from text: String) -> String {
+        var result = text
+        let lines = text.components(separatedBy: .newlines)
+        var i = 0
+        var todosToCreate: [(range: Range<String.Index>, todoList: NoteTodoList)] = []
+
+        while i < lines.count {
+            let line = lines[i].trimmingCharacters(in: .whitespaces)
+
+            // Detect todo list start (line starts with - [ ] or - [x])
+            if line.hasPrefix("- [ ]") || line.hasPrefix("- [x]") || line.hasPrefix("- []") {
+                // Found a todo list start
+                var todoLines: [String] = []
+                var j = i
+
+                // Collect all consecutive todo lines
+                while j < lines.count {
+                    let todoLine = lines[j].trimmingCharacters(in: .whitespaces)
+                    if todoLine.hasPrefix("- [ ]") || todoLine.hasPrefix("- [x]") || todoLine.hasPrefix("- []") {
+                        todoLines.append(lines[j])
+                        j += 1
+                    } else if todoLine.isEmpty && j + 1 < lines.count {
+                        // Allow empty lines between todos
+                        let nextLine = lines[j + 1].trimmingCharacters(in: .whitespaces)
+                        if nextLine.hasPrefix("- [ ]") || nextLine.hasPrefix("- [x]") || nextLine.hasPrefix("- []") {
+                            j += 1
+                            continue
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+
+                // Parse the todo list
+                if let todoList = NoteTodoList.fromMarkdown(todoLines.joined(separator: "\n")) {
+                    // Add todo list to our list
+                    noteTodoLists.append(todoList)
+
+                    // Find the range of this todo list in the original text
+                    let todoText = todoLines.joined(separator: "\n")
+                    if let range = result.range(of: todoText) {
+                        todosToCreate.append((range: range, todoList: todoList))
+                    }
+                }
+
+                i = j
+            } else {
+                i += 1
+            }
+        }
+
+        // Replace todo lists with markers (in reverse order to maintain ranges)
+        for (range, todoList) in todosToCreate.reversed() {
+            let marker = TodoMarker.marker(for: todoList.id)
+            result.replaceSubrange(range, with: marker)
+        }
+
+        return result
     }
 
     private func applyCustomEdit() async {
@@ -1230,13 +1652,16 @@ struct NoteEditView: View {
         do {
             let editedText = try await openAIService.customEditText(content.isEmpty ? "" : content, prompt: prompt)
             await MainActor.run {
-                content = editedText
-                attributedContent = NSAttributedString(
-                    string: editedText,
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                    ]
+                // Parse and extract tables and todos from markdown
+                let processedText = parseAndExtractTablesAndTodos(from: editedText)
+
+                content = processedText
+                // Use MarkdownParser to properly render formatting
+                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+                attributedContent = MarkdownParser.shared.parseMarkdown(
+                    processedText,
+                    fontSize: 15,
+                    textColor: textColor
                 )
                 isProcessingCustom = false
                 HapticManager.shared.aiActionComplete()
@@ -1263,16 +1688,23 @@ struct NoteEditView: View {
                 let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
 
                 await MainActor.run {
-                    // Get or create the Receipts folder
-                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-
                     // Set title if empty or update it
                     if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         title = receiptTitle
                     }
 
-                    // Automatically assign to Receipts folder
-                    selectedFolderId = receiptsFolderId
+                    // Extract month and year from receipt title for automatic folder organization
+                    if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
+                        // Get or create the month/year folder structure
+                        let monthFolderId = notesManager.getOrCreateReceiptMonthFolder(month: month, year: year)
+                        selectedFolderId = monthFolderId
+                        print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
+                    } else {
+                        // Fallback to main Receipts folder if no date found
+                        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+                        selectedFolderId = receiptsFolderId
+                        print("⚠️ No date found in receipt title, using main Receipts folder")
+                    }
 
                     // Append receipt content to existing content
                     let newContent = content.isEmpty ? receiptContent : content + "\n\n" + receiptContent
@@ -1306,7 +1738,7 @@ struct NoteEditView: View {
         let lines = text.components(separatedBy: .newlines)
 
         for (index, line) in lines.enumerated() {
-            var currentLine = line
+            let currentLine = line
             let lineAttributedString = NSMutableAttributedString()
             var lastIndex = 0
 
@@ -1366,6 +1798,19 @@ struct NoteEditView: View {
     }
 }
 
+// MARK: - Content Segment Types
+
+/// Represents a segment of note content (either text or a table)
+enum ContentSegment {
+    case text(NSAttributedString)
+    case table(UUID)
+
+    var isTable: Bool {
+        if case .table = self { return true }
+        return false
+    }
+}
+
 // MARK: - Image Viewer
 
 struct ImageViewer: View {
@@ -1417,6 +1862,159 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Formatting Menu View
+
+struct FormattingMenuView: View {
+    @Binding var isPresented: Bool
+    let colorScheme: ColorScheme
+    let hasSelection: Bool
+    let onInsertTable: () -> Void
+    let onApplyFormatting: (TextFormat) -> Void
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                (colorScheme == .dark ? Color.black : Color.white)
+                    .ignoresSafeArea()
+
+                List {
+                    Section {
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            onInsertTable()
+                        }) {
+                            HStack {
+                                Image(systemName: "tablecells")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .frame(width: 24)
+                                Text("Insert Table")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                            }
+                        }
+                    } header: {
+                        Text("Insert")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    }
+
+                    Section {
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            onApplyFormatting(.bold)
+                        }) {
+                            HStack {
+                                Image(systemName: "bold")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                                    .frame(width: 24)
+                                Text("Bold")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                            }
+                        }
+                        .disabled(!hasSelection)
+
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            onApplyFormatting(.italic)
+                        }) {
+                            HStack {
+                                Image(systemName: "italic")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                                    .frame(width: 24)
+                                Text("Italic")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                            }
+                        }
+                        .disabled(!hasSelection)
+
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            onApplyFormatting(.underline)
+                        }) {
+                            HStack {
+                                Image(systemName: "underline")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                                    .frame(width: 24)
+                                Text("Underline")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                            }
+                        }
+                        .disabled(!hasSelection)
+
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            onApplyFormatting(.heading1)
+                        }) {
+                            HStack {
+                                Image(systemName: "textformat.size.larger")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                                    .frame(width: 24)
+                                Text("Heading 1")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                            }
+                        }
+                        .disabled(!hasSelection)
+
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            onApplyFormatting(.heading2)
+                        }) {
+                            HStack {
+                                Image(systemName: "textformat.size")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                                    .frame(width: 24)
+                                Text("Heading 2")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(hasSelection ? (colorScheme == .dark ? .white : .black) : .gray)
+                            }
+                        }
+                        .disabled(!hasSelection)
+                    } header: {
+                        Text("Text Formatting")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    } footer: {
+                        if !hasSelection {
+                            Text("Select text to apply formatting")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        }
+                    }
+                }
+                .listStyle(InsetGroupedListStyle())
+                .scrollContentBackground(.hidden)
+                .background(colorScheme == .dark ? Color.black : Color.white)
+            }
+            .navigationTitle("Formatting")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        isPresented = false
+                    }
+                    .foregroundColor(
+                        colorScheme == .dark ?
+                            Color(red: 0.40, green: 0.65, blue: 0.80) :
+                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
 }
 
 #Preview {
