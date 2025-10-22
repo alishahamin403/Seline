@@ -275,7 +275,7 @@ struct SuggestionsSectionHeader: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(
                                     selectedTimeMinutes == time ?
-                                        .white :
+                                        (colorScheme == .dark ? .white : .black) :
                                         (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 )
                                 .padding(.horizontal, 12)
@@ -285,8 +285,8 @@ struct SuggestionsSectionHeader: View {
                                         .fill(
                                             selectedTimeMinutes == time ?
                                                 (colorScheme == .dark ?
-                                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                    Color.white.opacity(0.15) :
+                                                    Color.black.opacity(0.15)) :
                                                 Color.clear
                                         )
                                 )
@@ -318,7 +318,7 @@ struct SuggestionsSectionHeader: View {
                         }
                         .foregroundColor(
                             [40, 50, 60, 120].contains(selectedTimeMinutes) ?
-                                .white :
+                                (colorScheme == .dark ? .white : .black) :
                                 (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         )
                         .padding(.horizontal, 12)
@@ -328,8 +328,8 @@ struct SuggestionsSectionHeader: View {
                                 .fill(
                                     [40, 50, 60, 120].contains(selectedTimeMinutes) ?
                                         (colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                            Color.white.opacity(0.15) :
+                                            Color.black.opacity(0.15)) :
                                         Color.clear
                                 )
                         )
@@ -360,7 +360,7 @@ struct SuggestionsSectionHeader: View {
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(
                                         selectedTimeMinutes == time ?
-                                            .white :
+                                            (colorScheme == .dark ? .white : .black) :
                                             (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                     )
                                     .padding(.horizontal, 12)
@@ -370,8 +370,8 @@ struct SuggestionsSectionHeader: View {
                                             .fill(
                                                 selectedTimeMinutes == time ?
                                                     (colorScheme == .dark ?
-                                                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                        Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                        Color.white.opacity(0.15) :
+                                                        Color.black.opacity(0.15)) :
                                                     Color.clear
                                             )
                                     )
