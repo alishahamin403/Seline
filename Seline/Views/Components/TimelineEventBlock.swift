@@ -56,11 +56,13 @@ struct TimelineEventBlock: View {
     }
 
     private var backgroundColor: Color {
-        // Very dark gray for all events
         if isCompleted {
             return Color(red: 0.15, green: 0.15, blue: 0.15).opacity(0.7)
         } else {
-            return Color(red: 0.15, green: 0.15, blue: 0.15)
+            // Match selected Events tab button color
+            return colorScheme == .dark ?
+                Color(red: 0.1, green: 0.1, blue: 0.1) :   // Dark mode
+                Color(red: 0.29, green: 0.29, blue: 0.29)  // Light mode
         }
     }
 
