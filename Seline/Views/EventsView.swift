@@ -21,6 +21,7 @@ struct EventsView: View {
         case recurring
         case viewTask
         case editTask
+        case photoImport
 
         var id: Int {
             hashValue
@@ -56,15 +57,31 @@ struct EventsView: View {
                 )
             }
             .overlay(
-                // Floating calendar button (only show in events view)
+                // Floating buttons (only show in events view)
                 Group {
                     if selectedView == .events {
                         VStack {
                             Spacer()
                             HStack {
                                 Spacer()
-                                FloatingCalendarButton {
-                                    activeSheet = .calendar
+                                VStack(spacing: 12) {
+                                    // Photo import button
+                                    Button(action: {
+                                        activeSheet = .photoImport
+                                    }) {
+                                        Image(systemName: "camera.fill")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .frame(width: 56, height: 56)
+                                            .background(Circle().fill(Color.blue))
+                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+
+                                    // Calendar button
+                                    FloatingCalendarButton {
+                                        activeSheet = .calendar
+                                    }
                                 }
                                 .padding(.trailing, 20)
                                 .padding(.bottom, 30)
@@ -185,6 +202,8 @@ struct EventsView: View {
                         .navigationBarTitleDisplayMode(.inline)
                     }
                 }
+            case .photoImport:
+                PhotoCalendarImportView()
             }
         }
         .onChange(of: activeSheet) { newValue in

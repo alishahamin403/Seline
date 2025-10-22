@@ -2181,3 +2181,68 @@ class TaskManager: ObservableObject {
         return stats.sorted { $0.eventName < $1.eventName }
     }
 }
+
+// MARK: - Calendar Photo Import Models
+
+enum ExtractionValidationStatus: String, Codable {
+    case success = "success"           // All data extracted clearly
+    case partial = "partial"           // Some fields unclear (but time/date available)
+    case failed = "failed"             // Can't extract time/date
+}
+
+struct ExtractedEvent: Identifiable, Codable {
+    let id: String = UUID().uuidString
+    var title: String
+    var startTime: Date
+    var endTime: Date?
+    var attendees: [String] = []
+    var confidence: Double              // 0.0 to 1.0 - how confident AI is
+    var titleConfidence: Bool           // true if title was clearly readable
+    var timeConfidence: Bool            // true if time was clearly readable
+    var dateConfidence: Bool            // true if date was clearly readable
+    var notes: String = ""
+    var isSelected: Bool = true         // User can deselect before creating
+
+    // For display purposes
+    var formattedTime: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: startTime)
+    }
+
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: startTime)
+    }
+
+    var durationText: String? {
+        guard let endTime = endTime else { return nil }
+        let minutes = Int(endTime.timeIntervalSince(startTime) / 60)
+        if minutes < 60 {
+            return "\(minutes) min"
+        } else {
+            let hours = minutes / 60
+            let mins = minutes % 60
+            if mins == 0 {
+                return "\(hours) hr"
+            } else {
+                return "\(hours)h \(mins)m"
+            }
+        }
+    }
+}
+
+struct CalendarPhotoExtractionResponse: Codable {
+    let status: ExtractionValidationStatus
+    let events: [ExtractedEvent]
+    let errorMessage: String?
+    let extractionConfidence: Double    // Overall confidence (0.0 to 1.0)
+
+    init(status: ExtractionValidationStatus, events: [ExtractedEvent] = [], errorMessage: String? = nil, confidence: Double = 1.0) {
+        self.status = status
+        self.events = events
+        self.errorMessage = errorMessage
+        self.extractionConfidence = confidence
+    }
+}
