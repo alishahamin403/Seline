@@ -390,8 +390,8 @@ struct TimelineView: View {
     // MARK: - Plus Indicator
 
     private func plusIndicator(at timeSlot: Date) -> some View {
-        Image(systemName: "plus.circle.fill")
-            .font(.system(size: 24))
+        Image(systemName: "plus")
+            .font(.system(size: 24, weight: .semibold))
             .foregroundColor(colorScheme == .dark ? .white : .black)
             .frame(height: hourHeight / 2)
             .frame(maxWidth: .infinity, alignment: .center)
