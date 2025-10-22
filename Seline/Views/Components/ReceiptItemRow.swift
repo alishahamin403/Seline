@@ -23,7 +23,7 @@ struct ReceiptItemRow: View {
 
             VStack(alignment: .trailing, spacing: 0) {
                 Text(CurrencyParser.formatAmount(receipt.amount))
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
         }
