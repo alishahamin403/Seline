@@ -62,11 +62,6 @@ struct TableEditorView: View {
                 }
             }
             .frame(height: 400)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3), lineWidth: 1)
-            )
         }
         .padding(.vertical, 8)
     }
