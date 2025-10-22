@@ -31,7 +31,7 @@ struct MonthlySummaryReceiptCard: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(CurrencyParser.formatAmount(monthlySummary.monthlyTotal))
-                        .font(.system(size: 18, weight: .regular))
+                        .font(.system(size: 17, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
