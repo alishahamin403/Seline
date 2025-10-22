@@ -22,22 +22,22 @@ struct ImagePicker: UIViewControllerRepresentable {
     }
 
     class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        weak var parent: ImagePicker?
+        var parent: ImagePicker
 
         init(_ parent: ImagePicker) {
-            super.init()
             self.parent = parent
+            super.init()
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            parent?.presentationMode.wrappedValue.dismiss()
+            parent.presentationMode.wrappedValue.dismiss()
 
             guard let provider = results.first?.itemProvider else { return }
 
             if provider.canLoadObject(ofClass: UIImage.self) {
                 provider.loadObject(ofClass: UIImage.self) { image, _ in
                     DispatchQueue.main.async {
-                        self.parent?.selectedImage = image as? UIImage
+                        self.parent.selectedImage = image as? UIImage
                     }
                 }
             }
