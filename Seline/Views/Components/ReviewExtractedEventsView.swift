@@ -189,19 +189,16 @@ struct ReviewExtractedEventsView: View {
         Task {
             var count = 0
             for event in extractionResponse.events where event.isSelected {
-                // Create TaskItem from extracted event
-                let taskItem = TaskItem(
+                // Add the task via TaskManager using individual parameters
+                taskManager.addTask(
                     title: event.title,
-                    weekday: weekdayFromDate(event.startTime),
+                    to: weekdayFromDate(event.startTime),
                     description: event.notes.isEmpty ? nil : event.notes,
                     scheduledTime: event.startTime,
                     endTime: event.endTime,
                     targetDate: event.startTime,
                     reminderTime: .oneHour
                 )
-
-                // Add the task via TaskManager
-                taskManager.addTask(taskItem)
                 count += 1
 
                 // Small delay to avoid rate limiting

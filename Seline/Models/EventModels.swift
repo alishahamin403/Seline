@@ -2235,7 +2235,7 @@ struct ExtractedEvent: Identifiable, Codable {
 
 struct CalendarPhotoExtractionResponse: Codable {
     let status: ExtractionValidationStatus
-    let events: [ExtractedEvent]
+    var events: [ExtractedEvent]
     let errorMessage: String?
     let extractionConfidence: Double    // Overall confidence (0.0 to 1.0)
 
