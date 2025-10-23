@@ -1275,6 +1275,18 @@ class NotesManager: ObservableObject {
             return
         }
 
+        // CRITICAL: Ensure encryption key is initialized before loading
+        // Wait for EncryptionManager to be ready (max 2 seconds)
+        var attempts = 0
+        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            attempts += 1
+        }
+
+        guard await EncryptionManager.shared.isKeyInitialized else {
+            print("⚠️ Encryption key not initialized after 2 seconds, loading notes anyway")
+        }
+
         print("📥 Loading notes from Supabase for user: \(userId.uuidString)")
 
         do {
@@ -1551,6 +1563,18 @@ class NotesManager: ObservableObject {
         guard isAuthenticated, let userId = userId else {
             print("User not authenticated, loading local folders only")
             return
+        }
+
+        // CRITICAL: Ensure encryption key is initialized before loading
+        // Wait for EncryptionManager to be ready (max 2 seconds)
+        var attempts = 0
+        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            attempts += 1
+        }
+
+        guard await EncryptionManager.shared.isKeyInitialized else {
+            print("⚠️ Encryption key not initialized after 2 seconds, loading folders anyway")
         }
 
         print("📥 Loading folders from Supabase for user: \(userId.uuidString)")
