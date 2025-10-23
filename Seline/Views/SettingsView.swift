@@ -5,7 +5,6 @@ struct SettingsView: View {
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @Environment(\.colorScheme) var colorScheme
-    @State private var profileImage: UIImage? = nil
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
@@ -49,7 +48,7 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
-                        settingsMenuItemLogout()
+                        settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
 
@@ -61,40 +60,27 @@ struct SettingsView: View {
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
-            // Load Google profile image
-            if let photoURL = authManager.currentUser?.profile?.profilePictureURL {
-                loadProfileImage(from: photoURL)
-            }
         }
     }
 
     // MARK: - Profile Header Section
     private var profileHeaderSection: some View {
         HStack(spacing: 16) {
-            // Google Profile Avatar
-            if let profileImage = profileImage {
-                Image(uiImage: profileImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 60, height: 60)
-                    .clipShape(Circle())
-            } else {
-                // Fallback to initials if image can't load
-                Circle()
-                    .fill(isDarkMode ? Color.white : Color.black)
-                    .overlay(
-                        Text({
-                            if let name = authManager.currentUser?.profile?.name, let firstChar = name.first {
-                                return String(firstChar).uppercased()
-                            } else {
-                                return "U"
-                            }
-                        }())
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(isDarkMode ? .black : .white)
-                    )
-                    .frame(width: 60, height: 60)
-            }
+            // User Avatar with initials
+            Circle()
+                .fill(isDarkMode ? Color.white : Color.black)
+                .overlay(
+                    Text({
+                        if let name = authManager.currentUser?.profile?.name, let firstChar = name.first {
+                            return String(firstChar).uppercased()
+                        } else {
+                            return "U"
+                        }
+                    }())
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(isDarkMode ? .black : .white)
+                )
+                .frame(width: 60, height: 60)
 
             VStack(alignment: .leading, spacing: 4) {
                 // User Name
@@ -165,16 +151,6 @@ struct SettingsView: View {
     }
 
     // MARK: - Helper Functions
-    private func loadProfileImage(from url: URL) {
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data, let uiImage = UIImage(data: data) {
-                DispatchQueue.main.async {
-                    self.profileImage = uiImage
-                }
-            }
-        }.resume()
-    }
-
     private func showAppearanceMenu() {
         // This will open appearance settings
     }
