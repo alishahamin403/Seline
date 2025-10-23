@@ -145,7 +145,11 @@ struct MapsView: View, Searchable {
                             .frame(width: 60, height: 60)
                             .background(
                                 Circle()
-                                    .fill(Color.black)
+                                    .fill(
+                                        colorScheme == .dark ?
+                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
+                                            Color(red: 0.92, green: 0.92, blue: 0.92)
+                                    )
                             )
                             .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
                     }
