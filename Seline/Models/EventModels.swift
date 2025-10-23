@@ -2,21 +2,21 @@ import Foundation
 import PostgREST
 import SwiftUI
 
-// Color palette for tags - ensures unique colors for each tag
+// Color palette for tags - minimalistic, unique colors for each tag
 struct TagColorPalette {
     static let colors: [Color] = [
-        Color.blue,           // #007AFF
-        Color.orange,         // #FF9500
-        Color.red,            // #FF3B30
-        Color.green,          // #34C759
-        Color.cyan,           // #32B4F1
-        Color.purple,         // #AF52DE
-        Color.pink,           // #FF2D55
-        Color.yellow,         // #FFCC00
-        Color.indigo,         // #5856D6
-        Color(red: 0.5, green: 0.2, blue: 0.6), // Custom purple
-        Color(red: 0.1, green: 0.7, blue: 0.5), // Teal
-        Color(red: 0.8, green: 0.4, blue: 0.2), // Brown
+        Color(red: 0.4, green: 0.6, blue: 0.8),   // Muted blue
+        Color(red: 0.8, green: 0.6, blue: 0.4),   // Muted orange
+        Color(red: 0.8, green: 0.5, blue: 0.5),   // Muted red
+        Color(red: 0.5, green: 0.75, blue: 0.6),  // Muted green
+        Color(red: 0.5, green: 0.75, blue: 0.85), // Muted cyan
+        Color(red: 0.7, green: 0.55, blue: 0.8),  // Muted purple
+        Color(red: 0.85, green: 0.6, blue: 0.75), // Muted pink
+        Color(red: 0.8, green: 0.75, blue: 0.5),  // Muted yellow
+        Color(red: 0.6, green: 0.6, blue: 0.8),   // Muted indigo
+        Color(red: 0.65, green: 0.5, blue: 0.7),  // Muted purple variant
+        Color(red: 0.45, green: 0.65, blue: 0.6), // Muted teal
+        Color(red: 0.7, green: 0.55, blue: 0.45), // Muted brown
     ]
 
     static func colorForIndex(_ index: Int) -> Color {

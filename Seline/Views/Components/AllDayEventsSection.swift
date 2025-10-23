@@ -56,6 +56,7 @@ struct AllDayEventsSection: View {
             onTapTask(task)
         }) {
             let taskColor = getTaskColor(task)
+            let circleColor: Color = colorScheme == .dark ? Color.white : Color.black
 
             HStack(spacing: 8) {
                 // Completion checkbox
@@ -66,7 +67,7 @@ struct AllDayEventsSection: View {
                     let isCompleted = task.isCompletedOn(date: date)
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(taskColor)
+                        .foregroundColor(circleColor)
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -85,13 +86,13 @@ struct AllDayEventsSection: View {
                     if task.hasEmailAttachment {
                         Image(systemName: "envelope.fill")
                             .font(.system(size: 9))
-                            .foregroundColor(taskColor.opacity(0.7))
+                            .foregroundColor(circleColor.opacity(0.7))
                     }
 
                     if task.isRecurring {
                         Image(systemName: "repeat")
                             .font(.system(size: 9))
-                            .foregroundColor(taskColor.opacity(0.7))
+                            .foregroundColor(circleColor.opacity(0.7))
                     }
                 }
             }

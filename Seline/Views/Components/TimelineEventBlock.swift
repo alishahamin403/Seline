@@ -75,8 +75,13 @@ struct TimelineEventBlock: View {
     }
 
     private var textColor: Color {
-        // Use tag color for text to match the theme
-        return accentColor
+        // Use black in light mode, white in dark mode for better readability
+        return colorScheme == .dark ? Color.white : Color.black
+    }
+
+    private var circleColor: Color {
+        // Use black in light mode, white in dark mode for better readability
+        return colorScheme == .dark ? Color.white : Color.black
     }
 
     var body: some View {
@@ -90,7 +95,7 @@ struct TimelineEventBlock: View {
             }) {
                 Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(textColor)
+                    .foregroundColor(circleColor)
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -109,14 +114,14 @@ struct TimelineEventBlock: View {
             if task.hasEmailAttachment {
                 Image(systemName: "envelope.fill")
                     .font(.system(size: 10))
-                    .foregroundColor(textColor.opacity(0.7))
+                    .foregroundColor(circleColor.opacity(0.7))
             }
 
             // Recurring indicator
             if task.isRecurring {
                 Image(systemName: "repeat")
                     .font(.system(size: 10))
-                    .foregroundColor(textColor.opacity(0.7))
+                    .foregroundColor(circleColor.opacity(0.7))
             }
         }
         .padding(.horizontal, 10)
