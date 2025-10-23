@@ -227,14 +227,7 @@ struct ReviewExtractedEventsView: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.primary)
 
-                            let tagDisplayName: String
-                            if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
-                                tagDisplayName = "Added to \(tag.name)"
-                            } else {
-                                tagDisplayName = "Added to Personal"
-                            }
-
-                            Text(tagDisplayName)
+                            Text(selectedTagId != nil && tagManager.getTag(by: selectedTagId) != nil ? "Added to \(tagManager.getTag(by: selectedTagId)?.name ?? "")" : "Added to Personal")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
                         }
