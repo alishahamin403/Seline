@@ -394,9 +394,29 @@ struct SimpleEventCard: View {
                         .font(.headline)
                         .lineLimit(2)
 
-                    Text(event.formattedTime)
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    // Show time range if end time exists, otherwise just start time
+                    if let endTime = event.endTime {
+                        let formatter = DateFormatter()
+                        formatter.timeStyle = .short
+                        let startTimeStr = formatter.string(from: event.startTime)
+                        let endTimeStr = formatter.string(from: endTime)
+                        Text("\(startTimeStr) - \(endTimeStr)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+
+                        if let duration = event.durationText {
+                            Text("(\(duration))")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                    } else {
+                        Text(event.formattedTime)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Text("(no end time)")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
                 }
 
                 Spacer()
