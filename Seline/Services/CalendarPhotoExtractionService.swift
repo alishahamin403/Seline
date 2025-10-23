@@ -64,6 +64,12 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.imageConversionError
         }
 
+        // Get today's date for fallback in the prompt
+        let today = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let todayString = dateFormatter.string(from: today)
+
         let systemPrompt = """
         You are an expert OCR specialist and calendar analyzer. Your job is to extract event information from calendar photos with precision.
 
@@ -107,7 +113,7 @@ class CalendarPhotoExtractionService {
         7. Extract event titles exactly as written
         8. List any names/emails visible as attendees
 
-        DATES: If the image doesn't show dates, use today's date (2025-10-22) and increment for subsequent days.
+        DATES: If the image doesn't show dates, use today's date (\(todayString)) and increment for subsequent days.
 
         Return your response as a JSON object with this EXACT structure:
         {
@@ -145,9 +151,9 @@ class CalendarPhotoExtractionService {
                 {
                     "title": "Team Meeting",
                     "startTime": "09:00",
-                    "startDate": "2025-10-22",
+                    "startDate": "\(todayString)",
                     "endTime": "10:00",
-                    "endDate": "2025-10-22",
+                    "endDate": "\(todayString)",
                     "attendees": ["Sarah", "Mike"],
                     "titleConfidence": true,
                     "timeConfidence": true,
