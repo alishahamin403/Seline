@@ -280,7 +280,7 @@ struct EventsCardWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ForEach(sortedEvents.prefix(5)) { task in
+                        ForEach(sortedEvents) { task in
                             eventRow(task)
                         }
                     }
