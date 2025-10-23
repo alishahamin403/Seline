@@ -26,7 +26,10 @@ struct PhotoCalendarImportView: View {
                     VStack(spacing: 16) {
                         Image(systemName: "camera.fill")
                             .font(.system(size: 60))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.white)
+                            .frame(width: 100, height: 100)
+                            .background(Circle().fill(Color(red: 0.27, green: 0.27, blue: 0.27)))
+                            .padding(.bottom, 8)
 
                         VStack(spacing: 8) {
                             Text("Import Schedule from Photo")
@@ -55,7 +58,7 @@ struct PhotoCalendarImportView: View {
                             .foregroundColor(.white)
                             .frame(height: 50)
                             .frame(maxWidth: .infinity)
-                            .background(Color.blue)
+                            .background(Color(red: 0.27, green: 0.27, blue: 0.27))
                             .cornerRadius(12)
                         }
 
@@ -70,7 +73,7 @@ struct PhotoCalendarImportView: View {
                             .foregroundColor(.white)
                             .frame(height: 50)
                             .frame(maxWidth: .infinity)
-                            .background(Color.gray)
+                            .background(Color(red: 0.34, green: 0.34, blue: 0.34))
                             .cornerRadius(12)
                         }
                     }

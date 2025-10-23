@@ -1052,12 +1052,12 @@ struct EventConfirmationView: View {
                     // Icon
                     ZStack {
                         Circle()
-                            .fill(Color.blue.opacity(0.15))
+                            .fill(Color(red: 0.20, green: 0.34, blue: 0.40))
                             .frame(width: 56, height: 56)
 
                         Image(systemName: "calendar")
                             .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.white)
                     }
                     .padding(.top, 28)
                     .padding(.bottom, 20)
