@@ -36,8 +36,8 @@ struct DaySliderView: View {
 
     private var accentColor: Color {
         colorScheme == .dark ?
-            Color(red: 0.40, green: 0.65, blue: 0.80) : // #66A5C6
-            Color(red: 0.20, green: 0.34, blue: 0.40)   // #345766
+            Color.white :
+            Color.black
     }
 
     var body: some View {
@@ -83,7 +83,7 @@ struct DaySliderView: View {
                 Text(dayName(date))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(
-                        isSelected(date) ? .white :
+                        isSelected(date) ? (colorScheme == .dark ? Color.black : Color.white) :
                         isToday(date) ? accentColor :
                         (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     )
@@ -91,7 +91,7 @@ struct DaySliderView: View {
                 Text(dayNumber(date))
                     .font(.system(size: 15, weight: isSelected(date) ? .semibold : .regular))
                     .foregroundColor(
-                        isSelected(date) ? .white :
+                        isSelected(date) ? (colorScheme == .dark ? Color.black : Color.white) :
                         isToday(date) ? accentColor :
                         (colorScheme == .dark ? Color.white : Color.black)
                     )

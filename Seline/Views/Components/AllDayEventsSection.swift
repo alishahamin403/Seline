@@ -29,13 +29,6 @@ struct AllDayEventsSection: View {
     var body: some View {
         if !allDayTasks.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("All Day")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(
-                        colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)
-                    )
-                    .padding(.horizontal, 20)
-
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(allDayTasks) { task in

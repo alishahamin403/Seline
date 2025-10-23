@@ -79,10 +79,9 @@ struct DayCard: View {
                 Color.white.opacity(0.4) :
                 Color.black.opacity(0.4)
         case .current:
-            // Match exact tab icon fill color
             return colorScheme == .dark ?
-                Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (light blue for dark mode)
-                Color(red: 0.20, green: 0.34, blue: 0.40)      // #345766 (dark blue for light mode)
+                Color.white :
+                Color.black
         case .future:
             return Color.shadcnForeground(colorScheme)
         }
@@ -95,10 +94,9 @@ struct DayCard: View {
                 Color.white.opacity(0.3) :
                 Color.black.opacity(0.3)
         case .current:
-            // Match exact tab icon fill color with slight opacity
             return colorScheme == .dark ?
-                Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.8) : // #84cae9 with opacity
-                Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.8)      // #345766 with opacity
+                Color.white.opacity(0.8) :
+                Color.black.opacity(0.8)
         case .future:
             return colorScheme == .dark ? Color.white : Color.black
         }
