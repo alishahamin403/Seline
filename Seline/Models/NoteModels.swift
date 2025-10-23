@@ -1390,9 +1390,12 @@ class NotesManager: ObservableObject {
             decryptedNote = try await decryptNoteAfterLoading(note)
         } catch {
             print("⚠️ Could not decrypt note \(note.id.uuidString): \(error.localizedDescription)")
-            print("   Note will be returned unencrypted (legacy data)")
-            // Return original if decryption fails (backward compatible)
-            return note
+            print("   Note will show as placeholder")
+            // Use placeholder titles instead of encrypted data
+            var placeholderNote = note
+            placeholderNote.title = "[Encrypted]"
+            placeholderNote.content = "[Encrypted content]"
+            return placeholderNote
         }
 
         return decryptedNote
@@ -1632,10 +1635,11 @@ class NotesManager: ObservableObject {
         do {
             decryptedFolderName = try await EncryptionManager.shared.decrypt(data.name)
         } catch {
-            // Decryption failed - this folder is probably not encrypted (old data)
+            // Decryption failed - this folder is probably not encrypted (old data) or encryption key not ready
             print("⚠️ Could not decrypt folder name: \(error.localizedDescription)")
-            print("   Folder will be returned unencrypted (legacy data)")
-            decryptedFolderName = data.name
+            print("   Folder name will show as placeholder")
+            // Use placeholder instead of encrypted data
+            decryptedFolderName = "[Encrypted]"
         }
 
         let folder = NoteFolder(
