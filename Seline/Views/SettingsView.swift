@@ -5,178 +5,178 @@ struct SettingsView: View {
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @Environment(\.colorScheme) var colorScheme
+    @State private var profileImage: UIImage? = nil
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
         themeManager.getCurrentEffectiveColorScheme() == .dark
     }
 
-    // Settings states (some are mockup for now)
-    @AppStorage("showEmail") private var showEmail = true
-    @AppStorage("showNumber") private var showNumber = true
+    // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Text("Settings")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(isDarkMode ? .white : .black)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    // User Profile Header Section
+                    profileHeaderSection
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 24)
+                        .background(isDarkMode ? Color(UIColor.systemGray6).opacity(0.3) : Color(UIColor.systemGray6).opacity(0.5))
 
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                    // Settings Menu Items
+                    VStack(spacing: 0) {
+                        settingsMenuItem(icon: "bell", label: "Notifications", action: {})
+                        Divider()
+                            .padding(.leading, 50)
 
-                ScrollView {
-                    VStack(spacing: 32) {
-                        // Google Account Info Section
-                        googleAccountSection
+                        settingsMenuItem(icon: "eye", label: "Appearance", action: {
+                            showAppearanceMenu()
+                        })
+                        Divider()
+                            .padding(.leading, 50)
 
-                        // General Settings Section
-                        generalSettingsSection
+                        settingsMenuItem(icon: "lock", label: "Privacy & Security", action: {})
+                        Divider()
+                            .padding(.leading, 50)
 
-                        Spacer(minLength: 50)
+                        settingsMenuItem(icon: "headphones", label: "Help and Support", action: {})
+                        Divider()
+                            .padding(.leading, 50)
 
-                        // Sign Out Button at bottom
-                        signOutButton
+                        settingsMenuItem(icon: "info.circle", label: "About", action: {})
+                        Divider()
+                            .padding(.leading, 50)
 
-                        Spacer(minLength: 50)
+                        settingsMenuItemLogout()
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
+                    .padding(.vertical, 12)
+
+                    Spacer(minLength: 50)
                 }
             }
-            .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         }
-        .navigationBarHidden(true)
+        .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
-        }
-    }
-
-    // MARK: - Google Account Section
-    private var googleAccountSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let user = authManager.currentUser {
-                HStack(spacing: 16) {
-                    // Custom Profile Avatar (always black/white)
-                    Circle()
-                        .fill(isDarkMode ? Color.white : Color.black)
-                        .overlay(
-                            Text({
-                                if let name = user.profile?.name, let firstChar = name.first {
-                                    return String(firstChar).uppercased()
-                                } else {
-                                    return "U"
-                                }
-                            }())
-                                .font(.system(size: 24, weight: .semibold))
-                                .foregroundColor(isDarkMode ? .black : .white)
-                        )
-                        .frame(width: 60, height: 60)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        // User Name
-                        Text(user.profile?.name ?? "User")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(isDarkMode ? .white : .black)
-
-                        // User Email
-                        Text(user.profile?.email ?? "No email")
-                            .font(.system(size: 14))
-                            .foregroundColor(colorScheme == .dark ? .gray : .gray)
-                    }
-
-                    Spacer()
-                }
-                .padding(.vertical, 8)
+            // Load Google profile image
+            if let photoURL = authManager.currentUser?.profile?.profilePictureURL {
+                loadProfileImage(from: photoURL)
             }
         }
     }
 
-    // MARK: - General Settings Section
-    private var generalSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Section header
-            Text("General Settings")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(isDarkMode ? .white : .black)
-
-            VStack(spacing: 16) {
-                // Theme Picker
-                SettingsTile(title: "Appearance") {
-                    Menu {
-                        ForEach(AppTheme.allCases, id: \.self) { theme in
-                            Button {
-                                themeManager.setTheme(theme)
-                            } label: {
-                                HStack {
-                                    Image(systemName: theme.icon)
-                                    Text(theme.displayName)
-                                    if themeManager.selectedTheme == theme {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: themeManager.selectedTheme.icon)
-                                .font(.system(size: 14))
-                            Text(themeManager.selectedTheme.displayName)
-                                .font(.system(size: 14))
-                        }
-                        .foregroundColor(.gray)
-                    }
-                }
-
-                // Notification toggle
-                SettingsTile(title: "Notification") {
-                    Toggle("", isOn: Binding(
-                        get: { notificationsEnabled },
-                        set: { newValue in
-                            if newValue && !notificationService.isAuthorized {
-                                Task {
-                                    let granted = await notificationService.requestAuthorization()
-                                    if granted {
-                                        notificationsEnabled = true
-                                    }
-                                }
+    // MARK: - Profile Header Section
+    private var profileHeaderSection: some View {
+        HStack(spacing: 16) {
+            // Google Profile Avatar
+            if let profileImage = profileImage {
+                Image(uiImage: profileImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 60, height: 60)
+                    .clipShape(Circle())
+            } else {
+                // Fallback to initials if image can't load
+                Circle()
+                    .fill(isDarkMode ? Color.white : Color.black)
+                    .overlay(
+                        Text({
+                            if let name = authManager.currentUser?.profile?.name, let firstChar = name.first {
+                                return String(firstChar).uppercased()
                             } else {
-                                notificationsEnabled = newValue
-                                if !newValue {
-                                    // User wants to disable - direct to settings
-                                    notificationService.openAppSettings()
-                                }
+                                return "U"
                             }
-                        }
-                    ))
-                    .labelsHidden()
-                    .tint(Color(red: 0.4, green: 0.4, blue: 0.4))
-                }
+                        }())
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(isDarkMode ? .black : .white)
+                    )
+                    .frame(width: 60, height: 60)
             }
+
+            VStack(alignment: .leading, spacing: 4) {
+                // User Name
+                Text(authManager.currentUser?.profile?.name ?? "User")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(isDarkMode ? .white : .black)
+
+                // User Email
+                Text(authManager.currentUser?.profile?.email ?? "No email")
+                    .font(.system(size: 13))
+                    .foregroundColor(.gray)
+            }
+
+            Spacer()
         }
     }
 
-    // MARK: - Sign Out Button
-    private var signOutButton: some View {
+    // MARK: - Settings Menu Item
+    private func settingsMenuItem(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                    .frame(width: 24)
+
+                Text(label)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(isDarkMode ? .white : .black)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.gray.opacity(0.5))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+    }
+
+    // MARK: - Logout Menu Item
+    private var settingsMenuItemLogout: some View {
         Button(action: {
             Task {
                 await authManager.signOut()
             }
         }) {
-            Text("Sign Out")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isDarkMode ? .black : .white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(isDarkMode ? Color.white : Color.black)
-                .cornerRadius(12)
+            HStack(spacing: 16) {
+                Image(systemName: "arrow.uturn.left")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.red)
+                    .frame(width: 24)
+
+                Text("Logout")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.red)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.red.opacity(0.3))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
         }
+    }
+
+    // MARK: - Helper Functions
+    private func loadProfileImage(from url: URL) {
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            if let data = data, let uiImage = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    self.profileImage = uiImage
+                }
+            }
+        }.resume()
+    }
+
+    private func showAppearanceMenu() {
+        // This will open appearance settings
     }
 
 }
