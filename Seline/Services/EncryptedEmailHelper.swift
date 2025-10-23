@@ -25,7 +25,15 @@ extension EmailService {
 
         let encryptedSubject = try await EncryptionManager.shared.encrypt(subject)
         let encryptedBody = try await EncryptionManager.shared.encrypt(body)
-        let encryptedSummary = try aiSummary.map { try await EncryptionManager.shared.encrypt($0) }
+
+        // Handle optional summary with async encryption
+        let encryptedSummary: String?
+        if let summary = aiSummary {
+            encryptedSummary = try await EncryptionManager.shared.encrypt(summary)
+        } else {
+            encryptedSummary = nil
+        }
+
         let encryptedSenderEmail = try await EncryptionManager.shared.encrypt(senderEmail)
         let encryptedRecipientEmails = try await EncryptionManager.shared.encryptMultiple(recipientEmails)
 
@@ -47,7 +55,15 @@ extension EmailService {
         do {
             let subject = try await EncryptionManager.shared.decrypt(encryptedData.encryptedSubject)
             let body = try await EncryptionManager.shared.decrypt(encryptedData.encryptedBody)
-            let summary = try encryptedData.encryptedSummary.map { try await EncryptionManager.shared.decrypt($0) }
+
+            // Handle optional summary with async decryption
+            let summary: String?
+            if let encryptedSummary = encryptedData.encryptedSummary {
+                summary = try await EncryptionManager.shared.decrypt(encryptedSummary)
+            } else {
+                summary = nil
+            }
+
             let senderEmail = try await EncryptionManager.shared.decrypt(encryptedData.encryptedSenderEmail)
             let recipientEmails = try await EncryptionManager.shared.decryptMultiple(encryptedData.encryptedRecipientEmails)
 

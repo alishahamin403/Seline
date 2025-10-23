@@ -27,7 +27,14 @@ extension LocationService {
         let encryptedAddress = try await EncryptionManager.shared.encrypt(address)
         let encryptedLatitude = try await EncryptionManager.shared.encrypt(String(latitude))
         let encryptedLongitude = try await EncryptionManager.shared.encrypt(String(longitude))
-        let encryptedPhone = try phoneNumber.map { try await EncryptionManager.shared.encrypt($0) }
+
+        // Handle optional phone number with async encryption
+        let encryptedPhone: String?
+        if let phone = phoneNumber {
+            encryptedPhone = try await EncryptionManager.shared.encrypt(phone)
+        } else {
+            encryptedPhone = nil
+        }
 
         print("✅ Encrypted location: \(name)")
 
@@ -50,7 +57,14 @@ extension LocationService {
             let address = try await EncryptionManager.shared.decrypt(encryptedData.encryptedAddress)
             let latitudeStr = try await EncryptionManager.shared.decrypt(encryptedData.encryptedLatitude)
             let longitudeStr = try await EncryptionManager.shared.decrypt(encryptedData.encryptedLongitude)
-            let phoneNumber = try encryptedData.encryptedPhoneNumber.map { try await EncryptionManager.shared.decrypt($0) }
+
+            // Handle optional phone number with async decryption
+            let phoneNumber: String?
+            if let encryptedPhone = encryptedData.encryptedPhoneNumber {
+                phoneNumber = try await EncryptionManager.shared.decrypt(encryptedPhone)
+            } else {
+                phoneNumber = nil
+            }
 
             guard let latitude = Double(latitudeStr),
                   let longitude = Double(longitudeStr) else {
