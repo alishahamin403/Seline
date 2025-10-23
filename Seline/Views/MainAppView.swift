@@ -50,6 +50,26 @@ struct MainAppView: View {
         return formatter.string(from: date)
     }
 
+    private func formatEventDateAndTime(targetDate: Date?, scheduledTime: Date?) -> String {
+        guard let targetDate = targetDate else { return "No date set" }
+        guard let scheduledTime = scheduledTime else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            return formatter.string(from: targetDate)
+        }
+
+        // Combine targetDate (the actual date) with scheduledTime (the time component)
+        let calendar = Calendar.current
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second], from: scheduledTime)
+        if let combinedDateTime = calendar.date(bySettingHour: timeComponents.hour ?? 0,
+                                                minute: timeComponents.minute ?? 0,
+                                                second: timeComponents.second ?? 0,
+                                                of: targetDate) {
+            return formatDateAndTime(combinedDateTime)
+        }
+        return formatDateAndTime(targetDate)
+    }
+
     private var searchResults: [OverlaySearchResult] {
         guard !searchText.isEmpty else { return [] }
         var results: [OverlaySearchResult] = []
@@ -65,7 +85,7 @@ struct MainAppView: View {
             results.append(OverlaySearchResult(
                 type: .event,
                 title: task.title,
-                subtitle: task.scheduledTime != nil ? formatDateAndTime(task.scheduledTime!) : "No time set",
+                subtitle: formatEventDateAndTime(targetDate: task.targetDate, scheduledTime: task.scheduledTime),
                 icon: "calendar",
                 task: task,
                 email: nil,
