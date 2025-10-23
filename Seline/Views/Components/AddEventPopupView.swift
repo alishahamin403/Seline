@@ -2,7 +2,7 @@ import SwiftUI
 
 struct AddEventPopupView: View {
     @Binding var isPresented: Bool
-    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void
+    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void
 
     // Optional initial values
     let initialDate: Date?
@@ -17,14 +17,17 @@ struct AddEventPopupView: View {
     @State private var isRecurring: Bool = false
     @State private var recurrenceFrequency: RecurrenceFrequency = .weekly
     @State private var selectedReminder: ReminderTime = .oneHour  // Default to 1 hour before
+    @State private var selectedTagId: String? = nil  // nil means "Personal" default
     @State private var showingRecurrenceOptions: Bool = false
     @State private var showingReminderOptions: Bool = false
+    @State private var showingTagOptions: Bool = false
+    @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
     @FocusState private var isTitleFocused: Bool
 
     init(
         isPresented: Binding<Bool>,
-        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void,
+        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void,
         initialDate: Date? = nil,
         initialTime: Date? = nil
     ) {
@@ -129,6 +132,50 @@ struct AddEventPopupView: View {
                                     RoundedRectangle(cornerRadius: 12)
                                         .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
                                 )
+                        }
+
+                        // Tag Selector
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Tag (Optional)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                            Button(action: {
+                                showingTagOptions.toggle()
+                            }) {
+                                HStack {
+                                    if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+                                        Circle()
+                                            .fill(tag.color)
+                                            .frame(width: 12, height: 12)
+                                        Text(tag.name)
+                                    } else {
+                                        Circle()
+                                            .fill(Color.blue)
+                                            .frame(width: 12, height: 12)
+                                        Text("Personal (Default)")
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
+                                )
+                            }
+                            .sheet(isPresented: $showingTagOptions) {
+                                TagSelectionSheet(
+                                    selectedTagId: $selectedTagId,
+                                    colorScheme: colorScheme
+                                )
+                                .presentationDetents([.height(300)])
+                            }
                         }
 
                         // Date & Time
@@ -284,7 +331,8 @@ struct AddEventPopupView: View {
                             endTimeToSave,
                             reminderToSave,
                             isRecurring,
-                            isRecurring ? recurrenceFrequency : nil
+                            isRecurring ? recurrenceFrequency : nil,
+                            selectedTagId
                         )
                         isPresented = false
                     }
@@ -354,6 +402,102 @@ struct AddEventPopupView: View {
     }
 }
 
+struct TagSelectionSheet: View {
+    @Binding var selectedTagId: String?
+    let colorScheme: ColorScheme
+    @StateObject private var tagManager = TagManager.shared
+    @State private var newTagName = ""
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // Personal (default) option
+                Button(action: {
+                    selectedTagId = nil
+                    dismiss()
+                }) {
+                    HStack {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 12, height: 12)
+
+                        Text("Personal (Default)")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                        Spacer()
+
+                        if selectedTagId == nil {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                    .background(selectedTagId == nil ? Color.shadcnMuted(colorScheme).opacity(0.1) : Color.clear)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Divider()
+
+                // User-created tags
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(tagManager.tags, id: \.id) { tag in
+                            Button(action: {
+                                selectedTagId = tag.id
+                                dismiss()
+                            }) {
+                                HStack {
+                                    Circle()
+                                        .fill(tag.color)
+                                        .frame(width: 12, height: 12)
+
+                                    Text(tag.name)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                                    Spacer()
+
+                                    if selectedTagId == tag.id {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(tag.color)
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 16)
+                                .background(selectedTagId == tag.id ? tag.color.opacity(0.1) : Color.clear)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            if tag.id != tagManager.tags.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .background(colorScheme == .dark ? Color.black : Color.white)
+            .navigationTitle("Select Tag")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(Color.blue)
+                }
+            }
+        }
+    }
+}
+
 #Preview {
     ZStack {
         Color.blue
@@ -361,8 +505,8 @@ struct AddEventPopupView: View {
 
         AddEventPopupView(
             isPresented: .constant(true),
-            onSave: { title, description, date, time, endTime, reminder, recurring, frequency in
-                print("Created: \(title), Description: \(description ?? "None")")
+            onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                print("Created: \(title), Description: \(description ?? "None"), TagID: \(tagId ?? "Personal")")
             }
         )
     }

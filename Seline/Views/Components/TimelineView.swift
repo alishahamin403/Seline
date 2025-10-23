@@ -5,7 +5,7 @@ struct TimelineView: View {
     let date: Date
     let onTapTask: (TaskItem) -> Void
     let onToggleCompletion: (TaskItem) -> Void
-    let onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void)?
+    let onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)?
     let onEditEvent: ((TaskItem) -> Void)?
     let onDeleteEvent: ((TaskItem) -> Void)?
 
@@ -24,7 +24,7 @@ struct TimelineView: View {
         date: Date,
         onTapTask: @escaping (TaskItem) -> Void,
         onToggleCompletion: @escaping (TaskItem) -> Void,
-        onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?) -> Void)? = nil,
+        onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)? = nil,
         onEditEvent: ((TaskItem) -> Void)? = nil,
         onDeleteEvent: ((TaskItem) -> Void)? = nil
     ) {
@@ -505,7 +505,8 @@ struct TimelineView: View {
             endTime,
             selectedReminder != .none ? selectedReminder : nil,
             false,
-            nil
+            nil,
+            nil // Personal (default) tag
         )
 
         // Reset state

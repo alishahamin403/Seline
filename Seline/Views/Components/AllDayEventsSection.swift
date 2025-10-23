@@ -7,9 +7,17 @@ struct AllDayEventsSection: View {
     let onToggleCompletion: (TaskItem) -> Void
 
     @Environment(\.colorScheme) var colorScheme
+    @StateObject private var tagManager = TagManager.shared
 
     private var allDayTasks: [TaskItem] {
         tasks.filter { $0.scheduledTime == nil }
+    }
+
+    private func getTaskColor(_ task: TaskItem) -> Color {
+        if let tagId = task.tagId, let tag = tagManager.getTag(by: tagId) {
+            return tag.color
+        }
+        return Color.blue // Personal (default) color
     }
 
     private var accentColor: Color {
@@ -47,6 +55,8 @@ struct AllDayEventsSection: View {
             HapticManager.shared.cardTap()
             onTapTask(task)
         }) {
+            let taskColor = getTaskColor(task)
+
             HStack(spacing: 8) {
                 // Completion checkbox
                 Button(action: {
@@ -56,7 +66,7 @@ struct AllDayEventsSection: View {
                     let isCompleted = task.isCompletedOn(date: date)
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(accentColor)
+                        .foregroundColor(taskColor)
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -75,13 +85,13 @@ struct AllDayEventsSection: View {
                     if task.hasEmailAttachment {
                         Image(systemName: "envelope.fill")
                             .font(.system(size: 9))
-                            .foregroundColor(accentColor.opacity(0.7))
+                            .foregroundColor(taskColor.opacity(0.7))
                     }
 
                     if task.isRecurring {
                         Image(systemName: "repeat")
                             .font(.system(size: 9))
-                            .foregroundColor(accentColor.opacity(0.7))
+                            .foregroundColor(taskColor.opacity(0.7))
                     }
                 }
             }
@@ -90,13 +100,12 @@ struct AllDayEventsSection: View {
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(
-                        colorScheme == .dark ?
-                            Color.white.opacity(0.08) : Color.black.opacity(0.05)
+                        taskColor.opacity(colorScheme == .dark ? 0.15 : 0.08)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(accentColor.opacity(0.3), lineWidth: 1)
+                    .stroke(taskColor.opacity(0.3), lineWidth: 1.5)
             )
         }
         .buttonStyle(PlainButtonStyle())

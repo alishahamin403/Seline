@@ -335,7 +335,7 @@ struct MainAppView: View {
                 if showingAddEventPopup {
                     AddEventPopupView(
                         isPresented: $showingAddEventPopup,
-                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency in
+                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
                             // Determine the weekday from the selected date
                             let calendar = Calendar.current
                             let weekdayIndex = calendar.component(.weekday, from: date)
@@ -362,7 +362,8 @@ struct MainAppView: View {
                                 targetDate: date,
                                 reminderTime: reminder,
                                 isRecurring: recurring,
-                                recurrenceFrequency: frequency
+                                recurrenceFrequency: frequency,
+                                tagId: tagId
                             )
                         }
                     )

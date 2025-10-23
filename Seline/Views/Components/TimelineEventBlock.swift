@@ -9,6 +9,7 @@ struct TimelineEventBlock: View {
     let onDelete: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
+    @StateObject private var tagManager = TagManager.shared
     @State private var showActions = false
 
     // Calculate event duration in minutes
@@ -50,33 +51,32 @@ struct TimelineEventBlock: View {
     }
 
     private var accentColor: Color {
-        colorScheme == .dark ?
-            Color(red: 0.40, green: 0.65, blue: 0.80) : // #66A5C6
-            Color(red: 0.20, green: 0.34, blue: 0.40)   // #345766
+        if let tagId = task.tagId, let tag = tagManager.getTag(by: tagId) {
+            return tag.color
+        }
+        return Color.blue // Personal (default) color
     }
 
     private var backgroundColor: Color {
         if isCompleted {
-            return Color(red: 0.15, green: 0.15, blue: 0.15).opacity(0.7)
+            return accentColor.opacity(0.4)
         } else {
-            // Match selected Events tab button color
-            return colorScheme == .dark ?
-                Color(red: 0.1, green: 0.1, blue: 0.1) :   // Dark mode
-                Color(red: 0.29, green: 0.29, blue: 0.29)  // Light mode
+            // Use event type color with opacity
+            return accentColor.opacity(colorScheme == .dark ? 0.25 : 0.2)
         }
     }
 
     private var borderColor: Color {
         if isCompleted {
-            return Color(red: 0.3, green: 0.3, blue: 0.3)
+            return accentColor.opacity(0.5)
         } else {
-            return Color(red: 0.25, green: 0.25, blue: 0.25)
+            return accentColor.opacity(0.4)
         }
     }
 
     private var textColor: Color {
-        // White text for dark gray background
-        return .white
+        // Use tag color for text to match the theme
+        return accentColor
     }
 
     var body: some View {
@@ -126,6 +126,10 @@ struct TimelineEventBlock: View {
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(borderColor, lineWidth: 1)
         )
         .clipped() // Prevent content from overflowing
         .opacity(isCompleted ? 0.7 : 1.0)

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EventsView: View {
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var activeSheet: ActiveSheet?
     @State private var selectedTaskForRecurring: TaskItem?
@@ -10,6 +11,7 @@ struct EventsView: View {
     @State private var isTransitioningToEdit: Bool = false
     @State private var selectedView: EventViewType = .events
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @State private var selectedTagId: String? = nil // nil means show all, or specific tag ID
 
     enum EventViewType: Hashable {
         case events
@@ -222,6 +224,25 @@ struct EventsView: View {
         }
     }
 
+    // MARK: - Helper Methods
+
+    private func filteredTasks(from tasks: [TaskItem]) -> [TaskItem] {
+        if let tagId = selectedTagId {
+            // Filter by specific tag
+            return tasks.filter { $0.tagId == tagId }
+        } else {
+            // Show all tasks (both personal/nil and tagged)
+            return tasks
+        }
+    }
+
+    private func getTagColor(for tagId: String?) -> Color {
+        if let tagId = tagId, let tag = tagManager.getTag(by: tagId) {
+            return tag.color
+        }
+        return Color.blue // Personal (default) color
+    }
+
     // MARK: - Tab Selector
 
     private var tabSelector: some View {
@@ -248,9 +269,91 @@ struct EventsView: View {
             // Day slider
             DaySliderView(selectedDate: $selectedDate)
 
+            // Filter buttons - Show "All" and all user-created tags
+            HStack(spacing: 8) {
+                // "All" button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = nil
+                    }
+                }) {
+                    Text("All")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(selectedTagId == nil ? .white : Color.shadcnForeground(colorScheme))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(selectedTagId == nil ?
+                                    Color.gray :
+                                    (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                )
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Personal (default) button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = "" // Empty string to filter for personal events (nil tagId)
+                    }
+                }) {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 8, height: 8)
+                    Text("Personal")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(selectedTagId == "" ? .white : Color.shadcnForeground(colorScheme))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(selectedTagId == "" ?
+                                    Color.blue :
+                                    (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                )
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // User-created tags
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(tagManager.tags, id: \.id) { tag in
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectedTagId = tag.id
+                                }
+                            }) {
+                                Circle()
+                                    .fill(tag.color)
+                                    .frame(width: 8, height: 8)
+                                Text(tag.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(selectedTagId == tag.id ? .white : Color.shadcnForeground(colorScheme))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(selectedTagId == tag.id ?
+                                                tag.color :
+                                                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                            )
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
             // All day events section
             AllDayEventsSection(
-                tasks: taskManager.getTasksForDate(selectedDate),
+                tasks: filteredTasks(from: taskManager.getTasksForDate(selectedDate)),
                 date: selectedDate,
                 onTapTask: { task in
                     selectedTaskForViewing = task
@@ -263,7 +366,7 @@ struct EventsView: View {
 
             // Timeline view
             TimelineView(
-                tasks: taskManager.getTasksForDate(selectedDate),
+                tasks: filteredTasks(from: taskManager.getTasksForDate(selectedDate)),
                 date: selectedDate,
                 onTapTask: { task in
                     selectedTaskForViewing = task
@@ -272,7 +375,7 @@ struct EventsView: View {
                 onToggleCompletion: { task in
                     taskManager.toggleTaskCompletion(task, forDate: selectedDate)
                 },
-                onAddEvent: { title, description, date, time, endTime, reminder, recurring, frequency in
+                onAddEvent: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
                     // Determine the weekday from the selected date
                     let calendar = Calendar.current
                     let weekdayIndex = calendar.component(.weekday, from: date)
@@ -297,7 +400,8 @@ struct EventsView: View {
                         targetDate: date,
                         reminderTime: reminder,
                         isRecurring: recurring,
-                        recurrenceFrequency: frequency
+                        recurrenceFrequency: frequency,
+                        tagId: tagId
                     )
                 },
                 onEditEvent: { task in

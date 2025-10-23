@@ -1,5 +1,49 @@
 import Foundation
 import PostgREST
+import SwiftUI
+
+// Color palette for tags - ensures unique colors for each tag
+struct TagColorPalette {
+    static let colors: [Color] = [
+        Color.blue,           // #007AFF
+        Color.orange,         // #FF9500
+        Color.red,            // #FF3B30
+        Color.green,          // #34C759
+        Color.cyan,           // #32B4F1
+        Color.purple,         // #AF52DE
+        Color.pink,           // #FF2D55
+        Color.yellow,         // #FFCC00
+        Color.indigo,         // #5856D6
+        Color(red: 0.5, green: 0.2, blue: 0.6), // Custom purple
+        Color(red: 0.1, green: 0.7, blue: 0.5), // Teal
+        Color(red: 0.8, green: 0.4, blue: 0.2), // Brown
+    ]
+
+    static func colorForIndex(_ index: Int) -> Color {
+        colors[index % colors.count]
+    }
+}
+
+// Tag model for organizing events
+struct Tag: Identifiable, Codable, Equatable {
+    let id: String
+    let name: String
+    let colorIndex: Int // Index into TagColorPalette.colors
+
+    var color: Color {
+        TagColorPalette.colorForIndex(colorIndex)
+    }
+
+    init(id: String = UUID().uuidString, name: String, colorIndex: Int) {
+        self.id = id
+        self.name = name
+        self.colorIndex = colorIndex
+    }
+
+    static func == (lhs: Tag, rhs: Tag) -> Bool {
+        lhs.id == rhs.id
+    }
+}
 
 enum ReminderTime: String, CaseIterable, Codable {
     case fifteenMinutes = "15min"
@@ -195,6 +239,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var endTime: Date? // End time of the event
     var targetDate: Date? // Specific date this task is intended for
     var reminderTime: ReminderTime? // When to remind the user
+    var tagId: String? // Tag for organizing events (nil means "Personal" default tag)
     var isDeleted: Bool = false // Flag for soft deletion when Supabase deletion fails
     var completedDates: [Date] = [] // For recurring tasks: track which specific dates were completed
 
@@ -298,7 +343,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil) {
+    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, tagId: String? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // Use provided target date, or default to the current week's date for this weekday
@@ -315,7 +360,9 @@ class TaskManager: ObservableObject {
             recurrenceFrequency: recurrenceFrequency,
             parentRecurringTaskId: nil
         )
-        tasks[weekday]?.append(newTask)
+        var newTaskWithTag = newTask
+        newTaskWithTag.tagId = tagId
+        tasks[weekday]?.append(newTaskWithTag)
         saveTasks()
 
         // Schedule notification if reminder is set
@@ -327,13 +374,13 @@ class TaskManager: ObservableObject {
                                                   minute: timeComponents.minute ?? 0,
                                                   second: 0,
                                                   of: finalTargetDate) {
-                scheduleReminder(for: newTask, at: eventDateTime, reminderBefore: reminderTime)
+                scheduleReminder(for: newTaskWithTag, at: eventDateTime, reminderBefore: reminderTime)
             }
         }
 
         // Sync with Supabase
         Task {
-            await saveTaskToSupabase(newTask)
+            await saveTaskToSupabase(newTaskWithTag)
         }
     }
 
@@ -1472,6 +1519,10 @@ class TaskManager: ObservableObject {
             taskItem.reminderTime = ReminderTime(rawValue: reminderTimeString)
         }
 
+        if let tagId = taskDict["tag_id"] as? String {
+            taskItem.tagId = tagId
+        }
+
         // Parse email attachment fields
         if let emailId = taskDict["email_id"] as? String {
             taskItem.emailId = emailId
@@ -1616,6 +1667,12 @@ class TaskManager: ObservableObject {
             "is_recurring": AnyJSON.bool(task.isRecurring)
             // Note: is_deleted column doesn't exist in Supabase yet, so we don't sync it
         ]
+
+        if let tagId = task.tagId {
+            taskData["tag_id"] = AnyJSON.string(tagId)
+        } else {
+            taskData["tag_id"] = AnyJSON.null
+        }
 
         if let description = task.description {
             taskData["description"] = AnyJSON.string(description)
@@ -2179,6 +2236,68 @@ class TaskManager: ObservableObject {
         }
 
         return stats.sorted { $0.eventName < $1.eventName }
+    }
+}
+
+// MARK: - Tag Manager
+
+@MainActor
+class TagManager: ObservableObject {
+    static let shared = TagManager()
+
+    @Published var tags: [Tag] = []
+    private let userDefaults = UserDefaults.standard
+    private let tagsKey = "UserCreatedTags"
+
+    private init() {
+        loadTags()
+    }
+
+    func createTag(name: String) -> Tag? {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        // Get the next available color index
+        let nextColorIndex = tags.count % TagColorPalette.colors.count
+
+        let newTag = Tag(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            colorIndex: nextColorIndex
+        )
+
+        tags.append(newTag)
+        saveTags()
+        return newTag
+    }
+
+    func deleteTag(_ tag: Tag) {
+        tags.removeAll { $0.id == tag.id }
+        saveTasks()
+    }
+
+    func getTag(by id: String?) -> Tag? {
+        guard let id = id else { return nil }
+        return tags.first { $0.id == id }
+    }
+
+    private func saveTags() {
+        if let encoded = try? JSONEncoder().encode(tags) {
+            userDefaults.set(encoded, forKey: tagsKey)
+        }
+    }
+
+    private func loadTags() {
+        guard let data = userDefaults.data(forKey: tagsKey),
+              let loadedTags = try? JSONDecoder().decode([Tag].self, from: data) else {
+            print("📂 No saved tags found in local storage")
+            return
+        }
+
+        print("📂 Loading \(loadedTags.count) tags from local storage")
+        self.tags = loadedTags
+    }
+
+    private func saveTasks() {
+        saveTags()
     }
 }
 

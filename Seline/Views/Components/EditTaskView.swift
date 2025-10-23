@@ -16,10 +16,13 @@ struct EditTaskView: View {
     @State private var isRecurring: Bool
     @State private var recurrenceFrequency: RecurrenceFrequency
     @State private var selectedReminder: ReminderTime
+    @State private var selectedTagId: String?
     @State private var showingRecurrenceOptions: Bool = false
     @State private var showingReminderOptions: Bool = false
+    @State private var showingTagOptions: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var tagManager = TagManager.shared
 
     init(task: TaskItem, onSave: @escaping (TaskItem) -> Void, onCancel: @escaping () -> Void, onDelete: ((TaskItem) -> Void)? = nil, onDeleteRecurringSeries: ((TaskItem) -> Void)? = nil) {
         self.task = task
@@ -37,6 +40,7 @@ struct EditTaskView: View {
         _isRecurring = State(initialValue: task.isRecurring)
         _recurrenceFrequency = State(initialValue: task.recurrenceFrequency ?? .weekly)
         _selectedReminder = State(initialValue: task.reminderTime ?? .none)
+        _selectedTagId = State(initialValue: task.tagId)
     }
 
     private var isValidInput: Bool {
@@ -87,6 +91,54 @@ struct EditTaskView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
                         )
+                }
+
+                // Tag Selector
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tag (Optional)")
+                        .font(.shadcnTextSm)
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                    Button(action: {
+                        showingTagOptions.toggle()
+                    }) {
+                        HStack {
+                            if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+                                Circle()
+                                    .fill(tag.color)
+                                    .frame(width: 10, height: 10)
+                                Text(tag.name)
+                            } else {
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 10, height: 10)
+                                Text("Personal (Default)")
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                        )
+                    }
+                    .sheet(isPresented: $showingTagOptions) {
+                        TagSelectionSheet(
+                            selectedTagId: $selectedTagId,
+                            colorScheme: colorScheme
+                        )
+                        .presentationDetents([.height(300)])
+                    }
                 }
 
                 // Date Picker
@@ -307,6 +359,7 @@ struct EditTaskView: View {
                         updatedTask.isCompleted = task.isCompleted
                         updatedTask.completedDate = task.completedDate
                         updatedTask.createdAt = task.createdAt
+                        updatedTask.tagId = selectedTagId
 
                         onSave(updatedTask)
                     }
