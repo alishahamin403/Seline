@@ -1046,8 +1046,17 @@ class NotesManager: ObservableObject {
 
         print("💾 Saving note to Supabase - User ID: \(userId.uuidString), Note ID: \(note.id.uuidString)")
 
+        // ✨ ENCRYPT sensitive fields before saving
+        let encryptedNote: Note
+        do {
+            encryptedNote = try await encryptNoteBeforeSaving(note)
+        } catch {
+            print("❌ Failed to encrypt note: \(error.localizedDescription)")
+            return
+        }
+
         // OPTIMIZED: Use existing imageUrls from note (no re-upload needed)
-        let imageUrls = note.imageUrls
+        let imageUrls = encryptedNote.imageUrls
 
         let formatter = ISO8601DateFormatter()
 
@@ -1097,12 +1106,12 @@ class NotesManager: ObservableObject {
         let noteData: [String: PostgREST.AnyJSON] = [
             "id": .string(note.id.uuidString),
             "user_id": .string(userId.uuidString),
-            "title": .string(note.title),
-            "content": .string(note.content),
-            "is_locked": .bool(note.isLocked),
+            "title": .string(encryptedNote.title),  // ✨ Encrypted
+            "content": .string(encryptedNote.content),  // ✨ Encrypted
+            "is_locked": .bool(encryptedNote.isLocked),
             "date_created": .string(formatter.string(from: note.dateCreated)),
             "date_modified": .string(formatter.string(from: note.dateModified)),
-            "is_pinned": .bool(note.isPinned),
+            "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray),
             "tables": tablesJSON,
@@ -1157,8 +1166,17 @@ class NotesManager: ObservableObject {
             return
         }
 
+        // ✨ ENCRYPT sensitive fields before updating
+        let encryptedNote: Note
+        do {
+            encryptedNote = try await encryptNoteBeforeSaving(note)
+        } catch {
+            print("❌ Failed to encrypt note: \(error.localizedDescription)")
+            return
+        }
+
         // OPTIMIZED: Use existing imageUrls from note (preserves existing URLs, no re-upload)
-        let imageUrls = note.imageUrls
+        let imageUrls = encryptedNote.imageUrls
 
         let formatter = ISO8601DateFormatter()
 
@@ -1206,11 +1224,11 @@ class NotesManager: ObservableObject {
         }
 
         let noteData: [String: PostgREST.AnyJSON] = [
-            "title": .string(note.title),
-            "content": .string(note.content),
-            "is_locked": .bool(note.isLocked),
+            "title": .string(encryptedNote.title),  // ✨ Encrypted
+            "content": .string(encryptedNote.content),  // ✨ Encrypted
+            "is_locked": .bool(encryptedNote.isLocked),
             "date_modified": .string(formatter.string(from: note.dateModified)),
-            "is_pinned": .bool(note.isPinned),
+            "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray),
             "tables": tablesJSON,
@@ -1224,7 +1242,7 @@ class NotesManager: ObservableObject {
                 .update(noteData)
                 .eq("id", value: note.id.uuidString)
                 .execute()
-            print("✅ Successfully updated note in Supabase: \(note.title)")
+            print("✅ Successfully updated note in Supabase: \(encryptedNote.title) (encrypted)")
         } catch {
             print("❌ Error updating note in Supabase: \(error)")
             print("❌ Error details: \(error.localizedDescription)")
@@ -1271,10 +1289,10 @@ class NotesManager: ObservableObject {
 
             print("📥 Received \(response.count) notes from Supabase")
 
-            // Parse notes with image URLs (no downloads!)
+            // Parse notes with image URLs (no downloads!) and decrypt
             var parsedNotes: [Note] = []
             for supabaseNote in response {
-                if let note = parseNoteFromSupabase(supabaseNote) {
+                if let note = await parseNoteFromSupabase(supabaseNote) {
                     parsedNotes.append(note)
                 }
             }
@@ -1299,7 +1317,7 @@ class NotesManager: ObservableObject {
         }
     }
 
-    private func parseNoteFromSupabase(_ data: NoteSupabaseData) -> Note? {
+    private func parseNoteFromSupabase(_ data: NoteSupabaseData) async -> Note? {
         guard let id = UUID(uuidString: data.id) else {
             print("❌ Failed to parse note ID: \(data.id)")
             return nil
@@ -1355,7 +1373,18 @@ class NotesManager: ObservableObject {
         // Store todo lists
         note.todoLists = data.todo_lists ?? []
 
-        return note
+        // ✨ DECRYPT after loading
+        let decryptedNote: Note
+        do {
+            decryptedNote = try await decryptNoteAfterLoading(note)
+        } catch {
+            print("⚠️ Could not decrypt note \(note.id.uuidString): \(error.localizedDescription)")
+            print("   Note will be returned unencrypted (legacy data)")
+            // Return original if decryption fails (backward compatible)
+            return note
+        }
+
+        return decryptedNote
     }
 
     // Called when user signs in to load their notes

@@ -32,6 +32,9 @@ class AuthenticationManager: ObservableObject {
             self.supabaseUser = session.user
             self.isAuthenticated = true
 
+            // Initialize encryption with restored user ID
+            await EncryptionManager.shared.setupEncryption(with: session.user.id)
+
             // Try to restore Google Sign-In state
             GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
                 Task { @MainActor in
@@ -42,6 +45,7 @@ class AuthenticationManager: ObservableObject {
             }
 
             print("✅ Session restored for user: \(session.user.email ?? "unknown")")
+            print("✅ End-to-End Encryption Re-enabled")
 
             // Sync tasks and notes from Supabase
             await TaskManager.shared.syncTasksOnLogin()
@@ -97,8 +101,12 @@ class AuthenticationManager: ObservableObject {
             self.currentUser = result.user
             self.supabaseUser = supabaseUser
 
+            // Initialize encryption with user's UUID
+            await EncryptionManager.shared.setupEncryption(with: supabaseUser.id)
+
             print("✅ Google Sign-In Success: \(result.user.profile?.email ?? "No email")")
             print("✅ Supabase User Created: \(supabaseUser.id)")
+            print("✅ End-to-End Encryption Enabled")
 
             // Sync tasks and notes from Supabase
             Task {
@@ -144,11 +152,16 @@ class AuthenticationManager: ObservableObject {
             // Sign out from Google
             GIDSignIn.sharedInstance.signOut()
 
+            // Clear encryption key
+            await EncryptionManager.shared.clearEncryption()
+
             // Clear tasks and set authentication state
             TaskManager.shared.clearTasksOnLogout()
             self.isAuthenticated = false
             self.currentUser = nil
             self.supabaseUser = nil
+
+            print("✅ Encryption key cleared on logout")
 
         } catch {
             errorMessage = "Sign out failed: \(error.localizedDescription)"
