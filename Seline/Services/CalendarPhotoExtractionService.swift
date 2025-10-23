@@ -71,100 +71,111 @@ class CalendarPhotoExtractionService {
         let todayString = dateFormatter.string(from: today)
 
         let systemPrompt = """
-        You are a SPECIALIZED calendar OCR analyzer. Your ONLY job is to:
-        1. Measure event block HEIGHTS visually
-        2. Compare blocks to determine which are 30-min vs 1-hour vs longer
-        3. Extract precise start and end times
+        You are a SPECIALIZED calendar OCR analyzer. Your ONLY job is TEXT EXTRACTION:
 
-        ⚠️ BLOCK HEIGHT IS THE AUTHORITATIVE SOURCE FOR DURATION ⚠️
+        ⚠️ VISIBLE TIME TEXT IS THE AUTHORITATIVE SOURCE ⚠️
 
-        You MUST:
-        - Look at EVERY event block and MEASURE its height
-        - Compare blocks to each other - shorter blocks = shorter events
-        - If Block A is HALF the height of Block B, then Block A is 30 min and Block B is 1 hour
-        - If Block A is clearly shorter but NOT half = probably 45 min
-        - If blocks are roughly equal height = same duration
-        - NEVER assume all events are 1 hour
-        - MEASURE FIRST, then assign times
+        You MUST look for and extract VISIBLE TIME LABELS/TEXT:
+        1. Time ranges written in/on event blocks (e.g., "9:00-9:30", "9am-10am")
+        2. Start time labels (at top of block or beside event name)
+        3. End time labels (at bottom of block or after event name)
+        4. Time markers within the calendar grid or on event blocks
+        5. Any visible numbers/text showing hours and minutes
 
-        ⚠️ HOW TO MEASURE BLOCK HEIGHT:
-        - Find the hourly grid lines or time markers in the calendar
-        - Count how many hour-slots each event occupies
-        - A block spanning 0.5 slots = 30 min
-        - A block spanning 1 slot = 60 min
-        - A block spanning 1.5 slots = 90 min (1.5 hours)
-        - A block spanning 2 slots = 120 min (2 hours)
+        PRIORITIZE EXTRACTION IN THIS ORDER:
+        1. Look for explicit time ranges: "9:00-9:30", "9:00 AM - 9:30 AM", "9-9:30"
+        2. Look for start time + end time separately shown: "START 9:00" "END 9:30"
+        3. Look for time on top of block (start) and bottom of block (end)
+        4. Look for time labels within the event block itself
+        5. Look for time indicators on the calendar grid/axis
 
-        ⚠️ DURATION DETECTION LOGIC (MANDATORY):
-        For EACH event:
-        1. Measure block height (compare to hourly grid)
-        2. If block is HALF a typical hour-block = 30 minutes
-        3. If block is 3/4 of typical hour-block = 45 minutes
-        4. If block is FULL hour-block = 60 minutes
-        5. Calculate endTime = startTime + measured_duration
+        TEXT EXTRACTION RULES:
+        - READ EVERY PIXEL OF TEXT visible in the image
+        - Do NOT skip time text even if small or faint
+        - Extract times exactly as written (preserve format)
+        - If you see "930" interpret as 9:30
+        - If you see "9.30" interpret as 9:30
+        - If you see "0930" interpret as 09:30 (24-hour)
+        - If you see "9-10" with AM/PM context = 9:00-10:00
 
-        CRITICAL: The visible block size DETERMINES the duration. Do not guess.
+        CONVERT EXTRACTED TEXT TO STANDARD FORMAT:
+        - Parse extracted text into HH:MM format (24-hour)
+        - If 12-hour format with AM/PM shown = convert to 24-hour
+        - "9:30 AM" → "09:30"
+        - "2:15 PM" → "14:15"
+        - "9-10" with AM shown → "09:00-10:00"
+        - "9-10" with PM shown → "21:00-22:00"
 
-        OVERLAPPING EVENTS:
-        - If 2+ events start at same time, extract EACH as separate event
-        - Measure EACH block's height independently
-        - Do NOT merge adjacent blocks
+        HANDLE AMBIGUOUS CASES:
+        - If time range shows "9-10", that's 9:00-10:00 (60 minutes)
+        - If time shows "9:30", that's just the start or end (need to find the other)
+        - If time shows "9" and "9:30" = 9:00-9:30 (30 minutes)
+        - Always try to find BOTH start and end times from visible text
 
-        CONFIDENCE:
-        - timeConfidence = true ONLY if block height clearly shows duration
-        - If block height is ambiguous, set timeConfidence = false
-        - If block height is clear, set timeConfidence = true
+        QUALITY ASSESSMENT:
+        - timeConfidence = true if BOTH start and end times are clearly visible as text
+        - timeConfidence = false if you had to infer one from context
+        - NEVER set endTime to null if visible time text exists
 
-        NEVER output a null/empty endTime if you can see a block.
+        CRITICAL CONSTRAINTS:
+        - Do NOT guess or assume durations
+        - Only use visible, readable time text
+        - If time text is ambiguous, set timeConfidence = false but still extract
+        - Extract EVERY visible event and time label, no exceptions
         """
 
         let userPrompt = """
-        TASK: EXTRACT ALL calendar events with PRECISE duration measurement.
+        TASK: EXTRACT ALL calendar events by OCR'ing visible time text/labels.
 
-        STEP 1: IDENTIFY ALL EVENT BLOCKS
-        - Count every visible event block in the calendar
-        - Do NOT skip any blocks, even if partially visible
-        - If multiple blocks exist at same start time, extract each separately
+        STEP 1: SCAN FOR ALL VISIBLE TIME TEXT
+        Look at the entire image and find EVERY piece of visible text that contains:
+        - Time ranges (e.g., "9:00-9:30", "9-10", "9 AM - 9:30 AM")
+        - Individual times (e.g., "9:00", "09:30", "9am")
+        - Time labels on/near event blocks
+        - Hour/minute numbers anywhere in the calendar
 
-        STEP 2: FOR EACH EVENT BLOCK, MEASURE HEIGHT
-        First, identify the hourly grid:
-        - Find time markers (hourly lines, labels like "9:00", "10:00", etc.)
-        - Establish the standard height of 1 hour in pixels/units
-        - Measure each event block against this standard
+        STEP 2: EXTRACT TIME RANGES FROM VISIBLE TEXT
+        For each visible time text/label:
+        - If it shows a range ("9:00-9:30") → startTime=09:00, endTime=09:30
+        - If it shows start and end separately → combine them
+        - If it's ambiguous format ("9-10") → interpret as 9:00-10:00
+        - Parse into HH:MM 24-hour format
 
-        Then measure duration:
-        - Block height = ? × (1-hour height)
-        - If block = 0.5 × (1-hour height) → duration = 30 minutes
-        - If block = 0.75 × (1-hour height) → duration = 45 minutes
-        - If block = 1.0 × (1-hour height) → duration = 60 minutes
-        - If block = 1.5 × (1-hour height) → duration = 90 minutes
-        - If block = 2.0 × (1-hour height) → duration = 120 minutes
-
-        STEP 3: FOR EACH EVENT, DETERMINE START AND END TIME
-        - Read the start time (use time labels on calendar or position)
-        - Add the measured duration to get end time
-        - Example: start=09:00, duration=30min → end=09:30
-        - Example: start=09:00, duration=60min → end=10:00
-
-        STEP 4: EXTRACT STRUCTURED DATA
+        STEP 3: MATCH TIMES TO EVENTS
         For each event block:
-        - title: The event name (read exactly as shown)
-        - startTime: HH:MM in 24-hour format
-        - startDate: YYYY-MM-DD
-        - endTime: HH:MM calculated from (startTime + measured_duration)
-        - endDate: Same as startDate unless event crosses midnight
+        1. Look for time text INSIDE the event block
+        2. Look for time text at the TOP of the event block (start time)
+        3. Look for time text at the BOTTOM of the event block (end time)
+        4. Look for time text immediately BEFORE the event name (start)
+        5. Look for time text immediately AFTER the event name (end)
+        6. Read the event title from the block
+
+        STEP 4: BUILD EXTRACTED DATA
+        For each event with visible time text:
+        - title: Event name (read exactly)
+        - startTime: HH:MM from visible text
+        - endTime: HH:MM from visible text
+        - startDate: YYYY-MM-DD (from calendar context)
+        - endDate: YYYY-MM-DD (same as start unless crosses midnight)
         - attendees: Any visible names
-        - confidence: How certain you are (0.0-1.0)
-        - timeConfidence: true if block height clearly indicates duration
+        - timeConfidence: true if BOTH times are clearly visible as text
+        - confidence: 0.0-1.0 based on text clarity
 
-        ⚠️ CRITICAL CONSTRAINTS:
-        - NEVER use null/empty for endTime if you can see a block
-        - NEVER assume all events are 60 minutes
-        - NEVER set endTime = startTime (duration must be > 0)
-        - MEASURE block height first, calculate duration second, derive endTime third
-        - If two events have different block heights, they have different durations
+        SPECIAL CASES:
+        - If event shows "9:00" but no end time visible → look harder for end time text
+        - If event shows "9" and "30" separately → combine as "9:00" and "9:30"
+        - If event shows only start time in text → set timeConfidence = false but extract
+        - If time format is "930" → interpret as "09:30"
+        - If time format is "9.30" → interpret as "09:30"
 
-        DATES: If the image doesn't show dates, use today's date (\(todayString)) and increment for subsequent days shown.
+        ⚠️ CRITICAL REQUIREMENTS:
+        - EXTRACT EVERY visible time label, no exceptions
+        - Do NOT infer times - only use VISIBLE text
+        - Do NOT assume 60-minute durations
+        - Extract exact times shown in the image
+        - timeConfidence = true ONLY if both start and end times are readable
+
+        DATES: If not shown, use today's date (\(todayString)).
 
         Return your response as a JSON object with this EXACT structure:
         {
