@@ -423,7 +423,7 @@ class TaskManager: ObservableObject {
         Task {
             // Wait for encryption key to be initialized (max 5 seconds)
             var attempts = 0
-            while EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
+            while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
                 attempts += 1
             }
