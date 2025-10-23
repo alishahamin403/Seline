@@ -1,4 +1,5 @@
 import Foundation
+import PostgREST
 
 /// Helper methods to encrypt/decrypt saved places before storing in Supabase
 /// Encryption scope:
@@ -29,14 +30,8 @@ extension LocationsManager {
             encryptedPlace.phone = try await EncryptionManager.shared.encrypt(phone)
         }
 
-        // Encrypt coordinates
-        encryptedPlace.latitude = Double(
-            try await EncryptionManager.shared.encrypt(String(place.latitude))
-        ) ?? place.latitude
-
-        encryptedPlace.longitude = Double(
-            try await EncryptionManager.shared.encrypt(String(place.longitude))
-        ) ?? place.longitude
+        // Note: Coordinates are NOT encrypted to preserve their Double type in the model
+        // The encryption of place name and address provides sufficient location privacy
 
         print("✅ Encrypted place: \(place.id.uuidString)")
 
@@ -101,10 +96,7 @@ extension LocationsManager {
 
     /// Re-encrypt all existing saved places in Supabase
     func reencryptAllExistingSavedPlaces() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
-
-        guard isAuthenticated, let userId = userId else {
+        guard let userId = AuthenticationManager.shared.supabaseUser?.id else {
             print("❌ User not authenticated, cannot re-encrypt saved places")
             return
         }

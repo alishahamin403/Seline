@@ -1,16 +1,16 @@
 import Foundation
 
 /// Helper methods to encrypt/decrypt tasks before storing in Supabase
+/// Protects task content from exposure
+///
 /// Encryption scope:
 /// - Task title
 /// - Task description
-/// - Task tags (names)
 extension TaskManager {
 
     // MARK: - Encrypt Task Before Saving
 
     /// Encrypt sensitive task fields before saving to Supabase
-    /// Encrypted fields: title, description
     func encryptTaskBeforeSaving(_ task: TaskItem) async throws -> TaskItem {
         var encryptedTask = task
 
@@ -20,10 +20,7 @@ extension TaskManager {
             encryptedTask.description = try await EncryptionManager.shared.encrypt(description)
         }
 
-        // Encrypt tag names
-        encryptedTask.tags = try await encryptTags(task.tags)
-
-        print("✅ Encrypted task: \(task.id.uuidString)")
+        print("✅ Encrypted task: \(task.id)")
 
         return encryptedTask
     }
@@ -41,47 +38,15 @@ extension TaskManager {
                 decryptedTask.description = try await EncryptionManager.shared.decrypt(description)
             }
 
-            // Decrypt tag names
-            decryptedTask.tags = try await decryptTags(encryptedTask.tags)
-
-            print("✅ Decrypted task: \(encryptedTask.id.uuidString)")
+            print("✅ Decrypted task: \(encryptedTask.id)")
         } catch {
             // Decryption failed - this task is probably not encrypted (old data)
-            print("⚠️ Could not decrypt task \(encryptedTask.id.uuidString): \(error.localizedDescription)")
+            print("⚠️ Could not decrypt task \(encryptedTask.id): \(error.localizedDescription)")
             print("   Task will be returned unencrypted (legacy data)")
             return encryptedTask
         }
 
         return decryptedTask
-    }
-
-    // MARK: - Tag Encryption
-
-    private func encryptTags(_ tags: [Tag]) async throws -> [Tag] {
-        var encryptedTags: [Tag] = []
-        for tag in tags {
-            let encryptedName = try await EncryptionManager.shared.encrypt(tag.name)
-            var encryptedTag = tag
-            encryptedTag.name = encryptedName
-            encryptedTags.append(encryptedTag)
-        }
-        return encryptedTags
-    }
-
-    private func decryptTags(_ tags: [Tag]) async throws -> [Tag] {
-        var decryptedTags: [Tag] = []
-        for tag in tags {
-            do {
-                let decryptedName = try await EncryptionManager.shared.decrypt(tag.name)
-                var decryptedTag = tag
-                decryptedTag.name = decryptedName
-                decryptedTags.append(decryptedTag)
-            } catch {
-                // If decryption fails, return original tag (backward compatible)
-                decryptedTags.append(tag)
-            }
-        }
-        return decryptedTags
     }
 
     // MARK: - Batch Operations
@@ -110,10 +75,7 @@ extension TaskManager {
 
     /// Re-encrypt all existing tasks in Supabase
     func reencryptAllExistingTasks() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
-
-        guard isAuthenticated, let userId = userId else {
+        guard let userId = AuthenticationManager.shared.supabaseUser?.id else {
             print("❌ User not authenticated, cannot re-encrypt tasks")
             return
         }
@@ -139,8 +101,13 @@ extension TaskManager {
 
             // Process each task
             for (index, supabaseTask) in response.enumerated() {
-                var task = TaskItem(title: supabaseTask.title, description: supabaseTask.description)
-                task.id = UUID(uuidString: supabaseTask.id) ?? UUID()
+                var task = TaskItem(
+                    id: supabaseTask.id,
+                    title: supabaseTask.title,
+                    description: supabaseTask.description,
+                    isCompleted: supabaseTask.is_completed,
+                    weekday: .monday  // Default, actual value not used for encryption
+                )
 
                 // Check if already encrypted by trying to decrypt
                 let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseTask.title)
@@ -165,7 +132,7 @@ extension TaskManager {
                         try await client
                             .from("tasks")
                             .update(updateData)
-                            .eq("id", value: task.id.uuidString)
+                            .eq("id", value: task.id)
                             .execute()
 
                         reencryptedCount += 1
