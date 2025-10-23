@@ -1283,7 +1283,7 @@ class NotesManager: ObservableObject {
             attempts += 1
         }
 
-        guard await EncryptionManager.shared.isKeyInitialized else {
+        if await !EncryptionManager.shared.isKeyInitialized {
             print("⚠️ Encryption key not initialized after 2 seconds, loading notes anyway")
         }
 
@@ -1573,7 +1573,7 @@ class NotesManager: ObservableObject {
             attempts += 1
         }
 
-        guard await EncryptionManager.shared.isKeyInitialized else {
+        if await !EncryptionManager.shared.isKeyInitialized {
             print("⚠️ Encryption key not initialized after 2 seconds, loading folders anyway")
         }
 
