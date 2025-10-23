@@ -383,6 +383,17 @@ struct CreateTagSheet: View {
 struct SimpleEventCard: View {
     @Binding var event: ExtractedEvent
 
+    private func formatTimeRange() -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        let startStr = formatter.string(from: event.startTime)
+        if let endTime = event.endTime {
+            let endStr = formatter.string(from: endTime)
+            return "\(startStr) - \(endStr)"
+        }
+        return startStr
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -395,12 +406,8 @@ struct SimpleEventCard: View {
                         .lineLimit(2)
 
                     // Show time range if end time exists, otherwise just start time
-                    if let endTime = event.endTime {
-                        let formatter = DateFormatter()
-                        formatter.timeStyle = .short
-                        let startTimeStr = formatter.string(from: event.startTime)
-                        let endTimeStr = formatter.string(from: endTime)
-                        Text("\(startTimeStr) - \(endTimeStr)")
+                    if event.endTime != nil {
+                        Text(formatTimeRange())
                             .font(.caption)
                             .foregroundColor(.gray)
 
@@ -410,7 +417,7 @@ struct SimpleEventCard: View {
                                 .foregroundColor(.gray)
                         }
                     } else {
-                        Text(event.formattedTime)
+                        Text(formatTimeRange())
                             .font(.caption)
                             .foregroundColor(.gray)
                         Text("(no end time)")
