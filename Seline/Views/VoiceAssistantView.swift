@@ -878,7 +878,7 @@ struct VoiceSettingsView: View {
 
                             if selectedVoice == voice.id {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(Color(red: 0.27, green: 0.27, blue: 0.27))
                                     .font(.system(size: 20))
                             }
                         }
@@ -1172,7 +1172,7 @@ struct EventConfirmationView: View {
                                 .padding(.vertical, 14)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.blue)
+                                        .fill(Color(red: 0.27, green: 0.27, blue: 0.27))
                                 )
                         }
                     }
@@ -1458,12 +1458,12 @@ struct EventUpdateConfirmationView: View {
                     // Icon
                     ZStack {
                         Circle()
-                            .fill(Color.blue.opacity(0.15))
+                            .fill(Color(red: 0.20, green: 0.34, blue: 0.40))
                             .frame(width: 56, height: 56)
 
                         Image(systemName: "calendar.badge.clock")
                             .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.white)
                     }
                     .padding(.top, 28)
                     .padding(.bottom, 20)
@@ -1537,7 +1537,7 @@ struct EventUpdateConfirmationView: View {
                                 .padding(.vertical, 14)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.blue)
+                                        .fill(Color(red: 0.27, green: 0.27, blue: 0.27))
                                 )
                         }
                     }

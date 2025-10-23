@@ -83,7 +83,7 @@ struct PhotoCalendarImportView: View {
                         Button(action: { dismiss() }) {
                             Text("Cancel")
                                 .font(.headline)
-                                .foregroundColor(.blue)
+                                .foregroundColor(.gray)
                                 .frame(height: 50)
                                 .frame(maxWidth: .infinity)
                         }
@@ -165,7 +165,7 @@ struct PhotoCalendarImportView: View {
                                     }
                                     HStack(spacing: 8) {
                                         Image(systemName: "frame")
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(.gray)
                                             .font(.caption)
                                         Text("Keep schedule centered")
                                             .font(.caption)
@@ -191,14 +191,14 @@ struct PhotoCalendarImportView: View {
                                     .foregroundColor(.white)
                                     .frame(height: 50)
                                     .frame(maxWidth: .infinity)
-                                    .background(Color.blue)
+                                    .background(Color(red: 0.27, green: 0.27, blue: 0.27))
                                     .cornerRadius(12)
                             }
 
                             Button(action: { dismiss() }) {
                                 Text("Cancel")
                                     .font(.headline)
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.gray)
                                     .frame(height: 50)
                             }
                         }
