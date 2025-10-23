@@ -10,7 +10,11 @@ struct ReviewExtractedEventsView: View {
     }
 
     @StateObject private var taskManager = TaskManager.shared
-    @State private var selectedCalendar: String = "default"
+    @StateObject private var tagManager = TagManager.shared
+    @State private var selectedTagId: String? = nil // nil means Personal (default)
+    @State private var showingTagOptions = false
+    @State private var showingCreateTag = false
+    @State private var newTagName = ""
     @State private var isCreatingEvents = false
     @State private var showSuccessScreen = false
     @State private var createdCount = 0
@@ -50,20 +54,80 @@ struct ReviewExtractedEventsView: View {
                     // Content ScrollView
                     ScrollView(showsIndicators: true) {
                         VStack(spacing: 16) {
-                            // Calendar selector section
+                            // Tag selector section
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("Add to Calendar:")
+                                Text("Select Tag:")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.primary)
 
-                                Picker("Calendar", selection: $selectedCalendar) {
-                                    Text("Default").tag("default")
-                                    Text("Work").tag("work")
-                                    Text("Personal").tag("personal")
+                                HStack(spacing: 12) {
+                                    // Tag display button
+                                    Button(action: {
+                                        showingTagOptions.toggle()
+                                    }) {
+                                        HStack {
+                                            if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+                                                Circle()
+                                                    .fill(tag.color)
+                                                    .frame(width: 10, height: 10)
+                                                Text(tag.name)
+                                            } else {
+                                                Circle()
+                                                    .fill(Color.blue)
+                                                    .frame(width: 10, height: 10)
+                                                Text("Personal (Default)")
+                                            }
+
+                                            Spacer()
+
+                                            Image(systemName: "chevron.down")
+                                                .font(.system(size: 12))
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                        .background(Color(UIColor.systemBackground))
+                                        .cornerRadius(8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                        )
+                                    }
+                                    .foregroundColor(.primary)
+
+                                    // Create new tag button
+                                    Button(action: {
+                                        showingCreateTag.toggle()
+                                    }) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 24))
+                                            .foregroundColor(.blue)
+                                    }
                                 }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: .infinity)
+
+                                // Create tag sheet
+                                .sheet(isPresented: $showingCreateTag) {
+                                    CreateTagSheet(
+                                        tagName: $newTagName,
+                                        onCreate: { tagName in
+                                            if let newTag = tagManager.createTag(name: tagName) {
+                                                selectedTagId = newTag.id
+                                                newTagName = ""
+                                                showingCreateTag = false
+                                            }
+                                        }
+                                    )
+                                    .presentationDetents([.height(250)])
+                                }
+
+                                // Tag selection sheet
+                                .sheet(isPresented: $showingTagOptions) {
+                                    TagSelectionSheet(
+                                        selectedTagId: $selectedTagId,
+                                        colorScheme: .light
+                                    )
+                                    .presentationDetents([.height(300)])
+                                }
                             }
                             .padding(16)
                             .background(Color(UIColor.systemGray6))
@@ -163,7 +227,14 @@ struct ReviewExtractedEventsView: View {
                                 .fontWeight(.bold)
                                 .foregroundColor(.primary)
 
-                            Text("Added to \(selectedCalendar) calendar")
+                            let tagDisplayName: String
+                            if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+                                tagDisplayName = "Added to \(tag.name)"
+                            } else {
+                                tagDisplayName = "Added to Personal"
+                            }
+
+                            Text(tagDisplayName)
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
                         }
@@ -225,7 +296,8 @@ struct ReviewExtractedEventsView: View {
                     scheduledTime: event.startTime,
                     endTime: event.endTime,
                     targetDate: event.startTime,
-                    reminderTime: .oneHour
+                    reminderTime: .oneHour,
+                    tagId: selectedTagId
                 )
                 count += 1
 
@@ -256,6 +328,59 @@ struct ReviewExtractedEventsView: View {
         case 6: return .friday
         case 7: return .saturday
         default: return .monday
+        }
+    }
+}
+
+// MARK: - Create Tag Sheet
+
+struct CreateTagSheet: View {
+    @Binding var tagName: String
+    var onCreate: (String) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Create New Tag")
+                        .font(.headline)
+
+                    TextField("Tag name (e.g., 'School', 'Gym')", text: $tagName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding(.top, 4)
+                }
+                .padding(16)
+
+                Spacer()
+
+                VStack(spacing: 12) {
+                    Button(action: {
+                        onCreate(tagName)
+                    }) {
+                        Text("Create Tag")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(tagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color.blue)
+                            .cornerRadius(12)
+                    }
+                    .disabled(tagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button(action: { dismiss() }) {
+                        Text("Cancel")
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color(UIColor.systemGray6))
+                            .cornerRadius(12)
+                    }
+                }
+                .padding(16)
+            }
+            .navigationBarHidden(true)
         }
     }
 }
