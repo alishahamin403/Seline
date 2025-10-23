@@ -3,12 +3,8 @@ import SwiftUI
 struct FloatingCalendarButton: View {
     let onTap: () -> Void
 
-    @Environment(\.colorScheme) var colorScheme
-
     private var buttonColor: Color {
-        colorScheme == .dark ?
-            Color(red: 0.2, green: 0.2, blue: 0.2) :
-            Color(red: 0.92, green: 0.92, blue: 0.92)
+        Color(red: 0.92, green: 0.92, blue: 0.92)
     }
 
     var body: some View {
