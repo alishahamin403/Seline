@@ -203,9 +203,9 @@ struct EventsCardWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ScrollView(.vertical, showsIndicators: true) {
+                        ScrollView(.vertical, showsIndicators: false) {
                             VStack(spacing: 8) {
-                                ForEach(selectedDateEvents) { task in
+                                ForEach(selectedDateEvents.prefix(5)) { task in
                                     Button(action: {
                                         HapticManager.shared.cardTap()
                                         selectedTask = task

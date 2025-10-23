@@ -197,7 +197,7 @@ struct EmailCardWidget: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             // Emails list
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     if unreadEmails.isEmpty {
                         Text("No unread emails")
@@ -206,7 +206,7 @@ struct EmailCardWidget: View {
                             .padding(.vertical, 4)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(unreadEmails) { email in
+                        ForEach(unreadEmails.prefix(5)) { email in
                             Button(action: {
                                 HapticManager.shared.email()
                                 selectedEmail = email

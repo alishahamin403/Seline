@@ -44,7 +44,7 @@ struct NotesCardWidget: View {
             }
 
             // Notes list
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     if pinnedNotes.isEmpty {
                         Text("No pinned notes")
@@ -52,7 +52,7 @@ struct NotesCardWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ForEach(pinnedNotes) { note in
+                        ForEach(pinnedNotes.prefix(5)) { note in
                             Button(action: {
                                 HapticManager.shared.cardTap()
                                 selectedNoteToOpen = note
