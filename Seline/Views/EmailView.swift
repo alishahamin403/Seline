@@ -127,11 +127,7 @@ struct EmailView: View, Searchable {
                             .frame(width: 56, height: 56)
                             .background(
                                 Circle()
-                                    .fill(
-                                        colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
-                                    )
+                                    .fill(Color.black)
                             )
                             .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                     }
