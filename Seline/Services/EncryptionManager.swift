@@ -19,6 +19,11 @@ class EncryptionManager: ObservableObject {
     @Published var isEncryptionEnabled = true
     private var encryptionKey: SymmetricKey?
 
+    /// Check if encryption key has been initialized
+    var isKeyInitialized: Bool {
+        encryptionKey != nil
+    }
+
     private init() {}
 
     // MARK: - Key Management

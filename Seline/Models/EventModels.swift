@@ -418,7 +418,17 @@ class TaskManager: ObservableObject {
         loadTasks()
 
         // Load tasks from Supabase if user is authenticated
+        // IMPORTANT: Wait for EncryptionManager key to be ready before loading tasks
+        // Otherwise decryption will fail and show encrypted gibberish
         Task {
+            // Wait for encryption key to be initialized (max 5 seconds)
+            var attempts = 0
+            while EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                attempts += 1
+            }
+
+            // Now load tasks (they will be decrypted properly)
             await loadTasksFromSupabase()
         }
     }
