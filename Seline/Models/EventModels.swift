@@ -1517,7 +1517,7 @@ class TaskManager: ObservableObject {
                 var supabaseTasks: [TaskItem] = []
 
                 for taskDict in tasksArray {
-                    if let taskItem = parseTaskFromSupabase(taskDict) {
+                    if let taskItem = await parseTaskFromSupabase(taskDict) {
                         print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil")")
                         supabaseTasks.append(taskItem)
                     }
@@ -1586,7 +1586,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    private func parseTaskFromSupabase(_ taskDict: [String: Any]) -> TaskItem? {
+    private func parseTaskFromSupabase(_ taskDict: [String: Any]) async -> TaskItem? {
         guard let id = taskDict["id"] as? String,
               let title = taskDict["title"] as? String,
               let isCompleted = taskDict["is_completed"] as? Bool,
@@ -1604,6 +1604,14 @@ class TaskManager: ObservableObject {
         var taskItem = TaskItem(title: title, weekday: weekday, description: description)
         taskItem.id = id
         taskItem.createdAt = createdAt
+
+        // DECRYPT task title and description after loading from Supabase
+        do {
+            taskItem = try await decryptTaskAfterLoading(taskItem)
+        } catch {
+            print("⚠️ Could not decrypt task \(id): \(error.localizedDescription)")
+            print("   Task will be returned unencrypted (legacy data)")
+        }
 
         // Check if this is a recurring task
         if let isRecurring = taskDict["is_recurring"] as? Bool, isRecurring {

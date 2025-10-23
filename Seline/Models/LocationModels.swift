@@ -543,21 +543,23 @@ class LocationsManager: ObservableObject {
 
             print("📥 Received \(response.count) places from Supabase")
 
-            await MainActor.run {
-                if !response.isEmpty {
-                    let parsedPlaces = response.compactMap { supabasePlace in
-                        parsePlaceFromSupabase(supabasePlace)
-                    }
+            // Parse and decrypt places before updating MainActor
+            var parsedPlaces: [SavedPlace] = []
+            for supabasePlace in response {
+                if let place = await parsePlaceFromSupabase(supabasePlace) {
+                    parsedPlaces.append(place)
+                }
+            }
 
-                    if !parsedPlaces.isEmpty {
-                        self.savedPlaces = parsedPlaces
-                        self.categories = Set(parsedPlaces.map { $0.category })
-                        savePlacesToStorage()
-                    } else {
-                        print("⚠️ Failed to parse any places from Supabase, keeping \(self.savedPlaces.count) local places")
-                    }
-                } else {
+            await MainActor.run {
+                if !parsedPlaces.isEmpty {
+                    self.savedPlaces = parsedPlaces
+                    self.categories = Set(parsedPlaces.map { $0.category })
+                    savePlacesToStorage()
+                } else if response.isEmpty {
                     print("ℹ️ No places in Supabase, keeping \(self.savedPlaces.count) local places")
+                } else {
+                    print("⚠️ Failed to parse any places from Supabase, keeping \(self.savedPlaces.count) local places")
                 }
             }
         } catch {
@@ -566,7 +568,7 @@ class LocationsManager: ObservableObject {
         }
     }
 
-    private func parsePlaceFromSupabase(_ data: PlaceSupabaseData) -> SavedPlace? {
+    private func parsePlaceFromSupabase(_ data: PlaceSupabaseData) async -> SavedPlace? {
         guard let id = UUID(uuidString: data.id) else {
             print("❌ Failed to parse place ID: \(data.id)")
             return nil
@@ -624,6 +626,14 @@ class LocationsManager: ObservableObject {
         place.category = data.category
         place.dateCreated = dateCreated
         place.dateModified = dateModified
+
+        // DECRYPT place name, address, and custom name after loading from Supabase
+        do {
+            place = try await decryptSavedPlaceAfterLoading(place)
+        } catch {
+            print("⚠️ Could not decrypt place \(id): \(error.localizedDescription)")
+            print("   Place will be returned unencrypted (legacy data)")
+        }
 
         return place
     }
