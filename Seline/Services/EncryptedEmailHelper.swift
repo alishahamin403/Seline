@@ -23,11 +23,11 @@ extension EmailService {
         recipientEmails: [String]
     ) async throws -> EncryptedEmailData {
 
-        let encryptedSubject = try EncryptionManager.shared.encrypt(subject)
-        let encryptedBody = try EncryptionManager.shared.encrypt(body)
-        let encryptedSummary = try aiSummary.map { try EncryptionManager.shared.encrypt($0) }
-        let encryptedSenderEmail = try EncryptionManager.shared.encrypt(senderEmail)
-        let encryptedRecipientEmails = try EncryptionManager.shared.encryptMultiple(recipientEmails)
+        let encryptedSubject = try await EncryptionManager.shared.encrypt(subject)
+        let encryptedBody = try await EncryptionManager.shared.encrypt(body)
+        let encryptedSummary = try aiSummary.map { try await EncryptionManager.shared.encrypt($0) }
+        let encryptedSenderEmail = try await EncryptionManager.shared.encrypt(senderEmail)
+        let encryptedRecipientEmails = try await EncryptionManager.shared.encryptMultiple(recipientEmails)
 
         print("✅ Encrypted email subject and content")
 
@@ -45,11 +45,11 @@ extension EmailService {
     /// Decrypt email fields after fetching from storage
     func decryptEmailData(_ encryptedData: EncryptedEmailData) async throws -> DecryptedEmailData {
         do {
-            let subject = try EncryptionManager.shared.decrypt(encryptedData.encryptedSubject)
-            let body = try EncryptionManager.shared.decrypt(encryptedData.encryptedBody)
-            let summary = try encryptedData.encryptedSummary.map { try EncryptionManager.shared.decrypt($0) }
-            let senderEmail = try EncryptionManager.shared.decrypt(encryptedData.encryptedSenderEmail)
-            let recipientEmails = try EncryptionManager.shared.decryptMultiple(encryptedData.encryptedRecipientEmails)
+            let subject = try await EncryptionManager.shared.decrypt(encryptedData.encryptedSubject)
+            let body = try await EncryptionManager.shared.decrypt(encryptedData.encryptedBody)
+            let summary = try encryptedData.encryptedSummary.map { try await EncryptionManager.shared.decrypt($0) }
+            let senderEmail = try await EncryptionManager.shared.decrypt(encryptedData.encryptedSenderEmail)
+            let recipientEmails = try await EncryptionManager.shared.decryptMultiple(encryptedData.encryptedRecipientEmails)
 
             print("✅ Decrypted email data")
 

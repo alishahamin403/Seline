@@ -23,11 +23,11 @@ extension LocationService {
         phoneNumber: String?
     ) async throws -> EncryptedLocationData {
 
-        let encryptedName = try EncryptionManager.shared.encrypt(name)
-        let encryptedAddress = try EncryptionManager.shared.encrypt(address)
-        let encryptedLatitude = try EncryptionManager.shared.encrypt(String(latitude))
-        let encryptedLongitude = try EncryptionManager.shared.encrypt(String(longitude))
-        let encryptedPhone = try phoneNumber.map { try EncryptionManager.shared.encrypt($0) }
+        let encryptedName = try await EncryptionManager.shared.encrypt(name)
+        let encryptedAddress = try await EncryptionManager.shared.encrypt(address)
+        let encryptedLatitude = try await EncryptionManager.shared.encrypt(String(latitude))
+        let encryptedLongitude = try await EncryptionManager.shared.encrypt(String(longitude))
+        let encryptedPhone = try phoneNumber.map { try await EncryptionManager.shared.encrypt($0) }
 
         print("✅ Encrypted location: \(name)")
 
@@ -46,11 +46,11 @@ extension LocationService {
     /// Decrypt location fields after fetching from storage
     func decryptLocationData(_ encryptedData: EncryptedLocationData) async throws -> DecryptedLocationData {
         do {
-            let name = try EncryptionManager.shared.decrypt(encryptedData.encryptedName)
-            let address = try EncryptionManager.shared.decrypt(encryptedData.encryptedAddress)
-            let latitudeStr = try EncryptionManager.shared.decrypt(encryptedData.encryptedLatitude)
-            let longitudeStr = try EncryptionManager.shared.decrypt(encryptedData.encryptedLongitude)
-            let phoneNumber = try encryptedData.encryptedPhoneNumber.map { try EncryptionManager.shared.decrypt($0) }
+            let name = try await EncryptionManager.shared.decrypt(encryptedData.encryptedName)
+            let address = try await EncryptionManager.shared.decrypt(encryptedData.encryptedAddress)
+            let latitudeStr = try await EncryptionManager.shared.decrypt(encryptedData.encryptedLatitude)
+            let longitudeStr = try await EncryptionManager.shared.decrypt(encryptedData.encryptedLongitude)
+            let phoneNumber = try encryptedData.encryptedPhoneNumber.map { try await EncryptionManager.shared.decrypt($0) }
 
             guard let latitude = Double(latitudeStr),
                   let longitude = Double(longitudeStr) else {

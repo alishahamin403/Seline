@@ -1756,7 +1756,7 @@ class NotesManager: ObservableObject {
                 note.isLocked = supabaseNote.is_locked
 
                 // Check if already encrypted by trying to decrypt
-                let decryptTest = try? EncryptionManager.shared.decrypt(supabaseNote.title)
+                let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseNote.title)
 
                 if decryptTest != nil && decryptTest == supabaseNote.title {
                     // Successfully decrypted to same value = already encrypted
