@@ -26,25 +26,88 @@ struct SettingsView: View {
 
                     // Settings Menu Items
                     VStack(spacing: 0) {
-                        settingsMenuItem(icon: "bell", label: "Notifications", action: {})
+                        // Notifications Toggle
+                        HStack(spacing: 16) {
+                            Image(systemName: "bell")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .frame(width: 24)
+
+                            Text("Notifications")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white : .black)
+
+                            Spacer()
+
+                            Toggle("", isOn: Binding(
+                                get: { notificationsEnabled },
+                                set: { newValue in
+                                    if newValue && !notificationService.isAuthorized {
+                                        Task {
+                                            let granted = await notificationService.requestAuthorization()
+                                            if granted {
+                                                notificationsEnabled = true
+                                            }
+                                        }
+                                    } else {
+                                        notificationsEnabled = newValue
+                                        if !newValue {
+                                            notificationService.openAppSettings()
+                                        }
+                                    }
+                                }
+                            ))
+                            .labelsHidden()
+                            .tint(isDarkMode ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+
                         Divider()
                             .padding(.leading, 50)
 
-                        settingsMenuItem(icon: "eye", label: "Appearance", action: {
-                            showAppearanceMenu()
-                        })
-                        Divider()
-                            .padding(.leading, 50)
+                        // Appearance Menu
+                        HStack(spacing: 16) {
+                            Image(systemName: "eye")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .frame(width: 24)
 
-                        settingsMenuItem(icon: "lock", label: "Privacy & Security", action: {})
-                        Divider()
-                            .padding(.leading, 50)
+                            Text("Appearance")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white : .black)
 
-                        settingsMenuItem(icon: "headphones", label: "Help and Support", action: {})
-                        Divider()
-                            .padding(.leading, 50)
+                            Spacer()
 
-                        settingsMenuItem(icon: "info.circle", label: "About", action: {})
+                            Menu {
+                                ForEach(AppTheme.allCases, id: \.self) { theme in
+                                    Button {
+                                        themeManager.setTheme(theme)
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: theme.icon)
+                                            Text(theme.displayName)
+                                            if themeManager.selectedTheme == theme {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: themeManager.selectedTheme.icon)
+                                        .font(.system(size: 14))
+                                    Text(themeManager.selectedTheme.displayName)
+                                        .font(.system(size: 14))
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                }
+                                .foregroundColor(.gray.opacity(0.5))
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+
                         Divider()
                             .padding(.leading, 50)
 
@@ -98,30 +161,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Settings Menu Item
-    private func settingsMenuItem(icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
-                    .frame(width: 24)
-
-                Text(label)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(isDarkMode ? .white : .black)
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.gray.opacity(0.5))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-        }
-    }
-
     // MARK: - Logout Menu Item
     private var settingsMenuItemLogout: some View {
         Button(action: {
@@ -148,11 +187,6 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-    }
-
-    // MARK: - Helper Functions
-    private func showAppearanceMenu() {
-        // This will open appearance settings
     }
 
 }
