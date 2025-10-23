@@ -60,6 +60,30 @@ struct EventsCardWidget: View {
         taskManager.getTasksForDate(selectedDate)
     }
 
+    private var amEvents: [TaskItem] {
+        selectedDateEvents.filter { task in
+            if let scheduledTime = task.scheduledTime {
+                let hour = Calendar.current.component(.hour, from: scheduledTime)
+                return hour < 12
+            }
+            return false
+        }
+    }
+
+    private var pmEvents: [TaskItem] {
+        selectedDateEvents.filter { task in
+            if let scheduledTime = task.scheduledTime {
+                let hour = Calendar.current.component(.hour, from: scheduledTime)
+                return hour >= 12
+            }
+            return false
+        }
+    }
+
+    private var allDayEvents: [TaskItem] {
+        selectedDateEvents.filter { $0.scheduledTime == nil }
+    }
+
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
@@ -68,6 +92,54 @@ struct EventsCardWidget: View {
 
     private func isDateSelected(_ date: Date) -> Bool {
         Calendar.current.isDate(selectedDate, inSameDayAs: date)
+    }
+
+    private func eventRow(_ task: TaskItem) -> some View {
+        Button(action: {
+            HapticManager.shared.cardTap()
+            selectedTask = task
+        }) {
+            HStack(spacing: 8) {
+                // Completion status icon - tappable
+                Button(action: {
+                    HapticManager.shared.selection()
+                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                }) {
+                    let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+                    Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(
+                            isTaskCompleted ?
+                                (colorScheme == .dark ?
+                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                (colorScheme == .dark ?
+                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                    Color(red: 0.20, green: 0.34, blue: 0.40))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Event title
+                let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+                Text(task.title)
+                    .font(.shadcnTextXs)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer()
+
+                // Event time
+                if let scheduledTime = task.scheduledTime {
+                    Text(formatTime(scheduledTime))
+                        .font(.shadcnTextXs)
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                }
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     var body: some View {
@@ -195,62 +267,49 @@ struct EventsCardWidget: View {
             .padding(.horizontal, 12)
 
             // Events list for selected date
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
                     if selectedDateEvents.isEmpty {
                         Text("No events")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(spacing: 8) {
-                                ForEach(selectedDateEvents.prefix(5)) { task in
-                                    Button(action: {
-                                        HapticManager.shared.cardTap()
-                                        selectedTask = task
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            // Completion status icon - tappable
-                                            Button(action: {
-                                                HapticManager.shared.selection()
-                                                taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                                            }) {
-                                                let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                                                Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                                                    .font(.system(size: 12))
-                                                    .foregroundColor(
-                                                        isTaskCompleted ?
-                                                            (colorScheme == .dark ?
-                                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
-                                                            (colorScheme == .dark ?
-                                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                                Color(red: 0.20, green: 0.34, blue: 0.40))
-                                                    )
-                                            }
-                                            .buttonStyle(PlainButtonStyle())
+                        // All Day Events
+                        if !allDayEvents.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("All Day")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                                            // Event title
-                                            let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                                            Text(task.title)
-                                                .font(.shadcnTextXs)
-                                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                                .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
+                                ForEach(allDayEvents.prefix(2)) { task in
+                                    eventRow(task)
+                                }
+                            }
+                        }
 
-                                            Spacer()
+                        // AM Events
+                        if !amEvents.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("AM")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                                            // Event time
-                                            if let scheduledTime = task.scheduledTime {
-                                                Text(formatTime(scheduledTime))
-                                                    .font(.shadcnTextXs)
-                                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                            }
-                                        }
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
+                                ForEach(amEvents.prefix(2)) { task in
+                                    eventRow(task)
+                                }
+                            }
+                        }
+
+                        // PM Events
+                        if !pmEvents.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("PM")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                                ForEach(pmEvents.prefix(2)) { task in
+                                    eventRow(task)
                                 }
                             }
                         }
