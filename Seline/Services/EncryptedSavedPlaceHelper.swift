@@ -96,7 +96,7 @@ extension LocationsManager {
 
     /// Re-encrypt all existing saved places in Supabase
     func reencryptAllExistingSavedPlaces() async {
-        guard let userId = AuthenticationManager.shared.supabaseUser?.id else {
+        guard let userId = await AuthenticationManager.shared.supabaseUser?.id else {
             print("❌ User not authenticated, cannot re-encrypt saved places")
             return
         }

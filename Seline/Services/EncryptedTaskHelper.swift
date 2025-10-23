@@ -1,4 +1,5 @@
 import Foundation
+import PostgREST
 
 /// Helper methods to encrypt/decrypt tasks before storing in Supabase
 /// Protects task content from exposure
@@ -102,12 +103,13 @@ extension TaskManager {
             // Process each task
             for (index, supabaseTask) in response.enumerated() {
                 var task = TaskItem(
-                    id: supabaseTask.id,
                     title: supabaseTask.title,
-                    description: supabaseTask.description,
-                    isCompleted: supabaseTask.is_completed,
-                    weekday: .monday  // Default, actual value not used for encryption
+                    weekday: .monday,  // Default, actual value not used for encryption
+                    description: supabaseTask.description
                 )
+
+                // Update ID to match Supabase record
+                task.id = supabaseTask.id
 
                 // Check if already encrypted by trying to decrypt
                 let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseTask.title)
