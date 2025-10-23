@@ -960,7 +960,6 @@ struct MainAppView: View {
             .padding(.bottom, 8)
             .background(colorScheme == .dark ? Color.black : Color.white)
             .zIndex(1)
-            .ignoresSafeArea(edges: .top)
 
             // Search results dropdown
             if !searchText.isEmpty {
@@ -992,7 +991,6 @@ struct MainAppView: View {
             colorScheme == .dark ?
                 Color.black : Color.white
         )
-        .ignoresSafeArea(edges: .bottom)
     }
 
 }
