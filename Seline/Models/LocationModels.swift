@@ -102,20 +102,9 @@ class LocationsManager: ObservableObject {
         loadSavedPlaces()
         loadSearchHistory()
 
-        // Load places from Supabase if user is authenticated
-        // IMPORTANT: Wait for EncryptionManager key to be ready before loading places
-        // Otherwise decryption will fail and show encrypted gibberish
-        Task {
-            // Wait for encryption key to be initialized (max 5 seconds)
-            var attempts = 0
-            while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                attempts += 1
-            }
-
-            // Now load places (they will be decrypted properly)
-            await loadPlacesFromSupabase()
-        }
+        // Don't load from Supabase here - wait for authentication!
+        // The app will call loadPlacesFromSupabase() after user authenticates
+        // This ensures EncryptionManager.setupEncryption() is called FIRST
     }
 
     // MARK: - Search History Management

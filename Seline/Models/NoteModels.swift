@@ -165,20 +165,9 @@ class NotesManager: ObservableObject {
 
         addSampleDataIfNeeded()
 
-        // Load notes from Supabase if user is authenticated
-        // IMPORTANT: Wait for EncryptionManager key to be ready before loading notes
-        // Otherwise decryption will fail and show encrypted gibberish
-        Task {
-            // Wait for encryption key to be initialized (max 5 seconds)
-            var attempts = 0
-            while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                attempts += 1
-            }
-
-            // Now load notes (they will be decrypted properly)
-            await loadNotesFromSupabase()
-        }
+        // Don't load from Supabase here - wait for authentication!
+        // The app will call syncNotesOnLogin() after user authenticates
+        // This ensures EncryptionManager.setupEncryption() is called FIRST
     }
 
     // Migration: Remove old UserDefaults storage

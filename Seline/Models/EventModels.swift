@@ -417,20 +417,9 @@ class TaskManager: ObservableObject {
         initializeEmptyDays()
         loadTasks()
 
-        // Load tasks from Supabase if user is authenticated
-        // IMPORTANT: Wait for EncryptionManager key to be ready before loading tasks
-        // Otherwise decryption will fail and show encrypted gibberish
-        Task {
-            // Wait for encryption key to be initialized (max 5 seconds)
-            var attempts = 0
-            while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                attempts += 1
-            }
-
-            // Now load tasks (they will be decrypted properly)
-            await loadTasksFromSupabase()
-        }
+        // Don't load from Supabase here - wait for authentication!
+        // The app will call loadTasksFromSupabase() after user authenticates
+        // This ensures EncryptionManager.setupEncryption() is called FIRST
     }
 
     private func initializeEmptyDays() {
