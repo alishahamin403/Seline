@@ -1475,19 +1475,10 @@ class NotesManager: ObservableObject {
 
         print("💾 Saving folder to Supabase - User ID: \(userId.uuidString), Folder ID: \(folder.id.uuidString)")
 
-        // ✨ ENCRYPT folder name before saving
-        let encryptedFolderName: String
-        do {
-            encryptedFolderName = try await EncryptionManager.shared.encrypt(folder.name)
-        } catch {
-            print("❌ Failed to encrypt folder name: \(error.localizedDescription)")
-            return
-        }
-
         let folderData: [String: PostgREST.AnyJSON] = [
             "id": .string(folder.id.uuidString),
             "user_id": .string(userId.uuidString),
-            "name": .string(encryptedFolderName),  // ✨ Encrypted
+            "name": .string(folder.name),  // Plain text - folder names are not sensitive
             "color": .string(folder.color),
             "parent_folder_id": folder.parentFolderId != nil ? .string(folder.parentFolderId!.uuidString) : .null
         ]
@@ -1511,17 +1502,8 @@ class NotesManager: ObservableObject {
             return
         }
 
-        // ✨ ENCRYPT folder name before updating
-        let encryptedFolderName: String
-        do {
-            encryptedFolderName = try await EncryptionManager.shared.encrypt(folder.name)
-        } catch {
-            print("❌ Failed to encrypt folder name: \(error.localizedDescription)")
-            return
-        }
-
         let folderData: [String: PostgREST.AnyJSON] = [
-            "name": .string(encryptedFolderName),  // ✨ Encrypted
+            "name": .string(folder.name),  // Plain text - folder names are not sensitive
             "color": .string(folder.color),
             "parent_folder_id": folder.parentFolderId != nil ? .string(folder.parentFolderId!.uuidString) : .null
         ]
@@ -1627,20 +1609,9 @@ class NotesManager: ObservableObject {
             parentFolderId = UUID(uuidString: parentIdString)
         }
 
-        // ✨ DECRYPT folder name after loading
-        let decryptedFolderName: String
-        do {
-            decryptedFolderName = try await EncryptionManager.shared.decrypt(data.name)
-        } catch {
-            // Decryption failed - this folder is probably not encrypted (old data)
-            print("⚠️ Could not decrypt folder name: \(error.localizedDescription)")
-            print("   Folder will be returned unencrypted (legacy data)")
-            decryptedFolderName = data.name
-        }
-
         let folder = NoteFolder(
             id: id,
-            name: decryptedFolderName,
+            name: data.name,  // Plain text - folder names are not encrypted
             color: data.color,
             parentFolderId: parentFolderId
         )
@@ -1765,82 +1736,12 @@ class NotesManager: ObservableObject {
 
     // MARK: - Bulk Re-encryption for Existing Data
 
-    /// Re-encrypt all existing folders in Supabase
+    /// Folder names are NOT encrypted (they're not sensitive)
+    /// Only note titles and content are encrypted
+    /// This function is deprecated and does nothing
     func reencryptAllExistingFolders() async {
-        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
-        let userId = await MainActor.run { authManager.supabaseUser?.id }
-
-        guard isAuthenticated, let userId = userId else {
-            print("❌ User not authenticated, cannot re-encrypt folders")
-            return
-        }
-
-        print("🔐 Starting bulk re-encryption of existing folders...")
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-
-            // Fetch ALL folders for this user
-            let response: [FolderSupabaseData] = try await client
-                .from("folders")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .execute()
-                .value
-
-            print("📥 Fetched \(response.count) folders for re-encryption")
-
-            var reencryptedCount = 0
-            var skippedCount = 0
-            var errorCount = 0
-
-            // Process each folder
-            for (index, supabaseFolder) in response.enumerated() {
-                // Check if already encrypted by trying to decrypt
-                let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseFolder.name)
-
-                if decryptTest != nil && decryptTest == supabaseFolder.name {
-                    // Successfully decrypted to same value = already encrypted
-                    skippedCount += 1
-                    print("✅ Folder \(index + 1)/\(response.count): Already encrypted - '\(supabaseFolder.name)'")
-                } else {
-                    // Failed to decrypt or got different value = plaintext
-                    do {
-                        let encryptedName = try await EncryptionManager.shared.encrypt(supabaseFolder.name)
-
-                        // Update in Supabase with encrypted version
-                        let updateData: [String: PostgREST.AnyJSON] = [
-                            "name": .string(encryptedName)
-                        ]
-
-                        try await client
-                            .from("folders")
-                            .update(updateData)
-                            .eq("id", value: supabaseFolder.id)
-                            .execute()
-
-                        reencryptedCount += 1
-                        print("🔐 Folder \(index + 1)/\(response.count): Re-encrypted - '\(supabaseFolder.name)'")
-                    } catch {
-                        errorCount += 1
-                        print("❌ Folder \(index + 1)/\(response.count): Failed to encrypt - '\(supabaseFolder.name)': \(error.localizedDescription)")
-                    }
-                }
-            }
-
-            // Summary
-            print("\n" + String(repeating: "=", count: 60))
-            print("🔐 FOLDER RE-ENCRYPTION COMPLETE")
-            print("=" + String(repeating: "=", count: 60))
-            print("✅ Re-encrypted: \(reencryptedCount) folders")
-            print("✅ Already encrypted: \(skippedCount) folders")
-            print("❌ Errors: \(errorCount) folders")
-            print("📊 Total: \(response.count) folders processed")
-            print(String(repeating: "=", count: 60) + "\n")
-
-        } catch {
-            print("❌ Error during folder re-encryption: \(error)")
-        }
+        print("ℹ️ Folder re-encryption is not needed - folder names are stored as plain text")
+        print("   Only note titles and content are encrypted for security")
     }
 
     /// Re-encrypt all existing notes in Supabase
