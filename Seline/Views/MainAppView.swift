@@ -949,44 +949,48 @@ struct MainAppView: View {
 
     // MARK: - Home Content
     private var homeContent: some View {
-        VStack(spacing: 0) {
-            // Fixed Header with search
-            HeaderSection(
-                selectedTab: $selectedTab,
-                searchText: $searchText,
-                showingVoiceAssistant: $showingVoiceAssistant,
-                isSearchFocused: $isSearchFocused
-            )
-            .padding(.bottom, 8)
-            .background(colorScheme == .dark ? Color.black : Color.white)
-            .zIndex(1)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                // Header with search - scrolls with content
+                HeaderSection(
+                    selectedTab: $selectedTab,
+                    searchText: $searchText,
+                    showingVoiceAssistant: $showingVoiceAssistant,
+                    isSearchFocused: $isSearchFocused
+                )
+                .padding(.bottom, 8)
+                .background(colorScheme == .dark ? Color.black : Color.white)
+                .zIndex(1)
 
-            // Search results dropdown
-            if !searchText.isEmpty {
-                searchResultsDropdown
-                    .padding(.horizontal, 20)
-                    .transition(.opacity)
-            }
-
-            // Main content - fixed, no scrolling at page level
-            ZStack(alignment: .top) {
-                mainContentWidgets
-                    .opacity(searchText.isEmpty ? 1 : 0.3)
-                    .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
-
-                // Overlay to dismiss search when tapping outside
+                // Search results dropdown
                 if !searchText.isEmpty {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            isSearchFocused = false
-                            searchText = ""
-                        }
+                    searchResultsDropdown
+                        .padding(.horizontal, 20)
+                        .transition(.opacity)
                 }
-            }
 
-            Spacer()
+                // Main content
+                ZStack(alignment: .top) {
+                    mainContentWidgets
+                        .opacity(searchText.isEmpty ? 1 : 0.3)
+                        .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
+
+                    // Overlay to dismiss search when tapping outside
+                    if !searchText.isEmpty {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                isSearchFocused = false
+                                searchText = ""
+                            }
+                    }
+                }
+
+                Spacer()
+                    .frame(height: 20)
+            }
         }
+        .scrollDismissesKeyboard(.interactively)
         .background(
             colorScheme == .dark ?
                 Color.black : Color.white
