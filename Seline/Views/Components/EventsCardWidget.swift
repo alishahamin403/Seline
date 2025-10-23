@@ -84,6 +84,11 @@ struct EventsCardWidget: View {
         selectedDateEvents.filter { $0.scheduledTime == nil }
     }
 
+    private var sortedEvents: [TaskItem] {
+        // Combine all events in order: All Day first, then AM, then PM
+        allDayEvents + amEvents + pmEvents
+    }
+
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
@@ -268,50 +273,15 @@ struct EventsCardWidget: View {
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if selectedDateEvents.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    if sortedEvents.isEmpty {
                         Text("No events")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        // All Day Events
-                        if !allDayEvents.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("All Day")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                ForEach(allDayEvents.prefix(2)) { task in
-                                    eventRow(task)
-                                }
-                            }
-                        }
-
-                        // AM Events
-                        if !amEvents.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("AM")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                ForEach(amEvents.prefix(2)) { task in
-                                    eventRow(task)
-                                }
-                            }
-                        }
-
-                        // PM Events
-                        if !pmEvents.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("PM")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                ForEach(pmEvents.prefix(2)) { task in
-                                    eventRow(task)
-                                }
-                            }
+                        ForEach(sortedEvents.prefix(5)) { task in
+                            eventRow(task)
                         }
                     }
                 }
