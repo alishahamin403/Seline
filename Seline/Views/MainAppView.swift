@@ -43,6 +43,13 @@ struct MainAppView: View {
         return formatter.string(from: date)
     }
 
+    private func formatDateAndTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
     private var searchResults: [OverlaySearchResult] {
         guard !searchText.isEmpty else { return [] }
         var results: [OverlaySearchResult] = []
@@ -58,7 +65,7 @@ struct MainAppView: View {
             results.append(OverlaySearchResult(
                 type: .event,
                 title: task.title,
-                subtitle: task.scheduledTime != nil ? formatTime(task.scheduledTime!) : "No time set",
+                subtitle: task.scheduledTime != nil ? formatDateAndTime(task.scheduledTime!) : "No time set",
                 icon: "calendar",
                 task: task,
                 email: nil,
