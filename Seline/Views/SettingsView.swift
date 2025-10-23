@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
+    @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     // Computed property to get current theme state
@@ -13,6 +14,9 @@ struct SettingsView: View {
 
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
+    @State private var isEncrypting = false
+    @State private var encryptionStatus = ""
+    @State private var showEncryptionSuccess = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,6 +115,11 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
+                        settingsMenuItemEncryption
+
+                        Divider()
+                            .padding(.leading, 50)
+
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -159,6 +168,59 @@ struct SettingsView: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Encryption Menu Item
+    private var settingsMenuItemEncryption: some View {
+        Button(action: {
+            Task {
+                isEncrypting = true
+                encryptionStatus = "🔐 Encrypting your data..."
+                await notesManager.reencryptAllExistingNotes()
+                isEncrypting = false
+                encryptionStatus = "✅ Done!"
+                showEncryptionSuccess = true
+
+                // Hide success message after 2 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    showEncryptionSuccess = false
+                }
+            }
+        }) {
+            HStack(spacing: 16) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.green)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Encrypt Existing Data")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(isDarkMode ? .white : .black)
+
+                    if showEncryptionSuccess {
+                        Text(encryptionStatus)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.green)
+                    }
+                }
+
+                Spacer()
+
+                if isEncrypting {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.green.opacity(0.3))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .opacity(isEncrypting ? 0.7 : 1.0)
+        }
+        .disabled(isEncrypting)
     }
 
     // MARK: - Logout Menu Item
