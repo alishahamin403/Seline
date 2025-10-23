@@ -71,107 +71,100 @@ class CalendarPhotoExtractionService {
         let todayString = dateFormatter.string(from: today)
 
         let systemPrompt = """
-        You are an expert OCR specialist and calendar analyzer. Your job is to extract event information from calendar photos with MAXIMUM precision and completeness.
+        You are a SPECIALIZED calendar OCR analyzer. Your ONLY job is to:
+        1. Measure event block HEIGHTS visually
+        2. Compare blocks to determine which are 30-min vs 1-hour vs longer
+        3. Extract precise start and end times
 
-        EXTRACTION PRIORITY (in order of importance):
-        1. **DATE** - The date of the event (CRITICAL)
-        2. **START TIME** - When the event starts (CRITICAL)
-        3. **END TIME** - When the event ends (CRITICAL - MUST extract from visual block size, time labels, or visual height)
-        4. **TITLE** - Event name or description
-        5. **ATTENDEES** - Names of people involved (optional)
+        ⚠️ BLOCK HEIGHT IS THE AUTHORITATIVE SOURCE FOR DURATION ⚠️
 
-        ⚠️ CRITICAL RULES FOR END TIME EXTRACTION - READ CAREFULLY:
-        - EVERY event MUST have an endTime - NEVER return null for endTime
-        - ALWAYS analyze the visual HEIGHT of event blocks to determine duration
-        - Measure block heights: if a block is ~25% of hourly grid = 15 min, ~50% = 30 min, ~100% = 1 hour, ~200% = 2 hours
-        - 30-minute blocks = EXACTLY HALF the height of 1-hour blocks
-        - Look for explicit time ranges: "9:00-9:30", "9am-10am", "10:00 to 10:45"
-        - If you see time markers at start/end of block (9:00 at top, 9:30 at bottom) = that's the duration
-        - Extract durations exactly as shown: 15 min, 30 min, 45 min, 1 hour, 1.5 hours, 2 hours, etc.
-        - For visual grid calendars: count the number of time slots the block occupies (e.g., 2 slots = 30 min, 4 slots = 1 hour)
-        - If block height is 50% of typical 1-hour block = definitely 30 min, calculate endTime accordingly
-        - **CRITICAL**: Even if title is unclear, endTime MUST be extracted from visual block size
-        - Infer endTime by adding duration to startTime (e.g., if 9:00 start + 30 min duration = 9:30 end)
+        You MUST:
+        - Look at EVERY event block and MEASURE its height
+        - Compare blocks to each other - shorter blocks = shorter events
+        - If Block A is HALF the height of Block B, then Block A is 30 min and Block B is 1 hour
+        - If Block A is clearly shorter but NOT half = probably 45 min
+        - If blocks are roughly equal height = same duration
+        - NEVER assume all events are 1 hour
+        - MEASURE FIRST, then assign times
 
-        ⚠️ VISUAL ANALYSIS TECHNIQUES:
-        - Grid/timeline format: Count pixels or grid squares the block occupies
-        - Hourly calendar: Compare block height to hour-height markers
-        - Printed planners: Look for time boundaries and block divisions
-        - Handwritten calendar: Estimate position relative to hour markings
-        - If block is visibly shorter than typical hour block = likely 30 min
-        - If block is visibly taller than typical hour block = likely 1.5+ hours
+        ⚠️ HOW TO MEASURE BLOCK HEIGHT:
+        - Find the hourly grid lines or time markers in the calendar
+        - Count how many hour-slots each event occupies
+        - A block spanning 0.5 slots = 30 min
+        - A block spanning 1 slot = 60 min
+        - A block spanning 1.5 slots = 90 min (1.5 hours)
+        - A block spanning 2 slots = 120 min (2 hours)
 
-        ⚠️ CRITICAL RULE FOR OVERLAPPING/ADJACENT EVENTS:
-        - If you see 2+ event blocks starting at the same time, extract BOTH as separate events
-        - Do NOT merge events that appear next to each other horizontally
-        - Each event block is its own event, even if adjacent
-        - Example: At 9:00am if you see "Meeting A" and "Meeting B" side-by-side = 2 separate events
+        ⚠️ DURATION DETECTION LOGIC (MANDATORY):
+        For EACH event:
+        1. Measure block height (compare to hourly grid)
+        2. If block is HALF a typical hour-block = 30 minutes
+        3. If block is 3/4 of typical hour-block = 45 minutes
+        4. If block is FULL hour-block = 60 minutes
+        5. Calculate endTime = startTime + measured_duration
 
-        QUALITY ASSESSMENT:
-        - Mark timeConfidence = true ONLY if BOTH start AND end times are clearly readable from block or text
-        - Mark dateConfidence = true ONLY if date is clearly readable
-        - Mark titleConfidence = true ONLY if event title/name is clearly readable
-        - timeConfidence should be based on visibility of time markers AND block height consistency
+        CRITICAL: The visible block size DETERMINES the duration. Do not guess.
 
-        RESPONSE RULES:
-        - status "success": All events have BOTH start AND end times, dates are clear
-        - status "partial": Times AND dates extracted, but some titles unclear OR duration inferred from block height
-        - status "failed": Cannot extract clear start/end times OR dates from the image
-        - Always extract ALL visible events, even if partially cut off or unclear
-        - NEVER leave endTime as null if you can see or measure the block height
+        OVERLAPPING EVENTS:
+        - If 2+ events start at same time, extract EACH as separate event
+        - Measure EACH block's height independently
+        - Do NOT merge adjacent blocks
+
+        CONFIDENCE:
+        - timeConfidence = true ONLY if block height clearly shows duration
+        - If block height is ambiguous, set timeConfidence = false
+        - If block height is clear, set timeConfidence = true
+
+        NEVER output a null/empty endTime if you can see a block.
         """
 
         let userPrompt = """
-        TASK: Extract ALL calendar events from this photo with MAXIMUM precision. Read every event visible.
+        TASK: EXTRACT ALL calendar events with PRECISE duration measurement.
 
-        The image might show:
-        - Digital calendar screenshot (Apple Calendar, Google Calendar, Outlook, etc.)
-        - Printed schedule or planner
-        - Whiteboard calendar
-        - Handwritten schedule
-        - Email calendar view
-        - Meeting agendas with times
-        - Timeline/grid-based calendar
+        STEP 1: IDENTIFY ALL EVENT BLOCKS
+        - Count every visible event block in the calendar
+        - Do NOT skip any blocks, even if partially visible
+        - If multiple blocks exist at same start time, extract each separately
 
-        ⚠️ MUST-FOLLOW OCR INSTRUCTIONS - CRITICAL FOR END TIMES:
-        1. Read EVERY event visible, even if partially cut off or overlapping
-        2. Extract START time AND END time separately in HH:MM 24-hour format (BOTH REQUIRED)
-        3. **MANDATORY**: Measure/analyze BLOCK HEIGHT to determine event duration
-        4. Do NOT assume 1-hour duration - ALWAYS extract actual duration from visual appearance
-        5. For grid calendars: measure block height relative to hourly grid lines or time markers
-        6. Extract dates as YYYY-MM-DD (infer year from context if needed)
-        7. If you see "Today" or "Tomorrow", use the actual date context
-        8. Look for explicit time ranges: "9:00-9:30", "9am-10am", "10:00 to 10:45" (include these)
-        9. **CRITICAL**: Look for visual block heights to infer duration:
-           - Short blocks (half-height) = 30 min events
-           - Medium blocks (3/4 height) = 45 min events
-           - Full blocks = 1 hour events
-           - Double blocks = 2 hour events
-        10. Extract event titles EXACTLY as written
-        11. List any names/emails visible as attendees
-        12. **CRITICAL**: If multiple events start at same time = extract as SEPARATE events
-        13. **FOR EACH EVENT**: Ensure endTime is calculated (startTime + duration from block height)
+        STEP 2: FOR EACH EVENT BLOCK, MEASURE HEIGHT
+        First, identify the hourly grid:
+        - Find time markers (hourly lines, labels like "9:00", "10:00", etc.)
+        - Establish the standard height of 1 hour in pixels/units
+        - Measure each event block against this standard
 
-        ⚠️ BLOCK HEIGHT ANALYSIS - MOST IMPORTANT:
-        - Compare each event block to the overall calendar grid
-        - If a block is noticeably shorter than a 1-hour slot = it's less than 1 hour
-        - If a block is half as tall as a 1-hour slot = it's definitely 30 minutes
-        - If no explicit time labels exist at bottom of block = measure height anyway
-        - Be precise: a 30-min block at 9:00 = endTime MUST be 09:30
+        Then measure duration:
+        - Block height = ? × (1-hour height)
+        - If block = 0.5 × (1-hour height) → duration = 30 minutes
+        - If block = 0.75 × (1-hour height) → duration = 45 minutes
+        - If block = 1.0 × (1-hour height) → duration = 60 minutes
+        - If block = 1.5 × (1-hour height) → duration = 90 minutes
+        - If block = 2.0 × (1-hour height) → duration = 120 minutes
 
-        ⚠️ OVERLAPPING EVENTS RULE:
-        - At 9:00am if you see 2 side-by-side event blocks = 2 events, not 1
-        - Each distinct event block = 1 event, regardless of position
-        - Count all visible event blocks and extract each one
-        - Each event must have its own startTime and endTime
+        STEP 3: FOR EACH EVENT, DETERMINE START AND END TIME
+        - Read the start time (use time labels on calendar or position)
+        - Add the measured duration to get end time
+        - Example: start=09:00, duration=30min → end=09:30
+        - Example: start=09:00, duration=60min → end=10:00
 
-        DURATION EXAMPLES TO GUIDE YOUR ANALYSIS:
-        - 30-min event at 9:00 with half-height block = startTime: "09:00", endTime: "09:30"
-        - 45-min event at 9:00 with 3/4-height block = startTime: "09:00", endTime: "09:45"
-        - 1-hour event at 9:00 with full-height block = startTime: "09:00", endTime: "10:00"
-        - 1.5-hour event at 9:00 with 1.5x-height block = startTime: "09:00", endTime: "10:30"
+        STEP 4: EXTRACT STRUCTURED DATA
+        For each event block:
+        - title: The event name (read exactly as shown)
+        - startTime: HH:MM in 24-hour format
+        - startDate: YYYY-MM-DD
+        - endTime: HH:MM calculated from (startTime + measured_duration)
+        - endDate: Same as startDate unless event crosses midnight
+        - attendees: Any visible names
+        - confidence: How certain you are (0.0-1.0)
+        - timeConfidence: true if block height clearly indicates duration
 
-        DATES: If the image doesn't show dates, use today's date (\(todayString)) and increment for subsequent days.
+        ⚠️ CRITICAL CONSTRAINTS:
+        - NEVER use null/empty for endTime if you can see a block
+        - NEVER assume all events are 60 minutes
+        - NEVER set endTime = startTime (duration must be > 0)
+        - MEASURE block height first, calculate duration second, derive endTime third
+        - If two events have different block heights, they have different durations
+
+        DATES: If the image doesn't show dates, use today's date (\(todayString)) and increment for subsequent days shown.
 
         Return your response as a JSON object with this EXACT structure:
         {
@@ -388,6 +381,8 @@ class CalendarPhotoExtractionService {
 
                 // Parse end time if available
                 var endDateTime: Date? = nil
+                var durationFromExtraction: Int? = nil
+
                 if let endTimeString = rawEvent.endTime, !endTimeString.isEmpty {
                     if let endTime = timeFormatter.date(from: endTimeString) {
                         var endDateString = rawEvent.endDate ?? rawEvent.startDate
@@ -400,31 +395,39 @@ class CalendarPhotoExtractionService {
                             endCombinedComponents.minute = endTimeComponents.minute
 
                             endDateTime = calendar.date(from: endCombinedComponents)
+
+                            // Calculate extracted duration for logging
+                            if let endDT = endDateTime {
+                                let durationMinutes = Int(endDT.timeIntervalSince(startDateTime) / 60)
+                                durationFromExtraction = durationMinutes
+                                print("📊 Extracted: '\(rawEvent.title)' → \(startTimeString)-\(endTimeString) (\(durationMinutes) min)")
+                            }
                         }
                     }
-                } else if endDateTime == nil {
-                    // FALLBACK: If no end time provided, infer a reasonable default duration
-                    // Check if the title suggests a specific duration pattern
+                }
+
+                // FALLBACK: If no end time, or extracted duration looks suspicious, infer better
+                if endDateTime == nil {
                     let titleLower = rawEvent.title.lowercased()
 
                     let inferredDuration: Int
                     if titleLower.contains("standup") || titleLower.contains("stand up") || titleLower.contains("daily") {
-                        inferredDuration = 15  // Stand-ups are typically 15 min
+                        inferredDuration = 15
                     } else if titleLower.contains("sync") || titleLower.contains("1:1") {
-                        inferredDuration = 30  // 1:1 syncs are typically 30 min
+                        inferredDuration = 30
                     } else if titleLower.contains("lunch") || titleLower.contains("break") {
-                        inferredDuration = 60  // Lunch/break blocks are typically 1 hour
+                        inferredDuration = 60
                     } else if titleLower.contains("meeting") || titleLower.contains("call") {
-                        inferredDuration = 60  // Meetings/calls typically 1 hour
+                        inferredDuration = 60
                     } else if titleLower.contains("workshop") || titleLower.contains("training") {
-                        inferredDuration = 120  // Workshops/training typically 2+ hours
+                        inferredDuration = 120
                     } else {
-                        inferredDuration = 60  // Default to 1 hour
+                        inferredDuration = 60
                     }
 
                     if let inferredEndDateTime = calendar.date(byAdding: .minute, value: inferredDuration, to: startDateTime) {
                         endDateTime = inferredEndDateTime
-                        print("ℹ️ Inferred endTime for '\(rawEvent.title)': +\(inferredDuration) min (no explicit end time provided)")
+                        print("⚠️ No endTime from API, inferring: '\(rawEvent.title)' → +\(inferredDuration) min")
                     }
                 }
 
