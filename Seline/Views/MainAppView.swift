@@ -961,38 +961,31 @@ struct MainAppView: View {
             .background(colorScheme == .dark ? Color.black : Color.white)
             .zIndex(1)
 
-            // Scrollable content
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Search results dropdown
-                        if !searchText.isEmpty {
-                            searchResultsDropdown
-                                .padding(.horizontal, 20)
-                                .transition(.opacity)
-                        }
-
-                        // Main content
-                        ZStack(alignment: .top) {
-                            mainContentWidgets
-                                .opacity(searchText.isEmpty ? 1 : 0.3)
-                                .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
-
-                            // Overlay to dismiss search when tapping outside
-                            if !searchText.isEmpty {
-                                Color.clear
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        isSearchFocused = false
-                                        searchText = ""
-                                    }
-                            }
-                        }
-                    }
-                    .frame(minHeight: geometry.size.height)
-                }
-                .scrollDismissesKeyboard(.interactively)
+            // Search results dropdown
+            if !searchText.isEmpty {
+                searchResultsDropdown
+                    .padding(.horizontal, 20)
+                    .transition(.opacity)
             }
+
+            // Main content - fixed, no scrolling at page level
+            ZStack(alignment: .top) {
+                mainContentWidgets
+                    .opacity(searchText.isEmpty ? 1 : 0.3)
+                    .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
+
+                // Overlay to dismiss search when tapping outside
+                if !searchText.isEmpty {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            isSearchFocused = false
+                            searchText = ""
+                        }
+                }
+            }
+
+            Spacer()
         }
         .background(
             colorScheme == .dark ?
