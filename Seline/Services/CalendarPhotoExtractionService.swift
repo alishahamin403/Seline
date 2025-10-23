@@ -71,29 +71,45 @@ class CalendarPhotoExtractionService {
         let todayString = dateFormatter.string(from: today)
 
         let systemPrompt = """
-        You are an expert OCR specialist and calendar analyzer. Your job is to extract event information from calendar photos with precision.
+        You are an expert OCR specialist and calendar analyzer. Your job is to extract event information from calendar photos with MAXIMUM precision and completeness.
 
         EXTRACTION PRIORITY (in order of importance):
         1. **DATE** - The date of the event (CRITICAL)
-        2. **TIME** - Start time, and end time if visible (CRITICAL)
-        3. **TITLE** - Event name or description
-        4. **ATTENDEES** - Names of people involved (optional)
+        2. **START TIME** - When the event starts (CRITICAL)
+        3. **END TIME** - When the event ends (CRITICAL - extract from visual block size or time labels)
+        4. **TITLE** - Event name or description
+        5. **ATTENDEES** - Names of people involved (optional)
+
+        ⚠️ CRITICAL RULES FOR TIME EXTRACTION:
+        - ALWAYS extract both START and END times - never assume 1 hour duration
+        - If calendar uses a grid/timeline format: analyze block HEIGHT to determine duration
+        - 30-minute blocks = half the height of 1-hour blocks
+        - Look for visual time markers at top/bottom of event blocks
+        - Extract durations exactly as shown: 30 min, 45 min, 1 hour, 1.5 hours, 2 hours, etc.
+        - If time shows "9:00-9:30" or "9:00a-9:30a" that's a 30-min event
+        - Multiple events at SAME TIME = different events (side-by-side or overlapping)
+
+        ⚠️ CRITICAL RULE FOR OVERLAPPING/ADJACENT EVENTS:
+        - If you see 2+ event blocks starting at the same time, extract BOTH as separate events
+        - Do NOT merge events that appear next to each other horizontally
+        - Each event block is its own event, even if adjacent
+        - Example: At 9:00am if you see "Meeting A" and "Meeting B" side-by-side = 2 separate events
 
         QUALITY ASSESSMENT:
-        - Mark timeConfidence = true ONLY if time is clearly readable
+        - Mark timeConfidence = true ONLY if BOTH start AND end times are clearly readable
         - Mark dateConfidence = true ONLY if date is clearly readable
         - Mark titleConfidence = true ONLY if event title/name is clearly readable
-        - Overall confidence = average of the three above for events, or 0 if time/date unclear
+        - Set confidence lower if duration seems uncertain
 
         RESPONSE RULES:
-        - status "success": Times AND dates are clear and extracted
-        - status "partial": Times AND dates extracted, but title or other fields are hard to read
-        - status "failed": Cannot extract times OR dates from the image
-        - Always try to extract at least something - empty events list is only for truly blank images
+        - status "success": Times (start AND end) AND dates are clear and extracted for all events
+        - status "partial": Times AND dates extracted, but some titles unclear or duration uncertain
+        - status "failed": Cannot extract clear start/end times OR dates from the image
+        - Always extract ALL visible events, even if partially cut off or unclear
         """
 
         let userPrompt = """
-        TASK: Extract all calendar events from this photo. Be thorough with OCR.
+        TASK: Extract ALL calendar events from this photo with MAXIMUM precision. Read every event visible.
 
         The image might show:
         - Digital calendar screenshot (Apple Calendar, Google Calendar, Outlook, etc.)
@@ -102,16 +118,31 @@ class CalendarPhotoExtractionService {
         - Handwritten schedule
         - Email calendar view
         - Meeting agendas with times
+        - Timeline/grid-based calendar
 
-        IMPORTANT OCR INSTRUCTIONS:
-        1. Read EVERY event visible, even if partially cut off
-        2. Extract times in HH:MM 24-hour format (e.g., 14:30 for 2:30 PM)
-        3. Extract dates as YYYY-MM-DD (infer year from context if needed)
-        4. If you see "Today" or "Tomorrow", use the actual date context
-        5. Look for time indicators: "2pm", "14:00", "2:00 - 3:00", "2-3pm"
-        6. If time is unclear but you can guess the general time, still extract with low confidence
-        7. Extract event titles exactly as written
-        8. List any names/emails visible as attendees
+        ⚠️ MUST-FOLLOW OCR INSTRUCTIONS:
+        1. Read EVERY event visible, even if partially cut off or overlapping
+        2. Extract START time and END time separately in HH:MM 24-hour format
+        3. Do NOT assume 1-hour duration - analyze actual event block size/height
+        4. For grid calendars: measure block height relative to hourly grid lines
+        5. Extract dates as YYYY-MM-DD (infer year from context if needed)
+        6. If you see "Today" or "Tomorrow", use the actual date context
+        7. Look for explicit time ranges: "9:00-9:30", "9am-10am", "10:00 to 10:45"
+        8. Look for visual block heights to infer duration: short blocks = short events (30-45 min)
+        9. Extract event titles EXACTLY as written
+        10. List any names/emails visible as attendees
+        11. **CRITICAL**: If multiple events start at same time = extract as SEPARATE events
+
+        ⚠️ OVERLAPPING EVENTS RULE:
+        - At 9:00am if you see 2 side-by-side event blocks = 2 events, not 1
+        - Each distinct event block = 1 event, regardless of position
+        - Count all visible event blocks and extract each one
+
+        DURATION EXAMPLES TO GUIDE YOUR ANALYSIS:
+        - 30-min event at 9:00 = startTime: "09:00", endTime: "09:30"
+        - 45-min event at 9:00 = startTime: "09:00", endTime: "09:45"
+        - 1-hour event at 9:00 = startTime: "09:00", endTime: "10:00"
+        - 1.5-hour event at 9:00 = startTime: "09:00", endTime: "10:30"
 
         DATES: If the image doesn't show dates, use today's date (\(todayString)) and increment for subsequent days.
 
@@ -142,7 +173,7 @@ class CalendarPhotoExtractionService {
         - status "partial": Can extract times and dates, but some event titles are unclear or hard to read
         - status "success": All events extracted with clear, readable information
 
-        Example response for reference:
+        Example response for reference (including multiple events at same time):
         {
             "status": "success",
             "errorMessage": null,
@@ -155,6 +186,32 @@ class CalendarPhotoExtractionService {
                     "endTime": "10:00",
                     "endDate": "\(todayString)",
                     "attendees": ["Sarah", "Mike"],
+                    "titleConfidence": true,
+                    "timeConfidence": true,
+                    "dateConfidence": true,
+                    "confidence": 0.98,
+                    "notes": ""
+                },
+                {
+                    "title": "Project Review",
+                    "startTime": "09:00",
+                    "startDate": "\(todayString)",
+                    "endTime": "09:30",
+                    "endDate": "\(todayString)",
+                    "attendees": ["John"],
+                    "titleConfidence": true,
+                    "timeConfidence": true,
+                    "dateConfidence": true,
+                    "confidence": 0.92,
+                    "notes": "30-minute meeting, side-by-side with Team Meeting"
+                },
+                {
+                    "title": "Lunch Break",
+                    "startTime": "12:00",
+                    "startDate": "\(todayString)",
+                    "endTime": "13:00",
+                    "endDate": "\(todayString)",
+                    "attendees": [],
                     "titleConfidence": true,
                     "timeConfidence": true,
                     "dateConfidence": true,
