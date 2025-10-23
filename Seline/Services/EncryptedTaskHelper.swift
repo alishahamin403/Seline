@@ -1,0 +1,208 @@
+import Foundation
+
+/// Helper methods to encrypt/decrypt tasks before storing in Supabase
+/// Encryption scope:
+/// - Task title
+/// - Task description
+/// - Task tags (names)
+extension TaskManager {
+
+    // MARK: - Encrypt Task Before Saving
+
+    /// Encrypt sensitive task fields before saving to Supabase
+    /// Encrypted fields: title, description
+    func encryptTaskBeforeSaving(_ task: TaskItem) async throws -> TaskItem {
+        var encryptedTask = task
+
+        // Encrypt title and description
+        encryptedTask.title = try await EncryptionManager.shared.encrypt(task.title)
+        if let description = task.description {
+            encryptedTask.description = try await EncryptionManager.shared.encrypt(description)
+        }
+
+        // Encrypt tag names
+        encryptedTask.tags = try await encryptTags(task.tags)
+
+        print("✅ Encrypted task: \(task.id.uuidString)")
+
+        return encryptedTask
+    }
+
+    // MARK: - Decrypt Task After Loading
+
+    /// Decrypt sensitive task fields after fetching from Supabase
+    func decryptTaskAfterLoading(_ encryptedTask: TaskItem) async throws -> TaskItem {
+        var decryptedTask = encryptedTask
+
+        do {
+            // Try to decrypt title and description
+            decryptedTask.title = try await EncryptionManager.shared.decrypt(encryptedTask.title)
+            if let description = encryptedTask.description {
+                decryptedTask.description = try await EncryptionManager.shared.decrypt(description)
+            }
+
+            // Decrypt tag names
+            decryptedTask.tags = try await decryptTags(encryptedTask.tags)
+
+            print("✅ Decrypted task: \(encryptedTask.id.uuidString)")
+        } catch {
+            // Decryption failed - this task is probably not encrypted (old data)
+            print("⚠️ Could not decrypt task \(encryptedTask.id.uuidString): \(error.localizedDescription)")
+            print("   Task will be returned unencrypted (legacy data)")
+            return encryptedTask
+        }
+
+        return decryptedTask
+    }
+
+    // MARK: - Tag Encryption
+
+    private func encryptTags(_ tags: [Tag]) async throws -> [Tag] {
+        var encryptedTags: [Tag] = []
+        for tag in tags {
+            let encryptedName = try await EncryptionManager.shared.encrypt(tag.name)
+            var encryptedTag = tag
+            encryptedTag.name = encryptedName
+            encryptedTags.append(encryptedTag)
+        }
+        return encryptedTags
+    }
+
+    private func decryptTags(_ tags: [Tag]) async throws -> [Tag] {
+        var decryptedTags: [Tag] = []
+        for tag in tags {
+            do {
+                let decryptedName = try await EncryptionManager.shared.decrypt(tag.name)
+                var decryptedTag = tag
+                decryptedTag.name = decryptedName
+                decryptedTags.append(decryptedTag)
+            } catch {
+                // If decryption fails, return original tag (backward compatible)
+                decryptedTags.append(tag)
+            }
+        }
+        return decryptedTags
+    }
+
+    // MARK: - Batch Operations
+
+    /// Encrypt multiple tasks before batch saving
+    func encryptTasks(_ tasks: [TaskItem]) async throws -> [TaskItem] {
+        var encryptedTasks: [TaskItem] = []
+        for task in tasks {
+            let encrypted = try await encryptTaskBeforeSaving(task)
+            encryptedTasks.append(encrypted)
+        }
+        return encryptedTasks
+    }
+
+    /// Decrypt multiple tasks after batch loading
+    func decryptTasks(_ tasks: [TaskItem]) async throws -> [TaskItem] {
+        var decryptedTasks: [TaskItem] = []
+        for task in tasks {
+            let decrypted = try await decryptTaskAfterLoading(task)
+            decryptedTasks.append(decrypted)
+        }
+        return decryptedTasks
+    }
+
+    // MARK: - Bulk Re-encryption
+
+    /// Re-encrypt all existing tasks in Supabase
+    func reencryptAllExistingTasks() async {
+        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
+        let userId = await MainActor.run { authManager.supabaseUser?.id }
+
+        guard isAuthenticated, let userId = userId else {
+            print("❌ User not authenticated, cannot re-encrypt tasks")
+            return
+        }
+
+        print("🔐 Starting bulk re-encryption of existing tasks...")
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // Fetch ALL tasks for this user
+            let response: [TaskItemSupabaseData] = try await client
+                .from("tasks")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            print("📥 Fetched \(response.count) tasks for re-encryption")
+
+            var reencryptedCount = 0
+            var skippedCount = 0
+            var errorCount = 0
+
+            // Process each task
+            for (index, supabaseTask) in response.enumerated() {
+                var task = TaskItem(title: supabaseTask.title, description: supabaseTask.description)
+                task.id = UUID(uuidString: supabaseTask.id) ?? UUID()
+
+                // Check if already encrypted by trying to decrypt
+                let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseTask.title)
+
+                if decryptTest != nil && decryptTest == supabaseTask.title {
+                    // Successfully decrypted to same value = already encrypted
+                    skippedCount += 1
+                    print("✅ Task \(index + 1)/\(response.count): Already encrypted - '\(supabaseTask.title)'")
+                } else {
+                    // Failed to decrypt or got different value = plaintext
+                    do {
+                        let encrypted = try await encryptTaskBeforeSaving(task)
+
+                        // Update in Supabase with encrypted version
+                        let formatter = ISO8601DateFormatter()
+                        let updateData: [String: PostgREST.AnyJSON] = [
+                            "title": .string(encrypted.title),
+                            "description": encrypted.description.map { .string($0) } ?? .null,
+                            "updated_at": .string(formatter.string(from: Date()))
+                        ]
+
+                        try await client
+                            .from("tasks")
+                            .update(updateData)
+                            .eq("id", value: task.id.uuidString)
+                            .execute()
+
+                        reencryptedCount += 1
+                        print("🔐 Task \(index + 1)/\(response.count): Re-encrypted - '\(supabaseTask.title)'")
+                    } catch {
+                        errorCount += 1
+                        print("❌ Task \(index + 1)/\(response.count): Failed to encrypt - '\(supabaseTask.title)': \(error.localizedDescription)")
+                    }
+                }
+            }
+
+            // Summary
+            print("\n" + String(repeating: "=", count: 60))
+            print("🔐 TASK RE-ENCRYPTION COMPLETE")
+            print("=" + String(repeating: "=", count: 60))
+            print("✅ Re-encrypted: \(reencryptedCount) tasks")
+            print("✅ Already encrypted: \(skippedCount) tasks")
+            print("❌ Errors: \(errorCount) tasks")
+            print("📊 Total: \(response.count) tasks processed")
+            print(String(repeating: "=", count: 60) + "\n")
+
+        } catch {
+            print("❌ Error during task re-encryption: \(error)")
+        }
+    }
+}
+
+// MARK: - Supabase Data Structure
+
+struct TaskItemSupabaseData: Codable {
+    let id: String
+    let user_id: String
+    let title: String
+    let description: String?
+    let due_date: String?
+    let is_completed: Bool
+    let priority: String?
+    let created_at: String
+    let updated_at: String
+}

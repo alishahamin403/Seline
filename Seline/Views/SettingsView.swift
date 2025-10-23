@@ -5,6 +5,7 @@ struct SettingsView: View {
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     // Computed property to get current theme state
@@ -14,7 +15,12 @@ struct SettingsView: View {
 
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
-    @State private var isEncrypting = false
+
+    // Encryption states for each data type
+    @State private var isEncryptingNotes = false
+    @State private var isEncryptingTasks = false
+    @State private var isEncryptingPlaces = false
+    @State private var isEncryptingFolders = false
     @State private var encryptionStatus = ""
     @State private var showEncryptionSuccess = false
 
@@ -115,7 +121,69 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
-                        settingsMenuItemEncryption
+                        // Data Encryption Section
+                        VStack(spacing: 0) {
+                            settingsEncryptionButton(
+                                label: "Encrypt Notes",
+                                icon: "note.text.badge.plus",
+                                isEncrypting: isEncryptingNotes,
+                                action: {
+                                    Task {
+                                        isEncryptingNotes = true
+                                        await notesManager.reencryptAllExistingNotes()
+                                        isEncryptingNotes = false
+                                    }
+                                }
+                            )
+
+                            Divider()
+                                .padding(.leading, 50)
+
+                            settingsEncryptionButton(
+                                label: "Encrypt Tasks",
+                                icon: "checkmark.circle",
+                                isEncrypting: isEncryptingTasks,
+                                action: {
+                                    Task {
+                                        isEncryptingTasks = true
+                                        await TaskManager.shared.reencryptAllExistingTasks()
+                                        isEncryptingTasks = false
+                                    }
+                                }
+                            )
+
+                            Divider()
+                                .padding(.leading, 50)
+
+                            settingsEncryptionButton(
+                                label: "Encrypt Saved Places",
+                                icon: "mappin.circle",
+                                isEncrypting: isEncryptingPlaces,
+                                action: {
+                                    Task {
+                                        isEncryptingPlaces = true
+                                        await locationsManager.reencryptAllExistingSavedPlaces()
+                                        isEncryptingPlaces = false
+                                    }
+                                }
+                            )
+
+                            Divider()
+                                .padding(.leading, 50)
+
+                            settingsEncryptionButton(
+                                label: "Encrypt Folders",
+                                icon: "folder",
+                                isEncrypting: isEncryptingFolders,
+                                action: {
+                                    Task {
+                                        isEncryptingFolders = true
+                                        await notesManager.reencryptAllExistingFolders()
+                                        isEncryptingFolders = false
+                                    }
+                                }
+                            )
+                        }
 
                         Divider()
                             .padding(.leading, 50)
@@ -170,40 +238,23 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Encryption Menu Item
-    private var settingsMenuItemEncryption: some View {
-        Button(action: {
-            Task {
-                isEncrypting = true
-                encryptionStatus = "🔐 Encrypting your data..."
-                await notesManager.reencryptAllExistingNotes()
-                isEncrypting = false
-                encryptionStatus = "✅ Done!"
-                showEncryptionSuccess = true
-
-                // Hide success message after 2 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    showEncryptionSuccess = false
-                }
-            }
-        }) {
+    // MARK: - Encryption Button Helper
+    private func settingsEncryptionButton(
+        label: String,
+        icon: String,
+        isEncrypting: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 16) {
-                Image(systemName: "lock.shield")
+                Image(systemName: icon)
                     .font(.system(size: 16, weight: .regular))
                     .foregroundColor(.green)
                     .frame(width: 24)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Encrypt Existing Data")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(isDarkMode ? .white : .black)
-
-                    if showEncryptionSuccess {
-                        Text(encryptionStatus)
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.green)
-                    }
-                }
+                Text(label)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(isDarkMode ? .white : .black)
 
                 Spacer()
 
