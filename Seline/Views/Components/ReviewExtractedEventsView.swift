@@ -16,31 +16,46 @@ struct ReviewExtractedEventsView: View {
     @State private var createdCount = 0
 
     var body: some View {
-        NavigationStack {
+        ZStack {
+            // Main background
+            Color(UIColor.systemBackground)
+                .ignoresSafeArea()
+
             if !showSuccessScreen {
                 // Main review screen
                 VStack(spacing: 0) {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Review Extracted Events")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        Text("Found \(extractionResponse.events.count) events")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Review Extracted Events")
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                Text("Found \(extractionResponse.events.count) events")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                            Button(action: { onDismiss() }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.gray)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(Color(UIColor.systemGray5))
+                    .padding(16)
+                    .background(Color(UIColor.systemGray6))
 
-                    // Content
-                    ScrollView {
+                    // Content ScrollView
+                    ScrollView(showsIndicators: true) {
                         VStack(spacing: 16) {
-                            // Calendar selector
-                            VStack(alignment: .leading, spacing: 8) {
+                            // Calendar selector section
+                            VStack(alignment: .leading, spacing: 12) {
                                 Text("Add to Calendar:")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
 
                                 Picker("Calendar", selection: $selectedCalendar) {
                                     Text("Default").tag("default")
@@ -48,25 +63,61 @@ struct ReviewExtractedEventsView: View {
                                     Text("Personal").tag("personal")
                                 }
                                 .pickerStyle(.segmented)
+                                .frame(maxWidth: .infinity)
                             }
                             .padding(16)
-                            .background(Color(UIColor.systemGray5))
+                            .background(Color(UIColor.systemGray6))
                             .cornerRadius(12)
+
+                            // Events header
+                            Text("Events to Create")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .foregroundColor(.primary)
 
                             // Events list
                             if extractionResponse.events.isEmpty {
-                                Text("No events found")
-                                    .foregroundColor(.gray)
-                                    .padding(20)
+                                VStack(spacing: 12) {
+                                    Image(systemName: "calendar.badge.exclamationmark")
+                                        .font(.system(size: 40))
+                                        .foregroundColor(.gray)
+                                    Text("No events found")
+                                        .foregroundColor(.gray)
+                                        .font(.subheadline)
+                                }
+                                .padding(40)
+                                .frame(maxWidth: .infinity)
+                                .background(Color(UIColor.systemGray6))
+                                .cornerRadius(12)
                             } else {
-                                ForEach($extractionResponse.events, id: \.id) { $event in
-                                    SimpleEventCard(event: $event)
+                                VStack(spacing: 12) {
+                                    ForEach($extractionResponse.events, id: \.id) { $event in
+                                        SimpleEventCard(event: $event)
+                                    }
                                 }
                             }
+
+                            // Summary section
+                            let selectedCount = extractionResponse.events.filter { $0.isSelected }.count
+                            VStack(spacing: 8) {
+                                HStack {
+                                    Text("Selected events:")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                    Spacer()
+                                    Text("\(selectedCount) of \(extractionResponse.events.count)")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .padding(12)
+                            .background(Color(UIColor.systemGray6))
+                            .cornerRadius(8)
                         }
                         .padding(16)
                     }
-                    .background(Color.white)
+                    .background(Color(UIColor.systemBackground))
 
                     // Action buttons
                     VStack(spacing: 12) {
@@ -89,14 +140,13 @@ struct ReviewExtractedEventsView: View {
                                 .foregroundColor(.blue)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
+                                .background(Color(UIColor.systemGray6))
+                                .cornerRadius(12)
                         }
                         .disabled(isCreatingEvents)
                     }
                     .padding(16)
-                    .background(Color(UIColor.systemGray5))
                 }
-                .background(Color.white)
-                .navigationBarTitleDisplayMode(.inline)
             } else {
                 // Success screen
                 VStack(spacing: 24) {
@@ -111,6 +161,7 @@ struct ReviewExtractedEventsView: View {
                             Text("✅ \(createdCount) Events Created!")
                                 .font(.title2)
                                 .fontWeight(.bold)
+                                .foregroundColor(.primary)
 
                             Text("Added to \(selectedCalendar) calendar")
                                 .font(.subheadline)
@@ -132,32 +183,32 @@ struct ReviewExtractedEventsView: View {
                     }
                     .padding(16)
                 }
-                .background(Color.white)
             }
-        }
-        .overlay(
-            Group {
-                if isCreatingEvents {
-                    ZStack {
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
 
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                            Text("Creating events...")
-                                .font(.headline)
-                                .foregroundColor(.black)
-                        }
-                        .padding(32)
-                        .background(Color.white)
-                        .cornerRadius(16)
+            // Loading overlay
+            if isCreatingEvents {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("Creating events...")
+                            .font(.headline)
+                            .foregroundColor(.black)
                     }
+                    .padding(32)
+                    .background(Color.white)
+                    .cornerRadius(16)
                 }
             }
-        )
+        }
         .onAppear {
             print("📱 ReviewExtractedEventsView appeared with \(extractionResponse.events.count) events")
+            for (index, event) in extractionResponse.events.enumerated() {
+                print("  Event \(index): \(event.title) - Selected: \(event.isSelected)")
+            }
         }
     }
 
