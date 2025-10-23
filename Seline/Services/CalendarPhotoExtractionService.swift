@@ -53,35 +53,61 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.invalidURL
         }
 
-        // Convert image to base64
-        guard let imageData = image.jpegData(compressionQuality: 0.9) else {
+        // Convert image to base64 with high quality for better OCR
+        // Try JPEG first, then PNG if JPEG fails
+        var base64Image: String
+        if let jpegData = image.jpegData(compressionQuality: 0.95) {
+            base64Image = jpegData.base64EncodedString()
+        } else if let pngData = image.pngData() {
+            base64Image = pngData.base64EncodedString()
+        } else {
             throw ExtractionError.imageConversionError
         }
-        let base64Image = imageData.base64EncodedString()
 
         let systemPrompt = """
-        You are an expert at analyzing calendar photos and extracting event information. Your job is to:
-        1. Extract all events from a calendar photo
-        2. For each event, extract: title, start time, end time (if available), and attendees (if visible)
-        3. Assess the clarity and confidence of the extracted information
-        4. Return structured JSON data
+        You are an expert OCR specialist and calendar analyzer. Your job is to extract event information from calendar photos with precision.
 
-        CRITICAL REQUIREMENTS:
-        - Times and dates MUST be extractable from the image (non-negotiable)
-        - If you cannot clearly extract times or dates, return status "failed"
-        - If title is unclear but times/dates are clear, return status "partial"
-        - Only return status "success" if all key information is clearly readable
+        EXTRACTION PRIORITY (in order of importance):
+        1. **DATE** - The date of the event (CRITICAL)
+        2. **TIME** - Start time, and end time if visible (CRITICAL)
+        3. **TITLE** - Event name or description
+        4. **ATTENDEES** - Names of people involved (optional)
+
+        QUALITY ASSESSMENT:
+        - Mark timeConfidence = true ONLY if time is clearly readable
+        - Mark dateConfidence = true ONLY if date is clearly readable
+        - Mark titleConfidence = true ONLY if event title/name is clearly readable
+        - Overall confidence = average of the three above for events, or 0 if time/date unclear
+
+        RESPONSE RULES:
+        - status "success": Times AND dates are clear and extracted
+        - status "partial": Times AND dates extracted, but title or other fields are hard to read
+        - status "failed": Cannot extract times OR dates from the image
+        - Always try to extract at least something - empty events list is only for truly blank images
         """
 
         let userPrompt = """
-        Analyze this calendar photo and extract all events visible in the image.
+        TASK: Extract all calendar events from this photo. Be thorough with OCR.
 
-        Important: The image might show:
-        - A printed schedule
-        - A digital calendar screenshot
-        - A whiteboard calendar
-        - A planner page
+        The image might show:
+        - Digital calendar screenshot (Apple Calendar, Google Calendar, Outlook, etc.)
+        - Printed schedule or planner
+        - Whiteboard calendar
+        - Handwritten schedule
         - Email calendar view
+        - Meeting agendas with times
+
+        IMPORTANT OCR INSTRUCTIONS:
+        1. Read EVERY event visible, even if partially cut off
+        2. Extract times in HH:MM 24-hour format (e.g., 14:30 for 2:30 PM)
+        3. Extract dates as YYYY-MM-DD (infer year from context if needed)
+        4. If you see "Today" or "Tomorrow", use the actual date context
+        5. Look for time indicators: "2pm", "14:00", "2:00 - 3:00", "2-3pm"
+        6. If time is unclear but you can guess the general time, still extract with low confidence
+        7. Extract event titles exactly as written
+        8. List any names/emails visible as attendees
+
+        DATES: If the image doesn't show dates, use today's date (2025-10-22) and increment for subsequent days.
 
         Return your response as a JSON object with this EXACT structure:
         {
@@ -150,7 +176,7 @@ class CalendarPhotoExtractionService {
                         [
                             "type": "image_url",
                             "image_url": [
-                                "url": "data:image/jpeg;base64,\(base64Image)"
+                                "url": "data:image/png;base64,\(base64Image)"
                             ]
                         ]
                     ]
@@ -187,10 +213,16 @@ class CalendarPhotoExtractionService {
 
         guard let decodedResponse = try? JSONDecoder().decode(OpenAIResponse.self, from: data),
               let content = decodedResponse.choices.first?.message.content else {
+            // Log the raw response for debugging
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("🔍 API Response: \(responseString)")
+            }
             throw ExtractionError.decodingError
         }
 
-        // Parse the JSON response from Claude
+        print("🔍 GPT-4o extracted: \(content)")
+
+        // Parse the JSON response from GPT-4o
         return try parseExtractionResponse(content)
     }
 
@@ -211,6 +243,8 @@ class CalendarPhotoExtractionService {
 
         do {
             let parsedResponse = try decoder.decode(RawExtractionResponse.self, from: jsonData)
+
+            print("🔍 Parsed status: \(parsedResponse.status), event count: \(parsedResponse.events.count)")
 
             // Convert raw dates and times to Date objects
             let extractedEvents = try parsedResponse.events.map { rawEvent -> ExtractedEvent in
@@ -281,6 +315,10 @@ class CalendarPhotoExtractionService {
                 confidence: parsedResponse.extractionConfidence
             )
         } catch {
+            print("❌ Extraction error: \(error)")
+            if let decodingError = error as? DecodingError {
+                print("❌ Decoding error details: \(decodingError)")
+            }
             throw ExtractionError.decodingError
         }
     }
