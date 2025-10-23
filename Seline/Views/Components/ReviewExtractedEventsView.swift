@@ -17,7 +17,7 @@ struct ReviewExtractedEventsView: View {
 
     var body: some View {
         ZStack {
-            Color(UIColor.systemBackground)
+            Color.white
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -28,6 +28,7 @@ struct ReviewExtractedEventsView: View {
                             Text("Review Extracted Events")
                                 .font(.title2)
                                 .fontWeight(.semibold)
+                                .foregroundColor(.black)
 
                             if extractionResponse.status == .partial {
                                 HStack(spacing: 6) {
@@ -42,7 +43,7 @@ struct ReviewExtractedEventsView: View {
                         Spacer()
                     }
                     .padding(16)
-                    .background(Color(UIColor.secondarySystemBackground))
+                    .background(Color(UIColor.systemGray6))
                 }
 
                 // Events list
@@ -50,11 +51,11 @@ struct ReviewExtractedEventsView: View {
                     ScrollView {
                         VStack(spacing: 12) {
                             // Debug counter
-                            Text("Events: \(extractionResponse.events.count)")
-                                .font(.caption)
-                                .foregroundColor(.gray)
+                            Text("📋 Events Found: \(extractionResponse.events.count)")
+                                .font(.headline)
+                                .foregroundColor(.black)
                                 .padding(.horizontal, 16)
-                                .padding(.top, 8)
+                                .padding(.top, 12)
 
                             // Calendar selector
                             VStack(spacing: 8) {
@@ -62,6 +63,7 @@ struct ReviewExtractedEventsView: View {
                                     Text("Add to Calendar:")
                                         .font(.subheadline)
                                         .fontWeight(.semibold)
+                                        .foregroundColor(.black)
                                     Spacer()
                                 }
 
@@ -73,7 +75,7 @@ struct ReviewExtractedEventsView: View {
                                 .pickerStyle(.segmented)
                             }
                             .padding(16)
-                            .background(Color(UIColor.secondarySystemBackground))
+                            .background(Color(UIColor.systemGray6))
                             .cornerRadius(12)
                             .padding(.horizontal, 16)
                             .padding(.top, 12)
@@ -84,13 +86,14 @@ struct ReviewExtractedEventsView: View {
                                     .foregroundColor(.gray)
                                     .padding()
                             } else {
-                                ForEach($extractionResponse.events) { $event in
+                                ForEach($extractionResponse.events, id: \.id) { $event in
                                     EventReviewCard(event: $event)
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
                             }
                         }
+                        .padding(.bottom, 20)
                     }
 
                     // Actions
@@ -122,7 +125,7 @@ struct ReviewExtractedEventsView: View {
                         .disabled(isCreatingEvents)
                     }
                     .padding(16)
-                    .background(Color(UIColor.secondarySystemBackground))
+                    .background(Color(UIColor.systemGray6))
                 } else {
                     // Success screen
                     VStack(spacing: 20) {
@@ -269,6 +272,7 @@ struct EventReviewCard: View {
                     HStack(spacing: 8) {
                         Text(event.title)
                             .font(.headline)
+                            .foregroundColor(.black)
                             .lineLimit(2)
 
                         if !event.titleConfidence {
@@ -324,6 +328,7 @@ struct EventReviewCard: View {
             }
 
             Divider()
+                .background(Color.gray)
 
             // Confidence indicator
             HStack(spacing: 8) {
@@ -336,6 +341,7 @@ struct EventReviewCard: View {
                                     .font(.caption)
                                 Text("Date")
                                     .font(.caption)
+                                    .foregroundColor(.black)
                             }
                         } else {
                             HStack(spacing: 4) {
@@ -344,6 +350,7 @@ struct EventReviewCard: View {
                                     .font(.caption)
                                 Text("Date")
                                     .font(.caption)
+                                    .foregroundColor(.black)
                             }
                         }
 
@@ -354,6 +361,7 @@ struct EventReviewCard: View {
                                     .font(.caption)
                                 Text("Time")
                                     .font(.caption)
+                                    .foregroundColor(.black)
                             }
                         } else {
                             HStack(spacing: 4) {
@@ -362,6 +370,7 @@ struct EventReviewCard: View {
                                     .font(.caption)
                                 Text("Time")
                                     .font(.caption)
+                                    .foregroundColor(.black)
                             }
                         }
 
@@ -369,11 +378,9 @@ struct EventReviewCard: View {
                     }
                 }
             }
-            .font(.caption)
-            .foregroundColor(.gray)
         }
         .padding(12)
-        .background(Color(UIColor.secondarySystemBackground))
+        .background(Color(UIColor.systemGray6))
         .cornerRadius(10)
         .sheet(isPresented: $showEditSheet) {
             EditExtractedEventView(event: $event)
