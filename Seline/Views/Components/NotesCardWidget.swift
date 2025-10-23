@@ -7,7 +7,7 @@ struct NotesCardWidget: View {
     @Binding var showingNewNoteSheet: Bool
 
     private var pinnedNotes: [Note] {
-        Array(notesManager.pinnedNotes.prefix(5))
+        Array(notesManager.pinnedNotes)
     }
 
     var body: some View {

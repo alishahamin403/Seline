@@ -7,7 +7,7 @@ struct EmailCardWidget: View {
     @Binding var selectedEmail: Email?
 
     private var unreadEmails: [Email] {
-        Array(emailService.inboxEmails.filter { !$0.isRead }.prefix(5))
+        Array(emailService.inboxEmails.filter { !$0.isRead })
     }
 
     // Generate an icon based on sender email or name (same logic as MainAppView)

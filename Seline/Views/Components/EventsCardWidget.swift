@@ -203,57 +203,61 @@ struct EventsCardWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ForEach(selectedDateEvents.prefix(5)) { task in
-                            Button(action: {
-                                HapticManager.shared.cardTap()
-                                selectedTask = task
-                            }) {
-                                HStack(spacing: 8) {
-                                    // Completion status icon - tappable
+                        ScrollView(.vertical, showsIndicators: true) {
+                            VStack(spacing: 8) {
+                                ForEach(selectedDateEvents) { task in
                                     Button(action: {
-                                        HapticManager.shared.selection()
-                                        taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                                        HapticManager.shared.cardTap()
+                                        selectedTask = task
                                     }) {
-                                        let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                                        Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(
-                                                isTaskCompleted ?
-                                                    (colorScheme == .dark ?
-                                                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                        Color(red: 0.20, green: 0.34, blue: 0.40)) :
-                                                    (colorScheme == .dark ?
-                                                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                        Color(red: 0.20, green: 0.34, blue: 0.40))
-                                            )
+                                        HStack(spacing: 8) {
+                                            // Completion status icon - tappable
+                                            Button(action: {
+                                                HapticManager.shared.selection()
+                                                taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                                            }) {
+                                                let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+                                                Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(
+                                                        isTaskCompleted ?
+                                                            (colorScheme == .dark ?
+                                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                            (colorScheme == .dark ?
+                                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
+                                                                Color(red: 0.20, green: 0.34, blue: 0.40))
+                                                    )
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+
+                                            // Event title
+                                            let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+                                            Text(task.title)
+                                                .font(.shadcnTextXs)
+                                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                                .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+
+                                            Spacer()
+
+                                            // Event time
+                                            if let scheduledTime = task.scheduledTime {
+                                                Text(formatTime(scheduledTime))
+                                                    .font(.shadcnTextXs)
+                                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                            }
+                                        }
                                     }
                                     .buttonStyle(PlainButtonStyle())
-
-                                    // Event title
-                                    let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                                    Text(task.title)
-                                        .font(.shadcnTextXs)
-                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                        .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-
-                                    Spacer()
-
-                                    // Event time
-                                    if let scheduledTime = task.scheduledTime {
-                                        Text(formatTime(scheduledTime))
-                                            .font(.shadcnTextXs)
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                    }
                                 }
                             }
-                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }
             }
-            .frame(maxHeight: 180)
+            .frame(maxHeight: 200)
             .padding(.top, 4)
         }
         .padding(.horizontal, 12)
