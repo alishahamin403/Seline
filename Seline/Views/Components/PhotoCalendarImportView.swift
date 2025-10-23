@@ -8,7 +8,6 @@ struct PhotoCalendarImportView: View {
     @State private var sourceType: UIImagePickerController.SourceType = .camera
     @State private var isProcessing = false
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
-    @State private var showReviewSheet = false
     @State private var errorMessage: String?
     @State private var showErrorAlert = false
 
@@ -106,112 +105,112 @@ struct PhotoCalendarImportView: View {
                 }
             } else if let response = extractionResponse {
                 // Result handling
-                Group {
-                    if response.status == .failed {
-                        // Failure screen
-                        VStack(spacing: 20) {
-                            Spacer()
+                if response.status == .failed {
+                    // Failure screen
+                    VStack(spacing: 20) {
+                        Spacer()
 
-                            VStack(spacing: 16) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 50))
-                                    .foregroundColor(.orange)
+                        VStack(spacing: 16) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 50))
+                                .foregroundColor(.orange)
 
-                                VStack(spacing: 8) {
-                                    Text("Couldn't Read Schedule")
-                                        .font(.headline)
+                            VStack(spacing: 8) {
+                                Text("Couldn't Read Schedule")
+                                    .font(.headline)
 
-                                    VStack(spacing: 12) {
-                                        HStack(spacing: 12) {
-                                            Image(systemName: "xmark.circle")
-                                                .foregroundColor(.red)
-                                            Text("Date/time information unclear")
-                                                .font(.subheadline)
-                                        }
-                                        HStack(spacing: 12) {
-                                            Image(systemName: "xmark.circle")
-                                                .foregroundColor(.red)
-                                            Text("Event titles not readable")
-                                                .font(.subheadline)
-                                        }
+                                VStack(spacing: 12) {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "xmark.circle")
+                                            .foregroundColor(.red)
+                                        Text("Date/time information unclear")
+                                            .font(.subheadline)
                                     }
-
-                                    Text(response.errorMessage ?? "Please retake the photo with better lighting and clarity")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
-                            .multilineTextAlignment(.center)
-
-                            Spacer()
-
-                            VStack(spacing: 12) {
-                                // Tips for better photos
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Tips for a better photo:")
-                                        .font(.caption)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.gray)
-
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "lightbulb.fill")
-                                                .foregroundColor(.yellow)
-                                                .font(.caption)
-                                            Text("Make sure it's well-lit")
-                                                .font(.caption)
-                                        }
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "frame")
-                                                .foregroundColor(.blue)
-                                                .font(.caption)
-                                            Text("Keep schedule centered")
-                                                .font(.caption)
-                                        }
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "reflect.2")
-                                                .foregroundColor(.cyan)
-                                                .font(.caption)
-                                            Text("Avoid glare and shadows")
-                                                .font(.caption)
-                                        }
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "xmark.circle")
+                                            .foregroundColor(.red)
+                                        Text("Event titles not readable")
+                                            .font(.subheadline)
                                     }
                                 }
-                                .padding(12)
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .cornerRadius(8)
 
-                                Button(action: {
-                                    resetAndRetry()
-                                }) {
-                                    Text("Take Another Photo")
-                                        .font(.headline)
-                                        .foregroundColor(.white)
-                                        .frame(height: 50)
-                                        .frame(maxWidth: .infinity)
-                                        .background(Color.blue)
-                                        .cornerRadius(12)
-                                }
-
-                                Button(action: { dismiss() }) {
-                                    Text("Cancel")
-                                        .font(.headline)
-                                        .foregroundColor(.blue)
-                                        .frame(height: 50)
-                                }
+                                Text(response.errorMessage ?? "Please retake the photo with better lighting and clarity")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                                    .multilineTextAlignment(.center)
                             }
-                            .padding(.horizontal, 24)
-                            .padding(.bottom, 24)
                         }
-                    } else {
-                        // Success or partial - show review sheet
-                        EmptyView()
-                            .onAppear {
-                                print("📋 Success/Partial response received. Status: \(extractionResponse?.status ?? .failed), Events: \(extractionResponse?.events.count ?? 0)")
-                                showReviewSheet = true
+                        .multilineTextAlignment(.center)
+
+                        Spacer()
+
+                        VStack(spacing: 12) {
+                            // Tips for better photos
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Tips for a better photo:")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.gray)
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "lightbulb.fill")
+                                            .foregroundColor(.yellow)
+                                            .font(.caption)
+                                        Text("Make sure it's well-lit")
+                                            .font(.caption)
+                                    }
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "frame")
+                                            .foregroundColor(.blue)
+                                            .font(.caption)
+                                        Text("Keep schedule centered")
+                                            .font(.caption)
+                                    }
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "reflect.2")
+                                            .foregroundColor(.cyan)
+                                            .font(.caption)
+                                        Text("Avoid glare and shadows")
+                                            .font(.caption)
+                                    }
+                                }
                             }
+                            .padding(12)
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(8)
+
+                            Button(action: {
+                                resetAndRetry()
+                            }) {
+                                Text("Take Another Photo")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .frame(height: 50)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color.blue)
+                                    .cornerRadius(12)
+                            }
+
+                            Button(action: { dismiss() }) {
+                                Text("Cancel")
+                                    .font(.headline)
+                                    .foregroundColor(.blue)
+                                    .frame(height: 50)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 24)
                     }
+                } else {
+                    // Success or partial - show review screen directly
+                    ReviewExtractedEventsView(
+                        extractionResponse: response,
+                        onDismiss: {
+                            print("📋 ReviewExtractedEventsView dismissed")
+                            resetAndRetry()
+                        }
+                    )
                 }
             }
         }
@@ -222,17 +221,6 @@ struct PhotoCalendarImportView: View {
                         processImage()
                     }
                 }
-        }
-        .sheet(isPresented: $showReviewSheet) {
-            if let response = extractionResponse {
-                ReviewExtractedEventsView(
-                    extractionResponse: response,
-                    onDismiss: { dismiss() }
-                )
-                .onAppear {
-                    print("📋 ReviewExtractedEventsView sheet appeared with \(response.events.count) events")
-                }
-            }
         }
         .alert("Error", isPresented: $showErrorAlert) {
             Button("OK") { resetAndRetry() }
@@ -282,7 +270,6 @@ struct PhotoCalendarImportView: View {
         selectedImage = nil
         extractionResponse = nil
         errorMessage = nil
-        showReviewSheet = false
     }
 }
 
