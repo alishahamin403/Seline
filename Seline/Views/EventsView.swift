@@ -227,11 +227,14 @@ struct EventsView: View {
     // MARK: - Helper Methods
 
     private func filteredTasks(from tasks: [TaskItem]) -> [TaskItem] {
-        if let tagId = selectedTagId {
+        if selectedTagId == "" {
+            // Personal filter - show events with nil tagId (default/personal events)
+            return tasks.filter { $0.tagId == nil }
+        } else if let tagId = selectedTagId, !tagId.isEmpty {
             // Filter by specific tag
             return tasks.filter { $0.tagId == tagId }
         } else {
-            // Show all tasks (both personal/nil and tagged)
+            // Show all tasks (selectedTagId == nil means "All")
             return tasks
         }
     }
@@ -269,84 +272,76 @@ struct EventsView: View {
             // Day slider
             DaySliderView(selectedDate: $selectedDate)
 
-            // Filter buttons - Show "All" and all user-created tags
-            HStack(spacing: 8) {
-                // "All" button
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTagId = nil
-                    }
-                }) {
-                    Text("All")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(selectedTagId == nil ? .white : Color.shadcnForeground(colorScheme))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(selectedTagId == nil ?
-                                    Color.gray :
-                                    (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                )
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // Personal (default) button
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTagId = "" // Empty string to filter for personal events (nil tagId)
-                    }
-                }) {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 8, height: 8)
-                    Text("Personal")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(selectedTagId == "" ? .white : Color.shadcnForeground(colorScheme))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(selectedTagId == "" ?
-                                    Color.blue :
-                                    (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                )
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // User-created tags
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(tagManager.tags, id: \.id) { tag in
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectedTagId = tag.id
-                                }
-                            }) {
-                                Circle()
-                                    .fill(tag.color)
-                                    .frame(width: 8, height: 8)
-                                Text(tag.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(selectedTagId == tag.id ? .white : Color.shadcnForeground(colorScheme))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(selectedTagId == tag.id ?
-                                                tag.color :
-                                                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                            )
-                                    )
-                            }
-                            .buttonStyle(PlainButtonStyle())
+            // Filter buttons - Show "All", "Personal", and all user-created tags
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    // "All" button
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedTagId = nil
                         }
+                    }) {
+                        Text("All")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(selectedTagId == nil ? .white : Color.shadcnForeground(colorScheme))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(selectedTagId == nil ?
+                                        Color.gray :
+                                        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                    )
+                            )
                     }
-                }
+                    .buttonStyle(PlainButtonStyle())
 
-                Spacer()
+                    // Personal (default) button - using special marker ""
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedTagId = "" // Empty string to filter for personal events (nil tagId)
+                        }
+                    }) {
+                        Text("Personal")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(selectedTagId == "" ? .white : Color.shadcnForeground(colorScheme))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(selectedTagId == "" ?
+                                        Color.blue :
+                                        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                    )
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // User-created tags
+                    ForEach(tagManager.tags, id: \.id) { tag in
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedTagId = tag.id
+                            }
+                        }) {
+                            Text(tag.name)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(selectedTagId == tag.id ? .white : Color.shadcnForeground(colorScheme))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(selectedTagId == tag.id ?
+                                            tag.color :
+                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                        )
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+
+                    Spacer()
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
