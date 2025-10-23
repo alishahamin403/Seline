@@ -207,7 +207,10 @@ struct PhotoCalendarImportView: View {
                     } else {
                         // Success or partial - show review sheet
                         EmptyView()
-                            .onAppear { showReviewSheet = true }
+                            .onAppear {
+                                print("📋 Success/Partial response received. Status: \(extractionResponse?.status ?? .failed), Events: \(extractionResponse?.events.count ?? 0)")
+                                showReviewSheet = true
+                            }
                     }
                 }
             }
@@ -226,6 +229,9 @@ struct PhotoCalendarImportView: View {
                     extractionResponse: response,
                     onDismiss: { dismiss() }
                 )
+                .onAppear {
+                    print("📋 ReviewExtractedEventsView sheet appeared with \(response.events.count) events")
+                }
             }
         }
         .alert("Error", isPresented: $showErrorAlert) {

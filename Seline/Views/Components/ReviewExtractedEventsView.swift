@@ -49,6 +49,13 @@ struct ReviewExtractedEventsView: View {
                 if !showSuccessScreen {
                     ScrollView {
                         VStack(spacing: 12) {
+                            // Debug counter
+                            Text("Events: \(extractionResponse.events.count)")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+
                             // Calendar selector
                             VStack(spacing: 8) {
                                 HStack {
@@ -72,11 +79,17 @@ struct ReviewExtractedEventsView: View {
                             .padding(.top, 12)
 
                             // Event list
-                            ForEach($extractionResponse.events) { $event in
-                                EventReviewCard(event: $event)
+                            if extractionResponse.events.isEmpty {
+                                Text("No events extracted")
+                                    .foregroundColor(.gray)
+                                    .padding()
+                            } else {
+                                ForEach($extractionResponse.events) { $event in
+                                    EventReviewCard(event: $event)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
                         }
                     }
 
@@ -149,6 +162,10 @@ struct ReviewExtractedEventsView: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            print("📱 ReviewExtractedEventsView appeared with \(extractionResponse.events.count) events")
+            print("📱 Status: \(extractionResponse.status), showSuccessScreen: \(showSuccessScreen)")
         }
         .overlay(
             Group {
