@@ -312,6 +312,94 @@ struct TaskItem: Identifiable, Codable, Equatable {
     static func == (lhs: TaskItem, rhs: TaskItem) -> Bool {
         return lhs.id == rhs.id
     }
+
+    // MARK: - Custom Codable Implementation for Backward Compatibility
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, description, isCompleted, completedDate, weekday, createdAt
+        case isRecurring, recurrenceFrequency, recurrenceEndDate, parentRecurringTaskId
+        case scheduledTime, endTime, targetDate, reminderTime, tagId, isDeleted, completedDates
+        case emailId, emailSubject, emailSenderName, emailSenderEmail, emailSnippet
+        case emailTimestamp, emailBody, emailIsImportant, emailAiSummary
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
+        completedDate = try container.decodeIfPresent(Date.self, forKey: .completedDate)
+        weekday = try container.decode(WeekDay.self, forKey: .weekday)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        isRecurring = try container.decode(Bool.self, forKey: .isRecurring)
+        recurrenceFrequency = try container.decodeIfPresent(RecurrenceFrequency.self, forKey: .recurrenceFrequency)
+        recurrenceEndDate = try container.decodeIfPresent(Date.self, forKey: .recurrenceEndDate)
+        parentRecurringTaskId = try container.decodeIfPresent(String.self, forKey: .parentRecurringTaskId)
+        scheduledTime = try container.decodeIfPresent(Date.self, forKey: .scheduledTime)
+        endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
+        targetDate = try container.decodeIfPresent(Date.self, forKey: .targetDate)
+        reminderTime = try container.decodeIfPresent(ReminderTime.self, forKey: .reminderTime)
+
+        // Handle tagId - might be missing in old data, default to nil
+        tagId = try container.decodeIfPresent(String.self, forKey: .tagId)
+
+        // Handle isDeleted - might be missing in old data, default to false
+        isDeleted = try container.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
+
+        // Handle completedDates - CRITICAL: might be missing in old data, but should be preserved if present
+        completedDates = try container.decodeIfPresent([Date].self, forKey: .completedDates) ?? []
+
+        // Email fields
+        emailId = try container.decodeIfPresent(String.self, forKey: .emailId)
+        emailSubject = try container.decodeIfPresent(String.self, forKey: .emailSubject)
+        emailSenderName = try container.decodeIfPresent(String.self, forKey: .emailSenderName)
+        emailSenderEmail = try container.decodeIfPresent(String.self, forKey: .emailSenderEmail)
+        emailSnippet = try container.decodeIfPresent(String.self, forKey: .emailSnippet)
+        emailTimestamp = try container.decodeIfPresent(Date.self, forKey: .emailTimestamp)
+        emailBody = try container.decodeIfPresent(String.self, forKey: .emailBody)
+        emailIsImportant = try container.decodeIfPresent(Bool.self, forKey: .emailIsImportant) ?? false
+        emailAiSummary = try container.decodeIfPresent(String.self, forKey: .emailAiSummary)
+
+        // Log loaded recurring task with completion info
+        if isRecurring {
+            print("📥 Loaded recurring task '\(title)' with \(completedDates.count) completed dates, tagId: \(tagId ?? "nil")")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encode(isCompleted, forKey: .isCompleted)
+        try container.encodeIfPresent(completedDate, forKey: .completedDate)
+        try container.encode(weekday, forKey: .weekday)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(isRecurring, forKey: .isRecurring)
+        try container.encodeIfPresent(recurrenceFrequency, forKey: .recurrenceFrequency)
+        try container.encodeIfPresent(recurrenceEndDate, forKey: .recurrenceEndDate)
+        try container.encodeIfPresent(parentRecurringTaskId, forKey: .parentRecurringTaskId)
+        try container.encodeIfPresent(scheduledTime, forKey: .scheduledTime)
+        try container.encodeIfPresent(endTime, forKey: .endTime)
+        try container.encodeIfPresent(targetDate, forKey: .targetDate)
+        try container.encodeIfPresent(reminderTime, forKey: .reminderTime)
+        try container.encodeIfPresent(tagId, forKey: .tagId)
+        try container.encode(isDeleted, forKey: .isDeleted)
+        try container.encode(completedDates, forKey: .completedDates)
+
+        try container.encodeIfPresent(emailId, forKey: .emailId)
+        try container.encodeIfPresent(emailSubject, forKey: .emailSubject)
+        try container.encodeIfPresent(emailSenderName, forKey: .emailSenderName)
+        try container.encodeIfPresent(emailSenderEmail, forKey: .emailSenderEmail)
+        try container.encodeIfPresent(emailSnippet, forKey: .emailSnippet)
+        try container.encodeIfPresent(emailTimestamp, forKey: .emailTimestamp)
+        try container.encodeIfPresent(emailBody, forKey: .emailBody)
+        try container.encode(emailIsImportant, forKey: .emailIsImportant)
+        try container.encodeIfPresent(emailAiSummary, forKey: .emailAiSummary)
+    }
 }
 
 @MainActor
@@ -1316,11 +1404,23 @@ class TaskManager: ObservableObject {
             tasksByWeekday[weekday] = fixedTasks.filter { $0.weekday == weekday }
         }
 
-        // Debug: Print recurring tasks
+        // Debug: Print recurring tasks with detailed completed dates info
         let recurringTasks = fixedTasks.filter { $0.isRecurring }
         if !recurringTasks.isEmpty {
+            print("📊 Recurring tasks loaded:")
             for task in recurringTasks {
-                print("   - '\(task.title)': \(task.recurrenceFrequency?.rawValue ?? "nil"), isCompleted: \(task.isCompleted)")
+                print("   - '\(task.title)':")
+                print("     • Frequency: \(task.recurrenceFrequency?.rawValue ?? "nil")")
+                print("     • isCompleted: \(task.isCompleted)")
+                print("     • Completed dates count: \(task.completedDates.count)")
+                if !task.completedDates.isEmpty {
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    for completedDate in task.completedDates {
+                        print("       - \(dateFormatter.string(from: completedDate))")
+                    }
+                }
+                print("     • tagId: \(task.tagId ?? "nil")")
             }
         }
 
@@ -1401,11 +1501,24 @@ class TaskManager: ObservableObject {
                         tasksByWeekday[weekday] = supabaseTasks.filter { $0.weekday == weekday }
                     }
 
-                    // Debug: Print recurring tasks loaded from Supabase
+                    // Debug: Print recurring tasks loaded from Supabase with detailed completion info
                     let recurringTasks = supabaseTasks.filter { $0.isRecurring }
                     if !recurringTasks.isEmpty {
+                        print("📊 Recurring tasks loaded from Supabase:")
                         for task in recurringTasks {
-                            print("   - '\(task.title)': \(task.recurrenceFrequency?.rawValue ?? "nil"), isCompleted: \(task.isCompleted), targetDate: \(task.targetDate?.description ?? "nil")")
+                            print("   - '\(task.title)':")
+                            print("     • Frequency: \(task.recurrenceFrequency?.rawValue ?? "nil")")
+                            print("     • isCompleted: \(task.isCompleted)")
+                            print("     • Completed dates count: \(task.completedDates.count)")
+                            if !task.completedDates.isEmpty {
+                                let dateFormatter = DateFormatter()
+                                dateFormatter.dateStyle = .medium
+                                for completedDate in task.completedDates {
+                                    print("       - \(dateFormatter.string(from: completedDate))")
+                                }
+                            }
+                            print("     • targetDate: \(task.targetDate?.description ?? "nil")")
+                            print("     • tagId: \(task.tagId ?? "nil")")
                         }
                     }
 
@@ -1558,10 +1671,14 @@ class TaskManager: ObservableObject {
 
         // Parse completed dates for recurring tasks
         if let completedDatesJson = taskDict["completed_dates_json"] as? String,
+           !completedDatesJson.isEmpty,
            let jsonData = completedDatesJson.data(using: .utf8),
            let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
             let formatter = ISO8601DateFormatter()
             taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
+            if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
+                print("📥 Restored \(taskItem.completedDates.count) completed dates for recurring task '\(taskItem.title)' from Supabase")
+            }
         }
 
         // Note: email_ai_summary column doesn't exist in Supabase yet
