@@ -4,8 +4,7 @@ import PhotosUI
 struct PhotoCalendarImportView: View {
     @Environment(\.dismiss) var dismiss
     @State private var selectedImage: UIImage?
-    @State private var showImagePicker = false
-    @State private var sourceType: UIImagePickerController.SourceType = .camera
+    @State private var showGallery = false
     @State private var isProcessing = false
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
     @State private var errorMessage: String?
@@ -18,80 +17,50 @@ struct PhotoCalendarImportView: View {
                 .ignoresSafeArea()
 
             if selectedImage == nil && !isProcessing && extractionResponse == nil {
-                // Camera/Gallery Selection Screen
-                VStack(spacing: 24) {
-                    Spacer()
+                // Open camera directly
+                ZStack(alignment: .bottomLeading) {
+                    CameraAndLibraryPicker(image: $selectedImage, sourceType: .camera)
+                        .ignoresSafeArea()
 
-                    // Icon and title
-                    VStack(spacing: 16) {
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.white)
-                            .frame(width: 100, height: 100)
-                            .background(Circle().fill(Color(red: 0.27, green: 0.27, blue: 0.27)))
-                            .padding(.bottom, 8)
-
-                        VStack(spacing: 8) {
-                            Text("Import Schedule from Photo")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-
-                            Text("Take a picture of your calendar, printed schedule, or email calendar to automatically add events")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                                .multilineTextAlignment(.center)
-                        }
-                    }
-
-                    Spacer()
-
-                    // Action buttons
-                    VStack(spacing: 12) {
-                        // Camera button
-                        Button(action: { openCamera() }) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "camera.fill")
-                                Text("Take Photo")
-                                Spacer()
-                            }
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(height: 50)
-                            .frame(maxWidth: .infinity)
-                            .background(Color(red: 0.27, green: 0.27, blue: 0.27))
-                            .cornerRadius(12)
-                        }
-
-                        // Gallery button
-                        Button(action: { openGallery() }) {
-                            HStack(spacing: 12) {
+                    // Gallery button in bottom left (like iPhone native camera)
+                    VStack(alignment: .leading) {
+                        Spacer()
+                        HStack(spacing: 12) {
+                            Button(action: { showGallery = true }) {
                                 Image(systemName: "photo.fill")
-                                Text("Choose from Library")
-                                Spacer()
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                                    .background(Color.black.opacity(0.6))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(height: 50)
-                            .frame(maxWidth: .infinity)
-                            .background(Color(red: 0.34, green: 0.34, blue: 0.34))
-                            .cornerRadius(12)
-                        }
-                    }
-                    .padding(.horizontal, 24)
 
-                    VStack(spacing: 12) {
-                        Button(action: { dismiss() }) {
-                            Text("Cancel")
-                                .font(.headline)
-                                .foregroundColor(.gray)
-                                .frame(height: 50)
-                                .frame(maxWidth: .infinity)
+                            Spacer()
+
+                            // Close button in bottom right
+                            Button(action: { dismiss() }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                            }
                         }
+                        .padding(16)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
                 }
-                .padding(24)
+                .sheet(isPresented: $showGallery) {
+                    CameraAndLibraryPicker(image: $selectedImage, sourceType: .photoLibrary)
+                        .onDisappear {
+                            if selectedImage != nil {
+                                processImage()
+                            }
+                        }
+                }
+                .onChange(of: selectedImage) { newImage in
+                    if newImage != nil {
+                        processImage()
+                    }
+                }
             } else if isProcessing {
                 // Processing screen
                 VStack(spacing: 20) {
@@ -217,14 +186,6 @@ struct PhotoCalendarImportView: View {
                 }
             }
         }
-        .sheet(isPresented: $showImagePicker) {
-            CameraAndLibraryPicker(image: $selectedImage, sourceType: sourceType)
-                .onDisappear {
-                    if selectedImage != nil {
-                        processImage()
-                    }
-                }
-        }
         .alert("Error", isPresented: $showErrorAlert) {
             Button("OK") { resetAndRetry() }
         } message: {
@@ -235,16 +196,6 @@ struct PhotoCalendarImportView: View {
     }
 
     // MARK: - Private Methods
-
-    private func openCamera() {
-        sourceType = .camera
-        showImagePicker = true
-    }
-
-    private func openGallery() {
-        sourceType = .photoLibrary
-        showImagePicker = true
-    }
 
     private func processImage() {
         guard let image = selectedImage else { return }

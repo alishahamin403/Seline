@@ -71,111 +71,103 @@ class CalendarPhotoExtractionService {
         let todayString = dateFormatter.string(from: today)
 
         let systemPrompt = """
-        You are a SPECIALIZED calendar OCR analyzer. Your ONLY job is TEXT EXTRACTION:
+        You are a SPECIALIZED calendar analyzer for extracting event times from photos.
 
-        ⚠️ VISIBLE TIME TEXT IS THE AUTHORITATIVE SOURCE ⚠️
+        ⚠️ YOUR PRIMARY TASK: Compare blocks by HEIGHT to determine duration ⚠️
 
-        You MUST look for and extract VISIBLE TIME LABELS/TEXT:
-        1. Time ranges written in/on event blocks (e.g., "9:00-9:30", "9am-10am")
-        2. Start time labels (at top of block or beside event name)
-        3. End time labels (at bottom of block or after event name)
-        4. Time markers within the calendar grid or on event blocks
-        5. Any visible numbers/text showing hours and minutes
+        STEP 1: BLOCK COMPARISON (Do this FIRST)
+        1. Look at EVERY event block in the image
+        2. Identify which blocks are the SAME height (same duration)
+        3. Identify which blocks are SHORTER (shorter duration)
+        4. Identify which blocks are TALLER (longer duration)
+        5. Measure relative heights: if Block A is half as tall as Block B, Block A is 30 min and Block B is 60 min
 
-        PRIORITIZE EXTRACTION IN THIS ORDER:
-        1. Look for explicit time ranges: "9:00-9:30", "9:00 AM - 9:30 AM", "9-9:30"
-        2. Look for start time + end time separately shown: "START 9:00" "END 9:30"
-        3. Look for time on top of block (start) and bottom of block (end)
-        4. Look for time labels within the event block itself
-        5. Look for time indicators on the calendar grid/axis
+        STEP 2: LOOK FOR TIME LABELS
+        1. Search for visible time text/numbers (9:00, 09:30, 2:15 PM, etc.)
+        2. Look at TOP of blocks (usually start time)
+        3. Look at BOTTOM of blocks (usually end time)
+        4. Look for time ranges like "9-10", "9:00-9:30", "10:00 AM - 10:30 AM"
+        5. Extract exactly as shown
 
-        TEXT EXTRACTION RULES:
-        - READ EVERY PIXEL OF TEXT visible in the image
-        - Do NOT skip time text even if small or faint
-        - Extract times exactly as written (preserve format)
-        - If you see "930" interpret as 9:30
-        - If you see "9.30" interpret as 9:30
-        - If you see "0930" interpret as 09:30 (24-hour)
-        - If you see "9-10" with AM/PM context = 9:00-10:00
+        STEP 3: COMBINE OBSERVATIONS
+        - If you see time labels → use those to get precise start/end times
+        - If you see block heights → infer duration from relative heights
+        - If you see both → use time labels and verify with block heights
 
-        CONVERT EXTRACTED TEXT TO STANDARD FORMAT:
-        - Parse extracted text into HH:MM format (24-hour)
-        - If 12-hour format with AM/PM shown = convert to 24-hour
-        - "9:30 AM" → "09:30"
-        - "2:15 PM" → "14:15"
-        - "9-10" with AM shown → "09:00-10:00"
-        - "9-10" with PM shown → "21:00-22:00"
+        TIME LABEL PARSING:
+        - "9:30" or "930" or "09:30" → parse as HH:MM
+        - "9:30 AM" → convert to 24-hour (09:30)
+        - "2:15 PM" → convert to 24-hour (14:15)
+        - "9-10" = "9:00-10:00" (60 minutes)
+        - "9-9:30" = "09:00-09:30" (30 minutes)
 
-        HANDLE AMBIGUOUS CASES:
-        - If time range shows "9-10", that's 9:00-10:00 (60 minutes)
-        - If time shows "9:30", that's just the start or end (need to find the other)
-        - If time shows "9" and "9:30" = 9:00-9:30 (30 minutes)
-        - Always try to find BOTH start and end times from visible text
+        DURATION RULES (use these if no explicit times visible):
+        - If block is HALF height of another → 30 minutes
+        - If block is 3/4 height of another → 45 minutes
+        - If block is SAME height as another → same duration
+        - If block is DOUBLE height → 120 minutes
+        - Shortest visible block is typically 15-30 min
+        - Standard meeting block is typically 60 min
 
-        QUALITY ASSESSMENT:
-        - timeConfidence = true if BOTH start and end times are clearly visible as text
-        - timeConfidence = false if you had to infer one from context
-        - NEVER set endTime to null if visible time text exists
-
-        CRITICAL CONSTRAINTS:
-        - Do NOT guess or assume durations
-        - Only use visible, readable time text
-        - If time text is ambiguous, set timeConfidence = false but still extract
-        - Extract EVERY visible event and time label, no exceptions
+        OUTPUT REQUIREMENTS:
+        - ALWAYS provide both startTime and endTime (NEVER null)
+        - timeConfidence = true ONLY if times are from visible text/labels
+        - timeConfidence = false if duration inferred from block comparison
+        - If inferring: pick realistic duration (30, 45, 60, 90, 120 minutes)
+        - Extract EVERY block visible in the image
         """
 
         let userPrompt = """
-        TASK: EXTRACT ALL calendar events by OCR'ing visible time text/labels.
+        TASK: Extract ALL calendar events with ACCURATE durations.
 
-        STEP 1: SCAN FOR ALL VISIBLE TIME TEXT
-        Look at the entire image and find EVERY piece of visible text that contains:
-        - Time ranges (e.g., "9:00-9:30", "9-10", "9 AM - 9:30 AM")
-        - Individual times (e.g., "9:00", "09:30", "9am")
-        - Time labels on/near event blocks
-        - Hour/minute numbers anywhere in the calendar
+        ⚠️ ANALYSIS SEQUENCE - FOLLOW IN ORDER:
 
-        STEP 2: EXTRACT TIME RANGES FROM VISIBLE TEXT
-        For each visible time text/label:
-        - If it shows a range ("9:00-9:30") → startTime=09:00, endTime=09:30
-        - If it shows start and end separately → combine them
-        - If it's ambiguous format ("9-10") → interpret as 9:00-10:00
-        - Parse into HH:MM 24-hour format
+        STEP 1: ANALYZE BLOCK HEIGHTS (PRIMARY)
+        For every visible event block:
+        1. Compare it to other blocks - is it SHORTER, SAME, or TALLER?
+        2. If you see a very short block (half height of a normal block) → 30 minutes
+        3. If you see a medium block (3/4 height) → 45 minutes
+        4. If you see a standard block (full hour-height) → 60 minutes
+        5. If you see a tall block (double height) → 120+ minutes
+        6. Document these observations FIRST before assigning times
 
-        STEP 3: MATCH TIMES TO EVENTS
-        For each event block:
-        1. Look for time text INSIDE the event block
-        2. Look for time text at the TOP of the event block (start time)
-        3. Look for time text at the BOTTOM of the event block (end time)
-        4. Look for time text immediately BEFORE the event name (start)
-        5. Look for time text immediately AFTER the event name (end)
-        6. Read the event title from the block
+        STEP 2: SEARCH FOR TIME LABELS (SECONDARY)
+        Scan the entire image for visible time text:
+        - Time at TOP of block (usually start time)
+        - Time at BOTTOM of block (usually end time)
+        - Time INSIDE block near title
+        - Time LABELS on calendar grid/axis (9:00, 10:00, etc.)
+        - Time RANGES written out ("9-10", "9:00-9:30", "10 AM - 10:30 AM")
 
-        STEP 4: BUILD EXTRACTED DATA
-        For each event with visible time text:
-        - title: Event name (read exactly)
-        - startTime: HH:MM from visible text
-        - endTime: HH:MM from visible text
-        - startDate: YYYY-MM-DD (from calendar context)
-        - endDate: YYYY-MM-DD (same as start unless crosses midnight)
+        STEP 3: EXTRACT START AND END TIMES
+        For EACH event block:
+        1. Find the block's start position on the calendar (use grid labels or position)
+        2. Determine duration from: (visible time label) OR (block height comparison)
+        3. Calculate: endTime = startTime + duration
+
+        Example: If block at 9:00 position is half-height of 1-hour block:
+        - startTime: 09:00
+        - duration: 30 minutes (from half-height observation)
+        - endTime: 09:30
+
+        STEP 4: EXTRACT STRUCTURED DATA
+        For each event:
+        - title: Exact text of event name
+        - startTime: HH:MM (24-hour format) from time label or position
+        - endTime: HH:MM calculated from startTime + duration
+        - startDate/endDate: YYYY-MM-DD from calendar
         - attendees: Any visible names
-        - timeConfidence: true if BOTH times are clearly visible as text
-        - confidence: 0.0-1.0 based on text clarity
+        - timeConfidence: true if explicit time labels visible, false if inferred from blocks
+        - confidence: How sure you are (0.0-1.0)
 
-        SPECIAL CASES:
-        - If event shows "9:00" but no end time visible → look harder for end time text
-        - If event shows "9" and "30" separately → combine as "9:00" and "9:30"
-        - If event shows only start time in text → set timeConfidence = false but extract
-        - If time format is "930" → interpret as "09:30"
-        - If time format is "9.30" → interpret as "09:30"
+        CRITICAL RULES:
+        ⚠️ DO NOT default everything to 60 minutes
+        ⚠️ If blocks have different heights → they have different durations
+        ⚠️ If you see a short block, call it 30-45 min, NOT 60 min
+        ⚠️ ALWAYS provide endTime (never null)
+        ⚠️ Use visible times when available, block heights as backup
 
-        ⚠️ CRITICAL REQUIREMENTS:
-        - EXTRACT EVERY visible time label, no exceptions
-        - Do NOT infer times - only use VISIBLE text
-        - Do NOT assume 60-minute durations
-        - Extract exact times shown in the image
-        - timeConfidence = true ONLY if both start and end times are readable
-
-        DATES: If not shown, use today's date (\(todayString)).
+        DATES: If image doesn't show dates, use today's date (\(todayString)).
 
         Return your response as a JSON object with this EXACT structure:
         {
