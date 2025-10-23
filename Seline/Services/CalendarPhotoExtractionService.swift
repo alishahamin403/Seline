@@ -229,7 +229,27 @@ class CalendarPhotoExtractionService {
     // MARK: - Private Methods
 
     private func parseExtractionResponse(_ jsonString: String) throws -> CalendarPhotoExtractionResponse {
-        guard let jsonData = jsonString.data(using: .utf8) else {
+        // Strip markdown code fence formatting if present
+        var cleanedJson = jsonString
+
+        // Remove leading ```json or ```
+        if cleanedJson.starts(with: "```json") {
+            cleanedJson = String(cleanedJson.dropFirst(7)) // Remove "```json"
+        } else if cleanedJson.starts(with: "```") {
+            cleanedJson = String(cleanedJson.dropFirst(3)) // Remove "```"
+        }
+
+        // Remove trailing ```
+        if cleanedJson.hasSuffix("```") {
+            cleanedJson = String(cleanedJson.dropLast(3)) // Remove trailing "```"
+        }
+
+        // Trim whitespace
+        cleanedJson = cleanedJson.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        print("🔍 Cleaned JSON: \(cleanedJson.prefix(100))...") // Log first 100 chars
+
+        guard let jsonData = cleanedJson.data(using: .utf8) else {
             throw ExtractionError.decodingError
         }
 
