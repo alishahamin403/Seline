@@ -1373,8 +1373,27 @@ class TaskManager: ObservableObject {
 
     private func saveTasks() {
         let allTasks = tasks.values.flatMap { $0 }
+
+        // Log all recurring tasks with their completed dates before saving
+        let recurringTasks = allTasks.filter { $0.isRecurring }
+        if !recurringTasks.isEmpty {
+            for task in recurringTasks {
+                if !task.completedDates.isEmpty {
+                    print("💾 Saving recurring task '\(task.title)' with \(task.completedDates.count) completed dates:")
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    for date in task.completedDates {
+                        print("   - \(dateFormatter.string(from: date))")
+                    }
+                }
+            }
+        }
+
         if let encoded = try? JSONEncoder().encode(allTasks) {
             userDefaults.set(encoded, forKey: tasksKey)
+            print("✅ Successfully saved \(allTasks.count) tasks to local storage (\(recurringTasks.count) recurring)")
+        } else {
+            print("❌ Failed to encode tasks for local storage")
         }
     }
 
@@ -1707,11 +1726,17 @@ class TaskManager: ObservableObject {
 
             print("💾 Saving task to Supabase: '\(task.title)' - Recurring: \(task.isRecurring), Frequency: \(task.recurrenceFrequency?.rawValue ?? "none")")
 
+            // Log completion dates if this is a recurring task
+            if task.isRecurring && !task.completedDates.isEmpty {
+                print("   with \(task.completedDates.count) completed dates")
+            }
+
             try await client
                 .from("tasks")
                 .upsert(taskData)
                 .execute()
 
+            print("✅ Task '\(task.title)' saved to Supabase")
 
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
@@ -1726,7 +1751,19 @@ class TaskManager: ObservableObject {
 
         do {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
-            print("📤 Supabase update data: \(taskData)")
+
+            // Log completion status for recurring tasks
+            if task.isRecurring && !task.completedDates.isEmpty {
+                print("📤 Updating recurring task '\(task.title)' with \(task.completedDates.count) completed dates to Supabase")
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .medium
+                for date in task.completedDates {
+                    print("   - \(dateFormatter.string(from: date))")
+                }
+            } else if task.isRecurring {
+                print("📤 Updating recurring task '\(task.title)' with 0 completed dates to Supabase")
+            }
+
             let client = await supabaseManager.getPostgrestClient()
 
             try await client
@@ -1735,6 +1772,7 @@ class TaskManager: ObservableObject {
                 .eq("id", value: task.id)
                 .execute()
 
+            print("✅ Task '\(task.title)' updated in Supabase")
 
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")
@@ -2107,17 +2145,19 @@ class TaskManager: ObservableObject {
                 let instancesUpToToday = countRecurringInstances(task: task, upToDate: today)
                 totalInstancesCount += instancesUpToToday
 
-                // Count completed instances
-                let completedInstances = allTasks.filter { relatedTask in
-                    // Check if this is the parent task itself or an instance of it
-                    let isRelated = (relatedTask.id == task.id || relatedTask.parentRecurringTaskId == task.id)
-                    let isCompletedBeforeToday = relatedTask.isCompleted &&
-                                                 (relatedTask.targetDate ?? relatedTask.createdAt) <= today
-                    return isRelated && isCompletedBeforeToday && !relatedTask.isDeleted
+                // Count completed instances based on completedDates array
+                let completedInstances = task.completedDates.filter { completedDate in
+                    completedDate <= today
                 }.count
 
                 completedCount += completedInstances
                 incompleteCount += (instancesUpToToday - completedInstances)
+
+                // Log stats for each recurring task for debugging
+                if instancesUpToToday > 0 {
+                    let percentage = Double(completedInstances) / Double(instancesUpToToday) * 100.0
+                    print("📊 Recurring task '\(task.title)': \(completedInstances)/\(instancesUpToToday) (\(String(format: "%.1f", percentage))%)")
+                }
             }
         }
 
