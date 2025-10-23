@@ -4,8 +4,6 @@ struct SettingsView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
-    @StateObject private var notesManager = NotesManager.shared
-    @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     // Computed property to get current theme state
@@ -15,14 +13,6 @@ struct SettingsView: View {
 
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
-
-    // Encryption states for each data type
-    @State private var isEncryptingNotes = false
-    @State private var isEncryptingTasks = false
-    @State private var isEncryptingPlaces = false
-    @State private var isEncryptingFolders = false
-    @State private var encryptionStatus = ""
-    @State private var showEncryptionSuccess = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,73 +111,6 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
-                        // Data Encryption Section
-                        VStack(spacing: 0) {
-                            settingsEncryptionButton(
-                                label: "Encrypt Notes",
-                                icon: "note.text.badge.plus",
-                                isEncrypting: isEncryptingNotes,
-                                action: {
-                                    Task {
-                                        isEncryptingNotes = true
-                                        await notesManager.reencryptAllExistingNotes()
-                                        isEncryptingNotes = false
-                                    }
-                                }
-                            )
-
-                            Divider()
-                                .padding(.leading, 50)
-
-                            settingsEncryptionButton(
-                                label: "Encrypt Tasks",
-                                icon: "checkmark.circle",
-                                isEncrypting: isEncryptingTasks,
-                                action: {
-                                    Task {
-                                        isEncryptingTasks = true
-                                        await TaskManager.shared.reencryptAllExistingTasks()
-                                        isEncryptingTasks = false
-                                    }
-                                }
-                            )
-
-                            Divider()
-                                .padding(.leading, 50)
-
-                            settingsEncryptionButton(
-                                label: "Encrypt Saved Places",
-                                icon: "mappin.circle",
-                                isEncrypting: isEncryptingPlaces,
-                                action: {
-                                    Task {
-                                        isEncryptingPlaces = true
-                                        await locationsManager.reencryptAllExistingSavedPlaces()
-                                        isEncryptingPlaces = false
-                                    }
-                                }
-                            )
-
-                            Divider()
-                                .padding(.leading, 50)
-
-                            settingsEncryptionButton(
-                                label: "Encrypt Folders",
-                                icon: "folder",
-                                isEncrypting: isEncryptingFolders,
-                                action: {
-                                    Task {
-                                        isEncryptingFolders = true
-                                        await notesManager.reencryptAllExistingFolders()
-                                        isEncryptingFolders = false
-                                    }
-                                }
-                            )
-                        }
-
-                        Divider()
-                            .padding(.leading, 50)
-
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -236,42 +159,6 @@ struct SettingsView: View {
 
             Spacer()
         }
-    }
-
-    // MARK: - Encryption Button Helper
-    private func settingsEncryptionButton(
-        label: String,
-        icon: String,
-        isEncrypting: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.green)
-                    .frame(width: 24)
-
-                Text(label)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(isDarkMode ? .white : .black)
-
-                Spacer()
-
-                if isEncrypting {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.green.opacity(0.3))
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .opacity(isEncrypting ? 0.7 : 1.0)
-        }
-        .disabled(isEncrypting)
     }
 
     // MARK: - Logout Menu Item
