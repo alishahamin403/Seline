@@ -1706,6 +1706,114 @@ class NotesManager: ObservableObject {
             print("🗑️ Cleaned up \(expiredNotes.count) notes and \(expiredFolders.count) folders older than 30 days")
         }
     }
+
+    // MARK: - Bulk Re-encryption for Existing Data
+
+    /// Re-encrypt all existing notes in Supabase
+    /// This converts plaintext notes to encrypted notes
+    /// Call this once to secure all existing user data
+    ///
+    /// Usage:
+    /// ```swift
+    /// Task {
+    ///     await NotesManager.shared.reencryptAllExistingNotes()
+    /// }
+    /// ```
+    func reencryptAllExistingNotes() async {
+        let isAuthenticated = await MainActor.run { authManager.isAuthenticated }
+        let userId = await MainActor.run { authManager.supabaseUser?.id }
+
+        guard isAuthenticated, let userId = userId else {
+            print("❌ User not authenticated, cannot re-encrypt notes")
+            return
+        }
+
+        print("🔐 Starting bulk re-encryption of existing notes...")
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // Fetch ALL notes for this user
+            let response: [NoteSupabaseData] = try await client
+                .from("notes")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            print("📥 Fetched \(response.count) notes for re-encryption")
+
+            var reencryptedCount = 0
+            var skippedCount = 0
+            var errorCount = 0
+
+            // Process each note
+            for (index, supabaseNote) in response.enumerated() {
+                // Try to decrypt it - if it fails, it's plaintext
+                var note = Note(title: supabaseNote.title, content: supabaseNote.content)
+                note.id = UUID(uuidString: supabaseNote.id) ?? UUID()
+                note.isPinned = supabaseNote.is_pinned
+                note.isLocked = supabaseNote.is_locked
+
+                // Check if already encrypted by trying to decrypt
+                let decryptTest = try? EncryptionManager.shared.decrypt(supabaseNote.title)
+
+                if decryptTest != nil && decryptTest == supabaseNote.title {
+                    // Successfully decrypted to same value = already encrypted
+                    skippedCount += 1
+                    print("✅ Note \(index + 1)/\(response.count): Already encrypted - '\(supabaseNote.title)'")
+                } else {
+                    // Failed to decrypt or got different value = plaintext
+                    // Re-encrypt it
+                    do {
+                        let encrypted = try await encryptNoteBeforeSaving(note)
+
+                        // Update in Supabase with encrypted version
+                        let formatter = ISO8601DateFormatter()
+                        let updateData: [String: PostgREST.AnyJSON] = [
+                            "title": .string(encrypted.title),
+                            "content": .string(encrypted.content),
+                            "date_modified": .string(formatter.string(from: Date()))
+                        ]
+
+                        try await client
+                            .from("notes")
+                            .update(updateData)
+                            .eq("id", value: note.id.uuidString)
+                            .execute()
+
+                        reencryptedCount += 1
+                        print("🔐 Note \(index + 1)/\(response.count): Re-encrypted - '\(supabaseNote.title)'")
+                    } catch {
+                        errorCount += 1
+                        print("❌ Note \(index + 1)/\(response.count): Failed to encrypt - '\(supabaseNote.title)': \(error.localizedDescription)")
+                    }
+                }
+            }
+
+            // Summary
+            print("\n" + String(repeating: "=", count: 60))
+            print("🔐 BULK RE-ENCRYPTION COMPLETE")
+            print("=" + String(repeating: "=", count: 60))
+            print("✅ Re-encrypted: \(reencryptedCount) notes")
+            print("✅ Already encrypted: \(skippedCount) notes")
+            print("❌ Errors: \(errorCount) notes")
+            print("📊 Total: \(response.count) notes processed")
+            print(String(repeating: "=", count: 60) + "\n")
+
+            if reencryptedCount > 0 {
+                print("✨ All \(reencryptedCount) plaintext notes have been encrypted!")
+                print("   Your data is now protected with end-to-end encryption.")
+            } else if skippedCount == response.count {
+                print("✨ All notes are already encrypted!")
+                print("   Your data is fully protected.")
+            }
+
+        } catch {
+            print("❌ Error during bulk re-encryption: \(error)")
+            print("   Please try again later")
+        }
+    }
 }
 
 // MARK: - Supabase Data Structures
