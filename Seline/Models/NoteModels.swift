@@ -1276,16 +1276,28 @@ class NotesManager: ObservableObject {
         }
 
         // CRITICAL: Ensure encryption key is initialized before loading
-        // Wait for EncryptionManager to be ready (max 2 seconds)
+        // Wait for EncryptionManager to be ready (max 5 seconds)
         var attempts = 0
-        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             attempts += 1
         }
 
+        // If still not initialized, force initialize it now
         if await !EncryptionManager.shared.isKeyInitialized {
-            print("⚠️ Encryption key not initialized after 2 seconds, loading notes anyway")
+            print("⚠️ Encryption key not initialized after 5 seconds, initializing now with userId: \(userId.uuidString)")
+            await MainActor.run {
+                EncryptionManager.shared.setupEncryption(with: userId)
+            }
         }
+
+        // Verify encryption key is now initialized before proceeding
+        if await !EncryptionManager.shared.isKeyInitialized {
+            print("❌ CRITICAL: Encryption key failed to initialize! Notes cannot be decrypted.")
+            return
+        }
+
+        print("✅ Encryption key is ready. Proceeding to load notes.")
 
         print("📥 Loading notes from Supabase for user: \(userId.uuidString)")
 
@@ -1548,16 +1560,28 @@ class NotesManager: ObservableObject {
         }
 
         // CRITICAL: Ensure encryption key is initialized before loading
-        // Wait for EncryptionManager to be ready (max 2 seconds)
+        // Wait for EncryptionManager to be ready (max 5 seconds)
         var attempts = 0
-        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             attempts += 1
         }
 
+        // If still not initialized, force initialize it now
         if await !EncryptionManager.shared.isKeyInitialized {
-            print("⚠️ Encryption key not initialized after 2 seconds, loading folders anyway")
+            print("⚠️ Encryption key not initialized after 5 seconds, initializing now with userId: \(userId.uuidString)")
+            await MainActor.run {
+                EncryptionManager.shared.setupEncryption(with: userId)
+            }
         }
+
+        // Verify encryption key is now initialized
+        if await !EncryptionManager.shared.isKeyInitialized {
+            print("❌ CRITICAL: Encryption key failed to initialize! Folders cannot be decrypted.")
+            return
+        }
+
+        print("✅ Encryption key is ready. Proceeding to load folders.")
 
         print("📥 Loading folders from Supabase for user: \(userId.uuidString)")
 
