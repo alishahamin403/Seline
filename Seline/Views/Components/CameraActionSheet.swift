@@ -10,30 +10,33 @@ struct CameraActionSheet: View {
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
 
     var body: some View {
-        ZStack {
+        Group {
             if isProcessing {
                 // Processing screen
-                Color(UIColor.systemBackground)
-                    .ignoresSafeArea()
+                ZStack {
+                    Color(UIColor.systemBackground)
+                        .ignoresSafeArea()
 
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .scaleEffect(1.5)
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.5)
 
-                    VStack(spacing: 8) {
-                        Text("Analyzing Schedule...")
-                            .font(.headline)
-                        Text("Extracting times, titles, and attendees")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
+                        VStack(spacing: 8) {
+                            Text("Analyzing Schedule...")
+                                .font(.headline)
+                            Text("Extracting times, titles, and attendees")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
                     }
                 }
             } else if let response = extractionResponse {
                 // Result handling
-                Color(UIColor.systemBackground)
-                    .ignoresSafeArea()
+                ZStack {
+                    Color(UIColor.systemBackground)
+                        .ignoresSafeArea()
 
-                if response.status == .failed {
+                    if response.status == .failed {
                     // Failure screen
                     VStack(spacing: 20) {
                         Spacer()
@@ -138,7 +141,11 @@ struct CameraActionSheet: View {
                             resetAndRetry()
                         }
                     )
+                    }
                 }
+            } else {
+                // No content - show empty view for clean action sheet overlay
+                EmptyView()
             }
         }
         .sheet(isPresented: $showImagePicker) {
