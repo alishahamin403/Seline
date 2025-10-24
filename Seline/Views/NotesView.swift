@@ -458,10 +458,7 @@ struct NoteEditView: View {
     @State private var showingFolderPicker = false
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
-    @State private var showingCustomPrompt = false
-    @State private var customPrompt = ""
     @State private var isProcessingCleanup = false
-    @State private var isProcessingCustom = false
     @State private var showingShareSheet = false
     @StateObject private var openAIService = OpenAIService.shared
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
@@ -481,7 +478,7 @@ struct NoteEditView: View {
     @State private var noteTodoLists: [NoteTodoList] = []
 
     var isAnyProcessing: Bool {
-        isProcessingCleanup || isProcessingCustom || isProcessingReceipt || isGeneratingTitle
+        isProcessingCleanup || isProcessingReceipt || isGeneratingTitle
     }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
@@ -566,19 +563,6 @@ struct NoteEditView: View {
             }
         } message: {
             Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
-        }
-        .alert("Custom Edit", isPresented: $showingCustomPrompt) {
-            TextField("Enter editing instructions (max 2 sentences)", text: $customPrompt)
-            Button("Cancel", role: .cancel) {
-                customPrompt = ""
-            }
-            Button("Apply") {
-                Task {
-                    await applyCustomEdit()
-                }
-            }
-        } message: {
-            Text("Enter your instructions in 1-2 sentences. Output will be text and links only.")
         }
         .sheet(isPresented: $showingShareSheet) {
             if let noteToShare = note {
@@ -986,27 +970,6 @@ struct NoteEditView: View {
                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
             )
             .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            // AI Custom Edit button - allows user to enter their own prompt (up to 2 sentences)
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                showingCustomPrompt = true
-            }) {
-                if isProcessingCustom {
-                    ShadcnSpinner(size: .small)
-                        .frame(height: 36)
-                } else {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 40, height: 36)
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-            .disabled(isAnyProcessing)
 
             // Table insert button - directly creates 3x3 table
             Button(action: {
@@ -1617,59 +1580,6 @@ struct NoteEditView: View {
         }
 
         return result
-    }
-
-    private func applyCustomEdit() async {
-        // Validate prompt
-        let trimmedPrompt = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
-            customPrompt = ""
-            return
-        }
-
-        // Count sentences (simple check for periods, exclamation marks, question marks)
-        let sentenceEnders = CharacterSet(charactersIn: ".!?")
-        let sentences = trimmedPrompt.components(separatedBy: sentenceEnders).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-        if sentences.count > 2 {
-            // Show error - prompt too long
-            await MainActor.run {
-                customPrompt = ""
-            }
-            return
-        }
-
-        isProcessingCustom = true
-        saveToUndoHistory()
-
-        let prompt = trimmedPrompt + "\n\nIMPORTANT: Output should be text and links only. Do not include images, pictures, or media."
-        customPrompt = ""
-
-        do {
-            let editedText = try await openAIService.customEditText(content.isEmpty ? "" : content, prompt: prompt)
-            await MainActor.run {
-                // Parse and extract tables and todos from markdown
-                let processedText = parseAndExtractTablesAndTodos(from: editedText)
-
-                content = processedText
-                // Use MarkdownParser to properly render formatting
-                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(
-                    processedText,
-                    fontSize: 15,
-                    textColor: textColor
-                )
-                isProcessingCustom = false
-                HapticManager.shared.aiActionComplete()
-                saveToUndoHistory()
-            }
-        } catch {
-            await MainActor.run {
-                isProcessingCustom = false
-                HapticManager.shared.error()
-                print("Error with custom edit: \(error.localizedDescription)")
-            }
-        }
     }
 
     private func processReceiptImage(_ image: UIImage) {
