@@ -6,18 +6,13 @@ struct DirectCameraImportView: View {
     @State private var showCameraPicker = true
     @State private var isProcessing = false
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
-    @State private var errorMessage: String?
-    @State private var showErrorAlert = false
 
     var body: some View {
         ZStack {
             Color(UIColor.systemBackground)
                 .ignoresSafeArea()
 
-            if selectedImage == nil && !isProcessing && extractionResponse == nil {
-                // Show camera picker directly - no intro screen
-                EmptyView()
-            } else if isProcessing {
+            if isProcessing {
                 // Processing screen
                 VStack(spacing: 20) {
                     ProgressView()
@@ -142,20 +137,13 @@ struct DirectCameraImportView: View {
             }
         }
         .sheet(isPresented: $showCameraPicker) {
-            // Open camera directly with library access via the bottom left thumbnail
-            CameraAndLibraryPicker(image: $selectedImage, sourceType: .camera)
+            // Open native camera with library access
+            NativeCameraPickerView(image: $selectedImage)
                 .onDisappear {
                     if selectedImage != nil {
                         processImage()
                     }
                 }
-        }
-        .alert("Error", isPresented: $showErrorAlert) {
-            Button("OK") { resetAndRetry() }
-        } message: {
-            if let error = errorMessage {
-                Text(error)
-            }
         }
     }
 
@@ -187,8 +175,53 @@ struct DirectCameraImportView: View {
     private func resetAndRetry() {
         selectedImage = nil
         extractionResponse = nil
-        errorMessage = nil
         showCameraPicker = true
+    }
+}
+
+// MARK: - Native Camera Picker
+
+struct NativeCameraPickerView: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    @Environment(\.presentationMode) var presentationMode
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        // Enable library access - shows gallery thumbnail in bottom-left
+        picker.showsCameraControls = true
+
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: NativeCameraPickerView
+
+        init(_ parent: NativeCameraPickerView) {
+            self.parent = parent
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.image = image
+            }
+            picker.dismiss(animated: true)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+        }
     }
 }
 
