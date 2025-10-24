@@ -1633,9 +1633,21 @@ class NotesManager: ObservableObject {
             parentFolderId = UUID(uuidString: parentIdString)
         }
 
+        // Try to decrypt folder name (handles legacy encrypted folders)
+        var folderName = data.name
+        do {
+            // Attempt to decrypt - if it fails, the name is probably plain text (original behavior)
+            let decryptedName = try await EncryptionManager.shared.decrypt(data.name)
+            folderName = decryptedName
+            print("✅ Decrypted folder name: \(data.name.prefix(30))... → \(folderName)")
+        } catch {
+            // Decryption failed - name is already plain text, use as-is
+            print("ℹ️ Folder name is plain text (not encrypted): \(folderName)")
+        }
+
         let folder = NoteFolder(
             id: id,
-            name: data.name,  // Plain text - folder names are not encrypted
+            name: folderName,
             color: data.color,
             parentFolderId: parentFolderId
         )
