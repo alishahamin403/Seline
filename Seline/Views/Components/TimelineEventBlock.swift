@@ -26,9 +26,9 @@ struct TimelineEventBlock: View {
         CGFloat(durationMinutes) / 60.0 * 60.0
     }
 
-    // Display height matches block height exactly to prevent spilling
+    // Display height with small gap between adjacent events
     private var displayHeight: CGFloat {
-        blockHeight
+        blockHeight - 4 // Reduce by 4 points to create gap between consecutive events
     }
 
     private func formatTime(_ date: Date) -> String {
