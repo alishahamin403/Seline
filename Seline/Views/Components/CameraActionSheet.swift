@@ -15,131 +15,139 @@ struct CameraActionSheet: View {
     }
 
     var body: some View {
-        ZStack {
-            Color(UIColor.systemBackground)
-                .ignoresSafeArea()
+        Group {
+            if selectedSource == nil && !isProcessing && extractionResponse == nil {
+                // Show action sheet only - no background
+                EmptyView()
+            } else {
+                // Show processing or results with background
+                ZStack {
+                    Color(UIColor.systemBackground)
+                        .ignoresSafeArea()
 
-            if isProcessing {
-                // Processing screen
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-
-                    VStack(spacing: 8) {
-                        Text("Analyzing Schedule...")
-                            .font(.headline)
-                        Text("Extracting times, titles, and attendees")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                    }
-                }
-            } else if let response = extractionResponse {
-                // Result handling
-                if response.status == .failed {
-                    // Failure screen
-                    VStack(spacing: 20) {
-                        Spacer()
-
-                        VStack(spacing: 16) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 50))
-                                .foregroundColor(.orange)
+                    if isProcessing {
+                        // Processing screen
+                        VStack(spacing: 20) {
+                            ProgressView()
+                                .scaleEffect(1.5)
 
                             VStack(spacing: 8) {
-                                Text("Couldn't Read Schedule")
+                                Text("Analyzing Schedule...")
                                     .font(.headline)
-
-                                VStack(spacing: 12) {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "xmark.circle")
-                                            .foregroundColor(.red)
-                                        Text("Date/time information unclear")
-                                            .font(.subheadline)
-                                    }
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "xmark.circle")
-                                            .foregroundColor(.red)
-                                        Text("Event titles not readable")
-                                            .font(.subheadline)
-                                    }
-                                }
-
-                                Text(response.errorMessage ?? "Please retake the photo with better lighting and clarity")
+                                Text("Extracting times, titles, and attendees")
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
-                                    .multilineTextAlignment(.center)
                             }
                         }
-                        .multilineTextAlignment(.center)
+                    } else if let response = extractionResponse {
+                        // Result handling
+                        if response.status == .failed {
+                            // Failure screen
+                            VStack(spacing: 20) {
+                                Spacer()
 
-                        Spacer()
+                                VStack(spacing: 16) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 50))
+                                        .foregroundColor(.orange)
 
-                        VStack(spacing: 12) {
-                            // Tips for better photos
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Tips for a better photo:")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.gray)
+                                    VStack(spacing: 8) {
+                                        Text("Couldn't Read Schedule")
+                                            .font(.headline)
 
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "lightbulb.fill")
-                                            .foregroundColor(.yellow)
-                                            .font(.caption)
-                                        Text("Make sure it's well-lit")
-                                            .font(.caption)
-                                    }
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "frame")
+                                        VStack(spacing: 12) {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: "xmark.circle")
+                                                    .foregroundColor(.red)
+                                                Text("Date/time information unclear")
+                                                    .font(.subheadline)
+                                            }
+                                            HStack(spacing: 12) {
+                                                Image(systemName: "xmark.circle")
+                                                    .foregroundColor(.red)
+                                                Text("Event titles not readable")
+                                                    .font(.subheadline)
+                                            }
+                                        }
+
+                                        Text(response.errorMessage ?? "Please retake the photo with better lighting and clarity")
+                                            .font(.subheadline)
                                             .foregroundColor(.gray)
-                                            .font(.caption)
-                                        Text("Keep schedule centered")
-                                            .font(.caption)
-                                    }
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "reflect.2")
-                                            .foregroundColor(.cyan)
-                                            .font(.caption)
-                                        Text("Avoid glare and shadows")
-                                            .font(.caption)
+                                            .multilineTextAlignment(.center)
                                     }
                                 }
-                            }
-                            .padding(12)
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .cornerRadius(8)
+                                .multilineTextAlignment(.center)
 
-                            Button(action: {
-                                resetAndRetry()
-                            }) {
-                                Text("Take Another Photo")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                    .frame(height: 50)
-                                    .frame(maxWidth: .infinity)
-                                    .background(Color(red: 0.27, green: 0.27, blue: 0.27))
-                                    .cornerRadius(12)
-                            }
+                                Spacer()
 
-                            Button(action: { dismiss() }) {
-                                Text("Cancel")
-                                    .font(.headline)
-                                    .foregroundColor(.gray)
-                                    .frame(height: 50)
+                                VStack(spacing: 12) {
+                                    // Tips for better photos
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Tips for a better photo:")
+                                            .font(.caption)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.gray)
+
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "lightbulb.fill")
+                                                    .foregroundColor(.yellow)
+                                                    .font(.caption)
+                                                Text("Make sure it's well-lit")
+                                                    .font(.caption)
+                                            }
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "frame")
+                                                    .foregroundColor(.gray)
+                                                    .font(.caption)
+                                                Text("Keep schedule centered")
+                                                    .font(.caption)
+                                            }
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "reflect.2")
+                                                    .foregroundColor(.cyan)
+                                                    .font(.caption)
+                                                Text("Avoid glare and shadows")
+                                                    .font(.caption)
+                                            }
+                                        }
+                                    }
+                                    .padding(12)
+                                    .background(Color(UIColor.secondarySystemBackground))
+                                    .cornerRadius(8)
+
+                                    Button(action: {
+                                        resetAndRetry()
+                                    }) {
+                                        Text("Take Another Photo")
+                                            .font(.headline)
+                                            .foregroundColor(.white)
+                                            .frame(height: 50)
+                                            .frame(maxWidth: .infinity)
+                                            .background(Color(red: 0.27, green: 0.27, blue: 0.27))
+                                            .cornerRadius(12)
+                                    }
+
+                                    Button(action: { dismiss() }) {
+                                        Text("Cancel")
+                                            .font(.headline)
+                                            .foregroundColor(.gray)
+                                            .frame(height: 50)
+                                    }
+                                }
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 24)
                             }
+                        } else {
+                            // Success or partial - show review screen directly
+                            ReviewExtractedEventsView(
+                                extractionResponse: response,
+                                onDismiss: {
+                                    resetAndRetry()
+                                }
+                            )
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 24)
                     }
-                } else {
-                    // Success or partial - show review screen directly
-                    ReviewExtractedEventsView(
-                        extractionResponse: response,
-                        onDismiss: {
-                            resetAndRetry()
-                        }
-                    )
                 }
             }
         }
