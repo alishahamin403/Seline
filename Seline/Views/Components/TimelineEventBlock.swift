@@ -125,7 +125,6 @@ struct TimelineEventBlock: View {
                 .fill(backgroundColor)
         )
         .clipped() // Prevent content from overflowing
-        .padding(.vertical, 2) // Add balanced 2pt gap above and below for visual separation
         .opacity(isCompleted ? 0.7 : 1.0)
         .shadow(
             color: (colorScheme == .dark ? Color.white : Color.black).opacity(0.08),
