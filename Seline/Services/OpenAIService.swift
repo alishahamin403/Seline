@@ -2322,7 +2322,10 @@ class OpenAIService: ObservableObject {
 
             // Parse the response to extract title and content
             let (title, receiptContent) = parseReceiptResponse(content)
-            return (title, receiptContent)
+
+            // Post-process to fix merchant name and format amounts
+            let processedContent = postProcessReceiptContent(receiptContent, withMerchantFromTitle: title)
+            return (title, processedContent)
 
         } catch let error as SummaryError {
             throw error
@@ -2357,6 +2360,59 @@ class OpenAIService: ObservableObject {
         }
 
         return (title, content.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func postProcessReceiptContent(_ content: String, withMerchantFromTitle title: String) -> String {
+        var processedContent = content
+
+        // Extract merchant name from title (format: "Merchant Name - Date")
+        let titleParts = title.components(separatedBy: " - ")
+        let merchantFromTitle = titleParts.first?.trimmingCharacters(in: .whitespaces) ?? ""
+
+        // Replace merchant name in content with complete name from title
+        if !merchantFromTitle.isEmpty {
+            // Find and replace the merchant line
+            let lines = processedContent.components(separatedBy: .newlines)
+            var updatedLines: [String] = []
+
+            for line in lines {
+                if line.contains("**Merchant:**") {
+                    // Replace with complete merchant name from title
+                    updatedLines.append("📍 **Merchant:** \(merchantFromTitle)")
+                } else {
+                    updatedLines.append(line)
+                }
+            }
+
+            processedContent = updatedLines.joined(separator: "\n")
+        }
+
+        // Format all currency amounts to exactly 2 decimal places
+        // Pattern: $ followed by digits, optional comma/dot, and up to 2 digits
+        if let regex = try? NSRegularExpression(pattern: "\\$([0-9]+(?:[.,][0-9]{1,2})?)", options: []) {
+            let nsContent = processedContent as NSString
+            let range = NSRange(location: 0, length: nsContent.length)
+            let matches = regex.matches(in: processedContent, options: [], range: range)
+
+            // Process matches in reverse to maintain correct indices
+            for match in matches.reversed() {
+                let amountRange = match.range(at: 1)
+                if amountRange.location != NSNotFound {
+                    let amountString = nsContent.substring(with: amountRange)
+                    // Normalize to period and parse as Double
+                    let normalized = amountString.replacingOccurrences(of: ",", with: ".")
+                    if let amount = Double(normalized) {
+                        // Format to exactly 2 decimal places
+                        let formattedAmount = String(format: "%.2f", amount)
+                        let fullMatch = nsContent.substring(with: match.range)
+                        let replacement = "$\(formattedAmount)"
+                        processedContent = processedContent.replacingOccurrences(of: fullMatch, with: replacement)
+                    }
+                }
+            }
+        }
+
+        return processedContent
     }
 }
 
