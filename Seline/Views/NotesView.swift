@@ -96,7 +96,7 @@ struct NotesView: View, Searchable {
             VStack(spacing: 0) {
                 // Header with search and stats toggle
                 VStack(spacing: 8) {
-                    HStack(spacing: 16) {
+                    HStack(alignment: .top, spacing: 16) {
                         // Folders button
                         Button(action: {
                             withAnimation {
