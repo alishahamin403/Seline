@@ -59,18 +59,10 @@ struct TimelineEventBlock: View {
 
     private var backgroundColor: Color {
         if isCompleted {
-            return accentColor.opacity(0.85)
-        } else {
-            // Use event type color with nearly solid opacity to completely hide timeline lines
-            return accentColor.opacity(colorScheme == .dark ? 0.8 : 0.75)
-        }
-    }
-
-    private var borderColor: Color {
-        if isCompleted {
-            return accentColor.opacity(0.5)
-        } else {
             return accentColor.opacity(0.4)
+        } else {
+            // Use event type color with light opacity for transparent look
+            return accentColor.opacity(colorScheme == .dark ? 0.25 : 0.2)
         }
     }
 
@@ -131,10 +123,6 @@ struct TimelineEventBlock: View {
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(backgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(borderColor, lineWidth: 1)
         )
         .clipped() // Prevent content from overflowing
         .opacity(isCompleted ? 0.7 : 1.0)

@@ -94,12 +94,8 @@ struct AllDayEventsSection: View {
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(
-                        taskColor.opacity(colorScheme == .dark ? 0.7 : 0.65)
+                        taskColor.opacity(colorScheme == .dark ? 0.2 : 0.15)
                     )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(taskColor.opacity(0.3), lineWidth: 1.5)
             )
         }
         .buttonStyle(PlainButtonStyle())
