@@ -2222,29 +2222,35 @@ class OpenAIService: ObservableObject {
         """
 
         let userPrompt = """
-        Analyze this image. If it's a receipt, extract all key details in the format below. If not, briefly describe what you see.
+        Analyze this image. If it's a receipt, extract ALL available details in the format below. If not, briefly describe what you see.
 
-        IMPORTANT: For the date in the title, use the format "Month DD, YYYY" (e.g., "December 15, 2024" or "Jan 15, 2024"). Always include the full 4-digit year.
+        IMPORTANT FORMATTING RULES:
+        - For the date in the title, use "Month DD, YYYY" format (e.g., "December 15, 2024"). Always include full 4-digit year.
+        - ALL currency amounts must be formatted to exactly 2 decimal places (e.g., $50.00, $10.50, not $10.5 or $50)
+        - Include ALL items from the receipt, don't omit anything
+        - Include any additional info available (discounts, loyalty points, rewards, store numbers, phone numbers, register info, etc.)
 
         Format your response EXACTLY as:
-        TITLE: Receipt - [Business Name] - [Date in "Month DD, YYYY" format]
+        TITLE: [Business Name] - [Date in "Month DD, YYYY" format]
         CONTENT:
         📍 **Merchant:** [Business Name]
-        📅 **Date:** [Date]
-        ⏰ **Time:** [Time if visible]
+        ⏰ **Time:** [Time if visible, otherwise "N/A"]
 
         **Items Purchased:**
-        • [Item 1] - $[Amount]
-        • [Item 2] - $[Amount]
-        • [Add more items as bullet points]
+        • [Item 1] - $[Amount with 2 decimals]
+        • [Item 2] - $[Amount with 2 decimals]
+        • [Item 3] - $[Amount with 2 decimals]
+        • [Add ALL items as bullet points]
 
         **Summary:**
-        💰 Subtotal: $[Amount]
-        📊 Tax: $[Amount]
-        💵 Tip: $[Amount if visible, otherwise "N/A"]
-        ✅ **Total: $[Amount]**
+        💰 Subtotal: $[Amount with 2 decimals]
+        📊 Tax: $[Amount with 2 decimals]
+        💵 Tip: $[Amount with 2 decimals if visible, otherwise "N/A"]
+        ✅ **Total: $[Amount with 2 decimals]**
 
         💳 **Payment:** [Payment method if visible]
+
+        **Additional Info:** [Include any other relevant details like discount codes, loyalty rewards, store location, phone number, register number, or other receipt information]
         """
 
         let requestBody: [String: Any] = [
