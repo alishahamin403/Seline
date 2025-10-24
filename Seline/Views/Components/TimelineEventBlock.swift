@@ -59,10 +59,10 @@ struct TimelineEventBlock: View {
 
     private var backgroundColor: Color {
         if isCompleted {
-            return accentColor.opacity(0.4)
+            return accentColor.opacity(0.65)
         } else {
-            // Use event type color with opacity
-            return accentColor.opacity(colorScheme == .dark ? 0.25 : 0.2)
+            // Use event type color with solid opacity to hide timeline lines
+            return accentColor.opacity(colorScheme == .dark ? 0.5 : 0.45)
         }
     }
 

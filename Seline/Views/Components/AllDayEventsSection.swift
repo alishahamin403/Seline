@@ -94,7 +94,7 @@ struct AllDayEventsSection: View {
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(
-                        taskColor.opacity(colorScheme == .dark ? 0.15 : 0.08)
+                        taskColor.opacity(colorScheme == .dark ? 0.4 : 0.35)
                     )
             )
             .overlay(
