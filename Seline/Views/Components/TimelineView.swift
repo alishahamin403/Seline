@@ -322,30 +322,14 @@ struct TimelineView: View {
                         .padding(.trailing, 10)
                         .offset(y: -6) // Align with line
 
-                    // Hour line
+                    // Hour line - thinner stroke
                     Rectangle()
                         .fill(
                             colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.15)
                         )
-                        .frame(height: 1)
+                        .frame(height: 0.5)
                 }
                 .offset(y: CGFloat(hour) * hourHeight)
-            }
-
-            // Half-hour markers (positioned exactly at 30 minutes)
-            ForEach(0..<24, id: \.self) { hour in
-                HStack(alignment: .top, spacing: 0) {
-                    Color.clear
-                        .frame(width: 50)
-                        .padding(.trailing, 10)
-
-                    Rectangle()
-                        .fill(
-                            colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05)
-                        )
-                        .frame(height: 1)
-                }
-                .offset(y: CGFloat(hour) * hourHeight + hourHeight / 2)
             }
         }
     }
