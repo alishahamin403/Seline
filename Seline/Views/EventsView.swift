@@ -205,7 +205,7 @@ struct EventsView: View {
                     }
                 }
             case .photoImport:
-                DirectCameraImportView()
+                CameraActionSheet()
             }
         }
         .onChange(of: activeSheet) { newValue in
