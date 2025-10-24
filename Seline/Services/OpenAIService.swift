@@ -2224,7 +2224,7 @@ class OpenAIService: ObservableObject {
         let userPrompt = """
         Analyze this image. If it's a receipt, extract all key details in the format below. If not, briefly describe what you see.
 
-        IMPORTANT: For the date in the title, use the format "Month DD, YYYY" (e.g., "December 15, 2024" or "Jan 15, 2024")
+        IMPORTANT: For the date in the title, use the format "Month DD, YYYY" (e.g., "December 15, 2024" or "Jan 15, 2024"). Always include the full 4-digit year.
 
         Format your response EXACTLY as:
         TITLE: Receipt - [Business Name] - [Date in "Month DD, YYYY" format]
@@ -2239,9 +2239,10 @@ class OpenAIService: ObservableObject {
         • [Add more items as bullet points]
 
         **Summary:**
-        Subtotal: $[Amount]
-        Tax: $[Amount]
-        **Total: $[Amount]**
+        💰 Subtotal: $[Amount]
+        📊 Tax: $[Amount]
+        💵 Tip: $[Amount if visible, otherwise "N/A"]
+        ✅ **Total: $[Amount]**
 
         💳 **Payment:** [Payment method if visible]
         """

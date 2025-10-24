@@ -1786,7 +1786,16 @@ struct NoteEditView: View {
 
             // Add newline if not last line
             if index < lines.count - 1 {
-                mutableAttributedString.append(NSAttributedString(string: "\n", attributes: defaultAttributes))
+                // Add extra spacing before section headers for better readability
+                let isNextLineHeader = (index + 1 < lines.count) &&
+                    (lines[index + 1].contains("**Items") ||
+                     lines[index + 1].contains("**Summary") ||
+                     lines[index + 1].contains("**Payment") ||
+                     lines[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("📍") ||
+                     lines[index + 1].trimmingCharacters(in: .whitespaces).hasPrefix("💳"))
+
+                let spacing = isNextLineHeader ? "\n\n" : "\n"
+                mutableAttributedString.append(NSAttributedString(string: spacing, attributes: defaultAttributes))
             }
         }
 
