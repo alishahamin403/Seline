@@ -10,33 +10,32 @@ struct CameraActionSheet: View {
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
 
     var body: some View {
-        Group {
-            if isProcessing {
-                // Processing screen
-                ZStack {
-                    Color(UIColor.systemBackground)
-                        .ignoresSafeArea()
+        if isProcessing {
+            // Processing screen
+            ZStack {
+                Color(UIColor.systemBackground)
+                    .ignoresSafeArea()
 
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .scaleEffect(1.5)
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
 
-                        VStack(spacing: 8) {
-                            Text("Analyzing Schedule...")
-                                .font(.headline)
-                            Text("Extracting times, titles, and attendees")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                        }
+                    VStack(spacing: 8) {
+                        Text("Analyzing Schedule...")
+                            .font(.headline)
+                        Text("Extracting times, titles, and attendees")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
                     }
                 }
-            } else if let response = extractionResponse {
-                // Result handling
-                ZStack {
-                    Color(UIColor.systemBackground)
-                        .ignoresSafeArea()
+            }
+        } else if let response = extractionResponse {
+            // Result handling
+            ZStack {
+                Color(UIColor.systemBackground)
+                    .ignoresSafeArea()
 
-                    if response.status == .failed {
+                if response.status == .failed {
                     // Failure screen
                     VStack(spacing: 20) {
                         Spacer()
@@ -141,41 +140,40 @@ struct CameraActionSheet: View {
                             resetAndRetry()
                         }
                     )
-                    }
                 }
-            } else {
-                // No content - show empty view for clean action sheet overlay
-                EmptyView()
             }
-        }
-        .sheet(isPresented: $showImagePicker) {
-            CameraAndLibraryPicker(image: $selectedImage, sourceType: sourceType)
-                .onDisappear {
-                    if selectedImage != nil {
-                        processImage()
-                    } else {
-                        // User cancelled - show action sheet again
-                        showActionSheet = true
-                    }
+        } else {
+            // Just show action sheet - completely transparent background
+            Color.clear
+                .sheet(isPresented: $showImagePicker) {
+                    CameraAndLibraryPicker(image: $selectedImage, sourceType: sourceType)
+                        .onDisappear {
+                            if selectedImage != nil {
+                                processImage()
+                            } else {
+                                // User cancelled - show action sheet again
+                                showActionSheet = true
+                            }
+                        }
                 }
-        }
-        .confirmationDialog("Import Schedule", isPresented: $showActionSheet) {
-            Button("Take Photo") {
-                sourceType = .camera
-                showActionSheet = false
-                showImagePicker = true
-            }
-            Button("Choose from Library") {
-                sourceType = .photoLibrary
-                showActionSheet = false
-                showImagePicker = true
-            }
-            Button("Cancel", role: .cancel) {
-                showActionSheet = false
-                dismiss()
-            }
-        } message: {
-            Text("Select a source to import your schedule")
+                .confirmationDialog("Import Schedule", isPresented: $showActionSheet) {
+                    Button("Take Photo") {
+                        sourceType = .camera
+                        showActionSheet = false
+                        showImagePicker = true
+                    }
+                    Button("Choose from Library") {
+                        sourceType = .photoLibrary
+                        showActionSheet = false
+                        showImagePicker = true
+                    }
+                    Button("Cancel", role: .cancel) {
+                        showActionSheet = false
+                        dismiss()
+                    }
+                } message: {
+                    Text("Select a source to import your schedule")
+                }
         }
     }
 
