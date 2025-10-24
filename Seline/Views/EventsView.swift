@@ -283,13 +283,13 @@ struct EventsView: View {
                     }) {
                         Text("All")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == nil ? .white : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(selectedTagId == nil ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == nil ?
-                                        Color.gray :
+                                        (colorScheme == .dark ? Color.white : Color.black) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
