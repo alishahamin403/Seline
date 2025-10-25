@@ -97,7 +97,7 @@ class VoiceAssistantService: NSObject, ObservableObject {
         // Configure audio session with better settings
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
+            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
             // Don't force sample rate - let the system use its native rate
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
             // Balanced wait time - fast but reliable
@@ -144,17 +144,11 @@ class VoiceAssistantService: NSObject, ObservableObject {
         print("🎤 Recording format: \(recordingFormat.sampleRate) Hz, \(recordingFormat.channelCount) channels")
 
         // Install tap on audio input using the node's native output format
-        do {
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-                recognitionRequest.append(buffer)
-            }
-            hasTapInstalled = true
-            print("✅ Audio tap installed successfully")
-        } catch {
-            print("❌ Failed to install audio tap: \(error)")
-            currentState = .error("Failed to configure microphone")
-            return
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+            recognitionRequest.append(buffer)
         }
+        hasTapInstalled = true
+        print("✅ Audio tap installed successfully")
 
         // Start audio engine with retry logic
         audioEngine.prepare()
@@ -265,7 +259,7 @@ class VoiceAssistantService: NSObject, ObservableObject {
                 Thread.sleep(forTimeInterval: delay)
 
                 // Use .measurement mode for reliable speech recognition with high priority
-                try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
+                try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
 
                 // Don't force a specific sample rate - let the system use its native rate
                 // This prevents format mismatch errors
@@ -562,7 +556,7 @@ class VoiceAssistantService: NSObject, ObservableObject {
                     await MainActor.run {
                         pendingEventCreation = eventData
 
-                        if eventData.requiresFollowUp, let followUpQuestion = response.followUpQuestion {
+                        if eventData.requiresFollowUp, let _ = response.followUpQuestion {
                             // Ask for clarification
                             let clarificationMessage = ConversationMessage(
                                 isUser: false,

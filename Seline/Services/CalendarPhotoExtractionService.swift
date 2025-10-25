@@ -384,6 +384,7 @@ class CalendarPhotoExtractionService {
 
                 // Parse end time if available
                 var endDateTime: Date? = nil
+                var durationFromExtraction: Int? = nil
 
                 if let endTimeString = rawEvent.endTime, !endTimeString.isEmpty {
                     if let endTime = timeFormatter.date(from: endTimeString) {
