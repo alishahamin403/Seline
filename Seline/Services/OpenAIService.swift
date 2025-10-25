@@ -212,8 +212,8 @@ class OpenAIService: ObservableObject {
 
         if rawBody.contains("<") {
             // Basic HTML to text conversion
-            processedBody = stripHTMLAndExtractText(rawBody) ?? rawBody
-        } // nil coalescing already optimal
+            processedBody = stripHTMLAndExtractText(rawBody)
+        }
 
         // Truncate if needed
         let maxBodyLength = 8000

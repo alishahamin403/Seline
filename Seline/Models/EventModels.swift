@@ -1490,12 +1490,12 @@ class TaskManager: ObservableObject {
         // CRITICAL: Ensure encryption key is initialized before loading
         // Wait for EncryptionManager to be ready (max 2 seconds)
         var attempts = 0
-        while await EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+        while EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             attempts += 1
         }
 
-        if await !EncryptionManager.shared.isKeyInitialized {
+        if !EncryptionManager.shared.isKeyInitialized {
             print("⚠️ Encryption key not initialized after 2 seconds, loading tasks anyway")
         }
 
@@ -2486,7 +2486,7 @@ enum ExtractionValidationStatus: String, Codable {
 }
 
 struct ExtractedEvent: Identifiable, Codable {
-    let id: String = UUID().uuidString
+    var id: String = UUID().uuidString
     var title: String
     var startTime: Date
     var endTime: Date?

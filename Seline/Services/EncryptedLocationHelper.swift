@@ -23,15 +23,15 @@ extension LocationService {
         phoneNumber: String?
     ) async throws -> EncryptedLocationData {
 
-        let encryptedName = try await EncryptionManager.shared.encrypt(name)
-        let encryptedAddress = try await EncryptionManager.shared.encrypt(address)
-        let encryptedLatitude = try await EncryptionManager.shared.encrypt(String(latitude))
-        let encryptedLongitude = try await EncryptionManager.shared.encrypt(String(longitude))
+        let encryptedName = try EncryptionManager.shared.encrypt(name)
+        let encryptedAddress = try EncryptionManager.shared.encrypt(address)
+        let encryptedLatitude = try EncryptionManager.shared.encrypt(String(latitude))
+        let encryptedLongitude = try EncryptionManager.shared.encrypt(String(longitude))
 
-        // Handle optional phone number with async encryption
+        // Handle optional phone number with encryption
         let encryptedPhone: String?
         if let phone = phoneNumber {
-            encryptedPhone = try await EncryptionManager.shared.encrypt(phone)
+            encryptedPhone = try EncryptionManager.shared.encrypt(phone)
         } else {
             encryptedPhone = nil
         }
@@ -53,15 +53,15 @@ extension LocationService {
     /// Decrypt location fields after fetching from storage
     func decryptLocationData(_ encryptedData: EncryptedLocationData) async throws -> DecryptedLocationData {
         do {
-            let name = try await EncryptionManager.shared.decrypt(encryptedData.encryptedName)
-            let address = try await EncryptionManager.shared.decrypt(encryptedData.encryptedAddress)
-            let latitudeStr = try await EncryptionManager.shared.decrypt(encryptedData.encryptedLatitude)
-            let longitudeStr = try await EncryptionManager.shared.decrypt(encryptedData.encryptedLongitude)
+            let name = try EncryptionManager.shared.decrypt(encryptedData.encryptedName)
+            let address = try EncryptionManager.shared.decrypt(encryptedData.encryptedAddress)
+            let latitudeStr = try EncryptionManager.shared.decrypt(encryptedData.encryptedLatitude)
+            let longitudeStr = try EncryptionManager.shared.decrypt(encryptedData.encryptedLongitude)
 
-            // Handle optional phone number with async decryption
+            // Handle optional phone number with decryption
             let phoneNumber: String?
             if let encryptedPhone = encryptedData.encryptedPhoneNumber {
-                phoneNumber = try await EncryptionManager.shared.decrypt(encryptedPhone)
+                phoneNumber = try EncryptionManager.shared.decrypt(encryptedPhone)
             } else {
                 phoneNumber = nil
             }

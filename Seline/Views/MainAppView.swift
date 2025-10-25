@@ -100,7 +100,7 @@ struct MainAppView: View {
         let matchingEmails = allEmails.filter {
             $0.subject.lowercased().contains(lowercasedSearch) ||
             $0.sender.displayName.lowercased().contains(lowercasedSearch) ||
-            ($0.snippet ?? "").lowercased().contains(lowercasedSearch)
+            $0.snippet.lowercased().contains(lowercasedSearch)
         }
 
         for email in matchingEmails.prefix(5) {

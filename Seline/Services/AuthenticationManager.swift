@@ -33,7 +33,7 @@ class AuthenticationManager: ObservableObject {
             self.isAuthenticated = true
 
             // Initialize encryption with restored user ID
-            await EncryptionManager.shared.setupEncryption(with: session.user.id)
+            EncryptionManager.shared.setupEncryption(with: session.user.id)
 
             // Try to restore Google Sign-In state
             GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
@@ -102,7 +102,7 @@ class AuthenticationManager: ObservableObject {
             self.supabaseUser = supabaseUser
 
             // Initialize encryption with user's UUID
-            await EncryptionManager.shared.setupEncryption(with: supabaseUser.id)
+            EncryptionManager.shared.setupEncryption(with: supabaseUser.id)
 
             print("✅ Google Sign-In Success: \(result.user.profile?.email ?? "No email")")
             print("✅ Supabase User Created: \(supabaseUser.id)")
@@ -153,7 +153,7 @@ class AuthenticationManager: ObservableObject {
             GIDSignIn.sharedInstance.signOut()
 
             // Clear encryption key
-            await EncryptionManager.shared.clearEncryption()
+            EncryptionManager.shared.clearEncryption()
 
             // Clear tasks and set authentication state
             TaskManager.shared.clearTasksOnLogout()

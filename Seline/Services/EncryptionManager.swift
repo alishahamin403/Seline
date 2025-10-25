@@ -77,13 +77,13 @@ class EncryptionManager: ObservableObject {
         }
 
         let data = plaintext.data(using: .utf8) ?? Data()
-        let nonce = try AES.GCM.Nonce() // Generate random nonce
+        let nonce = AES.GCM.Nonce() // Generate random nonce
 
         let sealedBox = try AES.GCM.seal(data, using: key, nonce: nonce)
 
         // Combine nonce + ciphertext for storage (nonce is safe to store unencrypted)
         // Format: base64(nonce || ciphertext)
-        let combined = nonce.withUnsafeBytes { Data($0) } + (sealedBox.ciphertext + (sealedBox.tag ?? Data()))
+        let combined = nonce.withUnsafeBytes { Data($0) } + (sealedBox.ciphertext + sealedBox.tag)
 
         return combined.base64EncodedString()
     }

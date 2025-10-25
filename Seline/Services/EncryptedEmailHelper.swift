@@ -23,19 +23,19 @@ extension EmailService {
         recipientEmails: [String]
     ) async throws -> EncryptedEmailData {
 
-        let encryptedSubject = try await EncryptionManager.shared.encrypt(subject)
-        let encryptedBody = try await EncryptionManager.shared.encrypt(body)
+        let encryptedSubject = try EncryptionManager.shared.encrypt(subject)
+        let encryptedBody = try EncryptionManager.shared.encrypt(body)
 
-        // Handle optional summary with async encryption
+        // Handle optional summary with encryption
         let encryptedSummary: String?
         if let summary = aiSummary {
-            encryptedSummary = try await EncryptionManager.shared.encrypt(summary)
+            encryptedSummary = try EncryptionManager.shared.encrypt(summary)
         } else {
             encryptedSummary = nil
         }
 
-        let encryptedSenderEmail = try await EncryptionManager.shared.encrypt(senderEmail)
-        let encryptedRecipientEmails = try await EncryptionManager.shared.encryptMultiple(recipientEmails)
+        let encryptedSenderEmail = try EncryptionManager.shared.encrypt(senderEmail)
+        let encryptedRecipientEmails = try EncryptionManager.shared.encryptMultiple(recipientEmails)
 
         print("✅ Encrypted email subject and content")
 
@@ -53,19 +53,19 @@ extension EmailService {
     /// Decrypt email fields after fetching from storage
     func decryptEmailData(_ encryptedData: EncryptedEmailData) async throws -> DecryptedEmailData {
         do {
-            let subject = try await EncryptionManager.shared.decrypt(encryptedData.encryptedSubject)
-            let body = try await EncryptionManager.shared.decrypt(encryptedData.encryptedBody)
+            let subject = try EncryptionManager.shared.decrypt(encryptedData.encryptedSubject)
+            let body = try EncryptionManager.shared.decrypt(encryptedData.encryptedBody)
 
-            // Handle optional summary with async decryption
+            // Handle optional summary with decryption
             let summary: String?
             if let encryptedSummary = encryptedData.encryptedSummary {
-                summary = try await EncryptionManager.shared.decrypt(encryptedSummary)
+                summary = try EncryptionManager.shared.decrypt(encryptedSummary)
             } else {
                 summary = nil
             }
 
-            let senderEmail = try await EncryptionManager.shared.decrypt(encryptedData.encryptedSenderEmail)
-            let recipientEmails = try await EncryptionManager.shared.decryptMultiple(encryptedData.encryptedRecipientEmails)
+            let senderEmail = try EncryptionManager.shared.decrypt(encryptedData.encryptedSenderEmail)
+            let recipientEmails = try EncryptionManager.shared.decryptMultiple(encryptedData.encryptedRecipientEmails)
 
             print("✅ Decrypted email data")
 

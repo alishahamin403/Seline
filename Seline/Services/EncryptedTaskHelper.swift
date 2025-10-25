@@ -16,9 +16,9 @@ extension TaskManager {
         var encryptedTask = task
 
         // Encrypt title and description
-        encryptedTask.title = try await EncryptionManager.shared.encrypt(task.title)
+        encryptedTask.title = try EncryptionManager.shared.encrypt(task.title)
         if let description = task.description {
-            encryptedTask.description = try await EncryptionManager.shared.encrypt(description)
+            encryptedTask.description = try EncryptionManager.shared.encrypt(description)
         }
 
         print("✅ Encrypted task: \(task.id)")
@@ -34,9 +34,9 @@ extension TaskManager {
 
         do {
             // Try to decrypt title and description
-            decryptedTask.title = try await EncryptionManager.shared.decrypt(encryptedTask.title)
+            decryptedTask.title = try EncryptionManager.shared.decrypt(encryptedTask.title)
             if let description = encryptedTask.description {
-                decryptedTask.description = try await EncryptionManager.shared.decrypt(description)
+                decryptedTask.description = try EncryptionManager.shared.decrypt(description)
             }
 
             print("✅ Decrypted task: \(encryptedTask.id)")
@@ -112,7 +112,7 @@ extension TaskManager {
                 task.id = supabaseTask.id
 
                 // Check if already encrypted by trying to decrypt
-                let decryptTest = try? await EncryptionManager.shared.decrypt(supabaseTask.title)
+                let decryptTest = try? EncryptionManager.shared.decrypt(supabaseTask.title)
 
                 if decryptTest != nil && decryptTest == supabaseTask.title {
                     // Successfully decrypted to same value = already encrypted

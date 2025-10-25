@@ -4,7 +4,7 @@ import Security
 
 /// Keychain-based local storage implementation for Auth sessions
 /// This provides secure, persistent storage for authentication tokens
-class KeychainLocalStorage: AuthLocalStorage {
+class KeychainLocalStorage: AuthLocalStorage, @unchecked Sendable {
     private let service: String
     private let keychainQueue = DispatchQueue(label: "com.seline.keychain", attributes: .concurrent)
 

@@ -342,7 +342,7 @@ class CalendarPhotoExtractionService {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
-            let dateString = try container.decode(String.self)
+            let _ = try container.decode(String.self)
             // Try parsing as date string or return a default date
             return Date()
         }
@@ -370,7 +370,7 @@ class CalendarPhotoExtractionService {
                 }
 
                 // Combine date and time into a single Date object
-                var calendar = Calendar.current
+                let calendar = Calendar.current
                 let dateComponents = calendar.dateComponents([.year, .month, .day], from: startDate)
                 let timeComponents = calendar.dateComponents([.hour, .minute], from: startTime)
 
@@ -384,11 +384,10 @@ class CalendarPhotoExtractionService {
 
                 // Parse end time if available
                 var endDateTime: Date? = nil
-                var durationFromExtraction: Int? = nil
 
                 if let endTimeString = rawEvent.endTime, !endTimeString.isEmpty {
                     if let endTime = timeFormatter.date(from: endTimeString) {
-                        var endDateString = rawEvent.endDate ?? rawEvent.startDate
+                        let endDateString = rawEvent.endDate ?? rawEvent.startDate
                         if let endDate = dateFormatter.date(from: endDateString) {
                             let endDateComponents = calendar.dateComponents([.year, .month, .day], from: endDate)
                             let endTimeComponents = calendar.dateComponents([.hour, .minute], from: endTime)
