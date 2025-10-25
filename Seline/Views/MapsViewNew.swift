@@ -759,42 +759,35 @@ struct CountryFilterView: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Country")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                .padding(.horizontal, 20)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterButtonView(
+                    title: "All",
+                    isSelected: selectedCountry == nil,
+                    colorScheme: colorScheme,
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedCountry = nil
+                            selectedCity = nil
+                        }
+                    }
+                )
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                ForEach(Array(locationsManager.countries).sorted(), id: \.self) { country in
                     FilterButtonView(
-                        title: "All",
-                        isSelected: selectedCountry == nil,
+                        title: country,
+                        isSelected: selectedCountry == country,
                         colorScheme: colorScheme,
                         action: {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedCountry = nil
+                                selectedCountry = country
                                 selectedCity = nil
                             }
                         }
                     )
-
-                    ForEach(Array(locationsManager.countries).sorted(), id: \.self) { country in
-                        FilterButtonView(
-                            title: country,
-                            isSelected: selectedCountry == country,
-                            colorScheme: colorScheme,
-                            action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectedCountry = country
-                                    selectedCity = nil
-                                }
-                            }
-                        )
-                    }
                 }
-                .padding(.horizontal, 20)
             }
+            .padding(.horizontal, 20)
         }
     }
 }
@@ -808,40 +801,33 @@ struct CityFilterView: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("City")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                .padding(.horizontal, 20)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterButtonView(
+                    title: "All",
+                    isSelected: selectedCity == nil,
+                    colorScheme: colorScheme,
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedCity = nil
+                        }
+                    }
+                )
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                ForEach(Array(locationsManager.getCities(in: country)).sorted(), id: \.self) { city in
                     FilterButtonView(
-                        title: "All",
-                        isSelected: selectedCity == nil,
+                        title: city,
+                        isSelected: selectedCity == city,
                         colorScheme: colorScheme,
                         action: {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedCity = nil
+                                selectedCity = city
                             }
                         }
                     )
-
-                    ForEach(Array(locationsManager.getCities(in: country)).sorted(), id: \.self) { city in
-                        FilterButtonView(
-                            title: city,
-                            isSelected: selectedCity == city,
-                            colorScheme: colorScheme,
-                            action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectedCity = city
-                                }
-                            }
-                        )
-                    }
                 }
-                .padding(.horizontal, 20)
             }
+            .padding(.horizontal, 20)
         }
     }
 }

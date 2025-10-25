@@ -223,14 +223,15 @@ class LocationsManager: ObservableObject {
     private func loadSavedPlaces() {
         if let data = UserDefaults.standard.data(forKey: placesKey),
            let decodedPlaces = try? JSONDecoder().decode([SavedPlace].self, from: data) {
-            // Migrate existing places to populate location data if missing
+            // Always re-parse location data to ensure correct formatting (no postal codes)
             var migratedPlaces = decodedPlaces
             var needsSave = false
 
             for i in 0..<migratedPlaces.count {
-                // If location data is missing, parse it from address
-                if migratedPlaces[i].country == nil || migratedPlaces[i].city == nil {
-                    let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+                let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+
+                // Update if location data changed or was missing
+                if migratedPlaces[i].city != city || migratedPlaces[i].country != country {
                     migratedPlaces[i].city = city
                     migratedPlaces[i].country = country
                     needsSave = true
@@ -684,14 +685,12 @@ class LocationsManager: ObservableObject {
                 }
             }
 
-            // Migrate locations for places that don't have location data
+            // Always re-parse location data to ensure correct formatting (no postal codes)
             var migratedPlaces = parsedPlaces
             for i in 0..<migratedPlaces.count {
-                if migratedPlaces[i].country == nil || migratedPlaces[i].city == nil {
-                    let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
-                    migratedPlaces[i].city = city
-                    migratedPlaces[i].country = country
-                }
+                let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+                migratedPlaces[i].city = city
+                migratedPlaces[i].country = country
             }
 
             await MainActor.run {
