@@ -287,13 +287,13 @@ struct EventsView: View {
                     }) {
                         Text("All")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == nil ? .white : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(selectedTagId == nil ? Color.black : Color.shadcnForeground(colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == nil ?
-                                        (colorScheme == .dark ? Color(red: 0.4, green: 0.4, blue: 0.4) : Color(red: 0.29, green: 0.29, blue: 0.29)) :
+                                        TimelineEventColorManager.timelineEventBackgroundColor(filterType: .all, colorScheme: colorScheme, isCompleted: false) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
@@ -308,13 +308,13 @@ struct EventsView: View {
                     }) {
                         Text("Personal")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == "" ? .white : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(selectedTagId == "" ? Color.black : Color.shadcnForeground(colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == "" ?
-                                        TimelineEventColorManager.timelineEventAccentColor(filterType: .personal, colorScheme: colorScheme) :
+                                        TimelineEventColorManager.timelineEventBackgroundColor(filterType: .personal, colorScheme: colorScheme, isCompleted: false) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
@@ -330,13 +330,13 @@ struct EventsView: View {
                         }) {
                             Text(tag.name)
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(selectedTagId == tag.id ? .white : Color.shadcnForeground(colorScheme))
+                                .foregroundColor(selectedTagId == tag.id ? Color.black : Color.shadcnForeground(colorScheme))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(selectedTagId == tag.id ?
-                                            TimelineEventColorManager.timelineEventAccentColor(filterType: .tag(tag.id), colorScheme: colorScheme) :
+                                            TimelineEventColorManager.timelineEventBackgroundColor(filterType: .tag(tag.id), colorScheme: colorScheme, isCompleted: false) :
                                             (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                         )
                                 )
