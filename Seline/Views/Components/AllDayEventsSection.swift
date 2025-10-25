@@ -14,10 +14,11 @@ struct AllDayEventsSection: View {
     }
 
     private func getTaskColor(_ task: TaskItem) -> Color {
-        if let tagId = task.tagId, let tag = tagManager.getTag(by: tagId) {
-            return tag.color
-        }
-        return Color.blue // Personal (default) color
+        let filterType = TimelineEventColorManager.filterType(from: task)
+        return TimelineEventColorManager.timelineEventAccentColor(
+            filterType: filterType,
+            colorScheme: colorScheme
+        )
     }
 
     private var accentColor: Color {
