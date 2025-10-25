@@ -35,9 +35,7 @@ struct DaySliderView: View {
     }
 
     private var accentColor: Color {
-        colorScheme == .dark ?
-            Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (medium blue for dark mode)
-            Color(red: 0.518, green: 0.792, blue: 0.914)   // #84cae9 (medium blue for light mode)
+        Color(red: 0.2, green: 0.2, blue: 0.2) // Match calendar button color
     }
 
     var body: some View {
