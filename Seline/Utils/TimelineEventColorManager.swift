@@ -28,28 +28,29 @@ struct TimelineEventColorManager {
 
     // MARK: - Get Accent Color for Timeline Event
     /// Returns the appropriate blue shade for the timeline event based on filter type and color scheme
+    /// Each filter type has a distinctly different blue color for clear visual differentiation
     static func timelineEventAccentColor(
         filterType: FilterType,
         colorScheme: ColorScheme
     ) -> Color {
         switch filterType {
         case .all:
-            // "All" filter uses a balanced blue
+            // "All" filter uses the medium blue
             return colorScheme == .dark ?
-                Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (lighter for dark mode)
-                Color(red: 0.396, green: 0.635, blue: 0.737)   // #65a2bc (darker for light mode)
+                Color(red: 0.847, green: 0.925, blue: 0.969) : // #d8ecf7 (lightest blue for dark mode)
+                Color(red: 0.518, green: 0.792, blue: 0.914)   // #84cae9 (medium blue for light mode)
 
         case .personal:
-            // "Personal" filter uses the primary blue shade (darker in light mode, lighter in dark mode)
+            // "Personal" filter uses a distinct medium-light blue
             return colorScheme == .dark ?
-                Color(red: 0.40, green: 0.65, blue: 0.80) : // Lighter blue for dark mode
-                Color(red: 0.20, green: 0.34, blue: 0.40)   // #345766 (darker blue for light mode)
+                Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (medium blue for dark mode)
+                Color(red: 0.396, green: 0.635, blue: 0.737)   // #65a2bc (blue-gray for light mode)
 
         case .tag(let tagId):
-            // Tag-based events use a secondary blue shade, slightly different from personal
+            // Tag-based events use the darker blue for strong contrast
             return colorScheme == .dark ?
-                Color(red: 0.50, green: 0.72, blue: 0.88) : // Slightly different lighter blue for dark mode
-                Color(red: 0.298, green: 0.486, blue: 0.565) // #4c7c90 (different dark blue for light mode)
+                Color(red: 0.396, green: 0.635, blue: 0.737) : // #65a2bc (blue-gray for dark mode)
+                Color(red: 0.20, green: 0.34, blue: 0.40)      // #345766 (darker blue for light mode)
         }
     }
 
