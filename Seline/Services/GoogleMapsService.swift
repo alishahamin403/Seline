@@ -459,7 +459,7 @@ struct PlaceDetails {
 }
 
 struct PlaceReview: Identifiable, Codable {
-    let id = UUID()
+    var id = UUID()
     let authorName: String
     let rating: Int
     let text: String

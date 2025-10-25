@@ -272,7 +272,9 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
 
         // Add error handling and security improvements
-        configuration.preferences.javaScriptEnabled = false // Disable JS to prevent crashes
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = false // Disable JS to prevent crashes
+        configuration.defaultWebpagePreferences = preferences
         configuration.suppressesIncrementalRendering = false
 
         let webView = WKWebView(frame: .zero, configuration: configuration)

@@ -115,7 +115,8 @@ class SupabaseManager: ObservableObject {
 
         let configuration = StorageClientConfiguration(
             url: supabaseURL.appendingPathComponent("/storage/v1"),
-            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(token)"]
+            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(token)"],
+            logger: nil
         )
 
         return SupabaseStorageClient(configuration: configuration)
@@ -142,8 +143,8 @@ class SupabaseManager: ObservableObject {
         try await storage
             .from("note-images")
             .upload(
-                path: path,
-                file: imageData,
+                path,
+                data: imageData,
                 options: FileOptions(
                     cacheControl: "public, max-age=31536000, immutable",
                     contentType: "image/jpeg",

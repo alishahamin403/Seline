@@ -46,7 +46,7 @@ struct TimelineEventColorManager {
                 Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (medium blue for dark mode)
                 Color(red: 0.396, green: 0.635, blue: 0.737)   // #65a2bc (blue-gray for light mode)
 
-        case .tag(let tagId):
+        case .tag(_):
             // Tag-based events use the darker blue for strong contrast
             return colorScheme == .dark ?
                 Color(red: 0.396, green: 0.635, blue: 0.737) : // #65a2bc (blue-gray for dark mode)
