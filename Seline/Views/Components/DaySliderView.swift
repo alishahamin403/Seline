@@ -50,7 +50,7 @@ struct DaySliderView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.vertical, 6)
+                .padding(.vertical, 2)
             }
             .onAppear {
                 // Auto-scroll to selected date
