@@ -490,8 +490,7 @@ class LocationsManager: ObservableObject {
         let sortedPlaces = placesWithETA.sorted { $0.eta < $1.eta }
             .map { $0.place }
 
-        // Cache the results
-        let cacheKey = etaCacheKey(lat: currentLocation.coordinate.latitude, long: currentLocation.coordinate.longitude, timeMinutes: maxTravelTimeMinutes, category: category)
+        // Cache the results (reuse cacheKey from line 425)
         etaCache[cacheKey] = ETACacheEntry(results: sortedPlaces, timestamp: Date())
         print("💾 Cached ETA results for \(sortedPlaces.count) places")
 

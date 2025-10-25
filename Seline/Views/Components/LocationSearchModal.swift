@@ -84,7 +84,7 @@ struct LocationSearchModal: View {
                         )
                 )
                 .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .padding(.top, 8)
 
                 // Search Results
                 if isSearching {
@@ -152,7 +152,7 @@ struct LocationSearchModal: View {
                             }
                         }
                         .padding(.horizontal, 20)
-                        .padding(.top, 16)
+                        .padding(.top, 8)
                     }
                 }
             }
@@ -162,17 +162,6 @@ struct LocationSearchModal: View {
             )
             .navigationTitle("Find Location")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    }
-                }
-            }
             .onAppear {
                 // Auto-focus search field
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

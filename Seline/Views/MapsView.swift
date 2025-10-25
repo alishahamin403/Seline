@@ -213,25 +213,21 @@ struct PlaceSearchResultRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Image(systemName: "mappin.circle")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(
-                        colorScheme == .dark ?
-                            Color(red: 0.518, green: 0.792, blue: 0.914) :
-                            Color(red: 0.20, green: 0.34, blue: 0.40)
-                    )
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(result.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
                     Text(result.address)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                        .lineLimit(2)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -241,31 +237,19 @@ struct PlaceSearchResultRow: View {
                         onSave()
                     }) {
                         Image(systemName: "bookmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(
-                                colorScheme == .dark ?
-                                    Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)
-                            )
-                            .frame(width: 36, height: 36)
-                            .background(
-                                Circle()
-                                    .fill(
-                                        colorScheme == .dark ?
-                                            Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.2) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.1)
-                                    )
-                            )
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(PlainButtonStyle())
                 } else {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.green)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
         .buttonStyle(PlainButtonStyle())
     }
