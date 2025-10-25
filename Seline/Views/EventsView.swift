@@ -293,7 +293,7 @@ struct EventsView: View {
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == nil ?
-                                        TimelineEventColorManager.timelineEventAccentColor(filterType: .all, colorScheme: colorScheme) :
+                                        (colorScheme == .dark ? Color(red: 0.4, green: 0.4, blue: 0.4) : Color(red: 0.29, green: 0.29, blue: 0.29)) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
