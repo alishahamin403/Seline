@@ -159,6 +159,9 @@ class LocationsManager: ObservableObject {
     private let searchHistoryKey = "MapsSearchHistory"
     private let authManager = AuthenticationManager.shared
 
+    // Cache to prevent repeated opening hours refreshes during the same session
+    private var hasRefreshedOpeningHoursThisSession = false
+
     private init() {
         loadSavedPlaces()
         loadSearchHistory()
@@ -792,6 +795,15 @@ class LocationsManager: ObservableObject {
 
     /// Refresh opening hours for all saved places that are missing this data
     func refreshOpeningHoursForAllPlaces() async {
+        // Skip if already refreshed in this session to avoid expensive API calls on view reappear
+        if hasRefreshedOpeningHoursThisSession {
+            print("⏭️ Opening hours already refreshed this session, skipping...")
+            return
+        }
+
+        // Mark as refreshed to prevent repeated calls
+        hasRefreshedOpeningHoursThisSession = true
+
         // Refresh all places to get the most current open/closed status
         print("🔄 Refreshing opening hours for \(savedPlaces.count) places...")
 

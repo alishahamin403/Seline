@@ -202,11 +202,9 @@ struct MapsViewNew: View, Searchable {
             locationService.requestLocationPermission()
             // Load nearby places with ETA
             loadNearbyPlaces()
-            // Refresh opening hours for places that don't have this data
+            // Refresh opening hours for places (will be skipped if already done in this session)
             Task {
                 await locationsManager.refreshOpeningHoursForAllPlaces()
-                // Reload nearby places after refresh to show updated data
-                loadNearbyPlaces()
             }
         }
         .onChange(of: selectedTimeMinutes) { _ in
