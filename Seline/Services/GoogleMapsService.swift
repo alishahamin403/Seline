@@ -8,6 +8,15 @@ class GoogleMapsService: ObservableObject {
     private let apiKey = Config.googleMapsAPIKey
     private let placesBaseURL = "https://places.googleapis.com/v1"
 
+    // Search results cache
+    private struct SearchCacheEntry {
+        let results: [PlaceSearchResult]
+        let timestamp: Date
+    }
+
+    private var searchCache: [String: SearchCacheEntry] = [:] // Key: search query
+    private let searchCacheDurationSeconds: TimeInterval = 300 // 5 minutes
+
     private init() {}
 
     enum MapsError: Error, LocalizedError {
@@ -33,10 +42,23 @@ class GoogleMapsService: ObservableObject {
         }
     }
 
+    // MARK: - Cache Helpers
+
+    private func isSearchCacheValid(_ entry: SearchCacheEntry) -> Bool {
+        return Date().timeIntervalSince(entry.timestamp) < searchCacheDurationSeconds
+    }
+
     // MARK: - Search Places
 
     func searchPlaces(query: String) async throws -> [PlaceSearchResult] {
         guard !query.isEmpty else { return [] }
+
+        // Check cache first
+        if let cachedEntry = searchCache[query], isSearchCacheValid(cachedEntry) {
+            let cacheAgeSeconds = Date().timeIntervalSince(cachedEntry.timestamp)
+            print("⚡ Using cached search results for '\(query)' (cached \(Int(cacheAgeSeconds))s ago)")
+            return cachedEntry.results
+        }
 
         print("🌍 Making API request to Google Places (New API) for: \(query)")
 
@@ -128,6 +150,11 @@ class GoogleMapsService: ObservableObject {
             }
 
             print("✅ Parsed \(searchResults.count) valid places")
+
+            // Cache the results
+            self.searchCache[query] = SearchCacheEntry(results: searchResults, timestamp: Date())
+            print("💾 Cached search results for '\(query)'")
+
             return searchResults
 
         } catch let error as MapsError {
@@ -140,7 +167,7 @@ class GoogleMapsService: ObservableObject {
 
     // MARK: - Get Place Details
 
-    func getPlaceDetails(placeId: String) async throws -> PlaceDetails {
+    func getPlaceDetails(placeId: String, minimizeFields: Bool = false) async throws -> PlaceDetails {
         print("🔍 Fetching place details for ID: \(placeId)")
 
         // The new Places API expects the full resource name format: places/{placeId}
@@ -157,7 +184,14 @@ class GoogleMapsService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
-        request.setValue("displayName,formattedAddress,location,internationalPhoneNumber,photos,rating,userRatingCount,reviews,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types", forHTTPHeaderField: "X-Goog-FieldMask")
+
+        // Optimize field mask based on use case
+        // For opening hours refresh, we only need basic info and opening hours
+        let fieldMask = minimizeFields ?
+            "displayName,location,regularOpeningHours,currentOpeningHours" :
+            "displayName,formattedAddress,location,internationalPhoneNumber,photos,rating,userRatingCount,reviews,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types"
+
+        request.setValue(fieldMask, forHTTPHeaderField: "X-Goog-FieldMask")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

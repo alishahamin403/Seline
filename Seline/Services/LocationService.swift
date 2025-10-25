@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import UIKit
 
 @MainActor
 class LocationService: NSObject, ObservableObject {
@@ -13,11 +14,49 @@ class LocationService: NSObject, ObservableObject {
 
     static let shared = LocationService()
 
+    // App lifecycle tracking
+    private var appIsInForeground = true
+
+    // Debouncing for location updates
+    private var pendingLocationDebounceTask: Task<Void, Never>?
+    private var lastPublishedLocation: CLLocation?
+
     override init() {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.distanceFilter = 10 // Update every 10 meters
+        locationManager.distanceFilter = 50 // Increased from 10m to reduce frequency
+
+        // Listen for app lifecycle changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func appWillEnterForeground() {
+        appIsInForeground = true
+        print("📱 App entered foreground - resuming location updates")
+        startLocationUpdates()
+    }
+
+    @objc private func appDidEnterBackground() {
+        appIsInForeground = false
+        print("📱 App entered background - stopping location updates")
+        stopLocationUpdates()
     }
 
     func requestLocationPermission() {
@@ -88,17 +127,40 @@ extension LocationService: CLLocationManagerDelegate {
         Task { @MainActor in
             guard let location = locations.last else { return }
 
+            // Only process if app is in foreground
+            guard self.appIsInForeground else {
+                print("📍 Location update ignored - app is in background")
+                return
+            }
+
             // Only update if the location is recent and accurate
             let age = abs(location.timestamp.timeIntervalSinceNow)
             if age < 5.0 && location.horizontalAccuracy >= 0 && location.horizontalAccuracy < 100 {
-                self.currentLocation = location
-                self.isLoading = false
-                self.errorMessage = nil
+                // Debounce location updates - wait 500ms before publishing
+                self.pendingLocationDebounceTask?.cancel()
+                self.pendingLocationDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
-                // Reverse geocode to get location name
-                self.reverseGeocode(location: location)
+                    await MainActor.run {
+                        // Check if location has significantly changed
+                        let hasSignificantChange = self.lastPublishedLocation == nil ||
+                            location.distance(from: self.lastPublishedLocation!) > 50 // More than 50m change
 
-                print("📍 Location updated: \(location.coordinate.latitude), \(location.coordinate.longitude) (accuracy: \(location.horizontalAccuracy)m)")
+                        if hasSignificantChange {
+                            self.currentLocation = location
+                            self.lastPublishedLocation = location
+                            self.isLoading = false
+                            self.errorMessage = nil
+
+                            // Reverse geocode to get location name
+                            self.reverseGeocode(location: location)
+
+                            print("📍 Location updated: \(location.coordinate.latitude), \(location.coordinate.longitude) (accuracy: \(location.horizontalAccuracy)m)")
+                        } else {
+                            print("📍 Location received but no significant change (< 50m)")
+                        }
+                    }
+                }
             } else {
                 print("⚠️ Ignoring inaccurate or stale location (age: \(age)s, accuracy: \(location.horizontalAccuracy)m)")
             }

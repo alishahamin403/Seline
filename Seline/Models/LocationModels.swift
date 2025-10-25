@@ -162,6 +162,15 @@ class LocationsManager: ObservableObject {
     // Cache to prevent repeated opening hours refreshes during the same session
     private var hasRefreshedOpeningHoursThisSession = false
 
+    // ETA Cache to avoid repeated API calls within 10 minutes
+    private struct ETACacheEntry {
+        let results: [SavedPlace]
+        let timestamp: Date
+    }
+
+    private var etaCache: [String: ETACacheEntry] = [:] // Key: "lat,long,timeMinutes,category"
+    private let etaCacheDurationSeconds: TimeInterval = 600 // 10 minutes
+
     private init() {
         loadSavedPlaces()
         loadSearchHistory()
@@ -169,6 +178,17 @@ class LocationsManager: ObservableObject {
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadPlacesFromSupabase() after user authenticates
         // This ensures EncryptionManager.setupEncryption() is called FIRST
+    }
+
+    // Helper to generate cache key for ETA queries
+    private func etaCacheKey(lat: Double, long: Double, timeMinutes: Int, category: String?) -> String {
+        let categoryStr = category ?? "all"
+        return "\(lat),\(long),\(timeMinutes),\(categoryStr)"
+    }
+
+    // Helper to check if ETA cache is still valid
+    private func isETACacheValid(_ entry: ETACacheEntry) -> Bool {
+        return Date().timeIntervalSince(entry.timestamp) < etaCacheDurationSeconds
     }
 
     // MARK: - Search History Management
@@ -401,6 +421,13 @@ class LocationsManager: ObservableObject {
     ///   - category: Optional category filter
     /// - Returns: Array of SavedPlace objects sorted by ETA (fastest first)
     func getNearbyPlacesByETA(from currentLocation: CLLocation, maxTravelTimeMinutes: Int, category: String? = nil) async -> [SavedPlace] {
+        // Check cache first - if we have valid cached results for this location/time/category, return them
+        let cacheKey = etaCacheKey(lat: currentLocation.coordinate.latitude, long: currentLocation.coordinate.longitude, timeMinutes: maxTravelTimeMinutes, category: category)
+        if let cachedEntry = etaCache[cacheKey], isETACacheValid(cachedEntry) {
+            print("⚡ Using cached ETA results (valid for \(Int(etaCacheDurationSeconds - Date().timeIntervalSince(cachedEntry.timestamp))) more seconds)")
+            return cachedEntry.results
+        }
+
         var places = savedPlaces
 
         // Filter by category if specified
@@ -460,8 +487,15 @@ class LocationsManager: ObservableObject {
         }
 
         // Sort by ETA (fastest first) and return just the places
-        return placesWithETA.sorted { $0.eta < $1.eta }
+        let sortedPlaces = placesWithETA.sorted { $0.eta < $1.eta }
             .map { $0.place }
+
+        // Cache the results
+        let cacheKey = etaCacheKey(lat: currentLocation.coordinate.latitude, long: currentLocation.coordinate.longitude, timeMinutes: maxTravelTimeMinutes, category: category)
+        etaCache[cacheKey] = ETACacheEntry(results: sortedPlaces, timestamp: Date())
+        print("💾 Cached ETA results for \(sortedPlaces.count) places")
+
+        return sortedPlaces
     }
 
     /// Calculate actual driving ETA to a place using MapKit
@@ -810,7 +844,8 @@ class LocationsManager: ObservableObject {
         for place in savedPlaces {
             do {
                 // Fetch updated details from Google Places API
-                let placeDetails = try await GoogleMapsService.shared.getPlaceDetails(placeId: place.googlePlaceId)
+                // Only fetch essential fields for opening hours refresh (minimizeFields = true)
+                let placeDetails = try await GoogleMapsService.shared.getPlaceDetails(placeId: place.googlePlaceId, minimizeFields: true)
 
                 // Update the saved place with new data
                 if let index = savedPlaces.firstIndex(where: { $0.id == place.id }) {
