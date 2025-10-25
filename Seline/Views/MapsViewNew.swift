@@ -844,14 +844,31 @@ struct FilterButtonView: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(isSelected ? .white : (colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7)))
-                .padding(.vertical, 8)
-                .padding(.horizontal, 16)
+                .foregroundColor(
+                    isSelected ?
+                        (colorScheme == .dark ? .white : .black) :
+                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(isSelected ?
-                            Color(red: 0.2, green: 0.2, blue: 0.2) :
-                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.2))
+                    Capsule()
+                        .fill(
+                            isSelected ?
+                                (colorScheme == .dark ?
+                                    Color.white.opacity(0.15) :
+                                    Color.black.opacity(0.15)) :
+                                Color.clear
+                        )
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            isSelected ? Color.clear :
+                                (colorScheme == .dark ?
+                                    Color.white.opacity(0.2) :
+                                    Color.black.opacity(0.1)),
+                            lineWidth: 1
                         )
                 )
         }
