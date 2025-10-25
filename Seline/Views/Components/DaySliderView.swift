@@ -36,8 +36,8 @@ struct DaySliderView: View {
 
     private var accentColor: Color {
         colorScheme == .dark ?
-            Color(red: 0.1, green: 0.1, blue: 0.1) :      // #1a1a1a
-            Color(red: 0.29, green: 0.29, blue: 0.29)     // #4a4a4a
+            Color(red: 0.4, green: 0.4, blue: 0.4) :      // #666666 - visible in dark mode
+            Color(red: 0.29, green: 0.29, blue: 0.29)     // #4a4a4a - dark gray for light mode
     }
 
     var body: some View {
