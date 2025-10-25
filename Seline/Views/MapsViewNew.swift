@@ -115,14 +115,6 @@ struct MapsViewNew: View, Searchable {
                                 }
                                 .padding(.bottom, 16)
 
-                                // Location filters section
-                                LocationFiltersView(
-                                    locationsManager: locationsManager,
-                                    selectedCountry: $selectedCountry,
-                                    selectedCity: $selectedCity,
-                                    colorScheme: colorScheme
-                                )
-
                                 // Folders section header
                                 HStack {
                                     Text("Folders")
@@ -132,7 +124,15 @@ struct MapsViewNew: View, Searchable {
                                 }
                                 .padding(.horizontal, 20)
                                 .padding(.top, nearbyPlaces.isEmpty ? 0 : 0)
-                                .padding(.bottom, 4)
+                                .padding(.bottom, 12)
+
+                                // Location filters section
+                                LocationFiltersView(
+                                    locationsManager: locationsManager,
+                                    selectedCountry: $selectedCountry,
+                                    selectedCity: $selectedCity,
+                                    colorScheme: colorScheme
+                                )
 
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                                     ForEach(Array(locationsManager.getCategories(country: selectedCountry, city: selectedCity)), id: \.self) { category in

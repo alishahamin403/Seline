@@ -83,36 +83,49 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     // MARK: - Location Parsing
 
     /// Parse city and country from formatted address
-    /// Google Places typically formats addresses as: "Street, City, State/Province ZIP, Country"
+    /// Google Places format: "Street Address, City, State/Province PostalCode, Country"
+    /// We extract the State/Province as the main filter (e.g., "Ontario", "California")
     /// - Parameter address: The formatted address string
-    /// - Returns: Tuple of (city, country)
+    /// - Returns: Tuple of (stateOrProvince, country)
     static func parseLocationFromAddress(_ address: String) -> (city: String?, country: String?) {
         let components = address.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
 
-        guard components.count >= 2 else {
+        guard components.count >= 3 else {
             return (nil, nil)
         }
 
-        // For most addresses: last component is country, second-to-last could be state/city
+        // Last component is always country
         let country = components.last
 
-        // Try to find city - usually 2nd or 3rd component
-        var city: String? = nil
-        if components.count >= 2 {
-            // Try second-to-last first (works for many formats)
-            let secondToLast = components[components.count - 2]
+        // State/Province with postal code is typically the 3rd-to-last component
+        // Format: "State/Province PostalCode" or just "State/Province"
+        // We need to extract just the state/province, not the postal code
+        let stateWithPostal = components[components.count - 2]
 
-            // Filter out zip codes and state abbreviations
-            if secondToLast.range(of: "^\\d+", options: .regularExpression) == nil &&
-               secondToLast.count > 2 {
-                city = secondToLast
-            } else if components.count >= 3 {
-                // Fall back to 3rd-to-last
-                let thirdToLast = components[components.count - 3]
-                if thirdToLast.range(of: "^\\d+", options: .regularExpression) == nil &&
-                   thirdToLast.count > 2 {
-                    city = thirdToLast
-                }
+        // Split by space and filter out postal codes (all digits or postal code patterns)
+        let stateComponents = stateWithPostal.split(separator: " ").map { $0.trimmingCharacters(in: .whitespaces) }
+
+        var city: String? = nil
+
+        // Find the first component that's not a postal code (not all digits, not postal code format)
+        for component in stateComponents {
+            // Skip if it looks like a postal code (all digits, or contains digits/letters like M5V)
+            let isPostalCode = component.range(of: "^[A-Z0-9]{3,}$", options: .regularExpression) != nil ||
+                              component.range(of: "^\\d{5}(-\\d{4})?$", options: .regularExpression) != nil
+
+            if !isPostalCode && component.count > 1 {
+                city = component
+                break
+            }
+        }
+
+        // If we couldn't find state/province, fall back to the full component (without postal)
+        if city == nil && !stateWithPostal.isEmpty {
+            // Try to take everything before the postal code
+            if let postalRange = stateWithPostal.range(of: " [A-Z0-9]{3,}$", options: .regularExpression) {
+                city = String(stateWithPostal[..<postalRange.lowerBound])
+            } else {
+                city = stateWithPostal
             }
         }
 
