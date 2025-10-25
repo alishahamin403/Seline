@@ -75,7 +75,11 @@ struct EventsView: View {
                                             .font(.system(size: 20, weight: .semibold))
                                             .foregroundColor(.white)
                                             .frame(width: 56, height: 56)
-                                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                            .background(Circle().fill(
+                                                colorScheme == .dark ?
+                                                    Color(red: 0.1, green: 0.1, blue: 0.1) :      // #1a1a1a
+                                                    Color(red: 0.29, green: 0.29, blue: 0.29)     // #4a4a4a
+                                            ))
                                             .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                                     }
                                     .buttonStyle(PlainButtonStyle())
