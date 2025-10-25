@@ -20,6 +20,8 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var rating: Double?
     var openingHours: [String]? // Opening hours weekday descriptions
     var isOpenNow: Bool?
+    var country: String? // Country extracted from address
+    var city: String? // City extracted from address
     var dateCreated: Date
     var dateModified: Date
 
@@ -37,8 +39,13 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.rating = rating
         self.openingHours = openingHours
         self.isOpenNow = isOpenNow
+        self.country = nil
+        self.city = nil
         self.dateCreated = Date()
         self.dateModified = Date()
+
+        // Extract country and city from address
+        (self.city, self.country) = Self.parseLocationFromAddress(address)
     }
 
     // Display name - shows custom name if set, otherwise original name
@@ -72,6 +79,45 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         let query = displayName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         return URL(string: "maps://?q=\(query)&ll=\(latitude),\(longitude)")
     }
+
+    // MARK: - Location Parsing
+
+    /// Parse city and country from formatted address
+    /// Google Places typically formats addresses as: "Street, City, State/Province ZIP, Country"
+    /// - Parameter address: The formatted address string
+    /// - Returns: Tuple of (city, country)
+    static func parseLocationFromAddress(_ address: String) -> (city: String?, country: String?) {
+        let components = address.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+
+        guard components.count >= 2 else {
+            return (nil, nil)
+        }
+
+        // For most addresses: last component is country, second-to-last could be state/city
+        let country = components.last
+
+        // Try to find city - usually 2nd or 3rd component
+        var city: String? = nil
+        if components.count >= 2 {
+            // Try second-to-last first (works for many formats)
+            let secondToLast = components[components.count - 2]
+
+            // Filter out zip codes and state abbreviations
+            if secondToLast.range(of: "^\\d+", options: .regularExpression) == nil &&
+               secondToLast.count > 2 {
+                city = secondToLast
+            } else if components.count >= 3 {
+                // Fall back to 3rd-to-last
+                let thirdToLast = components[components.count - 3]
+                if thirdToLast.range(of: "^\\d+", options: .regularExpression) == nil &&
+                   thirdToLast.count > 2 {
+                    city = thirdToLast
+                }
+            }
+        }
+
+        return (city, country)
+    }
 }
 
 struct PlaceSearchResult: Identifiable, Codable {
@@ -93,6 +139,8 @@ class LocationsManager: ObservableObject {
     @Published var searchHistory: [PlaceSearchResult] = []
     @Published var isLoading = false
     @Published var categories: Set<String> = []
+    @Published var countries: Set<String> = []
+    @Published var cities: Set<String> = []
 
     private let placesKey = "SavedPlaces"
     private let searchHistoryKey = "MapsSearchHistory"
@@ -153,15 +201,38 @@ class LocationsManager: ObservableObject {
             UserDefaults.standard.set(encoded, forKey: placesKey)
         }
 
-        // Update categories set
+        // Update categories, countries, and cities sets
         categories = Set(savedPlaces.map { $0.category })
+        countries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+        cities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
     }
 
     private func loadSavedPlaces() {
         if let data = UserDefaults.standard.data(forKey: placesKey),
            let decodedPlaces = try? JSONDecoder().decode([SavedPlace].self, from: data) {
-            self.savedPlaces = decodedPlaces
-            self.categories = Set(decodedPlaces.map { $0.category })
+            // Migrate existing places to populate location data if missing
+            var migratedPlaces = decodedPlaces
+            var needsSave = false
+
+            for i in 0..<migratedPlaces.count {
+                // If location data is missing, parse it from address
+                if migratedPlaces[i].country == nil || migratedPlaces[i].city == nil {
+                    let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+                    migratedPlaces[i].city = city
+                    migratedPlaces[i].country = country
+                    needsSave = true
+                }
+            }
+
+            self.savedPlaces = migratedPlaces
+            self.categories = Set(migratedPlaces.map { $0.category })
+            self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+            self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
+
+            // Save migrated data
+            if needsSave {
+                savePlacesToStorage()
+            }
         }
     }
 
@@ -225,6 +296,50 @@ class LocationsManager: ObservableObject {
             place.address.localizedCaseInsensitiveContains(query) ||
             place.category.localizedCaseInsensitiveContains(query)
         }.sorted { $0.dateModified > $1.dateModified }
+    }
+
+    // MARK: - Location Filtering
+
+    /// Filter places by country and/or city
+    /// - Parameters:
+    ///   - country: Optional country filter
+    ///   - city: Optional city filter
+    /// - Returns: Array of filtered SavedPlace objects
+    func getPlaces(country: String? = nil, city: String? = nil) -> [SavedPlace] {
+        var filtered = savedPlaces
+
+        if let country = country, !country.isEmpty {
+            filtered = filtered.filter { $0.country == country }
+        }
+
+        if let city = city, !city.isEmpty {
+            filtered = filtered.filter { $0.city == city }
+        }
+
+        return filtered.sorted { $0.dateModified > $1.dateModified }
+    }
+
+    /// Get folders (categories) with optional country and city filters
+    /// - Parameters:
+    ///   - country: Optional country filter
+    ///   - city: Optional city filter
+    /// - Returns: Set of category names
+    func getCategories(country: String? = nil, city: String? = nil) -> Set<String> {
+        let filtered = getPlaces(country: country, city: city)
+        return Set(filtered.map { $0.category })
+    }
+
+    /// Get all cities in a specific country
+    /// - Parameter country: The country to filter by
+    /// - Returns: Set of city names in that country
+    func getCities(in country: String? = nil) -> Set<String> {
+        var filtered = savedPlaces
+
+        if let country = country, !country.isEmpty {
+            filtered = filtered.filter { $0.country == country }
+        }
+
+        return Set(filtered.compactMap { $0.city }.filter { !$0.isEmpty })
     }
 
     // MARK: - Nearby Places
@@ -434,6 +549,8 @@ class LocationsManager: ObservableObject {
             "latitude": .double(place.latitude),
             "longitude": .double(place.longitude),
             "category": .string(place.category),
+            "country": place.country != nil ? .string(place.country!) : .null,
+            "city": place.city != nil ? .string(place.city!) : .null,
             "photos": .string(try! JSONEncoder().encode(place.photos).base64EncodedString()),
             "rating": place.rating != nil ? .double(place.rating!) : .null,
             "date_created": .string(formatter.string(from: place.dateCreated)),
@@ -471,6 +588,8 @@ class LocationsManager: ObservableObject {
             "latitude": .double(place.latitude),
             "longitude": .double(place.longitude),
             "category": .string(place.category),
+            "country": place.country != nil ? .string(place.country!) : .null,
+            "city": place.city != nil ? .string(place.city!) : .null,
             "photos": .string(try! JSONEncoder().encode(place.photos).base64EncodedString()),
             "rating": place.rating != nil ? .double(place.rating!) : .null,
             "date_modified": .string(formatter.string(from: place.dateModified))
@@ -552,10 +671,22 @@ class LocationsManager: ObservableObject {
                 }
             }
 
+            // Migrate locations for places that don't have location data
+            var migratedPlaces = parsedPlaces
+            for i in 0..<migratedPlaces.count {
+                if migratedPlaces[i].country == nil || migratedPlaces[i].city == nil {
+                    let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+                    migratedPlaces[i].city = city
+                    migratedPlaces[i].country = country
+                }
+            }
+
             await MainActor.run {
-                if !parsedPlaces.isEmpty {
-                    self.savedPlaces = parsedPlaces
-                    self.categories = Set(parsedPlaces.map { $0.category })
+                if !migratedPlaces.isEmpty {
+                    self.savedPlaces = migratedPlaces
+                    self.categories = Set(migratedPlaces.map { $0.category })
+                    self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+                    self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
                     savePlacesToStorage()
                 } else if response.isEmpty {
                     print("ℹ️ No places in Supabase, keeping \(self.savedPlaces.count) local places")
@@ -625,6 +756,8 @@ class LocationsManager: ObservableObject {
         place.id = id
         place.customName = data.custom_name
         place.category = data.category
+        place.country = data.country
+        place.city = data.city
         place.dateCreated = dateCreated
         place.dateModified = dateModified
 
@@ -737,6 +870,8 @@ struct PlaceSupabaseData: Codable {
     let latitude: Double
     let longitude: Double
     let category: String
+    let country: String?
+    let city: String?
     let photos: String // Base64 encoded JSON array
     let rating: Double?
     let opening_hours: String? // Base64 encoded JSON array
