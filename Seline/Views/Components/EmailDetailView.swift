@@ -76,9 +76,9 @@ struct EmailDetailView: View {
                                 emailService.markAsUnread(email)
                                 dismiss()
                             },
-                            onAddEvent: {
+                            onAddEvent: !isLoadingFullBody ? {
                                 showAddEventSheet = true
-                            }
+                            } : nil
                         )
                         .padding(.horizontal, 20)
                         .padding(.bottom, 4)
@@ -99,7 +99,7 @@ struct EmailDetailView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showAddEventSheet) {
-            AddEventFromEmailView(email: email)
+            AddEventFromEmailView(email: fullEmail ?? email)
         }
         .onAppear {
             // Mark email as read when view appears
