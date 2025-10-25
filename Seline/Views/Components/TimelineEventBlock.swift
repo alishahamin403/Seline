@@ -50,20 +50,23 @@ struct TimelineEventBlock: View {
         task.isCompletedOn(date: date)
     }
 
+    private var filterType: TimelineEventColorManager.FilterType {
+        TimelineEventColorManager.filterType(from: task)
+    }
+
     private var accentColor: Color {
-        if let tagId = task.tagId, let tag = tagManager.getTag(by: tagId) {
-            return tag.color
-        }
-        return Color.blue // Personal (default) color
+        TimelineEventColorManager.timelineEventAccentColor(
+            filterType: filterType,
+            colorScheme: colorScheme
+        )
     }
 
     private var backgroundColor: Color {
-        if isCompleted {
-            return accentColor.opacity(0.4)
-        } else {
-            // Use event type color with light opacity for transparent look
-            return accentColor.opacity(colorScheme == .dark ? 0.25 : 0.2)
-        }
+        TimelineEventColorManager.timelineEventBackgroundColor(
+            filterType: filterType,
+            colorScheme: colorScheme,
+            isCompleted: isCompleted
+        )
     }
 
     private var textColor: Color {
