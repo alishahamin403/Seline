@@ -14,8 +14,6 @@ struct SettingsView: View {
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
     @State private var showingFeedback = false
-    @State private var showClearCacheConfirmation = false
-    @State private var cacheCleared = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -139,31 +137,6 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
-                        // Clear Calendar Sync Cache Button
-                        Button(action: { showClearCacheConfirmation = true }) {
-                            HStack(spacing: 16) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(isDarkMode ? .red.opacity(0.7) : .red.opacity(0.7))
-                                    .frame(width: 24)
-
-                                Text("Clear Calendar Sync Cache")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(isDarkMode ? .red.opacity(0.7) : .red.opacity(0.7))
-
-                                Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.gray.opacity(0.3))
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 14)
-                        }
-
-                        Divider()
-                            .padding(.leading, 50)
-
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -176,50 +149,10 @@ struct SettingsView: View {
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()
         }
-        .confirmationDialog(
-            "Clear Calendar Sync Cache?",
-            isPresented: $showClearCacheConfirmation,
-            actions: {
-                Button("Clear Cache", role: .destructive) {
-                    clearCalendarSyncCache()
-                    cacheCleared = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        cacheCleared = false
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            },
-            message: {
-                Text("This will delete the local cache of synced calendar events. The app will re-fetch from your iPhone calendar on the next launch.\n\nContinue?")
-            }
-        )
-        .overlay(alignment: .bottom) {
-            if cacheCleared {
-                VStack {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Calendar sync cache cleared!")
-                            .foregroundColor(.green)
-                    }
-                    .padding()
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(8)
-                    .padding()
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
         }
-    }
-
-    // MARK: - Clear Calendar Sync Cache
-    private func clearCalendarSyncCache() {
-        CalendarSyncService.shared.clearSyncTracking()
-        print("✅ Calendar sync cache cleared from Settings")
     }
 
     // MARK: - Profile Header Section
