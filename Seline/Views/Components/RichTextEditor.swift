@@ -31,22 +31,26 @@ struct FormattableTextEditor: UIViewRepresentable {
         // Set initial attributed text while preserving existing formatting
         let mutableAttrString = NSMutableAttributedString(attributedString: attributedText)
         if mutableAttrString.length > 0 {
-            // Preserve existing font attributes (bold, italic, headings)
-            // Only set foreground color and apply default font where no font exists
+            // Preserve existing formatting and only update color scheme
+            let fullRange = NSRange(location: 0, length: mutableAttrString.length)
+            let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+
+            // Update color for all text
+            mutableAttrString.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+
+            // Ensure all text has a font (preserve existing, apply default if missing)
             var position = 0
             while position < mutableAttrString.length {
                 let range = NSRange(location: position, length: 1)
-                if let existingFont = mutableAttrString.attribute(.font, at: position, effectiveRange: nil) {
-                    // Font already exists, preserve it - just update color
-                    mutableAttrString.addAttribute(.foregroundColor, value: colorScheme == .dark ? UIColor.white : UIColor.black, range: range)
+                var effectiveRange = NSRange()
+                if let font = mutableAttrString.attribute(.font, at: position, effectiveRange: &effectiveRange) as? UIFont {
+                    // Font exists at this position, skip to end of this font range
+                    position = effectiveRange.location + effectiveRange.length
                 } else {
                     // No font exists, apply default
-                    mutableAttrString.addAttributes([
-                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                    ], range: range)
+                    mutableAttrString.addAttribute(.font, value: UIFont.systemFont(ofSize: 15, weight: .regular), range: range)
+                    position += 1
                 }
-                position += 1
             }
         }
 
@@ -64,21 +68,26 @@ struct FormattableTextEditor: UIViewRepresentable {
 
             let mutableAttrString = NSMutableAttributedString(attributedString: attributedText)
             if mutableAttrString.length > 0 {
-                // Preserve existing font attributes while updating color for theme
+                // Preserve existing formatting and only update color scheme
+                let fullRange = NSRange(location: 0, length: mutableAttrString.length)
+                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+
+                // Update color for all text
+                mutableAttrString.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+
+                // Ensure all text has a font (preserve existing, apply default if missing)
                 var position = 0
                 while position < mutableAttrString.length {
                     let range = NSRange(location: position, length: 1)
-                    if let existingFont = mutableAttrString.attribute(.font, at: position, effectiveRange: nil) {
-                        // Font already exists, preserve it - just update color
-                        mutableAttrString.addAttribute(.foregroundColor, value: colorScheme == .dark ? UIColor.white : UIColor.black, range: range)
+                    var effectiveRange = NSRange()
+                    if let font = mutableAttrString.attribute(.font, at: position, effectiveRange: &effectiveRange) as? UIFont {
+                        // Font exists at this position, skip to end of this font range
+                        position = effectiveRange.location + effectiveRange.length
                     } else {
                         // No font exists, apply default
-                        mutableAttrString.addAttributes([
-                            .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                        ], range: range)
+                        mutableAttrString.addAttribute(.font, value: UIFont.systemFont(ofSize: 15, weight: .regular), range: range)
+                        position += 1
                     }
-                    position += 1
                 }
             }
 
