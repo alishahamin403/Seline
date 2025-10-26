@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct TimelineEventColorManager {
-    // MARK: - Blue Color Palette for Timeline Events
-    // Variations based on light/dark mode and filter type
+    // MARK: - Google Brand Color Palette for Timeline Events
+    // Using Google's brand colors for each filter type, with light/dark mode variants
 
     enum FilterType: Equatable {
         case all
@@ -12,7 +12,7 @@ struct TimelineEventColorManager {
     }
 
     // MARK: - Get Background Color for Timeline Event
-    /// Returns the appropriate blue color for timeline event background based on filter type and color scheme
+    /// Returns the appropriate Google brand color for timeline event background based on filter type and color scheme
     static func timelineEventBackgroundColor(
         filterType: FilterType,
         colorScheme: ColorScheme,
@@ -28,36 +28,36 @@ struct TimelineEventColorManager {
     }
 
     // MARK: - Get Accent Color for Timeline Event
-    /// Returns the appropriate blue shade for the timeline event based on filter type and color scheme
-    /// Each filter type has a distinctly different blue color for clear visual differentiation
+    /// Returns the appropriate Google brand color for the timeline event based on filter type and color scheme
+    /// Each filter type uses a distinct Google color for clear visual differentiation
     static func timelineEventAccentColor(
         filterType: FilterType,
         colorScheme: ColorScheme
     ) -> Color {
         switch filterType {
         case .all:
-            // "All" filter uses the medium blue
+            // "All" filter uses Google Blue #4285F4
             return colorScheme == .dark ?
-                Color(red: 0.847, green: 0.925, blue: 0.969) : // #d8ecf7 (lightest blue for dark mode)
-                Color(red: 0.518, green: 0.792, blue: 0.914)   // #84cae9 (medium blue for light mode)
+                Color(red: 0.7020, green: 0.8392, blue: 0.9804) : // #b3d6fa (light blue for dark mode)
+                Color(red: 0.2588, green: 0.5216, blue: 0.9569)   // #4285F4 (Google Blue for light mode)
 
         case .personal:
-            // "Personal" filter uses a distinct medium-light blue
+            // "Personal" filter uses Google Green #34A853
             return colorScheme == .dark ?
-                Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (medium blue for dark mode)
-                Color(red: 0.396, green: 0.635, blue: 0.737)   // #65a2bc (blue-gray for light mode)
+                Color(red: 0.7020, green: 0.9216, blue: 0.7647) : // #b3ebc3 (light green for dark mode)
+                Color(red: 0.2039, green: 0.6588, blue: 0.3255)   // #34A853 (Google Green for light mode)
 
         case .personalSync:
-            // "Personal - Sync" (Calendar synced events) uses teal/cyan for distinction
+            // "Personal - Sync" (Calendar synced events) uses Google Red #EA4335
             return colorScheme == .dark ?
-                Color(red: 0.6, green: 0.9, blue: 0.85)      // #99e5d8 (light teal for dark mode)
-                : Color(red: 0.2, green: 0.6, blue: 0.55)    // #339988 (teal for light mode)
+                Color(red: 0.9804, green: 0.7451, blue: 0.7216) : // #fabe38 (light red for dark mode)
+                Color(red: 0.9176, green: 0.2627, blue: 0.2078)   // #EA4335 (Google Red for light mode)
 
         case .tag(_):
-            // Tag-based events use the darker blue for strong contrast
+            // Tag-based events use Google Yellow #FBBC04
             return colorScheme == .dark ?
-                Color(red: 0.396, green: 0.635, blue: 0.737) : // #65a2bc (blue-gray for dark mode)
-                Color(red: 0.20, green: 0.34, blue: 0.40)      // #345766 (darker blue for light mode)
+                Color(red: 1.0, green: 0.8706, blue: 0.5373)     // #ffde88 (light yellow for dark mode)
+                : Color(red: 0.9843, green: 0.7373, blue: 0.0157) // #FBBC04 (Google Yellow for light mode)
         }
     }
 
