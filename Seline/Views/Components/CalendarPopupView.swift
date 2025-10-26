@@ -2,11 +2,13 @@ import SwiftUI
 
 struct CalendarPopupView: View {
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 
-    // Filter support
+    // Filter support - passed from parent, but we use local state to allow changes within calendar
     var selectedTagId: String?
+    @State private var localSelectedTagId: String? = nil
 
     @State private var selectedDate = Date()
     @State private var tasksForDate: [TaskItem] = []
@@ -34,6 +36,104 @@ struct CalendarPopupView: View {
                     }
                 )
 
+                // Filter buttons - Show "All", "Personal", and all user-created tags
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // "All" button (neutral black/white, no color impact)
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                localSelectedTagId = nil
+                                updateTasksForDate(for: selectedDate)
+                            }
+                        }) {
+                            Text("All")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(localSelectedTagId == nil ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(localSelectedTagId == nil ?
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme).opacity(0.2) :
+                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                        )
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        // Personal (default) button - using special marker ""
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                localSelectedTagId = "" // Empty string to filter for personal events (nil tagId)
+                                updateTasksForDate(for: selectedDate)
+                            }
+                        }) {
+                            Text("Personal")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(localSelectedTagId == "" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(localSelectedTagId == "" ?
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme).opacity(0.2) :
+                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                        )
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        // Personal - Sync button (Calendar synced events)
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                localSelectedTagId = "cal_sync" // Special marker for synced calendar events
+                                updateTasksForDate(for: selectedDate)
+                            }
+                        }) {
+                            Text("Personal - Sync")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(localSelectedTagId == "cal_sync" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(localSelectedTagId == "cal_sync" ?
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(0.2) :
+                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                        )
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        // User-created tags
+                        ForEach(tagManager.tags, id: \.id) { tag in
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    localSelectedTagId = tag.id
+                                    updateTasksForDate(for: selectedDate)
+                                }
+                            }) {
+                                Text(tag.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(localSelectedTagId == tag.id ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(localSelectedTagId == tag.id ?
+                                                TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme).opacity(0.2) :
+                                                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                            )
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
 
                 // Completed tasks section
                 VStack(alignment: .leading, spacing: 12) {
@@ -120,6 +220,8 @@ struct CalendarPopupView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear {
+            // Initialize local filter state with passed value (if any)
+            localSelectedTagId = selectedTagId
             updateTasksForDate(for: selectedDate)
         }
         .sheet(isPresented: $showingViewTaskSheet) {
@@ -370,7 +472,7 @@ struct CalendarPopupView: View {
 
     /// Apply the current filter to tasks
     private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
-        if let tagId = selectedTagId {
+        if let tagId = localSelectedTagId {
             if tagId == "" {
                 // Personal filter - show events with nil tagId (default/personal events)
                 return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
