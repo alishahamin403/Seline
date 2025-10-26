@@ -552,7 +552,6 @@ struct TaskRowCalendar: View {
     let onDeleteRecurringSeries: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
-    @StateObject private var tagManager = TagManager.shared
     @State private var showingDeleteAlert = false
 
     // Check if task is completed on this specific date
@@ -573,49 +572,24 @@ struct TaskRowCalendar: View {
         )
     }
 
-    /// Get the display name for the filter/tag
-    private var filterDisplayName: String {
-        if task.id.hasPrefix("cal_") {
-            return "Synced"
-        } else if let tagId = task.tagId, !tagId.isEmpty {
-            if let tag = tagManager.getTag(by: tagId) {
-                return tag.name
-            }
-            return "Tag"
-        } else {
-            return "Personal"
-        }
-    }
-
     var body: some View {
         HStack(spacing: 12) {
+            // Left accent bar showing filter color
+            RoundedRectangle(cornerRadius: 2)
+                .fill(accentColor)
+                .frame(width: 3)
+
             // Checkbox (completed or incomplete)
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
                 .foregroundColor(isTaskCompleted ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
                 .font(.system(size: 18, weight: .medium))
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 // Task title
                 Text(task.title)
                     .font(.shadcnTextSm)
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .strikethrough(isTaskCompleted, color: Color.shadcnMutedForeground(colorScheme))
-
-                // Filter badge
-                HStack(spacing: 4) {
-                    Image(systemName: "tag.fill")
-                        .font(.system(size: 7, weight: .medium))
-                    Text(filterDisplayName)
-                        .font(.system(size: 8, weight: .semibold))
-                }
-                .foregroundColor(accentColor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(accentColor.opacity(0.15))
-                )
-                .lineLimit(1)
 
                 // Show only time if there's a scheduled time
                 if !task.formattedTime.isEmpty {
