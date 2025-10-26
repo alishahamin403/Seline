@@ -5,6 +5,8 @@ struct EmailRow: View {
     let onDelete: (Email) -> Void
     let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
+    @State private var profilePictureUrl: String?
+    @State private var isLoadingProfilePicture = false
 
     // Avatar background color - generate unique color based on sender email
     private var avatarColor: Color {
@@ -211,10 +213,10 @@ struct EmailRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-                // Sender avatar with color-coded background
-                if let avatarUrl = email.sender.avatarUrl, !avatarUrl.isEmpty {
-                    // Display generated avatar with initials on colored background
-                    AsyncImage(url: URL(string: avatarUrl)) { phase in
+                // Sender avatar - show Google profile picture if available
+                if let profilePictureUrl = profilePictureUrl, !profilePictureUrl.isEmpty {
+                    // Display actual Google profile picture
+                    AsyncImage(url: URL(string: profilePictureUrl)) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -223,7 +225,7 @@ struct EmailRow: View {
                                 .frame(width: 32, height: 32)
                                 .clipShape(Circle())
                         @unknown default:
-                            // Fallback to initials on colored background
+                            // Fallback to colored initials while loading
                             Circle()
                                 .fill(avatarColor)
                                 .frame(width: 32, height: 32)
@@ -235,7 +237,7 @@ struct EmailRow: View {
                         }
                     }
                 } else {
-                    // Default avatar with colored background
+                    // Default colored avatar with initials
                     Circle()
                         .fill(avatarColor)
                         .frame(width: 32, height: 32)
@@ -323,6 +325,31 @@ struct EmailRow: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+        .task {
+            // Fetch the Google profile picture when view appears
+            await fetchProfilePicture()
+        }
+    }
+
+    // MARK: - Private Methods
+
+    private func fetchProfilePicture() async {
+        guard !isLoadingProfilePicture else { return }
+
+        isLoadingProfilePicture = true
+
+        do {
+            if let picUrl = try await GmailAPIClient.shared.fetchProfilePicture(for: email.sender.email) {
+                await MainActor.run {
+                    self.profilePictureUrl = picUrl
+                }
+            }
+        } catch {
+            // Silently fail - will show colored avatar fallback
+            print("Failed to fetch profile picture for \(email.sender.email): \(error)")
+        }
+
+        isLoadingProfilePicture = false
     }
 }
 

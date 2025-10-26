@@ -8,6 +8,10 @@ class GmailAPIClient {
 
     // MARK: - Gmail API Endpoints
     private let baseURL = "https://gmail.googleapis.com/gmail/v1/users/me"
+    private let peopleAPIURL = "https://people.googleapis.com/v1"
+
+    // MARK: - Cache
+    private var profilePictureCache: [String: String] = [:] // email -> profile picture URL
 
     // MARK: - Token Management
     private func refreshAccessTokenIfNeeded() async throws {
@@ -80,6 +84,25 @@ class GmailAPIClient {
             let messageList = try await self.fetchMessagesList(query: "in:inbox", maxResults: maxResults)
             return try await self.fetchEmailDetails(messageIds: messageList.messages?.map { $0.id } ?? [])
         }
+    }
+
+    func fetchProfilePicture(for email: String) async throws -> String? {
+        // Check cache first
+        if let cachedUrl = profilePictureCache[email] {
+            return cachedUrl.isEmpty ? nil : cachedUrl
+        }
+
+        try await refreshAccessTokenIfNeeded()
+
+        // Try to fetch from Google People API
+        if let profilePicUrl = try await fetchContactProfilePicture(email: email) {
+            profilePictureCache[email] = profilePicUrl
+            return profilePicUrl
+        }
+
+        // Cache empty result to avoid repeated API calls
+        profilePictureCache[email] = ""
+        return nil
     }
 
     // MARK: - Full Email Body Fetching
@@ -300,6 +323,81 @@ class GmailAPIClient {
     }
 
     // MARK: - Private Methods
+
+    // MARK: - Profile Picture Fetching
+    private func fetchContactProfilePicture(email: String) async throws -> String? {
+        guard let user = GIDSignIn.sharedInstance.currentUser else {
+            throw GmailAPIError.notAuthenticated
+        }
+
+        let accessToken = user.accessToken.tokenString
+
+        // First, search for the contact by email address
+        let searchURLString = "\(peopleAPIURL)/people:searchContacts?query=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email)&readMask=photos"
+
+        guard let url = URL(string: searchURLString) else {
+            throw GmailAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            // If successful, extract the first contact's photo
+            if httpResponse.statusCode == 200 {
+                let decoder = JSONDecoder()
+                let searchResult = try decoder.decode(GooglePeopleSearchResult.self, from: data)
+
+                if let firstResult = searchResult.results?.first,
+                   let resourceName = firstResult.person?.resourceName {
+                    // Fetch the full contact details to get the photo
+                    return try await fetchContactPhoto(resourceName: resourceName, accessToken: accessToken)
+                }
+            }
+
+            return nil
+        } catch {
+            // If search fails, return nil without throwing (profile picture is optional)
+            return nil
+        }
+    }
+
+    private func fetchContactPhoto(resourceName: String, accessToken: String) async throws -> String? {
+        let photoURLString = "\(peopleAPIURL)/\(resourceName)?personFields=photos"
+
+        guard let url = URL(string: photoURLString) else {
+            throw GmailAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 200 {
+                let decoder = JSONDecoder()
+                let person = try decoder.decode(GooglePerson.self, from: data)
+
+                // Get the first photo URL (should be the profile picture)
+                return person.photos?.first?.url
+            }
+
+            return nil
+        } catch {
+            return nil
+        }
+    }
 
     // CRITICAL FIX: Made public so EmailService can check for new emails without fetching full content
     func fetchMessagesList(query: String, maxResults: Int = 50) async throws -> GmailMessagesList {
@@ -550,21 +648,8 @@ class GmailAPIClient {
     }
 
     private func generateGravatarUrl(_ email: String) -> String? {
-        // For now, return nil to use the icon/initials fallback which we've designed
-        // To display actual Gmail profile pictures, we would need to:
-        // 1. Use Google People API with profilePicture field (requires additional auth scope)
-        // 2. Or extract profile pictures from Google Contacts API
-        // 3. For Google Workspace accounts, use the Directory API
-        //
-        // As a fallback, we use the ui-avatars service which generates nice colored initials
-        let lowercasedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let encodedEmail = lowercasedEmail.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            // Use ui-avatars for nice colored avatar with initials
-            // This provides a better visual than generic icons
-            return "https://api.dicebear.com/7.x/initials/svg?seed=\(encodedEmail)&scale=90&radius=50"
-        }
-
+        // Return nil - profile pictures are fetched on-demand in EmailRow
+        // using the fetchProfilePicture(for:) method which queries Google People API
         return nil
     }
 
@@ -1001,6 +1086,78 @@ struct GmailMessagePart: Codable {
     let filename: String?
     let body: GmailMessageBody?
     let parts: [GmailMessagePart]?
+}
+
+// MARK: - Google People API Models
+
+struct GooglePeopleSearchResult: Codable {
+    let results: [GooglePeopleSearchResultItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case results
+    }
+}
+
+struct GooglePeopleSearchResultItem: Codable {
+    let person: GooglePerson?
+    let personSnippet: GooglePersonSnippet?
+
+    enum CodingKeys: String, CodingKey {
+        case person
+        case personSnippet
+    }
+}
+
+struct GooglePerson: Codable {
+    let resourceName: String?
+    let etag: String?
+    let photos: [GooglePhoto]?
+
+    enum CodingKeys: String, CodingKey {
+        case resourceName
+        case etag
+        case photos
+    }
+}
+
+struct GooglePhoto: Codable {
+    let metadata: GooglePhotoMetadata?
+    let url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case metadata
+        case url
+    }
+}
+
+struct GooglePhotoMetadata: Codable {
+    let primary: Bool?
+    let source: GooglePhotoSource?
+
+    enum CodingKeys: String, CodingKey {
+        case primary
+        case source
+    }
+}
+
+struct GooglePhotoSource: Codable {
+    let type: String?
+    let id: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+    }
+}
+
+struct GooglePersonSnippet: Codable {
+    let name: String?
+    let phoneNumber: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case phoneNumber
+    }
 }
 
 // MARK: - Errors

@@ -69,9 +69,10 @@ class AuthenticationManager: ObservableObject {
                 throw AuthError.noPresentingViewController
             }
 
-            // Request additional Gmail scopes
+            // Request additional Gmail and People API scopes
             let gmailScopes = [
-                "https://www.googleapis.com/auth/gmail.readonly"
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/contacts.readonly" // For fetching profile pictures
             ]
 
             let result = try await GIDSignIn.sharedInstance.signIn(
