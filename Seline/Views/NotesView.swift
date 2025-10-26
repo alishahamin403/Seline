@@ -1281,14 +1281,11 @@ struct NoteEditView: View {
         do {
             let cleanedText = try await openAIService.cleanUpNoteText(content)
             await MainActor.run {
-                // Parse and extract tables and todos from markdown
-                let processedText = parseAndExtractTablesAndTodos(from: cleanedText)
-
-                content = processedText
+                content = cleanedText
                 // Use MarkdownParser to properly render formatting
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
                 attributedContent = MarkdownParser.shared.parseMarkdown(
-                    processedText,
+                    cleanedText,
                     fontSize: 15,
                     textColor: textColor
                 )
