@@ -46,15 +46,36 @@ class AttributedStringToMarkdown {
                 let isBold = firstFont.fontDescriptor.symbolicTraits.contains(.traitBold)
 
                 if isBold {
-                    // RichTextEditor uses: H1=20pt, H2=18pt (both bold)
-                    // MarkdownParser uses: H1=27pt, H2=22.5pt, H3=19.5pt (all bold)
-                    // Match both detection methods
-                    if fontSize >= 19.5 && fontSize <= 27 {  // H1 range (20pt from RichTextEditor or 27pt from MarkdownParser)
+                    // Detect headings by font size
+                    // RichTextEditor uses: H1=20pt, H2=18pt
+                    // MarkdownParser uses: H1=27pt, H2=22.5pt, H3=19.5pt
+                    // Identify which one by checking ranges
+                    if fontSize >= 24 {
+                        // >= 24: Must be MarkdownParser H1 (27pt)
                         return "# " + trimmedText
-                    } else if fontSize >= 17.5 && fontSize < 19.5 {  // H2 range (18pt from RichTextEditor or 22.5pt from MarkdownParser)
-                        return "## " + trimmedText
-                    } else if fontSize >= 17 && fontSize < 17.5 {  // H3 range (19.5pt from MarkdownParser)
-                        return "### " + trimmedText
+                    } else if fontSize >= 21 {
+                        // 21-24: Must be MarkdownParser H2 (22.5pt) or RichTextEditor H1 (20pt)
+                        // Closer to 22.5pt suggests H2 from parser, but could be H1 from editor
+                        // Be conservative: treat as H2 if > 21.5, else H1
+                        if fontSize > 21.5 {
+                            return "## " + trimmedText
+                        } else {
+                            return "# " + trimmedText
+                        }
+                    } else if fontSize >= 19 {
+                        // 19-21: MarkdownParser H3 (19.5pt) or RichTextEditor H1 (20pt)
+                        if fontSize >= 19.7 {
+                            return "# " + trimmedText  // Closer to 20pt
+                        } else {
+                            return "### " + trimmedText  // Closer to 19.5pt
+                        }
+                    } else if fontSize >= 18 {
+                        // 18-19: RichTextEditor H2 (18pt) or MarkdownParser H3 (19.5pt)
+                        if fontSize >= 18.7 {
+                            return "### " + trimmedText  // Closer to 19.5pt
+                        } else {
+                            return "## " + trimmedText  // Is 18pt (RichTextEditor H2)
+                        }
                     }
                 }
             }
