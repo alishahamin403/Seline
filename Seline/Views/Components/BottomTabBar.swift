@@ -60,14 +60,14 @@ struct TabButton: View {
         selectedTab == tab
     }
 
-    // Blue theme colors for selected state
+    // Black/white theme colors for selected state
     private var selectedColor: Color {
         if colorScheme == .dark {
-            // Darker blue for dark mode
-            return Color(red: 0.40, green: 0.65, blue: 0.80)
+            // White for dark mode
+            return Color.white
         } else {
-            // Dark blue for light mode - #345766
-            return Color(red: 0.20, green: 0.34, blue: 0.40)
+            // Black for light mode
+            return Color.black
         }
     }
 
