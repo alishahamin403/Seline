@@ -36,9 +36,17 @@ class CalendarSyncService {
                     let granted = try await eventStore.requestFullAccessToEvents()
                     return granted
                 } else {
-                    // iOS 16.x and earlier: Use requestAccessToEvents (read + write)
-                    let granted = try await eventStore.requestAccessToEvents()
-                    return granted
+                    // iOS 16.x and earlier: Use requestAccess with completion handler
+                    // Wrap in async/await using withCheckedThrowingContinuation
+                    return try await withCheckedThrowingContinuation { continuation in
+                        eventStore.requestAccess(to: .event) { granted, error in
+                            if let error = error {
+                                continuation.resume(throwing: error)
+                            } else {
+                                continuation.resume(returning: granted)
+                            }
+                        }
+                    }
                 }
             } catch {
                 print("❌ Failed to request calendar access: \(error.localizedDescription)")
