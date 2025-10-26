@@ -14,8 +14,70 @@ class CalendarSyncService {
     // Key to track if we've already synced calendars on first launch
     private let lastSyncDateKey = "lastCalendarSyncDate"
     private let syncedEventIDsKey = "syncedCalendarEventIDs"
+    private let monthsToSkipKey = "calendarSyncMonthsToSkip"
 
-    private init() {}
+    // Months to skip during sync: (year, month) tuples
+    // Example: [(2026, 2)] skips February 2026
+    private var monthsToSkip: Set<String> = []
+
+    private init() {
+        loadMonthsToSkip()
+    }
+
+    // MARK: - Testing/Debug: Month Skipping
+
+    /// Set a month to skip during calendar sync (for testing purposes)
+    /// - Parameters:
+    ///   - year: The year (e.g., 2026)
+    ///   - month: The month (1-12, e.g., 2 for February)
+    func skipMonth(year: Int, month: Int) {
+        let key = "\(year)-\(String(format: "%02d", month))"
+        monthsToSkip.insert(key)
+        saveMonthsToSkip()
+        print("⏭️ Skipping \(monthName(month)) \(year) during calendar sync")
+    }
+
+    /// Clear a month skip
+    func unskipMonth(year: Int, month: Int) {
+        let key = "\(year)-\(String(format: "%02d", month))"
+        monthsToSkip.remove(key)
+        saveMonthsToSkip()
+        print("✅ No longer skipping \(monthName(month)) \(year)")
+    }
+
+    /// Clear all month skips
+    func clearAllMonthSkips() {
+        monthsToSkip.removeAll()
+        userDefaults.removeObject(forKey: monthsToSkipKey)
+        print("✅ Cleared all month skips")
+    }
+
+    /// Get list of months being skipped
+    func getSkippedMonths() -> [String] {
+        return Array(monthsToSkip).sorted()
+    }
+
+    private func saveMonthsToSkip() {
+        let array = Array(monthsToSkip)
+        userDefaults.set(array, forKey: monthsToSkipKey)
+    }
+
+    private func loadMonthsToSkip() {
+        if let saved = userDefaults.stringArray(forKey: monthsToSkipKey) {
+            monthsToSkip = Set(saved)
+        }
+    }
+
+    private func isMonthSkipped(year: Int, month: Int) -> Bool {
+        let key = "\(year)-\(String(format: "%02d", month))"
+        return monthsToSkip.contains(key)
+    }
+
+    private func monthName(_ month: Int) -> String {
+        let months = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+        return months[max(0, min(11, month - 1))]
+    }
 
     // MARK: - Calendar Authorization
 
@@ -102,11 +164,22 @@ class CalendarSyncService {
         let allEvents = await fetchCalendarEventsFromCurrentMonthOnwards()
         let syncedEventIDs = getSyncedEventIDs()
 
-        // Filter out events we've already synced
+        // Filter out events we've already synced AND events from skipped months
+        let calendar = Calendar.current
         let newEvents = allEvents.filter { event in
-            !syncedEventIDs.contains(event.eventIdentifier)
+            let isAlreadySynced = syncedEventIDs.contains(event.eventIdentifier)
+
+            // Check if event is in a skipped month
+            let components = calendar.dateComponents([.year, .month], from: event.startDate)
+            let isInSkippedMonth = isMonthSkipped(year: components.year ?? 0, month: components.month ?? 0)
+
+            return !isAlreadySynced && !isInSkippedMonth
         }
 
+        let skippedMonthsCount = allEvents.count - newEvents.count - syncedEventIDs.count
+        if !monthsToSkip.isEmpty {
+            print("⏭️ Skipping months: \(getSkippedMonths().joined(separator: ", "))")
+        }
         print("✅ Found \(newEvents.count) new calendar events to sync")
 
         return newEvents
