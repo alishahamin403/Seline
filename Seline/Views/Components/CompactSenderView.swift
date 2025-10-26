@@ -6,13 +6,19 @@ struct CompactSenderView: View {
     @State private var profilePictureUrl: String?
     @Environment(\.colorScheme) var colorScheme
 
-    // Avatar background color
+    // Avatar background color - Google brand colors
     private var avatarColor: Color {
-        if colorScheme == .dark {
-            return Color(white: 0.25)
-        } else {
-            return Color(white: 0.93)
-        }
+        let colors: [Color] = [
+            Color(red: 0.2588, green: 0.5216, blue: 0.9569),  // Google Blue #4285F4
+            Color(red: 0.9176, green: 0.2627, blue: 0.2078),  // Google Red #EA4335
+            Color(red: 0.9843, green: 0.7373, blue: 0.0157),  // Google Yellow #FBBC04
+            Color(red: 0.2039, green: 0.6588, blue: 0.3255),  // Google Green #34A853
+        ]
+
+        // Generate deterministic color based on sender email
+        let hash = email.sender.email.hashValue
+        let colorIndex = abs(hash) % colors.count
+        return colors[colorIndex]
     }
 
     var body: some View {
@@ -43,7 +49,7 @@ struct CompactSenderView: View {
                                     .overlay(
                                         Text(email.sender.shortDisplayName.prefix(1).uppercased())
                                             .font(FontManager.geist(size: .small, weight: .semibold))
-                                            .foregroundColor(Color(white: 0.7))
+                                            .foregroundColor(.white)
                                     )
                             }
                         }
@@ -55,7 +61,7 @@ struct CompactSenderView: View {
                             .overlay(
                                 Text(email.sender.shortDisplayName.prefix(1).uppercased())
                                     .font(FontManager.geist(size: .small, weight: .semibold))
-                                    .foregroundColor(Color(white: 0.7))
+                                    .foregroundColor(.white)
                             )
                     }
 
