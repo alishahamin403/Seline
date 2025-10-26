@@ -4,8 +4,7 @@ import CoreLocation
 // MARK: - Weather Data Models
 struct DailyForecast {
     let day: String
-    let highTemperature: Int
-    let lowTemperature: Int
+    let temperature: Int
     let iconName: String
 }
 
@@ -43,8 +42,7 @@ struct HourlyWeather: Codable {
 
 struct DailyWeather: Codable {
     let time: [String]
-    let temperature_2m_max: [Double]
-    let temperature_2m_min: [Double]
+    let temperature_2m_mean: [Double]
     let weather_code: [Int]
     let sunrise: [String]
     let sunset: [String]
@@ -92,7 +90,7 @@ class WeatherService: ObservableObject {
             URLQueryItem(name: "longitude", value: "\(location.coordinate.longitude)"),
             URLQueryItem(name: "current", value: "temperature_2m,weather_code"),
             URLQueryItem(name: "hourly", value: "temperature_2m,weather_code"),
-            URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset"),
+            URLQueryItem(name: "daily", value: "temperature_2m_mean,weather_code,sunrise,sunset"),
             URLQueryItem(name: "timezone", value: "auto"),
             URLQueryItem(name: "forecast_days", value: "7")
         ]
@@ -140,13 +138,12 @@ class WeatherService: ObservableObject {
                 dateFormatter2.dateFormat = "yyyy-MM-dd"
                 if let date = dateFormatter2.date(from: dateString) {
                     let dayName = dateFormatter.string(from: date)
-                    let highTemp = Int(meteoResponse.daily.temperature_2m_max[i].rounded())
-                    let lowTemp = Int(meteoResponse.daily.temperature_2m_min[i].rounded())
+                    let avgTemp = Int(meteoResponse.daily.temperature_2m_mean[i].rounded())
                     let weatherCode = meteoResponse.daily.weather_code[i]
                     let icon = mapWeatherCodeToIcon(weatherCode)
 
-                    dailyForecasts.append(DailyForecast(day: dayName, highTemperature: highTemp, lowTemperature: lowTemp, iconName: icon))
-                    print("📅 Day \(i): \(dayName) - High: \(highTemp)°C, Low: \(lowTemp)°C")
+                    dailyForecasts.append(DailyForecast(day: dayName, temperature: avgTemp, iconName: icon))
+                    print("📅 Day \(i): \(dayName) - Avg: \(avgTemp)°C")
                 }
             }
         }

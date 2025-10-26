@@ -1643,7 +1643,7 @@ class OpenAIService: ObservableObject {
         var weatherInfo = "Not available"
         if let weather = weatherData {
             let dailyForecast = weather.dailyForecasts.map { forecast in
-                "\(forecast.day): High \(forecast.highTemperature)°C, Low \(forecast.lowTemperature)°C"
+                "\(forecast.day): \(forecast.temperature)°C"
             }.joined(separator: ", ")
 
             weatherInfo = """
