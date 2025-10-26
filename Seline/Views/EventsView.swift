@@ -128,7 +128,7 @@ struct EventsView: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .calendar:
-                CalendarPopupView()
+                CalendarPopupView(selectedTagId: selectedTagId)
             case .recurring:
                 if let task = selectedTaskForRecurring {
                     NavigationView {

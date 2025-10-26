@@ -5,6 +5,9 @@ struct CalendarPopupView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 
+    // Filter support
+    var selectedTagId: String?
+
     @State private var selectedDate = Date()
     @State private var tasksForDate: [TaskItem] = []
     @State private var showingAddTaskSheet = false
@@ -361,7 +364,27 @@ struct CalendarPopupView: View {
     }
 
     private func updateTasksForDate(for date: Date) {
-        tasksForDate = taskManager.getAllTasks(for: date)
+        let allTasks = taskManager.getAllTasks(for: date)
+        tasksForDate = applyFilter(to: allTasks)
+    }
+
+    /// Apply the current filter to tasks
+    private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
+        if let tagId = selectedTagId {
+            if tagId == "" {
+                // Personal filter - show events with nil tagId (default/personal events)
+                return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+            } else if tagId == "cal_sync" {
+                // Personal - Sync filter - show only synced calendar events
+                return tasks.filter { $0.id.hasPrefix("cal_") }
+            } else {
+                // Specific tag filter
+                return tasks.filter { $0.tagId == tagId }
+            }
+        } else {
+            // No filter - show all tasks
+            return tasks
+        }
     }
 
     private func weekdayFromDate(_ date: Date) -> WeekDay? {
