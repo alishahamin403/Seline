@@ -7,11 +7,13 @@ import UserNotifications
 struct SelineApp: App {
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var notificationService = NotificationService.shared
+    @StateObject private var taskManager = TaskManager.shared
 
     init() {
         configureSupabase()
         configureGoogleSignIn()
         configureNotifications()
+        syncCalendarEventsOnFirstLaunch()
     }
 
     var body: some Scene {
@@ -28,6 +30,9 @@ struct SelineApp: App {
                         // Update app badge with current unread count
                         let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
                         notificationService.updateAppBadge(count: unreadCount)
+
+                        // Sync calendar events when app becomes active
+                        await taskManager.syncCalendarEvents()
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
@@ -69,6 +74,22 @@ struct SelineApp: App {
                 print("✅ Notification permissions granted")
             } else {
                 print("❌ Notification permissions denied")
+            }
+        }
+    }
+
+    private func syncCalendarEventsOnFirstLaunch() {
+        // Sync calendar events on app launch
+        // This runs asynchronously without blocking app initialization
+        Task {
+            print("📅 Requesting calendar access...")
+            let hasAccess = await taskManager.requestCalendarAccess()
+
+            if hasAccess {
+                print("✅ Calendar access granted - syncing events")
+                await taskManager.syncCalendarEvents()
+            } else {
+                print("⚠️ Calendar access not granted. User can enable it in Settings.")
             }
         }
     }

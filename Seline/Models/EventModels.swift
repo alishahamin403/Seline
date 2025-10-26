@@ -2413,6 +2413,51 @@ class TaskManager: ObservableObject {
 
         return stats.sorted { $0.eventName < $1.eventName }
     }
+
+    // MARK: - Calendar Sync Methods
+
+    /// Sync calendar events from iPhone's native Calendar app
+    /// Only syncs events from current month onwards (not historical)
+    @MainActor
+    func syncCalendarEvents() async {
+        print("🔄 Starting calendar sync...")
+
+        let newEvents = await CalendarSyncService.shared.fetchNewCalendarEvents()
+        guard !newEvents.isEmpty else {
+            print("✅ Calendar sync complete - no new events to sync")
+            return
+        }
+
+        // Convert EventKit events to TaskItems and add them
+        for event in newEvents {
+            let taskItem = CalendarSyncService.shared.convertEKEventToTaskItem(event)
+
+            // Add the task to the appropriate weekday
+            let weekday = taskItem.weekday
+            if tasks[weekday] != nil {
+                tasks[weekday]?.append(taskItem)
+            } else {
+                tasks[weekday] = [taskItem]
+            }
+
+            // Sync with Supabase
+            await saveTaskToSupabase(taskItem)
+        }
+
+        // Mark events as synced
+        CalendarSyncService.shared.markEventsAsSynced(newEvents)
+
+        // Save to local storage
+        saveTasks()
+
+        print("✅ Calendar sync complete - synced \(newEvents.count) events")
+    }
+
+    /// Manually trigger calendar access request
+    /// Call this if you want to prompt user for calendar permission
+    func requestCalendarAccess() async -> Bool {
+        return await CalendarSyncService.shared.requestCalendarAccess()
+    }
 }
 
 // MARK: - Tag Manager
