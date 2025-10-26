@@ -168,8 +168,18 @@ class CalendarSyncService {
         let allEvents = await fetchCalendarEventsFromCurrentMonthOnwards()
         let syncedEventIDs = getSyncedEventIDs()
 
+        print("🔍 [CalendarSyncService] Filtering events:")
+        print("   Total events fetched: \(allEvents.count)")
+        print("   Already synced IDs count: \(syncedEventIDs.count)")
+        if !syncedEventIDs.isEmpty {
+            print("   Synced IDs: \(syncedEventIDs.prefix(5).joined(separator: ", "))...")
+        }
+
         // Filter out events we've already synced AND events from skipped months
         let calendar = Calendar.current
+        var filteredOutCount = 0
+        var skippedMonthCount = 0
+
         let newEvents = allEvents.filter { event in
             let isAlreadySynced = syncedEventIDs.contains(event.eventIdentifier)
 
@@ -177,10 +187,18 @@ class CalendarSyncService {
             let components = calendar.dateComponents([.year, .month], from: event.startDate)
             let isInSkippedMonth = isMonthSkipped(year: components.year ?? 0, month: components.month ?? 0)
 
+            if isAlreadySynced {
+                filteredOutCount += 1
+            }
+            if isInSkippedMonth {
+                skippedMonthCount += 1
+            }
+
             return !isAlreadySynced && !isInSkippedMonth
         }
 
-        let skippedMonthsCount = allEvents.count - newEvents.count - syncedEventIDs.count
+        print("   Filtered out (already synced): \(filteredOutCount)")
+        print("   Filtered out (skipped months): \(skippedMonthCount)")
         if !monthsToSkip.isEmpty {
             print("⏭️ Skipping months: \(getSkippedMonths().joined(separator: ", "))")
         }
@@ -287,9 +305,12 @@ class CalendarSyncService {
 
     /// Clear sync tracking (for testing or manual reset)
     func clearSyncTracking() {
+        let beforeCount = getSyncedEventIDs().count
         userDefaults.removeObject(forKey: syncedEventIDsKey)
         userDefaults.removeObject(forKey: lastSyncDateKey)
-        print("🔄 Calendar sync tracking cleared - permission will be requested again on next launch")
+        print("🔄 Calendar sync tracking cleared")
+        print("   Deleted \(beforeCount) synced event IDs from local storage")
+        print("   Permission will be requested again on next launch")
     }
 
     /// Reset calendar sync completely (delete all tracking and request permission again)
