@@ -1,6 +1,10 @@
 import EventKit
 import Foundation
 
+/// CalendarSyncService: READ-ONLY synchronization of iPhone calendar events
+/// ⚠️ IMPORTANT: This service ONLY READS from the iPhone calendar.
+/// It NEVER writes, modifies, or creates events in the iPhone calendar.
+/// All synced events are stored in Seline app as "Personal" tasks.
 class CalendarSyncService {
     static let shared = CalendarSyncService()
 
@@ -38,9 +42,10 @@ class CalendarSyncService {
         }
     }
 
-    // MARK: - Event Fetching & Filtering
+    // MARK: - Event Fetching & Filtering (READ-ONLY)
 
     /// Fetch calendar events from current date onwards (not historical)
+    /// This is a READ-ONLY operation - no modifications to the calendar
     /// - Returns: Array of calendar events from this month onwards
     func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
         // Get authorization first
@@ -56,19 +61,19 @@ class CalendarSyncService {
         // Get the first day of the current month
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
 
-        // Create a predicate to fetch events from current month onwards
+        // Create a predicate to fetch events from current month onwards (READ-ONLY)
         // We'll fetch events for the next 2 years to be generous with the range
         let endDate = calendar.date(byAdding: .year, value: 2, to: currentMonthStart) ?? now
 
         let predicate = eventStore.predicateForEvents(withStart: currentMonthStart, end: endDate)
 
-        // Fetch all events that match the predicate
+        // ⚠️ READ-ONLY: eventStore.events(matching:) only reads, does not modify
         let allEvents = eventStore.events(matching: predicate)
 
         // Filter out all-day events and events that don't have a time component
         let timedEvents = allEvents.filter { !$0.isAllDay }
 
-        print("✅ Fetched \(timedEvents.count) calendar events from \(currentMonthStart)")
+        print("✅ Fetched \(timedEvents.count) calendar events from \(currentMonthStart) [READ-ONLY]")
 
         return timedEvents
     }
@@ -91,7 +96,8 @@ class CalendarSyncService {
     // MARK: - Event Conversion
 
     /// Convert an EKEvent to a TaskItem
-    /// - Parameter event: The EventKit event to convert
+    /// Creates a TaskItem marked as "Personal" (tagId: nil) for synced calendar events
+    /// - Parameter event: The EventKit event to convert (READ-ONLY)
     /// - Returns: A TaskItem representing the calendar event
     func convertEKEventToTaskItem(_ event: EKEvent) -> TaskItem {
         let calendar = Calendar.current
@@ -110,7 +116,7 @@ class CalendarSyncService {
         // Extract notes as description
         let description = event.notes
 
-        // Create the TaskItem
+        // Create the TaskItem as Personal (tagId: nil = Personal tag)
         var taskItem = TaskItem(
             title: title,
             weekday: weekday,
@@ -122,6 +128,9 @@ class CalendarSyncService {
             isRecurring: event.hasRecurrenceRules,
             recurrenceFrequency: convertEKRecurrenceToFrequency(event.recurrenceRules)
         )
+
+        // Mark as Personal - tagId: nil means default Personal category
+        taskItem.tagId = nil
 
         // Store the original event ID for sync tracking
         taskItem.id = "cal_\(event.eventIdentifier)"
