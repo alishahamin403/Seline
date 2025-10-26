@@ -584,7 +584,7 @@ struct TaskRowCalendar: View {
                 Text(task.title)
                     .font(.shadcnTextSm)
                     .foregroundColor(Color.shadcnForeground(colorScheme))
-                    .strikethrough(isTaskCompleted, color: Color.shadcnMutedForeground(colorScheme))
+                    .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white : Color.black)
 
                 // Show only time if there's a scheduled time
                 if !task.formattedTime.isEmpty {
@@ -901,7 +901,7 @@ struct ShadcnDayCell: View {
         } else if isToday {
             return Color.shadcnPrimary
         } else if !isInCurrentMonth {
-            return Color.shadcnMutedForeground(colorScheme).opacity(0.4)
+            return (colorScheme == .dark ? Color.white : Color.black).opacity(0.4)
         } else {
             return Color.shadcnForeground(colorScheme)
         }
