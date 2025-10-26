@@ -22,7 +22,7 @@ struct SettingsView: View {
                     profileHeaderSection
                         .padding(.horizontal, 20)
                         .padding(.vertical, 24)
-                        .background(isDarkMode ? Color(UIColor.systemGray6).opacity(0.3) : Color(UIColor.systemGray6).opacity(0.5))
+                        .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
 
                     // Settings Menu Items
                     VStack(spacing: 0) {
