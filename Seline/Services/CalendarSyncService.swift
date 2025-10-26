@@ -31,8 +31,15 @@ class CalendarSyncService {
             return false
         case .notDetermined:
             do {
-                let granted = try await eventStore.requestFullAccessToEvents()
-                return granted
+                // iOS 17.0+: Use requestFullAccessToEvents for full calendar access
+                if #available(iOS 17.0, *) {
+                    let granted = try await eventStore.requestFullAccessToEvents()
+                    return granted
+                } else {
+                    // iOS 16.x and earlier: Use requestAccessToEvents (read + write)
+                    let granted = try await eventStore.requestAccessToEvents()
+                    return granted
+                }
             } catch {
                 print("❌ Failed to request calendar access: \(error.localizedDescription)")
                 return false
@@ -65,7 +72,9 @@ class CalendarSyncService {
         // We'll fetch events for the next 2 years to be generous with the range
         let endDate = calendar.date(byAdding: .year, value: 2, to: currentMonthStart) ?? now
 
-        let predicate = eventStore.predicateForEvents(withStart: currentMonthStart, end: endDate)
+        // Get all calendars (nil = all calendars)
+        let allCalendars = eventStore.calendars(for: .event)
+        let predicate = eventStore.predicateForEvents(withStart: currentMonthStart, end: endDate, calendars: allCalendars)
 
         // ⚠️ READ-ONLY: eventStore.events(matching:) only reads, does not modify
         let allEvents = eventStore.events(matching: predicate)
@@ -146,9 +155,12 @@ class CalendarSyncService {
         case .daily:
             return .daily
         case .weekly:
-            return .weekly
-        case .biweekly:
-            return .biweekly
+            // Check if interval is 2 (bi-weekly) or 1 (weekly)
+            if firstRule.interval == 2 {
+                return .biweekly
+            } else {
+                return .weekly
+            }
         case .monthly:
             return .monthly
         case .yearly:
@@ -163,7 +175,8 @@ class CalendarSyncService {
     /// Mark events as synced by storing their IDs
     func markEventsAsSynced(_ events: [EKEvent]) {
         var syncedIDs = getSyncedEventIDs()
-        let newIDs = events.map { $0.eventIdentifier }
+        // Map event IDs and filter out any nils to ensure [String] type
+        let newIDs = events.compactMap { $0.eventIdentifier }
         syncedIDs.append(contentsOf: newIDs)
 
         userDefaults.set(syncedIDs, forKey: syncedEventIDsKey)
