@@ -2,15 +2,14 @@ import SwiftUI
 
 struct FeedbackView: View {
     @Environment(\.dismiss) var dismiss
-    @Environment(\.colorScheme) var colorScheme
     @StateObject private var feedbackService = FeedbackService.shared
-    @StateObject private var themeManager = ThemeManager.shared
+    @ObservedObject var themeManager = ThemeManager.shared
 
     @State private var feedbackMessage = ""
     @State private var isSubmitting = false
 
     private var isDarkMode: Bool {
-        themeManager.getCurrentEffectiveColorScheme() == .dark
+        themeManager.effectiveColorScheme == .dark
     }
 
     var body: some View {

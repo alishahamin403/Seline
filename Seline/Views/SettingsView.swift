@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var authManager: AuthenticationManager
-    @StateObject private var themeManager = ThemeManager.shared
+    @ObservedObject var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
 
     // Computed property to get current theme state

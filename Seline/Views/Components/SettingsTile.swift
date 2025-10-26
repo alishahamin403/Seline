@@ -3,12 +3,11 @@ import SwiftUI
 struct SettingsTile<Trailing: View>: View {
     let title: String
     let trailing: () -> Trailing
-    @StateObject private var themeManager = ThemeManager.shared
-    @Environment(\.colorScheme) var colorScheme
+    @ObservedObject var themeManager = ThemeManager.shared
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
-        themeManager.getCurrentEffectiveColorScheme() == .dark
+        themeManager.effectiveColorScheme == .dark
     }
 
     init(title: String, @ViewBuilder trailing: @escaping () -> Trailing) {
