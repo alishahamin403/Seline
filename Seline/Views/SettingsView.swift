@@ -4,11 +4,10 @@ struct SettingsView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
-    @Environment(\.colorScheme) var colorScheme
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
-        themeManager.getCurrentEffectiveColorScheme() == .dark
+        themeManager.effectiveColorScheme == .dark
     }
 
     // Settings states
