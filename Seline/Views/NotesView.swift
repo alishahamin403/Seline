@@ -95,8 +95,8 @@ struct NotesView: View, Searchable {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 // Header with search and stats toggle
-                VStack(spacing: 8) {
-                    HStack(alignment: .top, spacing: 16) {
+                VStack(spacing: 4) {
+                    HStack(alignment: .center, spacing: 8) {
                         // Folders button
                         Button(action: {
                             withAnimation {
@@ -104,9 +104,9 @@ struct NotesView: View, Searchable {
                             }
                         }) {
                             Image(systemName: "folder")
-                                .font(.system(size: 20, weight: .medium))
+                                .font(.system(size: 18, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(width: 44, height: 44)
+                                .frame(width: 36, height: 36)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
@@ -128,9 +128,9 @@ struct NotesView: View, Searchable {
                                 }
                             }) {
                                 Image(systemName: "dollarsign")
-                                    .font(.system(size: 20, weight: .medium))
+                                    .font(.system(size: 18, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .frame(width: 44, height: 44)
+                                    .frame(width: 36, height: 36)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
                                             .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
@@ -140,13 +140,13 @@ struct NotesView: View, Searchable {
                         } else {
                             // Spacer to keep layout consistent when no receipts
                             Color.clear
-                                .frame(width: 44, height: 44)
+                                .frame(width: 36, height: 36)
                         }
                     }
                     .padding(.horizontal, 20)
                 }
-                .padding(.top, 4)
-                .padding(.bottom, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
 
                 // Conditional rendering: Stats view or Notes list
                 if showReceiptStats {

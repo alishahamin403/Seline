@@ -8,15 +8,15 @@ struct NotesSearchBar: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 4) {
             // Search bar
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.gray)
 
                 TextField("Search notes...", text: $searchText)
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 if !searchText.isEmpty {
@@ -24,28 +24,28 @@ struct NotesSearchBar: View {
                         searchText = ""
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.gray)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 25)
+                RoundedRectangle(cornerRadius: 20)
                     .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
             )
 
             // Selected folder indicator
             if let folderId = selectedFolderId {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Text(notesManager.getFolderName(for: folderId))
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Spacer()
@@ -56,13 +56,13 @@ struct NotesSearchBar: View {
                         }
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.gray)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
