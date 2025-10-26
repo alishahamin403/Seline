@@ -332,8 +332,10 @@ class GmailAPIClient {
 
         let accessToken = user.accessToken.tokenString
 
-        // First, search for the contact by email address
-        let searchURLString = "\(peopleAPIURL)/people:searchContacts?query=\(email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email)&readMask=photos"
+        // First, try searching the entire directory (including business accounts)
+        // using searchDirectoryPeople instead of searchContacts
+        let encodedEmail = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email
+        let searchURLString = "\(peopleAPIURL)/people:searchDirectoryPeople?query=\(encodedEmail)&readMask=photos"
 
         guard let url = URL(string: searchURLString) else {
             throw GmailAPIError.invalidURL
@@ -349,21 +351,55 @@ class GmailAPIClient {
                 throw GmailAPIError.invalidResponse
             }
 
-            // If successful, extract the first contact's photo
+            // If successful, extract the first result's photo
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
                 let searchResult = try decoder.decode(GooglePeopleSearchResult.self, from: data)
 
                 if let firstResult = searchResult.results?.first,
                    let resourceName = firstResult.person?.resourceName {
-                    // Fetch the full contact details to get the photo
+                    // Fetch the full person details to get the photo
                     return try await fetchContactPhoto(resourceName: resourceName, accessToken: accessToken)
                 }
             }
 
             return nil
         } catch {
-            // If search fails, return nil without throwing (profile picture is optional)
+            // If directory search fails, try searching user's contacts as fallback
+            return try await searchUserContacts(email: email, accessToken: accessToken)
+        }
+    }
+
+    private func searchUserContacts(email: String, accessToken: String) async throws -> String? {
+        let encodedEmail = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email
+        let searchURLString = "\(peopleAPIURL)/people:searchContacts?query=\(encodedEmail)&readMask=photos"
+
+        guard let url = URL(string: searchURLString) else {
+            throw GmailAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 200 {
+                let decoder = JSONDecoder()
+                let searchResult = try decoder.decode(GooglePeopleSearchResult.self, from: data)
+
+                if let firstResult = searchResult.results?.first,
+                   let resourceName = firstResult.person?.resourceName {
+                    return try await fetchContactPhoto(resourceName: resourceName, accessToken: accessToken)
+                }
+            }
+
+            return nil
+        } catch {
             return nil
         }
     }
