@@ -214,17 +214,8 @@ struct EmailRow: View {
                                     .scaledToFill()
                                     .frame(width: 32, height: 32)
                                     .clipShape(Circle())
-                            case .loading:
+                            case .empty:
                                 // Fallback while loading
-                                Circle()
-                                    .fill(avatarColor)
-                                    .frame(width: 32, height: 32)
-                                    .overlay(
-                                        ProgressView()
-                                            .scaleEffect(0.6)
-                                    )
-                            case .empty, .failure:
-                                // Fallback to icon/initials if image fails to load
                                 Circle()
                                     .fill(avatarColor)
                                     .frame(width: 32, height: 32)
@@ -242,7 +233,23 @@ struct EmailRow: View {
                                         }
                                     )
                             @unknown default:
-                                EmptyView()
+                                // Fallback to icon/initials if image fails to load
+                                Circle()
+                                    .fill(avatarColor)
+                                    .frame(width: 32, height: 32)
+                                    .overlay(
+                                        Group {
+                                            if let icon = emailIcon {
+                                                Image(systemName: icon)
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundColor(iconColor)
+                                            } else {
+                                                Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                    .foregroundColor(iconColor)
+                                            }
+                                        }
+                                    )
                             }
                         }
                     } else {
