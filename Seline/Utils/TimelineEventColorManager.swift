@@ -7,6 +7,7 @@ struct TimelineEventColorManager {
     enum FilterType: Equatable {
         case all
         case personal
+        case personalSync        // Calendar synced events
         case tag(_ id: String)
     }
 
@@ -45,6 +46,12 @@ struct TimelineEventColorManager {
             return colorScheme == .dark ?
                 Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (medium blue for dark mode)
                 Color(red: 0.396, green: 0.635, blue: 0.737)   // #65a2bc (blue-gray for light mode)
+
+        case .personalSync:
+            // "Personal - Sync" (Calendar synced events) uses teal/cyan for distinction
+            return colorScheme == .dark ?
+                Color(red: 0.6, green: 0.9, blue: 0.85)      // #99e5d8 (light teal for dark mode)
+                : Color(red: 0.2, green: 0.6, blue: 0.55)    // #339988 (teal for light mode)
 
         case .tag(_):
             // Tag-based events use the darker blue for strong contrast

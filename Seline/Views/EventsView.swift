@@ -261,7 +261,10 @@ struct EventsView: View {
     private func filteredTasks(from tasks: [TaskItem]) -> [TaskItem] {
         if selectedTagId == "" {
             // Personal filter - show events with nil tagId (default/personal events)
-            return tasks.filter { $0.tagId == nil }
+            return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+        } else if selectedTagId == "cal_sync" {
+            // Personal - Sync filter - show only synced calendar events
+            return tasks.filter { $0.id.hasPrefix("cal_") }
         } else if let tagId = selectedTagId, !tagId.isEmpty {
             // Filter by specific tag
             return tasks.filter { $0.tagId == tagId }
@@ -343,6 +346,27 @@ struct EventsView: View {
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == "" ?
                                         TimelineEventColorManager.timelineEventBackgroundColor(filterType: .personal, colorScheme: colorScheme, isCompleted: false) :
+                                        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                    )
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // Personal - Sync button (Calendar synced events)
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedTagId = "cal_sync" // Special marker for synced calendar events
+                        }
+                    }) {
+                        Text("Personal - Sync")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(selectedTagId == "cal_sync" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(selectedTagId == "cal_sync" ?
+                                        TimelineEventColorManager.timelineEventBackgroundColor(filterType: .personalSync, colorScheme: colorScheme, isCompleted: false) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
