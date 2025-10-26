@@ -13,6 +13,7 @@ struct SettingsView: View {
 
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
+    @State private var showingFeedback = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,6 +112,31 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
+                        // Feedback Button
+                        Button(action: { showingFeedback = true }) {
+                            HStack(spacing: 16) {
+                                Image(systemName: "bubble.right")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    .frame(width: 24)
+
+                                Text("Send Feedback")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.gray.opacity(0.3))
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 14)
+                        }
+
+                        Divider()
+                            .padding(.leading, 50)
+
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -120,6 +146,9 @@ struct SettingsView: View {
             }
         }
         .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
+        .sheet(isPresented: $showingFeedback) {
+            FeedbackView()
+        }
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized

@@ -33,8 +33,6 @@ extension LocationsManager {
         // Note: Coordinates are NOT encrypted to preserve their Double type in the model
         // The encryption of place name and address provides sufficient location privacy
 
-        print("✅ Encrypted place: \(place.id.uuidString)")
-
         return encryptedPlace
     }
 
@@ -58,8 +56,6 @@ extension LocationsManager {
             if let phone = encryptedPlace.phone {
                 decryptedPlace.phone = try await EncryptionManager.shared.decrypt(phone)
             }
-
-            print("✅ Decrypted place: \(encryptedPlace.id.uuidString)")
         } catch {
             // Decryption failed - this place is probably not encrypted (old data)
             print("⚠️ Could not decrypt place \(encryptedPlace.id.uuidString): \(error.localizedDescription)")
@@ -138,7 +134,6 @@ extension LocationsManager {
                 if decryptTest != nil && decryptTest == supabasePlace.name {
                     // Successfully decrypted to same value = already encrypted
                     skippedCount += 1
-                    print("✅ Place \(index + 1)/\(response.count): Already encrypted - '\(supabasePlace.name)'")
                 } else {
                     // Failed to decrypt or got different value = plaintext
                     do {
@@ -161,23 +156,14 @@ extension LocationsManager {
                             .execute()
 
                         reencryptedCount += 1
-                        print("🔐 Place \(index + 1)/\(response.count): Re-encrypted - '\(supabasePlace.name)'")
                     } catch {
                         errorCount += 1
-                        print("❌ Place \(index + 1)/\(response.count): Failed to encrypt - '\(supabasePlace.name)': \(error.localizedDescription)")
                     }
                 }
             }
 
             // Summary
-            print("\n" + String(repeating: "=", count: 60))
-            print("🔐 SAVED PLACES RE-ENCRYPTION COMPLETE")
-            print("=" + String(repeating: "=", count: 60))
-            print("✅ Re-encrypted: \(reencryptedCount) places")
-            print("✅ Already encrypted: \(skippedCount) places")
-            print("❌ Errors: \(errorCount) places")
-            print("📊 Total: \(response.count) places processed")
-            print(String(repeating: "=", count: 60) + "\n")
+            print("🔐 Place re-encryption complete: \(reencryptedCount) re-encrypted, \(skippedCount) already encrypted, \(errorCount) errors")
 
         } catch {
             print("❌ Error during place re-encryption: \(error)")

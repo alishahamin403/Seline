@@ -55,17 +55,11 @@ class GoogleMapsService: ObservableObject {
 
         // Check cache first
         if let cachedEntry = searchCache[query], isSearchCacheValid(cachedEntry) {
-            let cacheAgeSeconds = Date().timeIntervalSince(cachedEntry.timestamp)
-            print("⚡ Using cached search results for '\(query)' (cached \(Int(cacheAgeSeconds))s ago)")
             return cachedEntry.results
         }
 
-        print("🌍 Making API request to Google Places (New API) for: \(query)")
-
         // Use new Places API (Text Search)
         let urlString = "\(placesBaseURL)/places:searchText"
-
-        print("📡 URL: \(urlString)")
 
         guard let url = URL(string: urlString) else {
             throw MapsError.invalidURL
@@ -91,8 +85,6 @@ class GoogleMapsService: ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             if let httpResponse = response as? HTTPURLResponse {
-                print("📥 HTTP Status: \(httpResponse.statusCode)")
-
                 guard httpResponse.statusCode == 200 else {
                     if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         print("❌ Error response: \(errorData)")
@@ -106,10 +98,6 @@ class GoogleMapsService: ObservableObject {
             }
 
             // Parse response
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("📄 Response preview: \(String(responseString.prefix(200)))...")
-            }
-
             guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 print("❌ Failed to parse JSON response")
                 throw MapsError.decodingError
@@ -120,8 +108,6 @@ class GoogleMapsService: ObservableObject {
                 throw MapsError.decodingError
             }
 
-            print("📍 Raw results count: \(places.count)")
-
             // Convert to PlaceSearchResult array
             let searchResults = places.compactMap { place -> PlaceSearchResult? in
                 guard let placeId = place["id"] as? String,
@@ -131,13 +117,10 @@ class GoogleMapsService: ObservableObject {
                       let location = place["location"] as? [String: Double],
                       let lat = location["latitude"],
                       let lng = location["longitude"] else {
-                    print("⚠️ Skipping result due to missing fields")
                     return nil
                 }
 
                 let types = place["types"] as? [String] ?? []
-
-                print("📍 Search result - ID: \(placeId), Name: \(name)")
 
                 return PlaceSearchResult(
                     id: placeId,
@@ -149,11 +132,8 @@ class GoogleMapsService: ObservableObject {
                 )
             }
 
-            print("✅ Parsed \(searchResults.count) valid places")
-
             // Cache the results
             self.searchCache[query] = SearchCacheEntry(results: searchResults, timestamp: Date())
-            print("💾 Cached search results for '\(query)'")
 
             return searchResults
 
@@ -168,14 +148,10 @@ class GoogleMapsService: ObservableObject {
     // MARK: - Get Place Details
 
     func getPlaceDetails(placeId: String, minimizeFields: Bool = false) async throws -> PlaceDetails {
-        print("🔍 Fetching place details for ID: \(placeId)")
-
         // The new Places API expects the full resource name format: places/{placeId}
         // But the search returns just the ID, so we need to construct the full path
         let resourceName = placeId.hasPrefix("places/") ? placeId : "places/\(placeId)"
         let urlString = "\(placesBaseURL)/\(resourceName)"
-
-        print("📍 Full URL: \(urlString)")
 
         guard let url = URL(string: urlString) else {
             throw MapsError.invalidURL
@@ -197,8 +173,6 @@ class GoogleMapsService: ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             if let httpResponse = response as? HTTPURLResponse {
-                print("📥 Place details HTTP Status: \(httpResponse.statusCode)")
-
                 guard httpResponse.statusCode == 200 else {
                     if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         print("❌ Error response: \(errorData)")
@@ -212,10 +186,6 @@ class GoogleMapsService: ObservableObject {
             }
 
             // Parse response
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("📄 Place details response preview: \(String(responseString.prefix(300)))...")
-            }
-
             guard let place = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 print("❌ Failed to parse place details JSON")
                 throw MapsError.decodingError

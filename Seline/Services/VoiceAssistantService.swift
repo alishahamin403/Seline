@@ -60,17 +60,15 @@ class VoiceAssistantService: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 switch authStatus {
                 case .authorized:
-                    print("✅ Speech recognition authorized")
+                    break
                 case .denied:
-                    print("❌ Speech recognition denied")
                     self?.currentState = .error("Speech recognition permission denied")
                 case .restricted:
-                    print("❌ Speech recognition restricted")
                     self?.currentState = .error("Speech recognition restricted")
                 case .notDetermined:
-                    print("⚠️ Speech recognition not determined")
+                    break
                 @unknown default:
-                    print("❌ Unknown authorization status")
+                    break
                 }
             }
         }
@@ -102,9 +100,7 @@ class VoiceAssistantService: NSObject, ObservableObject {
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
             // Balanced wait time - fast but reliable
             Thread.sleep(forTimeInterval: 0.15)
-            print("🎤 Audio session sample rate: \(audioSession.sampleRate) Hz")
         } catch {
-            print("❌ Audio session error: \(error)")
             currentState = .error("Failed to configure audio session")
             return
         }
@@ -136,19 +132,15 @@ class VoiceAssistantService: NSObject, ObservableObject {
 
         // Validate the format before installing tap
         guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-            print("❌ Invalid recording format: \(recordingFormat.sampleRate) Hz, \(recordingFormat.channelCount) channels")
             currentState = .error("Invalid audio format")
             return
         }
-
-        print("🎤 Recording format: \(recordingFormat.sampleRate) Hz, \(recordingFormat.channelCount) channels")
 
         // Install tap on audio input using the node's native output format
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             recognitionRequest.append(buffer)
         }
         hasTapInstalled = true
-        print("✅ Audio tap installed successfully")
 
         // Start audio engine with retry logic
         audioEngine.prepare()
@@ -161,16 +153,13 @@ class VoiceAssistantService: NSObject, ObservableObject {
             do {
                 try audioEngine.start()
                 engineStarted = true
-                print("✅ Audio engine started successfully")
             } catch {
                 engineStartAttempts += 1
-                print("⚠️ Audio engine start attempt \(engineStartAttempts) failed: \(error)")
 
                 if engineStartAttempts < maxEngineAttempts {
                     Thread.sleep(forTimeInterval: 0.2)
                     audioEngine.prepare()
                 } else {
-                    print("❌ Audio engine failed to start after \(maxEngineAttempts) attempts")
                     currentState = .error("Failed to start audio engine")
                     hasTapInstalled = false
                     return
@@ -185,7 +174,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
             guard let self = self else { return }
 
             if let error = error {
-                print("❌ Recognition error: \(error)")
                 DispatchQueue.main.async {
                     self.currentTranscription = ""
                 }
@@ -203,7 +191,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
 
                 // Only auto-process if it's a final result (for compatibility)
                 if result.isFinal {
-                    print("✅ Final transcription: \(transcription)")
                     self.stopListening()
                     self.processUserQuery(transcription)
                 }
@@ -215,7 +202,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
         // Stop speaking if AI is currently speaking (user is interrupting)
         let wasInterrupted = currentState == .speaking
         if wasInterrupted {
-            print("🎤 User interrupted AI, stopping playback...")
             stopSpeaking()
             // CRITICAL: Give extra time for audio session to fully clean up after interruption
             Thread.sleep(forTimeInterval: 0.3)
@@ -271,8 +257,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
                 let activationWait = wasInterrupted ? 0.25 : 0.15
                 Thread.sleep(forTimeInterval: activationWait)
 
-                print("✅ Audio session configured for recording (attempt \(configurationAttempts + 1))")
-                print("🎤 Audio session sample rate: \(audioSession.sampleRate) Hz")
                 break // Success, exit retry loop
             } catch {
                 configurationAttempts += 1
@@ -321,12 +305,9 @@ class VoiceAssistantService: NSObject, ObservableObject {
 
         // Validate the format before installing tap
         guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-            print("❌ Invalid recording format: \(recordingFormat.sampleRate) Hz, \(recordingFormat.channelCount) channels")
             currentState = .error("Invalid audio format")
             return
         }
-
-        print("🎤 Recording format: \(recordingFormat.sampleRate) Hz, \(recordingFormat.channelCount) channels")
         print("🎤 Hardware input format: \(inputNode.inputFormat(forBus: 0).sampleRate) Hz")
 
         // Install tap on audio input using the node's native output format
@@ -410,7 +391,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
                        !transcription.isEmpty &&
                        !hasProcessed {
                         hasProcessed = true
-                        print("✅ Detected silence, processing: \(transcription)")
                         self.processUserQuery(transcription)
                         DispatchQueue.main.async {
                             self.currentTranscription = ""
@@ -462,7 +442,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-            print("✅ Audio session deactivated successfully")
         } catch {
             print("⚠️ Error deactivating recording audio session: \(error)")
         }
@@ -912,7 +891,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
             // Now set up for playback (without .defaultToSpeaker which is only for playAndRecord)
             try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
             try audioSession.setActive(true)
-            print("✅ Audio session configured for playback")
         } catch {
             print("❌ Failed to configure audio session for playback: \(error)")
             throw error
@@ -932,7 +910,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
                     return
                 }
 
-                print("🔊 Starting audio playback (duration: \(String(format: "%.2f", duration))s)")
                 // Start playback immediately - no delay
                 let didPlay = self.audioPlayer?.play() ?? false
                 print("🔊 Audio playing: \(didPlay)")
@@ -944,7 +921,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
 
                 // Set a timer to detect when playback finishes
                 DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.5) {
-                    print("🔊 Audio playback finished")
                     if self.currentState == .speaking {
                         // Deactivate playback audio session and ensure proper cleanup
                         Task {
@@ -1012,7 +988,6 @@ class VoiceAssistantService: NSObject, ObservableObject {
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-            print("✅ Audio session deactivated immediately for interruption")
         } catch {
             print("⚠️ Could not immediately deactivate audio session: \(error)")
         }

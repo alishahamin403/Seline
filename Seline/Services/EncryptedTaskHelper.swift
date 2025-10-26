@@ -21,8 +21,6 @@ extension TaskManager {
             encryptedTask.description = try EncryptionManager.shared.encrypt(description)
         }
 
-        print("✅ Encrypted task: \(task.id)")
-
         return encryptedTask
     }
 
@@ -38,8 +36,6 @@ extension TaskManager {
             if let description = encryptedTask.description {
                 decryptedTask.description = try EncryptionManager.shared.decrypt(description)
             }
-
-            print("✅ Decrypted task: \(encryptedTask.id)")
         } catch {
             // Decryption failed - this task is probably not encrypted (old data)
             print("⚠️ Could not decrypt task \(encryptedTask.id): \(error.localizedDescription)")
@@ -117,7 +113,6 @@ extension TaskManager {
                 if decryptTest != nil && decryptTest == supabaseTask.title {
                     // Successfully decrypted to same value = already encrypted
                     skippedCount += 1
-                    print("✅ Task \(index + 1)/\(response.count): Already encrypted - '\(supabaseTask.title)'")
                 } else {
                     // Failed to decrypt or got different value = plaintext
                     do {
@@ -138,23 +133,14 @@ extension TaskManager {
                             .execute()
 
                         reencryptedCount += 1
-                        print("🔐 Task \(index + 1)/\(response.count): Re-encrypted - '\(supabaseTask.title)'")
                     } catch {
                         errorCount += 1
-                        print("❌ Task \(index + 1)/\(response.count): Failed to encrypt - '\(supabaseTask.title)': \(error.localizedDescription)")
                     }
                 }
             }
 
             // Summary
-            print("\n" + String(repeating: "=", count: 60))
-            print("🔐 TASK RE-ENCRYPTION COMPLETE")
-            print("=" + String(repeating: "=", count: 60))
-            print("✅ Re-encrypted: \(reencryptedCount) tasks")
-            print("✅ Already encrypted: \(skippedCount) tasks")
-            print("❌ Errors: \(errorCount) tasks")
-            print("📊 Total: \(response.count) tasks processed")
-            print(String(repeating: "=", count: 60) + "\n")
+            print("🔐 Task re-encryption complete: \(reencryptedCount) re-encrypted, \(skippedCount) already encrypted, \(errorCount) errors")
 
         } catch {
             print("❌ Error during task re-encryption: \(error)")
