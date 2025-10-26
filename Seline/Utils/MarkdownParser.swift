@@ -110,9 +110,17 @@ class MarkdownParser {
         default: headingSize = fontSize * 1.15 // H4+
         }
 
-        let font = UIFont.systemFont(ofSize: headingSize, weight: .bold)
+        // Create bold heading font with .traitBold symbolic trait
+        let regularFont = UIFont.systemFont(ofSize: headingSize, weight: .regular)
+        let boldHeadingFont: UIFont
+        if let descriptor = regularFont.fontDescriptor.withSymbolicTraits(regularFont.fontDescriptor.symbolicTraits.union(.traitBold)) {
+            boldHeadingFont = UIFont(descriptor: descriptor, size: headingSize)
+        } else {
+            boldHeadingFont = UIFont.systemFont(ofSize: headingSize, weight: .bold)
+        }
+
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
+            .font: boldHeadingFont,
             .foregroundColor: textColor
         ]
 
@@ -169,9 +177,45 @@ class MarkdownParser {
         let attributedString = NSMutableAttributedString()
         let currentText = text
 
+        // Create fonts using symbolic traits for consistency with RichTextEditor
         let regularFont = UIFont.systemFont(ofSize: fontSize, weight: .regular)
-        let boldFont = UIFont.systemFont(ofSize: fontSize, weight: .bold)
-        let italicFont = UIFont.italicSystemFont(ofSize: fontSize)
+
+        // Create bold font with .traitBold symbolic trait
+        let boldFont: UIFont
+        if let descriptor = regularFont.fontDescriptor.withSymbolicTraits(regularFont.fontDescriptor.symbolicTraits.union(.traitBold)) {
+            boldFont = UIFont(descriptor: descriptor, size: fontSize)
+        } else {
+            boldFont = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        }
+
+        // Create italic font with .traitItalic symbolic trait
+        let italicFont: UIFont
+        if let descriptor = regularFont.fontDescriptor.withSymbolicTraits(regularFont.fontDescriptor.symbolicTraits.union(.traitItalic)) {
+            italicFont = UIFont(descriptor: descriptor, size: fontSize)
+        } else {
+            italicFont = UIFont.italicSystemFont(ofSize: fontSize)
+        }
+
+        // Create bold+italic font
+        let boldItalicFont: UIFont
+        if let descriptor = regularFont.fontDescriptor.withSymbolicTraits(regularFont.fontDescriptor.symbolicTraits.union([.traitBold, .traitItalic])) {
+            boldItalicFont = UIFont(descriptor: descriptor, size: fontSize)
+        } else {
+            boldItalicFont = boldFont  // Fallback
+        }
+
+        // Helper function to get correct font based on formatting flags
+        func getFont(bold: Bool, italic: Bool) -> UIFont {
+            if bold && italic {
+                return boldItalicFont
+            } else if bold {
+                return boldFont
+            } else if italic {
+                return italicFont
+            } else {
+                return regularFont
+            }
+        }
 
         // Process text character by character to handle **bold** and *italic*
         var index = currentText.startIndex
@@ -187,10 +231,10 @@ class MarkdownParser {
                 let nextIndex = currentText.index(after: index)
                 if nextIndex < currentText.endIndex && currentText[nextIndex] == "*" {
                     // Found **
-                    // Add current buffer
+                    // Add current buffer with current formatting
                     if !buffer.isEmpty {
                         let attrs: [NSAttributedString.Key: Any] = [
-                            .font: isItalic ? italicFont : regularFont,
+                            .font: getFont(bold: isBold, italic: isItalic),
                             .foregroundColor: textColor
                         ]
                         attributedString.append(NSAttributedString(string: buffer, attributes: attrs))
@@ -203,10 +247,10 @@ class MarkdownParser {
                     continue
                 } else {
                     // Found single * (italic)
-                    // Add current buffer
+                    // Add current buffer with current formatting
                     if !buffer.isEmpty {
                         let attrs: [NSAttributedString.Key: Any] = [
-                            .font: isBold ? boldFont : regularFont,
+                            .font: getFont(bold: isBold, italic: isItalic),
                             .foregroundColor: textColor
                         ]
                         attributedString.append(NSAttributedString(string: buffer, attributes: attrs))
@@ -225,19 +269,10 @@ class MarkdownParser {
             index = currentText.index(after: index)
         }
 
-        // Add remaining buffer
+        // Add remaining buffer with current formatting
         if !buffer.isEmpty {
-            let font: UIFont
-            if isBold {
-                font = boldFont
-            } else if isItalic {
-                font = italicFont
-            } else {
-                font = regularFont
-            }
-
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: font,
+                .font: getFont(bold: isBold, italic: isItalic),
                 .foregroundColor: textColor
             ]
             attributedString.append(NSAttributedString(string: buffer, attributes: attrs))

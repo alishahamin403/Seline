@@ -39,19 +39,21 @@ class AttributedStringToMarkdown {
             return ""
         }
 
-        // Check for heading at start (first character has larger bold font)
+        // Check for heading at start (first character has bold font at specific sizes)
         if trimmedText.count > 0 {
-            let firstCharRange = NSRange(location: 0, length: 1)
             if let firstFont = lineAttrString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
                 let fontSize = firstFont.pointSize
                 let isBold = firstFont.fontDescriptor.symbolicTraits.contains(.traitBold)
 
                 if isBold {
-                    if fontSize > baseFontSize * 1.7 {
+                    // RichTextEditor uses: H1=20pt, H2=18pt (both bold)
+                    // MarkdownParser uses: H1=27pt, H2=22.5pt, H3=19.5pt (all bold)
+                    // Match both detection methods
+                    if fontSize >= 19.5 && fontSize <= 27 {  // H1 range (20pt from RichTextEditor or 27pt from MarkdownParser)
                         return "# " + trimmedText
-                    } else if fontSize > baseFontSize * 1.4 {
+                    } else if fontSize >= 17.5 && fontSize < 19.5 {  // H2 range (18pt from RichTextEditor or 22.5pt from MarkdownParser)
                         return "## " + trimmedText
-                    } else if fontSize > baseFontSize * 1.2 {
+                    } else if fontSize >= 17 && fontSize < 17.5 {  // H3 range (19.5pt from MarkdownParser)
                         return "### " + trimmedText
                     }
                 }
