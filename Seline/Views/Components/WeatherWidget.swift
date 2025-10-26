@@ -277,24 +277,30 @@ struct WeatherWidget: View {
                     }
                 }
 
-                // Row 3: Hourly Forecast (next 4 hours)
-                HStack(spacing: 8) {
-                    ForEach(weatherService.weatherData?.hourlyForecasts ?? [], id: \.hour) { forecast in
+                // Row 3: 6-Day Forecast
+                HStack(spacing: 4) {
+                    ForEach(weatherService.weatherData?.dailyForecasts ?? [], id: \.day) { forecast in
                         VStack(spacing: 2) {
                             Image(systemName: forecast.iconName)
                                 .font(.system(size: 10, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 .frame(height: 12)
 
-                            Text("\(forecast.temperature)°")
-                                .font(.system(size: 9, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                .frame(height: 12)
+                            HStack(spacing: 1) {
+                                Text("\(forecast.highTemperature)°")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
 
-                            Text(forecast.hour)
-                                .font(.system(size: 8, weight: .regular))
+                                Text("\(forecast.lowTemperature)°")
+                                    .font(.system(size: 8, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            }
+                            .frame(height: 10)
+
+                            Text(forecast.day)
+                                .font(.system(size: 7, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                .frame(height: 10)
+                                .frame(height: 9)
                         }
                     }
                 }

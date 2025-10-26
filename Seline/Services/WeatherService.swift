@@ -2,9 +2,10 @@ import Foundation
 import CoreLocation
 
 // MARK: - Weather Data Models
-struct HourlyForecast {
-    let hour: String
-    let temperature: Int
+struct DailyForecast {
+    let day: String
+    let highTemperature: Int
+    let lowTemperature: Int
     let iconName: String
 }
 
@@ -15,7 +16,7 @@ struct WeatherData {
     let sunrise: Date
     let sunset: Date
     let locationName: String
-    let hourlyForecasts: [HourlyForecast]
+    let dailyForecasts: [DailyForecast]
 }
 
 // Open-Meteo API Response Models
@@ -41,6 +42,10 @@ struct HourlyWeather: Codable {
 }
 
 struct DailyWeather: Codable {
+    let time: [String]
+    let temperature_2m_max: [Double]
+    let temperature_2m_min: [Double]
+    let weather_code: [Int]
     let sunrise: [String]
     let sunset: [String]
 }
@@ -87,9 +92,9 @@ class WeatherService: ObservableObject {
             URLQueryItem(name: "longitude", value: "\(location.coordinate.longitude)"),
             URLQueryItem(name: "current", value: "temperature_2m,weather_code"),
             URLQueryItem(name: "hourly", value: "temperature_2m,weather_code"),
-            URLQueryItem(name: "daily", value: "sunrise,sunset"),
+            URLQueryItem(name: "daily", value: "temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset"),
             URLQueryItem(name: "timezone", value: "auto"),
-            URLQueryItem(name: "forecast_days", value: "1")
+            URLQueryItem(name: "forecast_days", value: "7")
         ]
 
         guard let url = components.url else {
@@ -119,25 +124,29 @@ class WeatherService: ObservableObject {
         let meteoResponse = try decoder.decode(OpenMeteoResponse.self, from: data)
         print("✅ Successfully fetched weather: \(meteoResponse.current.temperature_2m)°C")
 
-        // Get current hour index
-        let now = Date()
-        let currentHourIndex = Calendar.current.component(.hour, from: now)
-
-        // Generate next 4 hours of forecast (starting from next hour)
+        // Generate next 6 days of forecast
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "ha"
+        dateFormatter.dateFormat = "EEE"  // Short day name (Mon, Tue, etc.)
 
-        var hourlyForecasts: [HourlyForecast] = []
-        for i in 1...4 {  // Start from 1 to get next hour, not current hour
-            let hourIndex = min(currentHourIndex + i, meteoResponse.hourly.time.count - 1)
-            if hourIndex < meteoResponse.hourly.temperature_2m.count {
-                if let futureDate = Calendar.current.date(byAdding: .hour, value: i, to: now) {
-                    let hour = dateFormatter.string(from: futureDate)
-                    let temp = Int(meteoResponse.hourly.temperature_2m[hourIndex].rounded())
-                    let weatherCode = meteoResponse.hourly.weather_code[hourIndex]
+        var dailyForecasts: [DailyForecast] = []
+
+        // Start from day 1 (tomorrow) and show next 6 days
+        for i in 1...6 {
+            if i < meteoResponse.daily.time.count {
+                let dateString = meteoResponse.daily.time[i]
+
+                // Parse date from "YYYY-MM-DD" format
+                let dateFormatter2 = DateFormatter()
+                dateFormatter2.dateFormat = "yyyy-MM-dd"
+                if let date = dateFormatter2.date(from: dateString) {
+                    let dayName = dateFormatter.string(from: date)
+                    let highTemp = Int(meteoResponse.daily.temperature_2m_max[i].rounded())
+                    let lowTemp = Int(meteoResponse.daily.temperature_2m_min[i].rounded())
+                    let weatherCode = meteoResponse.daily.weather_code[i]
                     let icon = mapWeatherCodeToIcon(weatherCode)
-                    hourlyForecasts.append(HourlyForecast(hour: hour, temperature: temp, iconName: icon))
-                    print("📅 Hour \(i): \(hour) - \(temp)°C")
+
+                    dailyForecasts.append(DailyForecast(day: dayName, highTemperature: highTemp, lowTemperature: lowTemp, iconName: icon))
+                    print("📅 Day \(i): \(dayName) - High: \(highTemp)°C, Low: \(lowTemp)°C")
                 }
             }
         }
@@ -174,7 +183,7 @@ class WeatherService: ObservableObject {
             sunrise: sunrise,
             sunset: sunset,
             locationName: locationName,
-            hourlyForecasts: hourlyForecasts
+            dailyForecasts: dailyForecasts
         )
     }
 
