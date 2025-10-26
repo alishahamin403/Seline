@@ -9,18 +9,16 @@ struct TableEditorView: View {
     @FocusState private var isEditingFocused: Bool
     @State private var isTableActive: Bool = false
     @State private var scrollOffset: CGFloat = 0
+    @State private var showControlsPopup: Bool = false
+    @State private var isHoveringRightEdge: Bool = false
+    @State private var isHoveringBottomEdge: Bool = false
 
     var onTableUpdate: (NoteTable) -> Void
     var onDelete: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
-            // Table toolbar - only show when table is active
-            if isTableActive {
-                tableToolbar
-            }
-
-            // Table content with sticky header
+            // Table content with sticky header and edge controls
             GeometryReader { geometry in
                 ZStack(alignment: .top) {
                     // Main scrollable table
@@ -47,6 +45,18 @@ struct TableEditorView: View {
                     .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                         scrollOffset = value
                     }
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            // Check if hovering near right edge (last 20px)
+                            isHoveringRightEdge = location.x > geometry.size.width - 20
+                            // Check if hovering near bottom edge (last 20px)
+                            isHoveringBottomEdge = location.y > geometry.size.height - 20
+                        case .ended:
+                            isHoveringRightEdge = false
+                            isHoveringBottomEdge = false
+                        }
+                    }
 
                     // Sticky header (only if headerRow is true and scrolled)
                     if table.headerRow && scrollOffset < 0 {
@@ -59,83 +69,84 @@ struct TableEditorView: View {
                         }
                         .background(colorScheme == .dark ? Color.black : Color.white)
                     }
+
+                    // Floating add column button on right edge
+                    if isHoveringRightEdge && table.columns < 10 {
+                        VStack {
+                            Button(action: {
+                                showControlsPopup = true
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.blue)
+                                    .background(
+                                        Circle()
+                                            .fill(colorScheme == .dark ? Color.black : Color.white)
+                                            .frame(width: 28, height: 28)
+                                    )
+                            }
+                            .frame(height: 40, alignment: .center)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.trailing, 4)
+                        .transition(.opacity)
+                    }
+
+                    // Floating add row button on bottom edge
+                    if isHoveringBottomEdge && table.rows < 20 {
+                        VStack {
+                            Spacer()
+                            Button(action: {
+                                showControlsPopup = true
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.blue)
+                                    .background(
+                                        Circle()
+                                            .fill(colorScheme == .dark ? Color.black : Color.white)
+                                            .frame(width: 28, height: 28)
+                                    )
+                            }
+                            .frame(height: 40, alignment: .center)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 4)
+                        .transition(.opacity)
+                    }
                 }
             }
             .frame(height: 400)
         }
-        .padding(.vertical, 8)
-    }
-
-    // MARK: - Toolbar
-
-    private var tableToolbar: some View {
-        HStack(spacing: 8) {
-            // Add Row button
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                table.addRow()
-                onTableUpdate(table)
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus.rectangle.on.rectangle")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Row")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+        .onTapGesture {
+            isTableActive = true
+        }
+        .overlay(alignment: .topTrailing) {
+            if showControlsPopup {
+                TableControlsPopup(
+                    canAddRow: table.rows < 20,
+                    canAddColumn: table.columns < 10,
+                    onAddRow: {
+                        table.addRow()
+                        onTableUpdate(table)
+                        showControlsPopup = false
+                    },
+                    onAddColumn: {
+                        table.addColumn()
+                        onTableUpdate(table)
+                        showControlsPopup = false
+                    },
+                    onDeleteTable: {
+                        showControlsPopup = false
+                        if let onDelete = onDelete {
+                            onDelete()
+                        }
+                    }
                 )
-            }
-            .disabled(table.rows >= 20)
-
-            // Add Column button
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                table.addColumn()
-                onTableUpdate(table)
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "rectangle.stack.badge.plus")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Column")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                )
-            }
-            .disabled(table.columns >= 10)
-
-            Spacer()
-
-            // Delete button
-            if let onDelete = onDelete {
-                Button(action: {
-                    HapticManager.shared.delete()
-                    onDelete()
-                }) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.red)
-                        )
-                }
+                .padding(12)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
     }
 
     // MARK: - Cell View
@@ -202,6 +213,28 @@ struct TableEditorView: View {
                 .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2), lineWidth: 0.5)
         )
         .contextMenu {
+            Button {
+                if table.rows < 20 {
+                    table.addRow()
+                    onTableUpdate(table)
+                }
+            } label: {
+                Label("Add Row", systemImage: "plus.rectangle")
+            }
+            .disabled(table.rows >= 20)
+
+            Button {
+                if table.columns < 10 {
+                    table.addColumn()
+                    onTableUpdate(table)
+                }
+            } label: {
+                Label("Add Column", systemImage: "plus.square")
+            }
+            .disabled(table.columns >= 10)
+
+            Divider()
+
             Button(role: .destructive) {
                 if table.rows > 1 {
                     table.removeRow(at: row)
