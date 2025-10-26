@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
+    @StateObject private var taskManager = TaskManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     // Computed property to get current theme state
@@ -14,6 +15,9 @@ struct SettingsView: View {
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
     @State private var showingFeedback = false
+    @State private var calendarSyncEnabled = true
+    @State private var showResetConfirmation = false
+    @State private var isResettingCalendarSync = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -137,6 +141,54 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
+                        // Calendar Sync Toggle
+                        HStack(spacing: 16) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .frame(width: 24)
+
+                            Text("Calendar Sync")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white : .black)
+
+                            Spacer()
+
+                            Toggle("", isOn: $calendarSyncEnabled)
+                                .labelsHidden()
+                                .tint(isDarkMode ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+
+                        Divider()
+                            .padding(.leading, 50)
+
+                        // Reset Calendar Sync Button
+                        Button(action: { showResetConfirmation = true }) {
+                            HStack(spacing: 16) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .orange : .orange)
+                                    .frame(width: 24)
+
+                                Text("Reset Calendar Sync")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .orange : .orange)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.gray.opacity(0.3))
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 14)
+                        }
+
+                        Divider()
+                            .padding(.leading, 50)
+
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -149,9 +201,41 @@ struct SettingsView: View {
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()
         }
+        .confirmationDialog(
+            "Reset Calendar Sync?",
+            isPresented: $showResetConfirmation,
+            actions: {
+                Button("Reset & Delete Events", role: .destructive) {
+                    resetCalendarSync()
+                }
+                Button("Cancel", role: .cancel) {}
+            },
+            message: {
+                Text("This will delete all synced calendar events from the past 2 years and reset permissions. The app will re-sync with your calendar on next launch using a 3-month rolling window.\n\nContinue?")
+            }
+        )
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
+        }
+    }
+
+    // MARK: - Reset Calendar Sync
+    private func resetCalendarSync() {
+        isResettingCalendarSync = true
+        Task {
+            // Delete all synced calendar events
+            await MainActor.run {
+                taskManager.deleteSyncedCalendarEventsAndReset()
+            }
+
+            // Also clear the month skips if any were set
+            CalendarSyncService.shared.clearAllMonthSkips()
+
+            await MainActor.run {
+                isResettingCalendarSync = false
+                print("✅ Calendar sync has been reset successfully")
+            }
         }
     }
 
