@@ -1642,14 +1642,14 @@ class OpenAIService: ObservableObject {
         // Format weather data
         var weatherInfo = "Not available"
         if let weather = weatherData {
-            let hourlyForecast = weather.hourlyForecasts.map { forecast in
-                "\(forecast.hour): \(forecast.temperature)°C"
+            let dailyForecast = weather.dailyForecasts.map { forecast in
+                "\(forecast.day): High \(forecast.highTemperature)°C, Low \(forecast.lowTemperature)°C"
             }.joined(separator: ", ")
 
             weatherInfo = """
             Location: \(weather.locationName)
             Current: \(weather.temperature)°C, \(weather.description)
-            Next hours: \(hourlyForecast)
+            Next 6 days: \(dailyForecast)
             Sunrise: \(formatTime(weather.sunrise))
             Sunset: \(formatTime(weather.sunset))
             """
