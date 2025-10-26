@@ -166,6 +166,7 @@ struct Email: Identifiable, Codable, Equatable {
 struct EmailAddress: Codable, Hashable {
     let name: String?
     let email: String
+    let avatarUrl: String?
 
     var displayName: String {
         return name ?? email
@@ -293,9 +294,9 @@ extension Email {
             Email(
                 id: "1",
                 threadId: "thread1",
-                sender: EmailAddress(name: "John Doe", email: "john@example.com"),
-                recipients: [EmailAddress(name: "Me", email: "me@example.com")],
-                ccRecipients: [EmailAddress(name: "Sarah Wilson", email: "sarah@company.com")],
+                sender: EmailAddress(name: "John Doe", email: "john@example.com", avatarUrl: nil),
+                recipients: [EmailAddress(name: "Me", email: "me@example.com", avatarUrl: nil)],
+                ccRecipients: [EmailAddress(name: "Sarah Wilson", email: "sarah@company.com", avatarUrl: nil)],
                 subject: "Project Update - Q4 Review",
                 snippet: "Hi there! I wanted to give you a quick update on our Q4 project status. Everything is looking good and we're on track...",
                 body: """
@@ -347,8 +348,8 @@ extension Email {
             Email(
                 id: "2",
                 threadId: "thread2",
-                sender: EmailAddress(name: "Sarah Wilson", email: "sarah@company.com"),
-                recipients: [EmailAddress(name: "Me", email: "me@example.com")],
+                sender: EmailAddress(name: "Sarah Wilson", email: "sarah@company.com", avatarUrl: nil),
+                recipients: [EmailAddress(name: "Me", email: "me@example.com", avatarUrl: nil)],
                 ccRecipients: [],
                 subject: "Meeting Reminder: Design Review",
                 snippet: "Just a friendly reminder about our design review meeting scheduled for tomorrow at 2 PM. Please make sure to...",
@@ -366,8 +367,8 @@ extension Email {
             Email(
                 id: "3",
                 threadId: "thread3",
-                sender: EmailAddress(name: "GitHub", email: "noreply@github.com"),
-                recipients: [EmailAddress(name: "Me", email: "me@example.com")],
+                sender: EmailAddress(name: "GitHub", email: "noreply@github.com", avatarUrl: nil),
+                recipients: [EmailAddress(name: "Me", email: "me@example.com", avatarUrl: nil)],
                 ccRecipients: [],
                 subject: "[GitHub] New pull request opened",
                 snippet: "A new pull request has been opened in your repository. The changes include updates to the authentication system...",
@@ -385,8 +386,8 @@ extension Email {
             Email(
                 id: "4",
                 threadId: "thread4",
-                sender: EmailAddress(name: "Team Lead", email: "lead@company.com"),
-                recipients: [EmailAddress(name: "Me", email: "me@example.com")],
+                sender: EmailAddress(name: "Team Lead", email: "lead@company.com", avatarUrl: nil),
+                recipients: [EmailAddress(name: "Me", email: "me@example.com", avatarUrl: nil)],
                 ccRecipients: [],
                 subject: "Standup Notes - Daily Sync",
                 snippet: "Here are today's standup notes and action items. Please review and let me know if I missed anything...",

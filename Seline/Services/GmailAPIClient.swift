@@ -541,10 +541,25 @@ class GmailAPIClient {
             let components = trimmed.components(separatedBy: "<")
             let name = components.first?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\"", with: "")
             let email = components.last?.replacingOccurrences(of: ">", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return EmailAddress(name: name?.isEmpty == false ? name : nil, email: email ?? trimmed)
+            let avatarUrl = email.flatMap { generateGravatarUrl($0) }
+            return EmailAddress(name: name?.isEmpty == false ? name : nil, email: email ?? trimmed, avatarUrl: avatarUrl)
         } else {
-            return EmailAddress(name: nil, email: trimmed)
+            let avatarUrl = generateGravatarUrl(trimmed)
+            return EmailAddress(name: nil, email: trimmed, avatarUrl: avatarUrl)
         }
+    }
+
+    private func generateGravatarUrl(_ email: String) -> String? {
+        let lowercasedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Generate MD5 hash of email for Gravatar
+        if let hash = lowercasedEmail.data(using: .utf8)?.md5Hex() {
+            // Use Gravatar API with 404 fallback and size 256
+            // d=404 means it will return 404 if no gravatar exists
+            return "https://www.gravatar.com/avatar/\(hash)?s=256&d=404"
+        }
+
+        return nil
     }
 
     private func parseEmailAddresses(_ emailString: String) -> [EmailAddress] {
@@ -1007,5 +1022,16 @@ enum GmailAPIError: LocalizedError {
         case .noPermission:
             return "No permission to access Gmail. Please sign in again with Gmail access."
         }
+    }
+}
+
+// MARK: - String Extension for MD5 Hashing (for Gravatar)
+
+import CryptoKit
+
+extension Data {
+    func md5Hex() -> String {
+        let digest = Insecure.MD5.hash(data: self)
+        return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 }
