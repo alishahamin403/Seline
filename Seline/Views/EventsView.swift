@@ -287,7 +287,7 @@ struct EventsView: View {
                     }) {
                         Text("All")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == nil ? Color.black : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(selectedTagId == nil ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
@@ -308,7 +308,7 @@ struct EventsView: View {
                     }) {
                         Text("Personal")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == "" ? Color.black : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(selectedTagId == "" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
@@ -330,7 +330,7 @@ struct EventsView: View {
                         }) {
                             Text(tag.name)
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(selectedTagId == tag.id ? Color.black : Color.shadcnForeground(colorScheme))
+                                .foregroundColor(selectedTagId == tag.id ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(
