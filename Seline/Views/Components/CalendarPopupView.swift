@@ -222,8 +222,6 @@ struct CalendarPopupView: View {
                 colorScheme == .dark ?
                     Color.gmailDarkBackground : Color.white
             )
-            .navigationTitle("Task Calendar")
-            .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear {
             // Initialize local filter state with passed value (if any)
