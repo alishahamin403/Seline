@@ -117,10 +117,20 @@ struct TimelineEventBlock: View {
                     .multilineTextAlignment(.leading)
 
                 // Filter badge
-                Text(filterDisplayName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(accentColor)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 7, weight: .medium))
+                    Text(filterDisplayName)
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .foregroundColor(accentColor)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(accentColor.opacity(0.15))
+                )
+                .lineLimit(1)
             }
 
             Spacer(minLength: 0)

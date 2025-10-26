@@ -36,7 +36,8 @@ struct CalendarPopupView: View {
                     }
                 )
                 .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
 
                 // Tasks header
                 HStack {
@@ -558,8 +559,26 @@ struct TaskRowCalendar: View {
         return task.isCompletedOn(date: selectedDate)
     }
 
+    // Get filter type to determine color
+    private var filterType: TimelineEventColorManager.FilterType {
+        TimelineEventColorManager.filterType(from: task)
+    }
+
+    // Get accent color for the filter
+    private var accentColor: Color {
+        TimelineEventColorManager.timelineEventAccentColor(
+            filterType: filterType,
+            colorScheme: colorScheme
+        )
+    }
+
     var body: some View {
         HStack(spacing: 12) {
+            // Left accent bar showing filter color
+            RoundedRectangle(cornerRadius: 2)
+                .fill(accentColor)
+                .frame(width: 3)
+
             // Checkbox (completed or incomplete)
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
                 .foregroundColor(isTaskCompleted ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
