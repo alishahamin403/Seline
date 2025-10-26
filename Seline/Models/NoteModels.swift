@@ -436,8 +436,8 @@ class NotesManager: ObservableObject {
             let client = await SupabaseManager.shared.getPostgrestClient()
             try await client
                 .from("notes")
-                .eq("id", value: note.id.uuidString)
                 .update(noteData)
+                .eq("id", value: note.id.uuidString)
                 .execute()
             print("✅ Successfully updated note in Supabase: \(note.title)")
             return (true, nil)
@@ -590,7 +590,7 @@ class NotesManager: ObservableObject {
                 .execute()
 
             // Re-insert to notes table
-            await saveNoteToSupabase(note)
+            await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
         } catch {
             print("❌ Error restoring note from trash: \(error)")
         }
@@ -602,9 +602,9 @@ class NotesManager: ObservableObject {
             notes[index].dateModified = Date()
             saveNotes()
 
-            // Sync with Supabase
+            // Sync with Supabase with retry logic
             Task {
-                await updateNoteInSupabase(notes[index])
+                await updateNoteInSupabaseWithRetry(notes[index], maxRetries: 3)
             }
         }
     }
