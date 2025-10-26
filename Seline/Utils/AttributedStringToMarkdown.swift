@@ -9,83 +9,119 @@ class AttributedStringToMarkdown {
     /// Converts NSAttributedString back to Markdown format with preserved formatting
     /// Detects and converts: **bold**, *italic*, # headings, and other markdown structures
     func convertToMarkdown(_ attributedString: NSAttributedString, baseFontSize: CGFloat = 15) -> String {
+        let text = attributedString.string
         var result = ""
-        let fullRange = NSRange(location: 0, length: attributedString.length)
-        var lastWasNewline = true
-        var previousAttributes: [NSAttributedString.Key: Any]? = nil
+        let lines = text.components(separatedBy: .newlines)
 
-        attributedString.enumerateAttributes(in: fullRange, options: []) { attributes, range, _ in
-            let substring = attributedString.attributedSubstring(from: range).string
-
-            // Skip empty substrings
-            if substring.isEmpty {
-                return
+        for line in lines {
+            // Create attributed substring for this line to preserve formatting
+            let lineRange = (text as NSString).range(of: line)
+            if lineRange.location == NSNotFound {
+                result += line + "\n"
+                continue
             }
 
-            // Check for newlines and preserve them
-            if substring.contains("\n") {
-                result += substring
-                lastWasNewline = true
-                previousAttributes = nil
-                return
-            }
-
-            // Get font attributes
-            let font = attributes[.font] as? UIFont
-            let fontDescriptor = font?.fontDescriptor
-            let fontSize = font?.pointSize ?? baseFontSize
-            let isBold = (fontDescriptor?.symbolicTraits.contains(.traitBold) ?? false)
-            let isItalic = (fontDescriptor?.symbolicTraits.contains(.traitItalic) ?? false)
-
-            // Detect headings based on font size
-            if lastWasNewline {
-                if fontSize > baseFontSize * 1.7 {
-                    // H1
-                    result += "# " + substring
-                    lastWasNewline = false
-                    previousAttributes = attributes
-                    return
-                } else if fontSize > baseFontSize * 1.4 {
-                    // H2
-                    result += "## " + substring
-                    lastWasNewline = false
-                    previousAttributes = attributes
-                    return
-                } else if fontSize > baseFontSize * 1.2 {
-                    // H3
-                    result += "### " + substring
-                    lastWasNewline = false
-                    previousAttributes = attributes
-                    return
-                }
-            }
-
-            // Detect bullet points (start with "  •  " or similar patterns)
-            if lastWasNewline && substring.hasPrefix("  •  ") {
-                let bulletContent = String(substring.dropFirst(6))
-                result += "- " + bulletContent
-                lastWasNewline = false
-                previousAttributes = attributes
-                return
-            }
-
-            // Apply inline formatting
-            var formattedText = substring
-
-            if isBold && isItalic {
-                formattedText = "***" + substring + "***"
-            } else if isBold {
-                formattedText = "**" + substring + "**"
-            } else if isItalic {
-                formattedText = "*" + substring + "*"
-            }
-
-            result += formattedText
-            lastWasNewline = false
-            previousAttributes = attributes
+            let lineAttributedString = attributedString.attributedSubstring(from: lineRange)
+            let processedLine = convertLineToMarkdown(lineAttributedString, baseFontSize: baseFontSize)
+            result += processedLine + "\n"
         }
 
-        // Clean up: remove extra newlines at the end and preserve table/todo markers
+        // Clean up: remove extra newlines at the end while preserving table/todo markers
         return result.trimmingCharacters(in: .newlines)
+    }
+
+    private func convertLineToMarkdown(_ lineAttrString: NSAttributedString, baseFontSize: CGFloat) -> String {
+        let text = lineAttrString.string
+        let trimmedText = text.trimmingCharacters(in: .whitespaces)
+
+        // Skip empty lines
+        if trimmedText.isEmpty {
+            return ""
+        }
+
+        // Check for heading at start (first character has larger bold font)
+        if trimmedText.count > 0 {
+            let firstCharRange = NSRange(location: 0, length: 1)
+            if let firstFont = lineAttrString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
+                let fontSize = firstFont.pointSize
+                let isBold = firstFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+
+                if isBold {
+                    if fontSize > baseFontSize * 1.7 {
+                        return "# " + trimmedText
+                    } else if fontSize > baseFontSize * 1.4 {
+                        return "## " + trimmedText
+                    } else if fontSize > baseFontSize * 1.2 {
+                        return "### " + trimmedText
+                    }
+                }
+            }
+        }
+
+        // Check for bullet point (starts with bullet symbol)
+        if trimmedText.hasPrefix("•") || trimmedText.hasPrefix("-") || trimmedText.hasPrefix("*") {
+            // Extract content after bullet
+            let bulletRemoved = trimmedText.drop(while: { "•- *".contains($0) }).trimmingCharacters(in: .whitespaces)
+            if !bulletRemoved.isEmpty {
+                return "- " + bulletRemoved
+            }
+        }
+
+        // Apply inline formatting - convert bold and italic back to markdown
+        return convertInlineFormatting(lineAttrString, baseFontSize: baseFontSize)
+    }
+
+    private func convertInlineFormatting(_ attrString: NSAttributedString, baseFontSize: CGFloat) -> String {
+        let text = attrString.string
+        var result = ""
+        var position = 0
+
+        while position < text.count {
+            let char = text[text.index(text.startIndex, offsetBy: position)]
+            let range = NSRange(location: position, length: 1)
+
+            if let font = attrString.attribute(.font, at: position, effectiveRange: nil) as? UIFont {
+                let isBold = font.fontDescriptor.symbolicTraits.contains(.traitBold)
+                let isItalic = font.fontDescriptor.symbolicTraits.contains(.traitItalic)
+
+                // For consecutive characters with same formatting, group them
+                var endPos = position + 1
+                while endPos < text.count {
+                    if let nextFont = attrString.attribute(.font, at: endPos, effectiveRange: nil) as? UIFont {
+                        let nextBold = nextFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+                        let nextItalic = nextFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
+                        if nextBold == isBold && nextItalic == isItalic {
+                            endPos += 1
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+
+                // Extract the formatted substring
+                let startIndex = text.index(text.startIndex, offsetBy: position)
+                let endIndex = text.index(text.startIndex, offsetBy: endPos)
+                let substring = String(text[startIndex..<endIndex])
+
+                if isBold && isItalic {
+                    result += "***" + substring + "***"
+                } else if isBold {
+                    result += "**" + substring + "**"
+                } else if isItalic {
+                    result += "*" + substring + "*"
+                } else {
+                    result += substring
+                }
+
+                position = endPos
+            } else {
+                result.append(char)
+                position += 1
+            }
+        }
+
+        return result
     }
 }

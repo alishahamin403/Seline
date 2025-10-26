@@ -28,13 +28,26 @@ struct FormattableTextEditor: UIViewRepresentable {
         // Ensure the text view expands to fill available width
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        // Set initial attributed text with default attributes
+        // Set initial attributed text while preserving existing formatting
         let mutableAttrString = NSMutableAttributedString(attributedString: attributedText)
         if mutableAttrString.length > 0 {
-            mutableAttrString.addAttributes([
-                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-            ], range: NSRange(location: 0, length: mutableAttrString.length))
+            // Preserve existing font attributes (bold, italic, headings)
+            // Only set foreground color and apply default font where no font exists
+            var position = 0
+            while position < mutableAttrString.length {
+                let range = NSRange(location: position, length: 1)
+                if let existingFont = mutableAttrString.attribute(.font, at: position, effectiveRange: nil) {
+                    // Font already exists, preserve it - just update color
+                    mutableAttrString.addAttribute(.foregroundColor, value: colorScheme == .dark ? UIColor.white : UIColor.black, range: range)
+                } else {
+                    // No font exists, apply default
+                    mutableAttrString.addAttributes([
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                    ], range: range)
+                }
+                position += 1
+            }
         }
 
         // Hide table and todo markers from display
@@ -51,9 +64,21 @@ struct FormattableTextEditor: UIViewRepresentable {
 
             let mutableAttrString = NSMutableAttributedString(attributedString: attributedText)
             if mutableAttrString.length > 0 {
-                // Preserve existing formatting but update color scheme
-                mutableAttrString.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: mutableAttrString.length)) { _, range, _ in
-                    mutableAttrString.addAttribute(.foregroundColor, value: colorScheme == .dark ? UIColor.white : UIColor.black, range: range)
+                // Preserve existing font attributes while updating color for theme
+                var position = 0
+                while position < mutableAttrString.length {
+                    let range = NSRange(location: position, length: 1)
+                    if let existingFont = mutableAttrString.attribute(.font, at: position, effectiveRange: nil) {
+                        // Font already exists, preserve it - just update color
+                        mutableAttrString.addAttribute(.foregroundColor, value: colorScheme == .dark ? UIColor.white : UIColor.black, range: range)
+                    } else {
+                        // No font exists, apply default
+                        mutableAttrString.addAttributes([
+                            .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
+                        ], range: range)
+                    }
+                    position += 1
                 }
             }
 
