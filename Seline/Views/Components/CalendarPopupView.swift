@@ -26,7 +26,7 @@ struct CalendarPopupView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Shadcn-style custom calendar
+                // Shadcn-style custom calendar (compact)
                 ShadcnCalendar(
                     selectedDate: $selectedDate,
                     taskManager: taskManager,
@@ -35,6 +35,34 @@ struct CalendarPopupView: View {
                         updateTasksForDate(for: newDate)
                     }
                 )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+
+                // Tasks header
+                HStack {
+                    Text("Tasks")
+                        .font(.shadcnTextLgSemibold)
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                    Spacer()
+
+                    if canAddTaskToSelectedDate {
+                        Button(action: {
+                            showingAddTaskSheet = true
+                        }) {
+                            Image(systemName: "plus.circle")
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .font(.system(size: 18, weight: .medium))
+                        }
+                    }
+
+                    Text(formattedSelectedDate)
+                        .font(.shadcnTextSm)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
 
                 // Filter buttons - Show "All", "Personal", and all user-created tags
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -133,32 +161,10 @@ struct CalendarPopupView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
 
                 // Completed tasks section
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Tasks")
-                            .font(.shadcnTextLgSemibold)
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                        Spacer()
-
-                        if canAddTaskToSelectedDate {
-                            Button(action: {
-                                showingAddTaskSheet = true
-                            }) {
-                                Image(systemName: "plus.circle")
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .font(.system(size: 18, weight: .medium))
-                            }
-                        }
-
-                        Text(formattedSelectedDate)
-                            .font(.shadcnTextSm)
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                    .padding(.horizontal, 20)
+                VStack(alignment: .leading, spacing: 8) {
 
                     if tasksForDate.isEmpty {
                         // Empty state
@@ -721,15 +727,15 @@ struct ShadcnCalendar: View {
     private let weekdaySymbols = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 6) {
             // Header with navigation
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 // Previous month button
                 Button(action: previousMonth) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .background(
                             RoundedRectangle(cornerRadius: ShadcnRadius.md)
                                 .fill(Color.clear)
@@ -739,7 +745,7 @@ struct ShadcnCalendar: View {
 
                 // Month and year
                 Text(monthYearFormatter.string(from: currentMonth))
-                    .font(.shadcnTextBaseMedium)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
                     .frame(maxWidth: .infinity)
 
@@ -750,10 +756,10 @@ struct ShadcnCalendar: View {
                     onDateChange(Date())
                 }) {
                     Text("Today")
-                        .font(.shadcnTextSm)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(Color.shadcnPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: ShadcnRadius.sm)
                                 .fill(Color.shadcnPrimary.opacity(0.1))
@@ -766,7 +772,7 @@ struct ShadcnCalendar: View {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 28, height: 28)
                         .background(
                             RoundedRectangle(cornerRadius: ShadcnRadius.md)
                                 .fill(Color.clear)
@@ -774,22 +780,23 @@ struct ShadcnCalendar: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
 
             // Weekday headers
             HStack(spacing: 0) {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(Color.shadcnMutedForeground(colorScheme))
                         .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
+            .padding(.top, 2)
 
             // Calendar grid
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
                 ForEach(daysInMonth, id: \.self) { date in
                     ShadcnDayCell(
                         date: date,
@@ -804,8 +811,8 @@ struct ShadcnCalendar: View {
                     )
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
         }
     }
 
@@ -850,24 +857,24 @@ struct ShadcnDayCell: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Text(dayNumber)
-                    .font(.system(size: 14, weight: isToday ? .semibold : .regular))
+                    .font(.system(size: 13, weight: isToday ? .semibold : .regular))
                     .foregroundColor(textColor)
 
                 // Event indicator dot
                 if hasEvents && isInCurrentMonth {
                     Circle()
                         .fill(Color.shadcnPrimary)
-                        .frame(width: 4, height: 4)
+                        .frame(width: 3, height: 3)
                 } else {
                     Circle()
                         .fill(Color.clear)
-                        .frame(width: 4, height: 4)
+                        .frame(width: 3, height: 3)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .frame(height: 36)
             .background(backgroundColor)
             .cornerRadius(ShadcnRadius.md)
         }
