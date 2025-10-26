@@ -2417,18 +2417,22 @@ class TaskManager: ObservableObject {
     // MARK: - Calendar Sync Methods
 
     /// Sync calendar events from iPhone's native Calendar app
-    /// Only syncs events from current month onwards (not historical)
+    /// Only syncs events from current month onwards (3-month rolling window)
     @MainActor
     func syncCalendarEvents() async {
-        print("🔄 Starting calendar sync...")
+        print("🔄 [TaskManager] Starting calendar sync...")
+        print("📅 [TaskManager] Will fetch events using 3-month rolling window (current month + 3 months)")
 
         let newEvents = await CalendarSyncService.shared.fetchNewCalendarEvents()
         guard !newEvents.isEmpty else {
-            print("✅ Calendar sync complete - no new events to sync")
+            print("✅ [TaskManager] Calendar sync complete - no new events to sync")
             return
         }
 
+        print("📥 [TaskManager] Adding \(newEvents.count) new calendar events to app")
+
         // Convert EventKit events to TaskItems and add them
+        var addedCount = 0
         for event in newEvents {
             let taskItem = CalendarSyncService.shared.convertEKEventToTaskItem(event)
 
@@ -2442,6 +2446,7 @@ class TaskManager: ObservableObject {
 
             // Sync with Supabase
             await saveTaskToSupabase(taskItem)
+            addedCount += 1
         }
 
         // Mark events as synced
@@ -2450,7 +2455,7 @@ class TaskManager: ObservableObject {
         // Save to local storage
         saveTasks()
 
-        print("✅ Calendar sync complete - synced \(newEvents.count) events")
+        print("✅ [TaskManager] Calendar sync complete - successfully synced \(addedCount) new events")
     }
 
     /// Manually trigger calendar access request

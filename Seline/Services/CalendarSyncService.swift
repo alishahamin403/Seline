@@ -154,7 +154,11 @@ class CalendarSyncService {
         // Filter out all-day events and events that don't have a time component
         let timedEvents = allEvents.filter { !$0.isAllDay }
 
-        print("✅ Fetched \(timedEvents.count) calendar events from \(currentMonthStart) to \(endDate) [3-month rolling window, READ-ONLY]")
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        let startStr = formatter.string(from: currentMonthStart)
+        let endStr = formatter.string(from: endDate)
+        print("📅 [CalendarSyncService] Fetched \(timedEvents.count) calendar events from \(startStr) to \(endStr) [3-month rolling window, READ-ONLY]")
 
         return timedEvents
     }
