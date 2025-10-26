@@ -2,6 +2,7 @@ import SwiftUI
 import Auth
 import GoogleSignIn
 import UserNotifications
+import EventKit
 
 @main
 struct SelineApp: App {
@@ -82,14 +83,21 @@ struct SelineApp: App {
         // Sync calendar events on app launch
         // This runs asynchronously without blocking app initialization
         Task {
-            print("📅 Requesting calendar access...")
+            print("📅 [SelineApp] Starting calendar sync check on launch...")
+
+            // Check current permission status first
+            let status = EventKit.EKEventStore.authorizationStatus(for: .event)
+            print("📅 [SelineApp] Current calendar permission status: \(status.rawValue)")
+
             let hasAccess = await taskManager.requestCalendarAccess()
+            print("📅 [SelineApp] requestCalendarAccess returned: \(hasAccess)")
 
             if hasAccess {
-                print("✅ Calendar access granted - syncing events")
+                print("✅ [SelineApp] Calendar access granted - syncing events now")
                 await taskManager.syncCalendarEvents()
             } else {
-                print("⚠️ Calendar access not granted. User can enable it in Settings.")
+                print("⚠️ [SelineApp] Calendar access not granted. Status: \(status.rawValue)")
+                print("⚠️ [SelineApp] User can enable it in Settings > Seline > Calendars")
             }
         }
     }
