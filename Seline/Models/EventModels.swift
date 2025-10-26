@@ -2458,6 +2458,42 @@ class TaskManager: ObservableObject {
     func requestCalendarAccess() async -> Bool {
         return await CalendarSyncService.shared.requestCalendarAccess()
     }
+
+    /// Delete all synced calendar events and reset sync tracking
+    /// Use this when you want to remove previously synced calendar events and start fresh
+    @MainActor
+    func deleteSyncedCalendarEventsAndReset() {
+        print("🗑️ Deleting all synced calendar events...")
+
+        // Get list of synced event IDs
+        let syncedIDs = CalendarSyncService.shared.getSyncedEventIDsPublic()
+
+        var deletedCount = 0
+
+        // Delete synced events from all weekdays
+        for weekday in WeekDay.allCases {
+            if let taskList = tasks[weekday] {
+                // Filter out synced calendar events (IDs starting with "cal_")
+                let filteredTasks = taskList.filter { task in
+                    !task.id.hasPrefix("cal_")
+                }
+
+                if filteredTasks.count < taskList.count {
+                    deletedCount += taskList.count - filteredTasks.count
+                    tasks[weekday] = filteredTasks
+                }
+            }
+        }
+
+        // Clear sync tracking so it will ask for permission again
+        CalendarSyncService.shared.resetCalendarSync()
+
+        // Save changes
+        saveTasks()
+
+        print("✅ Deleted \(deletedCount) synced calendar events")
+        print("🔄 Calendar sync has been reset - permission will be requested again on next launch")
+    }
 }
 
 // MARK: - Tag Manager

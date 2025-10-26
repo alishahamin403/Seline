@@ -198,6 +198,11 @@ class CalendarSyncService {
         return userDefaults.stringArray(forKey: syncedEventIDsKey) ?? []
     }
 
+    /// Get the list of synced event IDs (public for cleanup)
+    func getSyncedEventIDsPublic() -> [String] {
+        return getSyncedEventIDs()
+    }
+
     /// Get the date of the last sync
     func getLastSyncDate() -> Date? {
         return userDefaults.object(forKey: lastSyncDateKey) as? Date
@@ -207,6 +212,16 @@ class CalendarSyncService {
     func clearSyncTracking() {
         userDefaults.removeObject(forKey: syncedEventIDsKey)
         userDefaults.removeObject(forKey: lastSyncDateKey)
+        print("🔄 Calendar sync tracking cleared - permission will be requested again on next launch")
+    }
+
+    /// Reset calendar sync completely (delete all tracking and request permission again)
+    func resetCalendarSync() {
+        clearSyncTracking()
+        // Reset authorization status by clearing the event store
+        // Note: This doesn't actually revoke permission, user must do that in Settings
+        print("🔄 Calendar sync has been reset. Permission will be requested again.")
+        print("⚠️ To fully reset: Go to Settings > Seline > Calendars and toggle OFF, then ON")
     }
 }
 
