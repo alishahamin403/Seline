@@ -59,9 +59,10 @@ class CalendarSyncService {
 
     // MARK: - Event Fetching & Filtering (READ-ONLY)
 
-    /// Fetch calendar events from current date onwards (not historical)
+    /// Fetch calendar events from current month onwards (3-month rolling window)
     /// This is a READ-ONLY operation - no modifications to the calendar
-    /// - Returns: Array of calendar events from this month onwards
+    /// Only fetches 3 months forward to prevent crashes with 1000+ events on first sync
+    /// - Returns: Array of calendar events from this month + next 3 months
     func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
@@ -77,8 +78,9 @@ class CalendarSyncService {
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
 
         // Create a predicate to fetch events from current month onwards (READ-ONLY)
-        // We'll fetch events for the next 2 years to be generous with the range
-        let endDate = calendar.date(byAdding: .year, value: 2, to: currentMonthStart) ?? now
+        // LIMITED TO 3-MONTH ROLLING WINDOW to prevent crashes with large event libraries
+        // This ensures manageable sync on first launch even with 1000+ calendar events
+        let endDate = calendar.date(byAdding: .month, value: 3, to: currentMonthStart) ?? now
 
         // Get all calendars (nil = all calendars)
         let allCalendars = eventStore.calendars(for: .event)
@@ -90,7 +92,7 @@ class CalendarSyncService {
         // Filter out all-day events and events that don't have a time component
         let timedEvents = allEvents.filter { !$0.isAllDay }
 
-        print("✅ Fetched \(timedEvents.count) calendar events from \(currentMonthStart) [READ-ONLY]")
+        print("✅ Fetched \(timedEvents.count) calendar events from \(currentMonthStart) to \(endDate) [3-month rolling window, READ-ONLY]")
 
         return timedEvents
     }
