@@ -6,14 +6,23 @@ struct EmailRow: View {
     let onMarkAsUnread: (Email) -> Void
     @Environment(\.colorScheme) var colorScheme
 
-    // Avatar background color (fallback for when image is not available)
+    // Avatar background color - generate unique color based on sender email
     private var avatarColor: Color {
-        // Use a neutral gray instead of blue
-        if colorScheme == .dark {
-            return Color.gray.opacity(0.3)
-        } else {
-            return Color.gray.opacity(0.2)
-        }
+        let colors: [Color] = [
+            Color(red: 0.847, green: 0.004, blue: 0.004), // Red
+            Color(red: 0.922, green: 0.408, blue: 0.004), // Orange
+            Color(red: 0.949, green: 0.788, blue: 0.004), // Yellow
+            Color(red: 0.004, green: 0.690, blue: 0.004), // Green
+            Color(red: 0.004, green: 0.490, blue: 0.949), // Blue
+            Color(red: 0.576, green: 0.004, blue: 0.922), // Purple
+            Color(red: 0.922, green: 0.004, blue: 0.565), // Pink
+            Color(red: 0.004, green: 0.851, blue: 0.922), // Cyan
+        ]
+
+        // Generate deterministic color based on email
+        let hash = email.sender.email.hashValue
+        let colorIndex = abs(hash) % colors.count
+        return colors[colorIndex]
     }
 
     // Icon color inside avatar
@@ -202,75 +211,39 @@ struct EmailRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-                // Sender avatar - show image if available, otherwise show icon/initials
-                Group {
-                    if let avatarUrl = email.sender.avatarUrl, !avatarUrl.isEmpty {
-                        // Display actual avatar image from Gmail
-                        AsyncImage(url: URL(string: avatarUrl)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 32, height: 32)
-                                    .clipShape(Circle())
-                            case .empty:
-                                // Fallback while loading
-                                Circle()
-                                    .fill(avatarColor)
-                                    .frame(width: 32, height: 32)
-                                    .overlay(
-                                        Group {
-                                            if let icon = emailIcon {
-                                                Image(systemName: icon)
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(iconColor)
-                                            } else {
-                                                Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                                    .font(.system(size: 13, weight: .semibold))
-                                                    .foregroundColor(iconColor)
-                                            }
-                                        }
-                                    )
-                            @unknown default:
-                                // Fallback to icon/initials if image fails to load
-                                Circle()
-                                    .fill(avatarColor)
-                                    .frame(width: 32, height: 32)
-                                    .overlay(
-                                        Group {
-                                            if let icon = emailIcon {
-                                                Image(systemName: icon)
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(iconColor)
-                                            } else {
-                                                Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                                    .font(.system(size: 13, weight: .semibold))
-                                                    .foregroundColor(iconColor)
-                                            }
-                                        }
-                                    )
-                            }
+                // Sender avatar with color-coded background
+                if let avatarUrl = email.sender.avatarUrl, !avatarUrl.isEmpty {
+                    // Display generated avatar with initials on colored background
+                    AsyncImage(url: URL(string: avatarUrl)) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 32, height: 32)
+                                .clipShape(Circle())
+                        @unknown default:
+                            // Fallback to initials on colored background
+                            Circle()
+                                .fill(avatarColor)
+                                .frame(width: 32, height: 32)
+                                .overlay(
+                                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.white)
+                                )
                         }
-                    } else {
-                        // Fallback to icon/initials if no avatar URL
-                        Circle()
-                            .fill(avatarColor)
-                            .frame(width: 32, height: 32)
-                            .overlay(
-                                Group {
-                                    if let icon = emailIcon {
-                                        Image(systemName: icon)
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundColor(iconColor)
-                                    } else {
-                                        Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(iconColor)
-                                    }
-                                }
-                            )
                     }
+                } else {
+                    // Default avatar with colored background
+                    Circle()
+                        .fill(avatarColor)
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                        )
                 }
 
                 // Email content
@@ -318,7 +291,7 @@ struct EmailRow: View {
 
                                 if !email.isRead {
                                     Circle()
-                                        .fill(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                        .fill(avatarColor)
                                         .frame(width: 8, height: 8)
                                 }
                             }

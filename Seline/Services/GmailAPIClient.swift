@@ -550,13 +550,19 @@ class GmailAPIClient {
     }
 
     private func generateGravatarUrl(_ email: String) -> String? {
+        // For now, return nil to use the icon/initials fallback which we've designed
+        // To display actual Gmail profile pictures, we would need to:
+        // 1. Use Google People API with profilePicture field (requires additional auth scope)
+        // 2. Or extract profile pictures from Google Contacts API
+        // 3. For Google Workspace accounts, use the Directory API
+        //
+        // As a fallback, we use the ui-avatars service which generates nice colored initials
         let lowercasedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Generate MD5 hash of email for Gravatar
-        if let hash = lowercasedEmail.data(using: .utf8)?.md5Hex() {
-            // Use Gravatar API with 404 fallback and size 256
-            // d=404 means it will return 404 if no gravatar exists
-            return "https://www.gravatar.com/avatar/\(hash)?s=256&d=404"
+        if let encodedEmail = lowercasedEmail.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            // Use ui-avatars for nice colored avatar with initials
+            // This provides a better visual than generic icons
+            return "https://api.dicebear.com/7.x/initials/svg?seed=\(encodedEmail)&scale=90&radius=50"
         }
 
         return nil
@@ -1025,13 +1031,3 @@ enum GmailAPIError: LocalizedError {
     }
 }
 
-// MARK: - String Extension for MD5 Hashing (for Gravatar)
-
-import CryptoKit
-
-extension Data {
-    func md5Hex() -> String {
-        let digest = Insecure.MD5.hash(data: self)
-        return digest.map { String(format: "%02hhx", $0) }.joined()
-    }
-}
