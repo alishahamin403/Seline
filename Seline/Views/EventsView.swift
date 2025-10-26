@@ -325,7 +325,7 @@ struct EventsView: View {
             // Filter buttons - Show "All", "Personal", and all user-created tags
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // "All" button
+                    // "All" button (neutral black/white, no color impact)
                     Button(action: {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             selectedTagId = nil
@@ -339,7 +339,7 @@ struct EventsView: View {
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == nil ?
-                                        TimelineEventColorManager.timelineEventBackgroundColor(filterType: .all, colorScheme: colorScheme, isCompleted: false) :
+                                        TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme).opacity(0.2) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
@@ -360,7 +360,7 @@ struct EventsView: View {
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == "" ?
-                                        TimelineEventColorManager.timelineEventBackgroundColor(filterType: .personal, colorScheme: colorScheme, isCompleted: false) :
+                                        TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme).opacity(0.2) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
@@ -381,7 +381,7 @@ struct EventsView: View {
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedTagId == "cal_sync" ?
-                                        TimelineEventColorManager.timelineEventBackgroundColor(filterType: .personalSync, colorScheme: colorScheme, isCompleted: false) :
+                                        TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(0.2) :
                                         (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                     )
                             )
@@ -403,7 +403,7 @@ struct EventsView: View {
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(selectedTagId == tag.id ?
-                                            TimelineEventColorManager.timelineEventBackgroundColor(filterType: .tag(tag.id), colorScheme: colorScheme, isCompleted: false) :
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme).opacity(0.2) :
                                             (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                         )
                                 )
