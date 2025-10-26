@@ -496,9 +496,9 @@ struct FormattableTextEditor: UIViewRepresentable {
             case .underline:
                 toggleUnderline(in: mutableAttributedString, range: selectedRange)
             case .heading1:
-                applyHeading(size: 20, in: mutableAttributedString, range: selectedRange)
+                applyHeading(size: 19, in: mutableAttributedString, range: selectedRange)
             case .heading2:
-                applyHeading(size: 18, in: mutableAttributedString, range: selectedRange)
+                applyHeading(size: 17, in: mutableAttributedString, range: selectedRange)
             }
 
             textView.attributedText = mutableAttributedString

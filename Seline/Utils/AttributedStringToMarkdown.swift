@@ -47,35 +47,16 @@ class AttributedStringToMarkdown {
 
                 if isBold {
                     // Detect headings by font size
-                    // RichTextEditor uses: H1=20pt, H2=18pt
-                    // MarkdownParser uses: H1=27pt, H2=22.5pt, H3=19.5pt
-                    // Identify which one by checking ranges
-                    if fontSize >= 24 {
-                        // >= 24: Must be MarkdownParser H1 (27pt)
+                    // Both now use: H1≈19pt, H2≈17pt, H3=15pt
+                    if fontSize >= 18.5 {
+                        // >= 18.5: H1 (19pt)
                         return "# " + trimmedText
-                    } else if fontSize >= 21 {
-                        // 21-24: Must be MarkdownParser H2 (22.5pt) or RichTextEditor H1 (20pt)
-                        // Closer to 22.5pt suggests H2 from parser, but could be H1 from editor
-                        // Be conservative: treat as H2 if > 21.5, else H1
-                        if fontSize > 21.5 {
-                            return "## " + trimmedText
-                        } else {
-                            return "# " + trimmedText
-                        }
-                    } else if fontSize >= 19 {
-                        // 19-21: MarkdownParser H3 (19.5pt) or RichTextEditor H1 (20pt)
-                        if fontSize >= 19.7 {
-                            return "# " + trimmedText  // Closer to 20pt
-                        } else {
-                            return "### " + trimmedText  // Closer to 19.5pt
-                        }
-                    } else if fontSize >= 18 {
-                        // 18-19: RichTextEditor H2 (18pt) or MarkdownParser H3 (19.5pt)
-                        if fontSize >= 18.7 {
-                            return "### " + trimmedText  // Closer to 19.5pt
-                        } else {
-                            return "## " + trimmedText  // Is 18pt (RichTextEditor H2)
-                        }
+                    } else if fontSize >= 16.5 {
+                        // 16.5-18.5: H2 (17pt)
+                        return "## " + trimmedText
+                    } else if fontSize >= 14.5 {
+                        // 14.5-16.5: H3 (15pt)
+                        return "### " + trimmedText
                     }
                 }
             }

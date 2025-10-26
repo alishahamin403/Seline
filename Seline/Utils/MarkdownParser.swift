@@ -102,12 +102,13 @@ class MarkdownParser {
         text = text.trimmingCharacters(in: .whitespaces)
 
         // Calculate font size based on heading level
+        // Sizes should not exceed title font (24pt)
         let headingSize: CGFloat
         switch level {
-        case 1: headingSize = fontSize * 1.8  // H1
-        case 2: headingSize = fontSize * 1.5  // H2
-        case 3: headingSize = fontSize * 1.3  // H3
-        default: headingSize = fontSize * 1.15 // H4+
+        case 1: headingSize = fontSize * 1.27  // H1 ≈ 19pt (RichTextEditor compatibility)
+        case 2: headingSize = fontSize * 1.13  // H2 ≈ 17pt (RichTextEditor compatibility)
+        case 3: headingSize = fontSize * 1.0   // H3 ≈ 15pt (body size)
+        default: headingSize = fontSize        // H4+ same as body
         }
 
         // Create bold heading font with .traitBold symbolic trait
