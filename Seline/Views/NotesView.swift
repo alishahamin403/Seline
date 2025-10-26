@@ -475,7 +475,6 @@ struct NoteEditView: View {
     @State private var isKeyboardVisible = false
     @State private var isProcessingReceipt = false
     @State private var isGeneratingTitle = false
-    @State private var noteTables: [NoteTable] = []
     @State private var noteTodoLists: [NoteTodoList] = []
 
     var isAnyProcessing: Bool {
@@ -798,36 +797,7 @@ struct NoteEditView: View {
             .padding(.horizontal, 0)
             .padding(.top, 8)
 
-            // Render tables below text content
-            ForEach(noteTables.indices, id: \.self) { index in
-                TableEditorView(
-                    table: $noteTables[index],
-                    onTableUpdate: { updatedTable in
-                        noteTables[index] = updatedTable
-                        // Save note whenever table is updated
-                        saveNoteImmediately()
-                    },
-                    onDelete: {
-                        // Remove table marker from content
-                        let marker = TableMarker.marker(for: noteTables[index].id)
-                        content = content.replacingOccurrences(of: marker, with: "")
-                        attributedContent = NSAttributedString(
-                            string: content,
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                            ]
-                        )
-                        noteTables.remove(at: index)
-                        // Save note after deleting table
-                        saveNoteImmediately()
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-
-            // Render todo lists below tables
+            // Render todo lists
             ForEach(noteTodoLists.indices, id: \.self) { index in
                 TodoListEditorView(
                     todoList: $noteTodoLists[index],
@@ -980,38 +950,6 @@ struct NoteEditView: View {
                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
             )
             .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            // Table insert button - directly creates 3x3 table
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                // Create a 3x3 table directly
-                let newTable = NoteTable(rows: 3, columns: 3, headerRow: true)
-                noteTables.append(newTable)
-
-                // Insert table marker into content while preserving formatting
-                let marker = TableMarker.marker(for: newTable.id)
-                let markerString = NSAttributedString(
-                    string: "\n\(marker)\n",
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                        .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                    ]
-                )
-
-                let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
-                mutableAttrString.append(markerString)
-                attributedContent = mutableAttrString
-                content = attributedContent.string
-            }) {
-                Image(systemName: "tablecells")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
 
             // Todo list button - creates interactive todo list
             Button(action: {
@@ -1170,9 +1108,6 @@ struct NoteEditView: View {
                 }
             }
 
-            // Load tables
-            noteTables = note.tables
-
             // Load todo lists
             noteTodoLists = note.todoLists
 
@@ -1249,7 +1184,6 @@ struct NoteEditView: View {
                 updatedNote.content = content
                 updatedNote.isLocked = noteIsLocked
                 updatedNote.folderId = selectedFolderId
-                updatedNote.tables = noteTables
                 updatedNote.todoLists = noteTodoLists
 
                 // Check if there are new images to upload (compare count)
@@ -1269,7 +1203,6 @@ struct NoteEditView: View {
             Task {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
-                newNote.tables = noteTables
                 newNote.todoLists = noteTodoLists
 
                 // Upload all images for new note
@@ -1295,7 +1228,6 @@ struct NoteEditView: View {
             updatedNote.content = convertAttributedContentToText()
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
-            updatedNote.tables = noteTables
             updatedNote.todoLists = noteTodoLists
             updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
 
@@ -1471,60 +1403,10 @@ struct NoteEditView: View {
     private func parseAndExtractTablesAndTodos(from text: String) -> String {
         var processedText = text
 
-        // Extract and replace markdown tables with table markers
-        processedText = extractMarkdownTables(from: processedText)
-
         // Extract and replace markdown todos with todo markers
         processedText = extractMarkdownTodos(from: processedText)
 
         return processedText
-    }
-
-    private func extractMarkdownTables(from text: String) -> String {
-        var result = text
-        let lines = text.components(separatedBy: .newlines)
-        var i = 0
-        var tablesToCreate: [(range: Range<String.Index>, table: NoteTable)] = []
-
-        while i < lines.count {
-            let line = lines[i]
-            // Detect table start (line contains | and next line contains ---)
-            if line.contains("|") && i + 1 < lines.count && lines[i + 1].contains("---") {
-                // Found a table start
-                var tableLines: [String] = []
-                var j = i
-
-                // Collect all table lines
-                while j < lines.count && lines[j].contains("|") {
-                    tableLines.append(lines[j])
-                    j += 1
-                }
-
-                // Parse the table
-                if let table = NoteTable.fromMarkdown(tableLines.joined(separator: "\n")) {
-                    // Add table to our list
-                    noteTables.append(table)
-
-                    // Find the range of this table in the original text
-                    let tableText = tableLines.joined(separator: "\n")
-                    if let range = result.range(of: tableText) {
-                        tablesToCreate.append((range: range, table: table))
-                    }
-                }
-
-                i = j
-            } else {
-                i += 1
-            }
-        }
-
-        // Replace tables with markers (in reverse order to maintain ranges)
-        for (range, table) in tablesToCreate.reversed() {
-            let marker = TableMarker.marker(for: table.id)
-            result.replaceSubrange(range, with: marker)
-        }
-
-        return result
     }
 
     private func extractMarkdownTodos(from text: String) -> String {
