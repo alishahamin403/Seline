@@ -464,6 +464,7 @@ struct NoteEditView: View {
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
     @State private var showingImagePicker = false
     @State private var showingCameraPicker = false
+    @State private var showingImageOptions = false
     @State private var showingReceiptOptions = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
@@ -633,6 +634,15 @@ struct NoteEditView: View {
                         }
                     }
             }
+        }
+        .confirmationDialog("Add Image", isPresented: $showingImageOptions, titleVisibility: .visible) {
+            Button("Camera") {
+                showingCameraPicker = true
+            }
+            Button("Gallery") {
+                showingImagePicker = true
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .confirmationDialog("Add Receipt", isPresented: $showingReceiptOptions, titleVisibility: .visible) {
             Button("Camera") {
@@ -1097,7 +1107,7 @@ struct NoteEditView: View {
             // Gallery button - quick image attach without AI
             Button(action: {
                 HapticManager.shared.imageAttachment()
-                showingImagePicker = true
+                showingImageOptions = true
             }) {
                 Image(systemName: "photo")
                     .font(.system(size: 15, weight: .medium))
@@ -1296,10 +1306,11 @@ struct NoteEditView: View {
     }
 
     private func convertAttributedContentToText() -> String {
-        // Save as plain text with table and todo markers preserved
+        // Convert NSAttributedString to Markdown to preserve formatting (bold, italic, headings)
+        // Table and todo markers are also preserved in the conversion
         // The markers will be hidden in the UI by the RichTextEditor's hideMarkers() function
-        // This is more reliable than RTF encoding and ensures markers are preserved
-        return attributedContent.string
+        let markdown = AttributedStringToMarkdown.shared.convertToMarkdown(attributedContent)
+        return markdown
     }
 
 
@@ -1415,14 +1426,10 @@ struct NoteEditView: View {
             }
         }
 
-        // New format: plain text with table/todo markers (markers are hidden by RichTextEditor)
-        return NSAttributedString(
-            string: content,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-            ]
-        )
+        // New format: Markdown with table/todo markers (markers are hidden by RichTextEditor)
+        // Parse the markdown to restore formatting like bold, italic, headings, etc.
+        let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+        return MarkdownParser.shared.parseMarkdown(content, fontSize: 15, textColor: textColor)
     }
 
     // MARK: - AI-Powered Text Editing

@@ -1,11 +1,10 @@
 import SwiftUI
 
-struct CameraActionSheet: View {
+struct CameraActionSheetProcessing: View {
+    @Binding var selectedImage: UIImage?
+    @Binding var isPresented: Bool
     @Environment(\.dismiss) var dismiss
-    @State private var selectedImage: UIImage?
-    @State private var sourceType: UIImagePickerController.SourceType = .camera
-    @State private var showImagePicker = false
-    @State private var showActionSheet = true
+
     @State private var isProcessing = false
     @State private var extractionResponse: CalendarPhotoExtractionResponse?
 
@@ -122,7 +121,10 @@ struct CameraActionSheet: View {
                                     .cornerRadius(12)
                             }
 
-                            Button(action: { dismiss() }) {
+                            Button(action: {
+                                isPresented = false
+                                dismiss()
+                            }) {
                                 Text("Cancel")
                                     .font(.headline)
                                     .foregroundColor(.gray)
@@ -143,36 +145,10 @@ struct CameraActionSheet: View {
                 }
             }
         } else {
-            // Just show action sheet - no visible content, only dialogs
+            // Start processing if we have an image
             EmptyView()
-                .sheet(isPresented: $showImagePicker) {
-                    CameraAndLibraryPicker(image: $selectedImage, sourceType: sourceType)
-                        .onDisappear {
-                            if selectedImage != nil {
-                                processImage()
-                            } else {
-                                // User cancelled - show action sheet again
-                                showActionSheet = true
-                            }
-                        }
-                }
-                .confirmationDialog("Import Schedule", isPresented: $showActionSheet) {
-                    Button("Take Photo") {
-                        sourceType = .camera
-                        showActionSheet = false
-                        showImagePicker = true
-                    }
-                    Button("Choose from Library") {
-                        sourceType = .photoLibrary
-                        showActionSheet = false
-                        showImagePicker = true
-                    }
-                    Button("Cancel", role: .cancel) {
-                        showActionSheet = false
-                        dismiss()
-                    }
-                } message: {
-                    Text("Select a source to import your schedule")
+                .onAppear {
+                    processImage()
                 }
         }
     }
@@ -180,7 +156,11 @@ struct CameraActionSheet: View {
     // MARK: - Private Methods
 
     private func processImage() {
-        guard let image = selectedImage else { return }
+        guard let image = selectedImage else {
+            isPresented = false
+            dismiss()
+            return
+        }
 
         isProcessing = true
         Task {
@@ -205,11 +185,14 @@ struct CameraActionSheet: View {
     private func resetAndRetry() {
         selectedImage = nil
         extractionResponse = nil
-        showActionSheet = true
-        showImagePicker = false
+        isPresented = false
+        dismiss()
     }
 }
 
 #Preview {
-    CameraActionSheet()
+    CameraActionSheetProcessing(
+        selectedImage: .constant(nil),
+        isPresented: .constant(true)
+    )
 }

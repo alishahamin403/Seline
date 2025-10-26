@@ -12,6 +12,11 @@ struct EventsView: View {
     @State private var selectedView: EventViewType = .events
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var selectedTagId: String? = nil // nil means show all, or specific tag ID
+    @State private var showPhotoImportDialog = false
+    @State private var showCameraActionSheet = false
+    @State private var cameraSourceType: UIImagePickerController.SourceType = .camera
+    @State private var selectedImage: UIImage?
+    @State private var showImagePicker = false
 
     enum EventViewType: Hashable {
         case events
@@ -69,7 +74,7 @@ struct EventsView: View {
                                 VStack(spacing: 12) {
                                     // Photo import button
                                     Button(action: {
-                                        activeSheet = .photoImport
+                                        showPhotoImportDialog = true
                                     }) {
                                         Image(systemName: "camera.fill")
                                             .font(.system(size: 20, weight: .semibold))
@@ -91,6 +96,33 @@ struct EventsView: View {
                         }
                     }
                 }
+            )
+        }
+        .confirmationDialog("Import Schedule", isPresented: $showPhotoImportDialog) {
+            Button("Take Photo") {
+                cameraSourceType = .camera
+                showImagePicker = true
+            }
+            Button("Choose from Library") {
+                cameraSourceType = .photoLibrary
+                showImagePicker = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Select a source to import your schedule")
+        }
+        .sheet(isPresented: $showImagePicker) {
+            CameraAndLibraryPicker(image: $selectedImage, sourceType: cameraSourceType)
+                .onDisappear {
+                    if selectedImage != nil {
+                        showCameraActionSheet = true
+                    }
+                }
+        }
+        .sheet(isPresented: $showCameraActionSheet) {
+            CameraActionSheetProcessing(
+                selectedImage: $selectedImage,
+                isPresented: $showCameraActionSheet
             )
         }
         .sheet(item: $activeSheet) { sheet in
@@ -205,7 +237,7 @@ struct EventsView: View {
                     }
                 }
             case .photoImport:
-                CameraActionSheet()
+                EmptyView()
             }
         }
         .onChange(of: activeSheet) { newValue in
