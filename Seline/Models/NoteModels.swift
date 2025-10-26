@@ -14,7 +14,6 @@ struct Note: Identifiable, Codable, Hashable {
     var folderId: UUID?
     var isLocked: Bool
     var imageUrls: [String] // Store image URLs from Supabase Storage
-    var todoLists: [NoteTodoList] // Store embedded todo lists
 
     // Temporary compatibility - will be removed after migration
     var imageAttachments: [Data] {
@@ -32,7 +31,6 @@ struct Note: Identifiable, Codable, Hashable {
         self.folderId = folderId
         self.isLocked = false
         self.imageUrls = []
-        self.todoLists = []
     }
 
     var formattedDateModified: String {
@@ -112,7 +110,6 @@ struct DeletedNote: Identifiable, Codable, Hashable {
     var folderId: UUID?
     var isLocked: Bool
     var imageUrls: [String]
-    var todoLists: [NoteTodoList]
 
     var daysUntilPermanentDeletion: Int {
         let calendar = Calendar.current
@@ -246,22 +243,6 @@ class NotesManager: ObservableObject {
 
         let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
 
-        var todoListsJSON: PostgREST.AnyJSON = .null
-        if !note.todoLists.isEmpty {
-            do {
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .custom { date, encoder in
-                    var container = encoder.singleValueContainer()
-                    try container.encode(date.timeIntervalSinceReferenceDate)
-                }
-                let todoListsData = try encoder.encode(note.todoLists)
-                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
-                todoListsJSON = try convertToAnyJSON(jsonObject)
-            } catch {
-                return (false, "Failed to encode todo lists: \(error.localizedDescription)")
-            }
-        }
-
         let noteData: [String: PostgREST.AnyJSON] = [
             "id": .string(note.id.uuidString),
             "user_id": .string(userId.uuidString),
@@ -272,8 +253,7 @@ class NotesManager: ObservableObject {
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray),
-            "todo_lists": todoListsJSON
+            "image_attachments": .array(imageUrlsArray)
         ]
 
         do {
@@ -368,22 +348,6 @@ class NotesManager: ObservableObject {
         let formatter = ISO8601DateFormatter()
         let imageUrlsArray: [PostgREST.AnyJSON] = encryptedNote.imageUrls.map { .string($0) }
 
-        var todoListsJSON: PostgREST.AnyJSON = .null
-        if !note.todoLists.isEmpty {
-            do {
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .custom { date, encoder in
-                    var container = encoder.singleValueContainer()
-                    try container.encode(date.timeIntervalSinceReferenceDate)
-                }
-                let todoListsData = try encoder.encode(note.todoLists)
-                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
-                todoListsJSON = try convertToAnyJSON(jsonObject)
-            } catch {
-                return (false, "Failed to encode todo lists: \(error.localizedDescription)")
-            }
-        }
-
         let noteData: [String: PostgREST.AnyJSON] = [
             "title": .string(encryptedNote.title),
             "content": .string(encryptedNote.content),
@@ -391,8 +355,7 @@ class NotesManager: ObservableObject {
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray),
-            "todo_lists": todoListsJSON
+            "image_attachments": .array(imageUrlsArray)
         ]
 
         do {
@@ -421,8 +384,7 @@ class NotesManager: ObservableObject {
             isPinned: note.isPinned,
             folderId: note.folderId,
             isLocked: note.isLocked,
-            imageUrls: note.imageUrls,
-            todoLists: note.todoLists
+            imageUrls: note.imageUrls
         )
 
         deletedNotes.append(deletedNote)
@@ -1469,8 +1431,6 @@ class NotesManager: ObservableObject {
         }
         // Store image URLs directly - no download!
         note.imageUrls = data.image_attachments ?? []
-        // Store todo lists
-        note.todoLists = data.todo_lists ?? []
 
         // ✨ DECRYPT after loading
         let decryptedNote: Note
@@ -1794,8 +1754,7 @@ class NotesManager: ObservableObject {
             isPinned: data.is_pinned,
             folderId: data.folder_id != nil ? UUID(uuidString: data.folder_id!) : nil,
             isLocked: false,
-            imageUrls: [],
-            todoLists: []
+            imageUrls: []
         )
     }
 
@@ -2029,10 +1988,9 @@ struct NoteSupabaseData: Codable {
     let is_pinned: Bool
     let folder_id: String?
     let image_attachments: [String]? // Array of image URLs from JSONB
-    let todo_lists: [NoteTodoList]? // Array of todo lists from JSONB
 
     enum CodingKeys: String, CodingKey {
-        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, image_attachments, todo_lists
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, image_attachments
     }
 
     init(from decoder: Decoder) throws {
@@ -2058,41 +2016,6 @@ struct NoteSupabaseData: Codable {
             image_attachments = nil
         }
 
-        // Decode todo lists array
-        do {
-            if container.contains(.todo_lists) {
-                let rawValue = try container.decode(AnyCodable.self, forKey: .todo_lists)
-
-                // Check if value is null or empty
-                if rawValue.value is NSNull {
-                    todo_lists = nil
-                    print("ℹ️ Todo lists field is null")
-                } else if let arrayValue = rawValue.value as? [Any], arrayValue.isEmpty {
-                    todo_lists = []
-                    print("ℹ️ Todo lists field is empty array")
-                } else if let arrayValue = rawValue.value as? [Any], JSONSerialization.isValidJSONObject(arrayValue) {
-                    // Convert to JSON data and re-decode with proper date strategy
-                    let jsonData = try JSONSerialization.data(withJSONObject: arrayValue)
-                    let decoder = JSONDecoder()
-                    decoder.dateDecodingStrategy = .custom { decoder in
-                        let container = try decoder.singleValueContainer()
-                        let timeInterval = try container.decode(Double.self)
-                        return Date(timeIntervalSinceReferenceDate: timeInterval)
-                    }
-                    todo_lists = try decoder.decode([NoteTodoList].self, from: jsonData)
-                    print("✅ Successfully decoded \(todo_lists?.count ?? 0) todo list(s)")
-                } else {
-                    todo_lists = nil
-                    print("⚠️ Todo lists data is not a valid JSON array")
-                }
-            } else {
-                todo_lists = nil
-                print("ℹ️ No todo_lists field found")
-            }
-        } catch {
-            print("⚠️ Failed to decode todo lists: \(error.localizedDescription)")
-            todo_lists = nil
-        }
     }
 }
 

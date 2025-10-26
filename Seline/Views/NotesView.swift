@@ -475,7 +475,6 @@ struct NoteEditView: View {
     @State private var isKeyboardVisible = false
     @State private var isProcessingReceipt = false
     @State private var isGeneratingTitle = false
-    @State private var noteTodoLists: [NoteTodoList] = []
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingReceipt || isGeneratingTitle
@@ -797,36 +796,7 @@ struct NoteEditView: View {
             .padding(.horizontal, 0)
             .padding(.top, 8)
 
-            // Render todo lists
-            ForEach(noteTodoLists.indices, id: \.self) { index in
-                TodoListEditorView(
-                    todoList: $noteTodoLists[index],
-                    onTodoUpdate: { updatedTodoList in
-                        noteTodoLists[index] = updatedTodoList
-                        // Save note whenever todo list is updated
-                        saveNoteImmediately()
-                    },
-                    onDelete: {
-                        // Remove todo marker from content
-                        let marker = TodoMarker.marker(for: noteTodoLists[index].id)
-                        content = content.replacingOccurrences(of: marker, with: "")
-                        attributedContent = NSAttributedString(
-                            string: content,
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                            ]
-                        )
-                        noteTodoLists.remove(at: index)
-                        // Save note after deleting todo list
-                        saveNoteImmediately()
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-
-            // Tappable area to continue writing after tables/todos
+            // Tappable area to continue writing
             Color.clear
                 .frame(minHeight: 300)
                 .contentShape(Rectangle())
@@ -952,64 +922,6 @@ struct NoteEditView: View {
             .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             // Todo list button - creates interactive todo list
-            Button(action: {
-                HapticManager.shared.buttonTap()
-
-                // Check if there's selected text to convert
-                if selectedTextRange.length > 0 && selectedTextRange.location + selectedTextRange.length <= attributedContent.length {
-                    // Extract the selected text
-                    let selectedText = attributedContent.attributedSubstring(from: selectedTextRange).string
-
-                    // Try to convert selected text to todo list
-                    if let todoList = NoteTodoList.fromText(selectedText) {
-                        noteTodoLists.append(todoList)
-
-                        // Replace selected text with todo marker
-                        let marker = TodoMarker.marker(for: todoList.id)
-                        let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
-                        mutableAttrString.replaceCharacters(in: selectedTextRange, with: marker)
-
-                        attributedContent = mutableAttrString
-                        content = attributedContent.string
-                    } else {
-                        // If conversion failed, create empty todo list at cursor position
-                        let newTodoList = NoteTodoList()
-                        noteTodoLists.append(newTodoList)
-
-                        let marker = TodoMarker.marker(for: newTodoList.id)
-                        let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
-                        mutableAttrString.replaceCharacters(in: selectedTextRange, with: "\n\(marker)\n")
-
-                        attributedContent = mutableAttrString
-                        content = attributedContent.string
-                    }
-                } else {
-                    // No selection - create a new todo list with 5 empty items at the end
-                    let newTodoList = NoteTodoList()
-                    noteTodoLists.append(newTodoList)
-
-                    // Insert todo marker into content
-                    let marker = TodoMarker.marker(for: newTodoList.id)
-                    content += "\n\(marker)\n"
-                    attributedContent = NSAttributedString(
-                        string: content,
-                        attributes: [
-                            .font: UIFont.systemFont(ofSize: 15, weight: .regular),
-                            .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                        ]
-                    )
-                }
-            }) {
-                Image(systemName: "checklist")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-
             Spacer()
 
             // Attachments button - shows count if any
@@ -1108,9 +1020,6 @@ struct NoteEditView: View {
                 }
             }
 
-            // Load todo lists
-            noteTodoLists = note.todoLists
-
             noteIsLocked = note.isLocked
             selectedFolderId = note.folderId
 
@@ -1184,7 +1093,6 @@ struct NoteEditView: View {
                 updatedNote.content = content
                 updatedNote.isLocked = noteIsLocked
                 updatedNote.folderId = selectedFolderId
-                updatedNote.todoLists = noteTodoLists
 
                 // Check if there are new images to upload (compare count)
                 if imageAttachments.count > existingNote.imageUrls.count {
@@ -1203,7 +1111,6 @@ struct NoteEditView: View {
             Task {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
-                newNote.todoLists = noteTodoLists
 
                 // Upload all images for new note
                 if !imageAttachments.isEmpty {
@@ -1228,7 +1135,6 @@ struct NoteEditView: View {
             updatedNote.content = convertAttributedContentToText()
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
-            updatedNote.todoLists = noteTodoLists
             updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
 
             await MainActor.run {
@@ -1397,78 +1303,6 @@ struct NoteEditView: View {
                 print("Error cleaning up text: \(error.localizedDescription)")
             }
         }
-    }
-
-    // Helper function to parse markdown tables and todos, creating interactive objects
-    private func parseAndExtractTablesAndTodos(from text: String) -> String {
-        var processedText = text
-
-        // Extract and replace markdown todos with todo markers
-        processedText = extractMarkdownTodos(from: processedText)
-
-        return processedText
-    }
-
-    private func extractMarkdownTodos(from text: String) -> String {
-        var result = text
-        let lines = text.components(separatedBy: .newlines)
-        var i = 0
-        var todosToCreate: [(range: Range<String.Index>, todoList: NoteTodoList)] = []
-
-        while i < lines.count {
-            let line = lines[i].trimmingCharacters(in: .whitespaces)
-
-            // Detect todo list start (line starts with - [ ] or - [x])
-            if line.hasPrefix("- [ ]") || line.hasPrefix("- [x]") || line.hasPrefix("- []") {
-                // Found a todo list start
-                var todoLines: [String] = []
-                var j = i
-
-                // Collect all consecutive todo lines
-                while j < lines.count {
-                    let todoLine = lines[j].trimmingCharacters(in: .whitespaces)
-                    if todoLine.hasPrefix("- [ ]") || todoLine.hasPrefix("- [x]") || todoLine.hasPrefix("- []") {
-                        todoLines.append(lines[j])
-                        j += 1
-                    } else if todoLine.isEmpty && j + 1 < lines.count {
-                        // Allow empty lines between todos
-                        let nextLine = lines[j + 1].trimmingCharacters(in: .whitespaces)
-                        if nextLine.hasPrefix("- [ ]") || nextLine.hasPrefix("- [x]") || nextLine.hasPrefix("- []") {
-                            j += 1
-                            continue
-                        } else {
-                            break
-                        }
-                    } else {
-                        break
-                    }
-                }
-
-                // Parse the todo list
-                if let todoList = NoteTodoList.fromMarkdown(todoLines.joined(separator: "\n")) {
-                    // Add todo list to our list
-                    noteTodoLists.append(todoList)
-
-                    // Find the range of this todo list in the original text
-                    let todoText = todoLines.joined(separator: "\n")
-                    if let range = result.range(of: todoText) {
-                        todosToCreate.append((range: range, todoList: todoList))
-                    }
-                }
-
-                i = j
-            } else {
-                i += 1
-            }
-        }
-
-        // Replace todo lists with markers (in reverse order to maintain ranges)
-        for (range, todoList) in todosToCreate.reversed() {
-            let marker = TodoMarker.marker(for: todoList.id)
-            result.replaceSubrange(range, with: marker)
-        }
-
-        return result
     }
 
     private func processReceiptImage(_ image: UIImage) {
