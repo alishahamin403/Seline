@@ -259,19 +259,34 @@ struct EventsView: View {
     // MARK: - Helper Methods
 
     private func filteredTasks(from tasks: [TaskItem]) -> [TaskItem] {
+        var result: [TaskItem] = []
+
         if selectedTagId == "" {
             // Personal filter - show events with nil tagId (default/personal events)
-            return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+            result = tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
         } else if selectedTagId == "cal_sync" {
             // Personal - Sync filter - show only synced calendar events
-            return tasks.filter { $0.id.hasPrefix("cal_") }
+            result = tasks.filter { $0.id.hasPrefix("cal_") }
+            print("🔍 [EventsView] Personal - Sync filter:")
+            print("   Total input tasks: \(tasks.count)")
+            print("   Filtered synced events: \(result.count)")
+            if !result.isEmpty {
+                for (idx, task) in result.prefix(3).enumerated() {
+                    print("   Event \(idx+1): \(task.title)")
+                    print("      ID: \(task.id)")
+                    print("      Has scheduledTime: \(task.scheduledTime != nil)")
+                    print("      ScheduledTime: \(task.scheduledTime?.description ?? "nil")")
+                }
+            }
         } else if let tagId = selectedTagId, !tagId.isEmpty {
             // Filter by specific tag
-            return tasks.filter { $0.tagId == tagId }
+            result = tasks.filter { $0.tagId == tagId }
         } else {
             // Show all tasks (selectedTagId == nil means "All")
-            return tasks
+            result = tasks
         }
+
+        return result
     }
 
     private func getTagColor(for tagId: String?) -> Color {
