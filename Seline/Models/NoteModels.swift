@@ -615,9 +615,59 @@ class NotesManager: ObservableObject {
         folders.append(folder)
         saveFolders()
 
-        // Sync with Supabase
+        // Sync with Supabase (async, non-blocking)
         Task {
             await saveFolderToSupabase(folder)
+        }
+    }
+
+    /// Add folder and wait for Supabase sync to complete
+    /// Used when folder reference is needed before saving notes
+    func addFolderAndSync(_ folder: NoteFolder) async -> Bool {
+        folders.append(folder)
+        saveFolders()
+
+        let success = await saveFolderToSupabaseWithRetry(folder, maxRetries: 3)
+        return success
+    }
+
+    private func saveFolderToSupabaseWithRetry(_ folder: NoteFolder, maxRetries: Int, currentAttempt: Int = 1) async -> Bool {
+        let result = await saveFolderToSupabaseAndTrackResult(folder)
+
+        if !result.success && currentAttempt < maxRetries {
+            let delaySeconds = pow(2.0, Double(currentAttempt))
+            print("⏳ Retrying folder save in \(delaySeconds)s (attempt \(currentAttempt + 1)/\(maxRetries))")
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            return await saveFolderToSupabaseWithRetry(folder, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
+        } else if !result.success {
+            print("❌ Failed to save folder after \(maxRetries) attempts: \(result.error ?? "Unknown error")")
+        }
+        return result.success
+    }
+
+    private func saveFolderToSupabaseAndTrackResult(_ folder: NoteFolder) async -> (success: Bool, error: String?) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return (false, "No user ID found")
+        }
+
+        let folderData: [String: PostgREST.AnyJSON] = [
+            "id": .string(folder.id.uuidString),
+            "user_id": .string(userId.uuidString),
+            "name": .string(folder.name),
+            "color": .string(folder.color),
+            "parent_folder_id": folder.parentFolderId != nil ? .string(folder.parentFolderId!.uuidString) : .null
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("folders")
+                .upsert(folderData)
+                .execute()
+            print("✅ Successfully saved folder to Supabase: \(folder.name)")
+            return (true, nil)
+        } catch {
+            return (false, error.localizedDescription)
         }
     }
 
@@ -917,6 +967,74 @@ class NotesManager: ObservableObject {
         let monthFolderId = getOrCreateMonthFolder(month, year: year, yearFolderId: yearFolderId)
 
         return monthFolderId
+    }
+
+    /// Async version that waits for all parent folders to sync to Supabase
+    /// Used when folder ID is needed before saving notes to avoid foreign key violations
+    func getOrCreateReceiptMonthFolderAsync(month: Int, year: Int) async -> UUID {
+        // Step 1: Get or create Receipts root folder (sync to Supabase)
+        let receiptsFolderId = await getOrCreateReceiptsFolderAsync()
+
+        // Step 2: Get or create Year folder (sync to Supabase)
+        let yearFolderId = await getOrCreateYearFolderAsync(year, parentFolderId: receiptsFolderId)
+
+        // Step 3: Get or create Month folder (sync to Supabase)
+        let monthFolderId = await getOrCreateMonthFolderAsync(month, year: year, yearFolderId: yearFolderId)
+
+        return monthFolderId
+    }
+
+    /// Async version that ensures sync to Supabase
+    private func getOrCreateReceiptsFolderAsync() async -> UUID {
+        if let existingFolder = folders.first(where: { $0.name == "Receipts" }) {
+            return existingFolder.id
+        }
+        let receiptsFolder = NoteFolder(name: "Receipts", color: "#F59E42")
+        let synced = await addFolderAndSync(receiptsFolder)
+        if synced {
+            print("✅ Receipts folder synced to Supabase")
+        } else {
+            print("⚠️ Failed to sync Receipts folder, but using local ID")
+        }
+        return receiptsFolder.id
+    }
+
+    /// Async version that ensures sync to Supabase
+    private func getOrCreateYearFolderAsync(_ year: Int, parentFolderId: UUID) async -> UUID {
+        let yearFolderName = String(year)
+        if let existingFolder = folders.first(where: {
+            $0.name == yearFolderName && $0.parentFolderId == parentFolderId
+        }) {
+            return existingFolder.id
+        }
+
+        let yearFolder = NoteFolder(name: yearFolderName, color: "#E8A87C", parentFolderId: parentFolderId)
+        let synced = await addFolderAndSync(yearFolder)
+        if synced {
+            print("✅ Year folder \(year) synced to Supabase")
+        } else {
+            print("⚠️ Failed to sync year folder, but using local ID")
+        }
+        return yearFolder.id
+    }
+
+    /// Async version that ensures sync to Supabase
+    private func getOrCreateMonthFolderAsync(_ month: Int, year: Int, yearFolderId: UUID) async -> UUID {
+        let monthName = getMonthName(month)
+        if let existingFolder = folders.first(where: {
+            $0.name == monthName && $0.parentFolderId == yearFolderId
+        }) {
+            return existingFolder.id
+        }
+
+        let monthFolder = NoteFolder(name: monthName, color: "#D4956F", parentFolderId: yearFolderId)
+        let synced = await addFolderAndSync(monthFolder)
+        if synced {
+            print("✅ Month folder \(monthName) \(year) synced to Supabase")
+        } else {
+            print("⚠️ Failed to sync month folder, but using local ID")
+        }
+        return monthFolder.id
     }
 
     // Organize all receipts in the receipts folder into month/year structure

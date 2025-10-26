@@ -1593,23 +1593,28 @@ struct NoteEditView: View {
             do {
                 let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
 
+                // Extract month and year from receipt title for automatic folder organization
+                var folderIdForReceipt: UUID?
+                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
+                    // Use async folder creation to ensure folders sync before using IDs
+                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
+                    print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
+                } else {
+                    // Fallback to main Receipts folder if no date found
+                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+                    folderIdForReceipt = receiptsFolderId
+                    print("⚠️ No date found in receipt title, using main Receipts folder")
+                }
+
                 await MainActor.run {
                     // Set title if empty or update it
                     if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         title = receiptTitle
                     }
 
-                    // Extract month and year from receipt title for automatic folder organization
-                    if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
-                        // Get or create the month/year folder structure
-                        let monthFolderId = notesManager.getOrCreateReceiptMonthFolder(month: month, year: year)
-                        selectedFolderId = monthFolderId
-                        print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
-                    } else {
-                        // Fallback to main Receipts folder if no date found
-                        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
-                        selectedFolderId = receiptsFolderId
-                        print("⚠️ No date found in receipt title, using main Receipts folder")
+                    // Assign folder to receipt
+                    if let folderId = folderIdForReceipt {
+                        selectedFolderId = folderId
                     }
 
                     // Append receipt content to existing content
