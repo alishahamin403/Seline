@@ -34,7 +34,7 @@ class FeedbackService: ObservableObject {
         // Send email via Resend API
         do {
             let emailPayload: [String: Any] = [
-                "from": "feedback@seline.app",
+                "from": "onboard@resend.dev",
                 "to": feedbackEmail,
                 "subject": "New Feedback from Seline User",
                 "html": """

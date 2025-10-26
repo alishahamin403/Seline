@@ -51,7 +51,10 @@ struct FeedbackView: View {
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
                                         .fill(isDarkMode ? Color(UIColor.systemGray6).opacity(0.2) : Color(UIColor.systemGray6).opacity(0.3))
-                                        .strokeBorder(
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(
                                             isDarkMode ? Color.white.opacity(0.1) : Color.black.opacity(0.1),
                                             lineWidth: 1
                                         )
