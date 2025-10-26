@@ -211,9 +211,101 @@ class NotesManager: ObservableObject {
         notes.append(note)
         saveNotes()
 
-        // Sync with Supabase
+        // Sync with Supabase with retry logic
         Task {
-            await saveNoteToSupabase(note)
+            await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
+        }
+    }
+
+    private func saveNoteToSupabaseWithRetry(_ note: Note, maxRetries: Int, currentAttempt: Int = 1) async {
+        let result = await saveNoteToSupabaseAndTrackResult(note)
+
+        if !result.success && currentAttempt < maxRetries {
+            // Exponential backoff: 2s, 4s, 8s
+            let delaySeconds = pow(2.0, Double(currentAttempt))
+            print("⏳ Retrying note save in \(delaySeconds)s (attempt \(currentAttempt + 1)/\(maxRetries))")
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            await saveNoteToSupabaseWithRetry(note, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
+        } else if !result.success {
+            print("❌ Failed to save note after \(maxRetries) attempts: \(result.error ?? "Unknown error")")
+        }
+    }
+
+    private func saveNoteToSupabaseAndTrackResult(_ note: Note) async -> (success: Bool, error: String?) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return (false, "No user ID found")
+        }
+
+        // ✨ ENCRYPT sensitive fields before saving
+        let encryptedNote: Note
+        do {
+            encryptedNote = try await encryptNoteBeforeSaving(note)
+        } catch {
+            return (false, "Encryption failed: \(error.localizedDescription)")
+        }
+
+        let imageUrls = encryptedNote.imageUrls
+        let formatter = ISO8601DateFormatter()
+
+        let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
+
+        var tablesJSON: PostgREST.AnyJSON = .null
+        if !note.tables.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let tablesData = try encoder.encode(note.tables)
+                let jsonObject = try JSONSerialization.jsonObject(with: tablesData)
+                tablesJSON = try convertToAnyJSON(jsonObject)
+            } catch {
+                return (false, "Failed to encode tables: \(error.localizedDescription)")
+            }
+        }
+
+        var todoListsJSON: PostgREST.AnyJSON = .null
+        if !note.todoLists.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let todoListsData = try encoder.encode(note.todoLists)
+                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
+                todoListsJSON = try convertToAnyJSON(jsonObject)
+            } catch {
+                return (false, "Failed to encode todo lists: \(error.localizedDescription)")
+            }
+        }
+
+        let noteData: [String: PostgREST.AnyJSON] = [
+            "id": .string(note.id.uuidString),
+            "user_id": .string(userId.uuidString),
+            "title": .string(encryptedNote.title),
+            "content": .string(encryptedNote.content),
+            "is_locked": .bool(encryptedNote.isLocked),
+            "date_created": .string(formatter.string(from: note.dateCreated)),
+            "date_modified": .string(formatter.string(from: note.dateModified)),
+            "is_pinned": .bool(encryptedNote.isPinned),
+            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
+            "image_attachments": .array(imageUrlsArray),
+            "tables": tablesJSON,
+            "todo_lists": todoListsJSON
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("notes")
+                .insert(noteData)
+                .execute()
+            print("✅ Successfully saved note to Supabase: \(note.title)")
+            return (true, nil)
+        } catch {
+            return (false, error.localizedDescription)
         }
     }
 
@@ -261,10 +353,96 @@ class NotesManager: ObservableObject {
             notes[index] = updatedNote
             saveNotes()
 
-            // Sync with Supabase
+            // Sync with Supabase with retry logic
             Task {
-                await updateNoteInSupabase(updatedNote)
+                await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
             }
+        }
+    }
+
+    private func updateNoteInSupabaseWithRetry(_ note: Note, maxRetries: Int, currentAttempt: Int = 1) async {
+        let result = await updateNoteInSupabaseAndTrackResult(note)
+
+        if !result.success && currentAttempt < maxRetries {
+            let delaySeconds = pow(2.0, Double(currentAttempt))
+            print("⏳ Retrying note update in \(delaySeconds)s (attempt \(currentAttempt + 1)/\(maxRetries))")
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            await updateNoteInSupabaseWithRetry(note, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
+        } else if !result.success {
+            print("❌ Failed to update note after \(maxRetries) attempts: \(result.error ?? "Unknown error")")
+        }
+    }
+
+    private func updateNoteInSupabaseAndTrackResult(_ note: Note) async -> (success: Bool, error: String?) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return (false, "No user ID found")
+        }
+
+        let encryptedNote: Note
+        do {
+            encryptedNote = try await encryptNoteBeforeSaving(note)
+        } catch {
+            return (false, "Encryption failed: \(error.localizedDescription)")
+        }
+
+        let formatter = ISO8601DateFormatter()
+        let imageUrlsArray: [PostgREST.AnyJSON] = encryptedNote.imageUrls.map { .string($0) }
+
+        var tablesJSON: PostgREST.AnyJSON = .null
+        if !note.tables.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let tablesData = try encoder.encode(note.tables)
+                let jsonObject = try JSONSerialization.jsonObject(with: tablesData)
+                tablesJSON = try convertToAnyJSON(jsonObject)
+            } catch {
+                return (false, "Failed to encode tables: \(error.localizedDescription)")
+            }
+        }
+
+        var todoListsJSON: PostgREST.AnyJSON = .null
+        if !note.todoLists.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .custom { date, encoder in
+                    var container = encoder.singleValueContainer()
+                    try container.encode(date.timeIntervalSinceReferenceDate)
+                }
+                let todoListsData = try encoder.encode(note.todoLists)
+                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
+                todoListsJSON = try convertToAnyJSON(jsonObject)
+            } catch {
+                return (false, "Failed to encode todo lists: \(error.localizedDescription)")
+            }
+        }
+
+        let noteData: [String: PostgREST.AnyJSON] = [
+            "title": .string(encryptedNote.title),
+            "content": .string(encryptedNote.content),
+            "is_locked": .bool(encryptedNote.isLocked),
+            "date_modified": .string(formatter.string(from: note.dateModified)),
+            "is_pinned": .bool(encryptedNote.isPinned),
+            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
+            "image_attachments": .array(imageUrlsArray),
+            "tables": tablesJSON,
+            "todo_lists": todoListsJSON
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("notes")
+                .eq("id", value: note.id.uuidString)
+                .update(noteData)
+                .execute()
+            print("✅ Successfully updated note in Supabase: \(note.title)")
+            return (true, nil)
+        } catch {
+            return (false, error.localizedDescription)
         }
     }
 
@@ -1037,97 +1215,6 @@ class NotesManager: ObservableObject {
 
     // MARK: - Supabase Sync
 
-    private func saveNoteToSupabase(_ note: Note) async {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            print("⚠️ No user ID, skipping Supabase sync")
-            return
-        }
-
-        print("💾 Saving note to Supabase - User ID: \(userId.uuidString), Note ID: \(note.id.uuidString)")
-
-        // ✨ ENCRYPT sensitive fields before saving
-        let encryptedNote: Note
-        do {
-            encryptedNote = try await encryptNoteBeforeSaving(note)
-        } catch {
-            print("❌ Failed to encrypt note: \(error.localizedDescription)")
-            return
-        }
-
-        // OPTIMIZED: Use existing imageUrls from note (no re-upload needed)
-        let imageUrls = encryptedNote.imageUrls
-
-        let formatter = ISO8601DateFormatter()
-
-        // Convert image URLs to AnyJSON array
-        let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
-
-        // Convert tables to JSON data
-        var tablesJSON: PostgREST.AnyJSON = .null
-        if !note.tables.isEmpty {
-            do {
-                let encoder = JSONEncoder()
-                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
-                encoder.dateEncodingStrategy = .custom { date, encoder in
-                    var container = encoder.singleValueContainer()
-                    try container.encode(date.timeIntervalSinceReferenceDate)
-                }
-                let tablesData = try encoder.encode(note.tables)
-                let jsonObject = try JSONSerialization.jsonObject(with: tablesData)
-                tablesJSON = try convertToAnyJSON(jsonObject)
-                print("✅ Successfully encoded \(note.tables.count) table(s) for note: \(note.title)")
-            } catch {
-                print("❌ Error encoding tables for note \(note.title): \(error)")
-                print("❌ Tables data: \(note.tables)")
-            }
-        }
-
-        // Convert todo lists to JSON data
-        var todoListsJSON: PostgREST.AnyJSON = .null
-        if !note.todoLists.isEmpty {
-            do {
-                let encoder = JSONEncoder()
-                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
-                encoder.dateEncodingStrategy = .custom { date, encoder in
-                    var container = encoder.singleValueContainer()
-                    try container.encode(date.timeIntervalSinceReferenceDate)
-                }
-                let todoListsData = try encoder.encode(note.todoLists)
-                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
-                todoListsJSON = try convertToAnyJSON(jsonObject)
-                print("✅ Successfully encoded \(note.todoLists.count) todo list(s) for note: \(note.title)")
-            } catch {
-                print("❌ Error encoding todo lists for note \(note.title): \(error)")
-                print("❌ Todo lists data: \(note.todoLists)")
-            }
-        }
-
-        let noteData: [String: PostgREST.AnyJSON] = [
-            "id": .string(note.id.uuidString),
-            "user_id": .string(userId.uuidString),
-            "title": .string(encryptedNote.title),  // ✨ Encrypted
-            "content": .string(encryptedNote.content),  // ✨ Encrypted
-            "is_locked": .bool(encryptedNote.isLocked),
-            "date_created": .string(formatter.string(from: note.dateCreated)),
-            "date_modified": .string(formatter.string(from: note.dateModified)),
-            "is_pinned": .bool(encryptedNote.isPinned),
-            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray),
-            "tables": tablesJSON,
-            "todo_lists": todoListsJSON
-        ]
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            try await client
-                .from("notes")
-                .insert(noteData)
-                .execute()
-        } catch {
-            print("❌ Error saving note to Supabase: \(error)")
-            print("❌ Error details: \(error.localizedDescription)")
-        }
-    }
 
     private func convertToAnyJSON(_ object: Any) throws -> PostgREST.AnyJSON {
         if let dict = object as? [String: Any] {
@@ -1159,94 +1246,6 @@ class NotesManager: ObservableObject {
         throw NSError(domain: "ConversionError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported type: \(type(of: object))"])
     }
 
-    private func updateNoteInSupabase(_ note: Note) async {
-        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
-            print("⚠️ No user ID, skipping Supabase sync")
-            return
-        }
-
-        // ✨ ENCRYPT sensitive fields before updating
-        let encryptedNote: Note
-        do {
-            encryptedNote = try await encryptNoteBeforeSaving(note)
-        } catch {
-            print("❌ Failed to encrypt note: \(error.localizedDescription)")
-            return
-        }
-
-        // OPTIMIZED: Use existing imageUrls from note (preserves existing URLs, no re-upload)
-        let imageUrls = encryptedNote.imageUrls
-
-        let formatter = ISO8601DateFormatter()
-
-        // Convert image URLs to AnyJSON array
-        let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
-
-        // Convert tables to JSON data
-        var tablesJSON: PostgREST.AnyJSON = .null
-        if !note.tables.isEmpty {
-            do {
-                let encoder = JSONEncoder()
-                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
-                encoder.dateEncodingStrategy = .custom { date, encoder in
-                    var container = encoder.singleValueContainer()
-                    try container.encode(date.timeIntervalSinceReferenceDate)
-                }
-                let tablesData = try encoder.encode(note.tables)
-                let jsonObject = try JSONSerialization.jsonObject(with: tablesData)
-                tablesJSON = try convertToAnyJSON(jsonObject)
-                print("✅ Successfully encoded \(note.tables.count) table(s) for UPDATE of note: \(note.title)")
-            } catch {
-                print("❌ Error encoding tables for UPDATE of note \(note.title): \(error)")
-                print("❌ Tables data: \(note.tables)")
-            }
-        }
-
-        // Convert todo lists to JSON data
-        var todoListsJSON: PostgREST.AnyJSON = .null
-        if !note.todoLists.isEmpty {
-            do {
-                let encoder = JSONEncoder()
-                // Use custom date encoding for NSDate/timeIntervalSinceReferenceDate format
-                encoder.dateEncodingStrategy = .custom { date, encoder in
-                    var container = encoder.singleValueContainer()
-                    try container.encode(date.timeIntervalSinceReferenceDate)
-                }
-                let todoListsData = try encoder.encode(note.todoLists)
-                let jsonObject = try JSONSerialization.jsonObject(with: todoListsData)
-                todoListsJSON = try convertToAnyJSON(jsonObject)
-                print("✅ Successfully encoded \(note.todoLists.count) todo list(s) for UPDATE of note: \(note.title)")
-            } catch {
-                print("❌ Error encoding todo lists for UPDATE of note \(note.title): \(error)")
-                print("❌ Todo lists data: \(note.todoLists)")
-            }
-        }
-
-        let noteData: [String: PostgREST.AnyJSON] = [
-            "title": .string(encryptedNote.title),  // ✨ Encrypted
-            "content": .string(encryptedNote.content),  // ✨ Encrypted
-            "is_locked": .bool(encryptedNote.isLocked),
-            "date_modified": .string(formatter.string(from: note.dateModified)),
-            "is_pinned": .bool(encryptedNote.isPinned),
-            "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray),
-            "tables": tablesJSON,
-            "todo_lists": todoListsJSON
-        ]
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            try await client
-                .from("notes")
-                .update(noteData)
-                .eq("id", value: note.id.uuidString)
-                .execute()
-            print("✅ Successfully updated note in Supabase: \(encryptedNote.title) (encrypted)")
-        } catch {
-            print("❌ Error updating note in Supabase: \(error)")
-            print("❌ Error details: \(error.localizedDescription)")
-        }
-    }
 
     private func deleteNoteFromSupabase(_ noteId: UUID) async {
         guard SupabaseManager.shared.getCurrentUser() != nil else {
