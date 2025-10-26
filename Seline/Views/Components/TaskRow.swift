@@ -15,8 +15,8 @@ struct TaskRow: View {
 
     private var blueColor: Color {
         colorScheme == .dark ?
-            Color(red: 0.518, green: 0.792, blue: 0.914) : // #84cae9 (light blue for dark mode)
-            Color(red: 0.20, green: 0.34, blue: 0.40)     // #345766 (dark blue for light mode)
+            Color.white :
+            Color.black
     }
 
     // Check if task is completed on the specific date (for recurring tasks)

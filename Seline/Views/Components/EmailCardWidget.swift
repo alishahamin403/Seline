@@ -216,8 +216,8 @@ struct EmailCardWidget: View {
                                     Circle()
                                         .fill(
                                             colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                                                Color.white :
+                                                Color.black
                                         )
                                         .frame(width: 20, height: 20)
                                         .overlay(

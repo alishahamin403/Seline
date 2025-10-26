@@ -574,14 +574,9 @@ struct TaskRowCalendar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Left accent bar showing filter color
-            RoundedRectangle(cornerRadius: 2)
-                .fill(accentColor)
-                .frame(width: 3)
-
             // Checkbox (completed or incomplete)
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isTaskCompleted ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
+                .foregroundColor(isTaskCompleted ? accentColor : Color.shadcnMutedForeground(colorScheme))
                 .font(.system(size: 18, weight: .medium))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -595,7 +590,7 @@ struct TaskRowCalendar: View {
                 if !task.formattedTime.isEmpty {
                     Text(task.formattedTime)
                         .font(.shadcnTextXs)
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             }
 
@@ -774,12 +769,12 @@ struct ShadcnCalendar: View {
                 }) {
                     Text("Today")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color.shadcnPrimary)
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: ShadcnRadius.sm)
-                                .fill(Color.shadcnPrimary.opacity(0.1))
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -805,7 +800,7 @@ struct ShadcnCalendar: View {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -882,7 +877,7 @@ struct ShadcnDayCell: View {
                 // Event indicator dot
                 if hasEvents && isInCurrentMonth {
                     Circle()
-                        .fill(Color.shadcnPrimary)
+                        .fill(colorScheme == .dark ? Color.white : Color.black)
                         .frame(width: 3, height: 3)
                 } else {
                     Circle()

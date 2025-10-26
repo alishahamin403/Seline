@@ -6,39 +6,44 @@ struct CategoryFilterChip: View {
     let onTap: () -> Void
     @Environment(\.colorScheme) var colorScheme
 
+    private var textColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.black : Color.white
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8)
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.white : Color.black
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)
+        }
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            return Color.clear
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2)
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
             Text(category)
                 .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundColor(
-                    isSelected ?
-                        .white :
-                        (colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
-                )
+                .foregroundColor(textColor)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 20)
-                        .fill(
-                            isSelected ?
-                                (colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.15) :
-                                    Color.black.opacity(0.08))
-                        )
+                        .fill(backgroundColor)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(
-                            isSelected ?
-                                Color.clear :
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.3) :
-                                    Color.black.opacity(0.2)),
-                            lineWidth: 1
-                        )
+                        .stroke(borderColor, lineWidth: 1)
                 )
         }
         .buttonStyle(PlainButtonStyle())

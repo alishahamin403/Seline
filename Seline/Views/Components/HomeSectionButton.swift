@@ -57,7 +57,7 @@ struct HomeSectionButton: View {
                                 .frame(width: 20, height: 20)
                                 .background(
                                     Circle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black)
                                 )
                         }
 

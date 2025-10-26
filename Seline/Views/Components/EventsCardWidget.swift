@@ -3,6 +3,7 @@ import SwiftUI
 struct EventsCardWidget: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var tagManager = TagManager.shared
     @State private var selectedDate: Date
     @State private var selectedTask: TaskItem?
     @State private var showingEditTask = false
@@ -99,42 +100,85 @@ struct EventsCardWidget: View {
         Calendar.current.isDate(selectedDate, inSameDayAs: date)
     }
 
+    private func filterDisplayName(for task: TaskItem) -> String {
+        if task.id.hasPrefix("cal_") {
+            return "Synced"
+        } else if let tagId = task.tagId, !tagId.isEmpty {
+            if let tag = tagManager.getTag(by: tagId) {
+                return tag.name
+            }
+            return "Tag"
+        } else {
+            return "Personal"
+        }
+    }
+
+    private func filterType(from task: TaskItem) -> TimelineEventColorManager.FilterType {
+        TimelineEventColorManager.filterType(from: task)
+    }
+
+    private var filterAccentColor: (TimelineEventColorManager.FilterType) -> Color {
+        { filterType in
+            TimelineEventColorManager.timelineEventAccentColor(
+                filterType: filterType,
+                colorScheme: colorScheme
+            )
+        }
+    }
+
     private func eventRow(_ task: TaskItem) -> some View {
         Button(action: {
             HapticManager.shared.cardTap()
             selectedTask = task
         }) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 // Completion status icon - tappable
                 Button(action: {
                     HapticManager.shared.selection()
                     taskManager.toggleTaskCompletion(task, forDate: selectedDate)
                 }) {
                     let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+                    let badgeFilterType = filterType(from: task)
+                    let circleColor = filterAccentColor(badgeFilterType)
+
                     Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 12))
-                        .foregroundColor(
-                            isTaskCompleted ?
-                                (colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
-                                (colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40))
-                        )
+                        .foregroundColor(circleColor)
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 // Event title
                 let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                Text(task.title)
-                    .font(.shadcnTextXs)
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(task.title)
+                        .font(.shadcnTextXs)
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                Spacer()
+                    // Filter badge
+                    let badge = filterDisplayName(for: task)
+                    let badgeFilterType = filterType(from: task)
+                    let badgeColor = filterAccentColor(badgeFilterType)
+
+                    HStack(spacing: 2) {
+                        Image(systemName: "tag.fill")
+                            .font(.system(size: 6, weight: .medium))
+                        Text(badge)
+                            .font(.system(size: 7, weight: .semibold))
+                    }
+                    .foregroundColor(badgeColor)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(badgeColor.opacity(0.15))
+                    )
+                    .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
 
                 // Event time
                 if let scheduledTime = task.scheduledTime {
@@ -165,15 +209,15 @@ struct EventsCardWidget: View {
                     }) {
                         Text(todayDateNumber)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(today) ? .white : (colorScheme == .dark ? Color.white : Color.black))
+                            .foregroundColor(isDateSelected(today) ? (colorScheme == .dark ? Color.black : Color.white) : (colorScheme == .dark ? Color.white : Color.black))
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(
                                         isDateSelected(today) ?
                                             (colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                Color.white :
+                                                Color.black) :
                                             Color.clear
                                     )
                             )
@@ -196,15 +240,15 @@ struct EventsCardWidget: View {
                     }) {
                         Text(tomorrowDateNumber)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(tomorrow) ? .white : (colorScheme == .dark ? Color.white : Color.black))
+                            .foregroundColor(isDateSelected(tomorrow) ? (colorScheme == .dark ? Color.black : Color.white) : (colorScheme == .dark ? Color.white : Color.black))
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(
                                         isDateSelected(tomorrow) ?
                                             (colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                Color.white :
+                                                Color.black) :
                                             Color.clear
                                     )
                             )
@@ -227,15 +271,15 @@ struct EventsCardWidget: View {
                     }) {
                         Text(dayAfterDateNumber)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(dayAfterTomorrow) ? .white : (colorScheme == .dark ? Color.white : Color.black))
+                            .foregroundColor(isDateSelected(dayAfterTomorrow) ? (colorScheme == .dark ? Color.black : Color.white) : (colorScheme == .dark ? Color.white : Color.black))
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(
                                         isDateSelected(dayAfterTomorrow) ?
                                             (colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                Color.white :
+                                                Color.black) :
                                             Color.clear
                                     )
                             )
@@ -286,7 +330,7 @@ struct EventsCardWidget: View {
                     }
                 }
             }
-            .frame(maxHeight: 200)
+            .frame(maxHeight: 280)
             .padding(.top, 4)
         }
         .padding(.horizontal, 12)

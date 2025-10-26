@@ -171,15 +171,15 @@ struct EventStatsView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundColor(.white)
+                .foregroundColor(colorScheme == .dark ? .black : .white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(
                             colorScheme == .dark ?
-                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                                Color.white :
+                                Color.black
                         )
                 )
             }
@@ -201,7 +201,7 @@ struct EventStatsView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundColor(.white)
+                .foregroundColor(colorScheme == .dark ? .black : .white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(
@@ -245,11 +245,7 @@ struct EventStatsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(breakdown.completed)")
                             .font(.system(size: 36, weight: .bold))
-                            .foregroundColor(
-                                colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)
-                            )
+                            .foregroundColor(.green)
 
                         Text("Completed")
                             .font(.system(size: 13, weight: .regular))
@@ -291,11 +287,7 @@ struct EventStatsView: View {
                                     .frame(height: 8)
 
                                 RoundedRectangle(cornerRadius: 4)
-                                    .fill(
-                                        colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
-                                    )
+                                    .fill(.green)
                                     .frame(width: geometry.size.width * (Double(percentage) / 100.0), height: 8)
                             }
                         }

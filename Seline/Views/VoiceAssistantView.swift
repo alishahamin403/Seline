@@ -70,8 +70,8 @@ struct VoiceAssistantView: View {
                                                                     .fill(message.isUser ?
                                                                         LinearGradient(
                                                                             colors: [
-                                                                                Color(red: 0.40, green: 0.65, blue: 0.80),
-                                                                                Color(red: 0.30, green: 0.50, blue: 0.60)
+                                                                                (colorScheme == .dark ? Color.white : Color.black),
+                                                                                (colorScheme == .dark ? Color.white : Color.black).opacity(0.9)
                                                                             ],
                                                                             startPoint: .topLeading,
                                                                             endPoint: .bottomTrailing

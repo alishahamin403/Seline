@@ -79,19 +79,6 @@ struct TimelineEventBlock: View {
         return colorScheme == .dark ? Color.white : Color.black
     }
 
-    /// Get the display name for the filter/tag
-    private var filterDisplayName: String {
-        if task.id.hasPrefix("cal_") {
-            return "Synced"
-        } else if let tagId = task.tagId, !tagId.isEmpty {
-            if let tag = tagManager.getTag(by: tagId) {
-                return tag.name
-            }
-            return "Tag"
-        } else {
-            return "Personal"
-        }
-    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -115,22 +102,6 @@ struct TimelineEventBlock: View {
                     .strikethrough(isCompleted, color: textColor.opacity(0.5))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-
-                // Filter badge
-                HStack(spacing: 4) {
-                    Image(systemName: "tag.fill")
-                        .font(.system(size: 7, weight: .medium))
-                    Text(filterDisplayName)
-                        .font(.system(size: 8, weight: .semibold))
-                }
-                .foregroundColor(accentColor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(accentColor.opacity(0.15))
-                )
-                .lineLimit(1)
             }
 
             Spacer(minLength: 0)

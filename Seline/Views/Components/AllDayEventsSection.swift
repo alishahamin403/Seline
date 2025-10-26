@@ -23,8 +23,8 @@ struct AllDayEventsSection: View {
 
     private var accentColor: Color {
         colorScheme == .dark ?
-            Color(red: 0.40, green: 0.65, blue: 0.80) : // #66A5C6
-            Color(red: 0.20, green: 0.34, blue: 0.40)   // #345766
+            Color.white : // White in dark mode
+            Color.black   // Black in light mode
     }
 
     var body: some View {

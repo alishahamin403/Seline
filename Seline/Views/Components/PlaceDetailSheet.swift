@@ -59,8 +59,8 @@ struct PlaceDetailSheet: View {
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(
                                         colorScheme == .dark ?
-                                            Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                                            Color.white :
+                                            Color.black
                                     )
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
@@ -68,8 +68,8 @@ struct PlaceDetailSheet: View {
                                         RoundedRectangle(cornerRadius: 8)
                                             .fill(
                                                 colorScheme == .dark ?
-                                                    Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.2) :
-                                                    Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.1)
+                                                    Color.white.opacity(0.2) :
+                                                    Color.black.opacity(0.1)
                                             )
                                     )
 
@@ -98,8 +98,8 @@ struct PlaceDetailSheet: View {
                                 .font(.system(size: 20))
                                 .foregroundColor(
                                     colorScheme == .dark ?
-                                        Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                        Color(red: 0.20, green: 0.34, blue: 0.40)
+                                        Color.white :
+                                        Color.black
                                 )
 
                             VStack(alignment: .leading, spacing: 4) {
@@ -127,8 +127,8 @@ struct PlaceDetailSheet: View {
                                         .font(.system(size: 20))
                                         .foregroundColor(
                                             colorScheme == .dark ?
-                                                Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                                                Color.white :
+                                                Color.black
                                         )
 
                                     VStack(alignment: .leading, spacing: 4) {
@@ -178,8 +178,8 @@ struct PlaceDetailSheet: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(
                                         colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                                            Color.white :
+                                            Color.black
                                     )
                             )
                         }

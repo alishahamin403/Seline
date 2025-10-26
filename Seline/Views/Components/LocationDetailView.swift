@@ -61,7 +61,7 @@ struct LocationDetailView: View {
         VStack(spacing: 20) {
             ProgressView()
                 .scaleEffect(1.5)
-                .tint(colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                .tint(colorScheme == .dark ? Color.white : Color.black)
 
             Text("Loading location details...")
                 .font(.system(size: 16, weight: .medium))
@@ -206,8 +206,8 @@ struct LocationDetailView: View {
                                     .font(.system(size: 16))
                                     .foregroundColor(
                                         colorScheme == .dark ?
-                                            Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                                            Color.white :
+                                            Color.black
                                     )
                                     .frame(width: 24)
 
@@ -215,8 +215,8 @@ struct LocationDetailView: View {
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundColor(
                                         colorScheme == .dark ?
-                                            Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                                            Color.white :
+                                            Color.black
                                     )
 
                                 Spacer()
@@ -306,8 +306,8 @@ struct LocationDetailView: View {
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(
                                     colorScheme == .dark ?
-                                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                        Color(red: 0.20, green: 0.34, blue: 0.40)
+                                        Color.white :
+                                        Color.black
                                 )
                         )
                     }
@@ -381,8 +381,8 @@ struct InfoRow: View {
                 .font(.system(size: 16))
                 .foregroundColor(
                     colorScheme == .dark ?
-                        Color(red: 0.518, green: 0.792, blue: 0.914) :
-                        Color(red: 0.20, green: 0.34, blue: 0.40)
+                        Color.white :
+                        Color.black
                 )
                 .frame(width: 24)
 
@@ -544,8 +544,8 @@ struct CategoryPickerView: View {
                             }
                             .foregroundColor(
                                 colorScheme == .dark ?
-                                    Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)
+                                    Color.white :
+                                    Color.black
                             )
                             .padding(16)
                             .background(
@@ -575,8 +575,8 @@ struct CategoryPickerView: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(
                                         colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                                            Color.white :
+                                            Color.black
                                     )
                             )
                     }
@@ -640,8 +640,8 @@ struct CategoryButton: View {
                     .fill(
                         isSelected ?
                             (colorScheme == .dark ?
-                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                Color.white :
+                                Color.black) :
                             (colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
                     )
             )

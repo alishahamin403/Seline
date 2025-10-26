@@ -66,7 +66,7 @@ struct ViewEventView: View {
                     HStack {
                         Image(systemName: "calendar")
                             .font(.system(size: 16))
-                            .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                         Text(formattedDate)
                             .font(.system(size: 15, weight: .regular))
@@ -86,7 +86,7 @@ struct ViewEventView: View {
                         HStack {
                             Image(systemName: "clock")
                                 .font(.system(size: 16))
-                                .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Text(task.formattedTimeRange)
                                 .font(.system(size: 15, weight: .regular))
@@ -107,7 +107,7 @@ struct ViewEventView: View {
                         HStack {
                             Image(systemName: "repeat")
                                 .font(.system(size: 16))
-                                .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Text(frequency.rawValue.capitalized)
                                 .font(.system(size: 15, weight: .regular))
@@ -128,7 +128,7 @@ struct ViewEventView: View {
                         HStack {
                             Image(systemName: reminderTime.icon)
                                 .font(.system(size: 16))
-                                .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Text(reminderTime.displayName)
                                 .font(.system(size: 15, weight: .regular))
@@ -227,8 +227,8 @@ struct ViewEventView: View {
                         ZStack {
                             Circle()
                                 .fill(colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80).opacity(0.2) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.1))
+                                    Color.white.opacity(0.2) :
+                                    Color.black.opacity(0.1))
                                 .frame(width: 40, height: 40)
 
                             Image(systemName: "envelope.fill")
@@ -305,14 +305,14 @@ struct ViewEventView: View {
                                     Image(systemName: "sparkles")
                                         .font(.system(size: 12, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40))
+                                            Color.white :
+                                            Color.black)
 
                                     Text("AI Summary")
                                         .font(.system(size: 13, weight: .semibold))
                                         .foregroundColor(colorScheme == .dark ?
-                                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                            Color(red: 0.20, green: 0.34, blue: 0.40))
+                                            Color.white :
+                                            Color.black)
                                 }
 
                                 Text(aiSummary)
@@ -324,8 +324,8 @@ struct ViewEventView: View {
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
                                             .fill(colorScheme == .dark ?
-                                                Color(red: 0.40, green: 0.65, blue: 0.80).opacity(0.1) :
-                                                Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.05))
+                                                Color.white.opacity(0.1) :
+                                                Color.black.opacity(0.05))
                                     )
                             }
                             .padding(.bottom, 12)

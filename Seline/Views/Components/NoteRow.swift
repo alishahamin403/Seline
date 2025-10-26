@@ -67,7 +67,7 @@ struct NoteRow: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(
                             note.isPinned ?
-                                (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                (colorScheme == .dark ? Color.white : Color.black) :
                                 (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         )
                         .frame(width: 18, height: 18)

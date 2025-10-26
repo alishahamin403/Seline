@@ -107,8 +107,8 @@ struct AddEventPopupView: View {
                                         .stroke(
                                             isTitleFocused ?
                                                 (colorScheme == .dark ?
-                                                    Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                                    Color.white :
+                                                    Color.black) :
                                                 Color.clear,
                                             lineWidth: 1.5
                                         )
@@ -274,7 +274,7 @@ struct AddEventPopupView: View {
                                         HStack(spacing: 8) {
                                             Image(systemName: selectedReminder.icon)
                                                 .font(.system(size: 14))
-                                                .foregroundColor(selectedReminder == .none ? Color.shadcnMuted(colorScheme) : (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)))
+                                                .foregroundColor(selectedReminder == .none ? Color.shadcnMuted(colorScheme) : (colorScheme == .dark ? Color.white : Color.black))
 
                                             Text(selectedReminder.displayName)
                                                 .font(.system(size: 15))
@@ -344,8 +344,8 @@ struct AddEventPopupView: View {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(isValidInput ?
                                 (colorScheme == .dark ?
-                                    Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                    Color.white :
+                                    Color.black) :
                                 Color.gray.opacity(0.5))
                     )
                     .disabled(!isValidInput)
