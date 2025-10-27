@@ -210,36 +210,69 @@ struct MainAppView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // Content based on selected tab
-                Group {
-                    switch selectedTab {
-                    case .home:
-                        NavigationView {
-                            homeContent
-                        }
-                        .navigationViewStyle(StackNavigationViewStyle())
-                        .navigationBarHidden(true)
-                        .onAppear {
-                            Task {
-                                await emailService.loadEmailsForFolder(.inbox)
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    // Padding to account for fixed header
+                    Color.clear
+                        .frame(height: 76)
+
+                    // Content based on selected tab
+                    Group {
+                        switch selectedTab {
+                        case .home:
+                            NavigationView {
+                                homeContentWithoutHeader
                             }
+                            .navigationViewStyle(StackNavigationViewStyle())
+                            .navigationBarHidden(true)
+                            .onAppear {
+                                Task {
+                                    await emailService.loadEmailsForFolder(.inbox)
+                                }
+                            }
+                        case .email:
+                            EmailView()
+                        case .events:
+                            EventsView()
+                        case .notes:
+                            NotesView()
+                        case .maps:
+                            MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
                         }
-                    case .email:
-                        EmailView()
-                    case .events:
-                        EventsView()
-                    case .notes:
-                        NotesView()
-                    case .maps:
-                        MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
+                    }
+
+                    // Fixed Footer - hide when keyboard appears
+                    if keyboardHeight == 0 {
+                        BottomTabBar(selectedTab: $selectedTab)
+                    }
+
+                    Spacer()
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .background(
+                    colorScheme == .dark ?
+                        Color.black : Color.white
+                )
+
+                // Fixed Header with search bar at top
+                VStack(spacing: 0) {
+                    HeaderSection(
+                        selectedTab: $selectedTab,
+                        searchText: $searchText,
+                        isSearchFocused: $isSearchFocused
+                    )
+                    .padding(.bottom, 8)
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+
+                    // Search results dropdown (only on home tab)
+                    if !searchText.isEmpty && selectedTab == .home {
+                        searchResultsDropdown
+                            .padding(.horizontal, 20)
+                            .transition(.opacity)
                     }
                 }
-
-                // Fixed Footer - hide when keyboard appears
-                if keyboardHeight == 0 {
-                    BottomTabBar(selectedTab: $selectedTab)
-                }
+                .background(colorScheme == .dark ? Color.black : Color.white)
+                .zIndex(100)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(
@@ -1010,25 +1043,8 @@ struct MainAppView: View {
     }
 
     // MARK: - Home Content
-    private var homeContent: some View {
+    private var homeContentWithoutHeader: some View {
         VStack(spacing: 0) {
-            // Fixed Header with search
-            HeaderSection(
-                selectedTab: $selectedTab,
-                searchText: $searchText,
-                isSearchFocused: $isSearchFocused
-            )
-            .padding(.bottom, 8)
-            .background(colorScheme == .dark ? Color.black : Color.white)
-            .zIndex(1)
-
-            // Search results dropdown
-            if !searchText.isEmpty {
-                searchResultsDropdown
-                    .padding(.horizontal, 20)
-                    .transition(.opacity)
-            }
-
             // Main content - fixed, no scrolling at page level
             ZStack(alignment: .top) {
                 mainContentWidgets
