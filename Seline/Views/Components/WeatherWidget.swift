@@ -188,8 +188,14 @@ struct WeatherWidget: View {
             if let location = location {
                 Task {
                     await weatherService.fetchWeather(for: location)
+                    // Update ETAs when current location changes
+                    updateETAs()
                 }
             }
+        }
+        .onChange(of: locationPreferences) { _ in
+            // Update ETAs when location preferences change
+            updateETAs()
         }
     }
 
@@ -325,8 +331,32 @@ struct WeatherWidget: View {
     }
 
     private func updateETAs() {
-        guard let currentLocation = locationService.currentLocation,
-              let preferences = locationPreferences else {
+        guard let preferences = locationPreferences else {
+            print("⚠️ Location preferences not loaded yet")
+            return
+        }
+
+        // If we don't have current location yet, try to request it
+        if locationService.currentLocation == nil {
+            print("⚠️ Current location not available, requesting...")
+            locationService.requestLocationPermission()
+
+            // Try again after a short delay to allow location to be fetched
+            Task {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                if let currentLocation = locationService.currentLocation {
+                    await navigationService.updateETAs(
+                        currentLocation: currentLocation,
+                        location1: preferences.location1Coordinate,
+                        location2: preferences.location2Coordinate,
+                        location3: preferences.location3Coordinate
+                    )
+                }
+            }
+            return
+        }
+
+        guard let currentLocation = locationService.currentLocation else {
             return
         }
 

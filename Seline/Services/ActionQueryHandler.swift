@@ -139,6 +139,57 @@ class ActionQueryHandler {
         }
     }
 
+    /// Parses a note update request using LLM to generate new content
+    /// Example: "update my meeting notes with discussion about Q4 planning"
+    @MainActor
+    func parseNoteUpdate(from query: String, existingNoteTitle: String) async -> NoteUpdateData? {
+        // Extract the new content to add
+        let contentToAdd = await generateNoteUpdateContent(from: query)
+
+        if contentToAdd.isEmpty {
+            return nil
+        }
+
+        return NoteUpdateData(
+            noteTitle: existingNoteTitle,
+            contentToAdd: contentToAdd,
+            formattedContentToAdd: contentToAdd
+        )
+    }
+
+    /// Uses LLM to generate content for updating an existing note
+    private func generateNoteUpdateContent(from query: String) async -> String {
+        let systemPrompt = """
+        You are a helpful assistant that extracts update content from user input.
+        The user wants to add or update information in an existing note.
+        Generate concise, relevant content (2-3 sentences) to be added to the note.
+        Focus only on the NEW information they want to add, not what was already there.
+        Write naturally and directly usable as note content.
+        """
+
+        let userPrompt = """
+        User input: "\(query)"
+
+        Extract the NEW information they want to add to their note.
+        Ignore action keywords like "update", "modify", "change", "add to", "note".
+        Generate content that can be added to an existing note.
+        Return ONLY the new content, nothing else. No labels or prefixes needed.
+        """
+
+        do {
+            let content = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                maxTokens: 120,
+                temperature: 0.7
+            )
+            return content.trimmingCharacters(in: .whitespaces)
+        } catch {
+            print("Error generating note update content with LLM: \(error).")
+            return ""
+        }
+    }
+
     // MARK: - Helper Methods
 
     /// Generates a concise event title using LLM based on user's input with contextual data

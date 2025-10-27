@@ -27,6 +27,7 @@ struct MainAppView: View {
     @State private var notificationTaskId: String? = nil
     @State private var showingEventConfirmation = false
     @State private var showingNoteConfirmation = false
+    @State private var showingNoteUpdateConfirmation = false
     @FocusState private var isSearchFocused: Bool
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -81,6 +82,9 @@ struct MainAppView: View {
             return []
         }
         if searchService.pendingNoteCreation != nil {
+            return []
+        }
+        if searchService.pendingNoteUpdate != nil {
             return []
         }
 
@@ -407,6 +411,9 @@ struct MainAppView: View {
             .onChange(of: searchService.pendingNoteCreation) { newValue in
                 showingNoteConfirmation = newValue != nil
             }
+            .onChange(of: searchService.pendingNoteUpdate) { newValue in
+                showingNoteUpdateConfirmation = newValue != nil
+            }
             .overlay {
                 if showingAddEventPopup {
                     AddEventPopupView(
@@ -469,6 +476,22 @@ struct MainAppView: View {
                         isPresented: $showingNoteConfirmation,
                         onConfirm: {
                             searchService.confirmNoteCreation()
+                            searchText = ""
+                            isSearchFocused = false
+                        },
+                        onCancel: {
+                            searchService.cancelAction()
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showingNoteUpdateConfirmation) {
+                if let updateData = searchService.pendingNoteUpdate {
+                    NoteUpdateConfirmationView(
+                        updateData: updateData,
+                        isPresented: $showingNoteUpdateConfirmation,
+                        onConfirm: {
+                            searchService.confirmNoteUpdate()
                             searchText = ""
                             isSearchFocused = false
                         },

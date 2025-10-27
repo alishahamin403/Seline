@@ -11,6 +11,7 @@ class SearchService: ObservableObject {
     @Published var currentQueryType: QueryType = .search
     @Published var pendingEventCreation: EventCreationData?
     @Published var pendingNoteCreation: NoteCreationData?
+    @Published var pendingNoteUpdate: NoteUpdateData?
     @Published var questionResponse: String? = nil
     @Published var isLoadingQuestionResponse: Bool = false
 
@@ -86,11 +87,49 @@ class SearchService: ObservableObject {
         case .createNote:
             pendingNoteCreation = await actionQueryHandler.parseNoteCreation(from: query)
             searchResults = []
+        case .updateNote:
+            // Find the note to update
+            if let matchingNote = findNoteToUpdate(from: query) {
+                pendingNoteUpdate = await actionQueryHandler.parseNoteUpdate(
+                    from: query,
+                    existingNoteTitle: matchingNote.title
+                )
+                searchResults = []
+            } else {
+                // Show search results if no matching note found
+                let results = await searchContent(query: query.lowercased())
+                searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
+            }
         default:
             // For other action types, show search results for now
             let results = await searchContent(query: query.lowercased())
             searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
         }
+    }
+
+    /// Finds a note that matches the user's intent to update
+    private func findNoteToUpdate(from query: String) -> Note? {
+        let notesManager = NotesManager.shared
+        let lowerQuery = query.lowercased()
+
+        // Try exact title match first
+        for note in notesManager.notes {
+            if lowerQuery.contains(note.title.lowercased()) {
+                return note
+            }
+        }
+
+        // Try partial match
+        for note in notesManager.notes {
+            let words = note.title.lowercased().split(separator: " ")
+            for word in words {
+                if lowerQuery.contains(String(word)) && word.count > 3 {
+                    return note
+                }
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Question Query Handling
@@ -179,9 +218,32 @@ class SearchService: ObservableObject {
         pendingNoteCreation = nil
     }
 
+    func confirmNoteUpdate() {
+        guard let updateData = pendingNoteUpdate else { return }
+
+        let notesManager = NotesManager.shared
+
+        // Find the note to update
+        if let index = notesManager.notes.firstIndex(where: { $0.title == updateData.noteTitle }) {
+            var note = notesManager.notes[index]
+            // Append the new content to existing content
+            if !note.content.isEmpty {
+                note.content += "\n\n" + updateData.contentToAdd
+            } else {
+                note.content = updateData.contentToAdd
+            }
+            // Update the note
+            notesManager.updateNote(note)
+        }
+
+        // Clear pending data
+        pendingNoteUpdate = nil
+    }
+
     func cancelAction() {
         pendingEventCreation = nil
         pendingNoteCreation = nil
+        pendingNoteUpdate = nil
     }
 
     private func searchContent(query: String) async -> [SearchResult] {
