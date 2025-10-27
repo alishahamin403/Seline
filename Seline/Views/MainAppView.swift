@@ -216,7 +216,7 @@ struct MainAppView: View {
                     Color.clear
                         .frame(height: 48)
 
-                    // Content based on selected tab
+                    // Content based on selected tab - expands to fill available space
                     Group {
                         switch selectedTab {
                         case .home:
@@ -240,13 +240,12 @@ struct MainAppView: View {
                             MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
                         }
                     }
+                    .frame(maxHeight: .infinity)
 
                     // Fixed Footer - hide when keyboard appears
                     if keyboardHeight == 0 {
                         BottomTabBar(selectedTab: $selectedTab)
                     }
-
-                    Spacer()
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .background(
