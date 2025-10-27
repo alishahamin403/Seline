@@ -2418,6 +2418,7 @@ class OpenAIService: ObservableObject {
     // MARK: - Question Answering
 
     /// Answers a question about the user's data using OpenAI
+    @MainActor
     func answerQuestion(
         query: String,
         taskManager: TaskManager,
