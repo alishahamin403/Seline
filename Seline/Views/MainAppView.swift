@@ -917,7 +917,9 @@ struct MainAppView: View {
                                 }
                             case .createNote:
                                 let actionHandler = ActionQueryHandler.shared
-                                searchService.pendingNoteCreation = actionHandler.parseNoteCreation(from: searchText)
+                                Task {
+                                    searchService.pendingNoteCreation = await actionHandler.parseNoteCreation(from: searchText)
+                                }
                             default:
                                 break
                             }
