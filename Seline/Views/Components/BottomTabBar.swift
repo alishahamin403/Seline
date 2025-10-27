@@ -43,11 +43,12 @@ struct BottomTabBar: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
         .background(
             colorScheme == .dark ? Color.black : Color.white
         )
+        .ignoresSafeArea(edges: .bottom)
     }
 }
 
@@ -82,7 +83,7 @@ struct TabButton: View {
                     isSelected ? selectedColor : .gray
                 )
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
         }
         .buttonStyle(PlainButtonStyle())
     }
