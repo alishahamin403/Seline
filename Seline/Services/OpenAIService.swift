@@ -2551,7 +2551,6 @@ class OpenAIService: ObservableObject {
     }
 
     /// Builds comprehensive context for action queries (event/note creation) with weather, locations, and destinations
-    @MainActor
     func buildContextForAction(
         weatherService: WeatherService,
         locationsManager: LocationsManager,
