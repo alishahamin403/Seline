@@ -215,6 +215,72 @@ struct MainAppView: View {
     }
 
     var body: some View {
+        mainContent
+            .onChange(of: searchText) { newValue in
+                if newValue.isEmpty {
+                    searchService.cancelAction()
+                }
+            }
+            .onChange(of: searchService.pendingEventCreation) { newValue in
+                showingEventConfirmation = newValue != nil
+            }
+            .onChange(of: searchService.pendingNoteCreation) { newValue in
+                showingNoteConfirmation = newValue != nil
+            }
+            .onChange(of: searchService.pendingNoteUpdate) { newValue in
+                showingNoteUpdateConfirmation = newValue != nil
+            }
+            .sheet(isPresented: $showingEventConfirmation) {
+                if let eventData = searchService.pendingEventCreation {
+                    ActionEventConfirmationView(
+                        eventData: eventData,
+                        isPresented: $showingEventConfirmation,
+                        onConfirm: {
+                            searchService.confirmEventCreation()
+                            searchText = ""
+                            isSearchFocused = false
+                        },
+                        onCancel: {
+                            searchService.cancelAction()
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showingNoteConfirmation) {
+                if let noteData = searchService.pendingNoteCreation {
+                    ActionNoteConfirmationView(
+                        noteData: noteData,
+                        isPresented: $showingNoteConfirmation,
+                        onConfirm: {
+                            searchService.confirmNoteCreation()
+                            searchText = ""
+                            isSearchFocused = false
+                        },
+                        onCancel: {
+                            searchService.cancelAction()
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showingNoteUpdateConfirmation) {
+                if let updateData = searchService.pendingNoteUpdate {
+                    NoteUpdateConfirmationView(
+                        updateData: updateData,
+                        isPresented: $showingNoteUpdateConfirmation,
+                        onConfirm: {
+                            searchService.confirmNoteUpdate()
+                            searchText = ""
+                            isSearchFocused = false
+                        },
+                        onCancel: {
+                            searchService.cancelAction()
+                        }
+                    )
+                }
+            }
+    }
+
+    private var mainContent: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
@@ -399,21 +465,6 @@ struct MainAppView: View {
                     showingEditTask = false
                 }
             }
-            .onChange(of: searchText) { newValue in
-                if newValue.isEmpty {
-                    // Clear pending actions when search is cleared
-                    searchService.cancelAction()
-                }
-            }
-            .onChange(of: searchService.pendingEventCreation) { newValue in
-                showingEventConfirmation = newValue != nil
-            }
-            .onChange(of: searchService.pendingNoteCreation) { newValue in
-                showingNoteConfirmation = newValue != nil
-            }
-            .onChange(of: searchService.pendingNoteUpdate) { newValue in
-                showingNoteUpdateConfirmation = newValue != nil
-            }
             .overlay {
                 if showingAddEventPopup {
                     AddEventPopupView(
@@ -451,54 +502,6 @@ struct MainAppView: View {
                         }
                     )
                     .transition(.opacity)
-                }
-            }
-            .sheet(isPresented: $showingEventConfirmation) {
-                if let eventData = searchService.pendingEventCreation {
-                    ActionEventConfirmationView(
-                        eventData: eventData,
-                        isPresented: $showingEventConfirmation,
-                        onConfirm: {
-                            searchService.confirmEventCreation()
-                            searchText = ""
-                            isSearchFocused = false
-                        },
-                        onCancel: {
-                            searchService.cancelAction()
-                        }
-                    )
-                }
-            }
-            .sheet(isPresented: $showingNoteConfirmation) {
-                if let noteData = searchService.pendingNoteCreation {
-                    ActionNoteConfirmationView(
-                        noteData: noteData,
-                        isPresented: $showingNoteConfirmation,
-                        onConfirm: {
-                            searchService.confirmNoteCreation()
-                            searchText = ""
-                            isSearchFocused = false
-                        },
-                        onCancel: {
-                            searchService.cancelAction()
-                        }
-                    )
-                }
-            }
-            .sheet(isPresented: $showingNoteUpdateConfirmation) {
-                if let updateData = searchService.pendingNoteUpdate {
-                    NoteUpdateConfirmationView(
-                        updateData: updateData,
-                        isPresented: $showingNoteUpdateConfirmation,
-                        onConfirm: {
-                            searchService.confirmNoteUpdate()
-                            searchText = ""
-                            isSearchFocused = false
-                        },
-                        onCancel: {
-                            searchService.cancelAction()
-                        }
-                    )
                 }
             }
         }
