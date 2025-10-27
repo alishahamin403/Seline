@@ -399,26 +399,6 @@ struct MainAppView: View {
                 if newValue.isEmpty {
                     // Clear pending actions when search is cleared
                     searchService.cancelAction()
-                } else {
-                    // Classify the query
-                    let queryType = QueryRouter.shared.classifyQuery(newValue)
-                    switch queryType {
-                    case .action(let actionType):
-                        switch actionType {
-                        case .createEvent:
-                            let actionHandler = ActionQueryHandler.shared
-                            searchService.pendingEventCreation = actionHandler.parseEventCreation(from: newValue)
-                        case .createNote:
-                            let actionHandler = ActionQueryHandler.shared
-                            searchService.pendingNoteCreation = actionHandler.parseNoteCreation(from: newValue)
-                        default:
-                            break
-                        }
-                    default:
-                        // Clear pending actions for non-action queries
-                        searchService.cancelAction()
-                        break
-                    }
                 }
             }
             .onChange(of: searchService.pendingEventCreation) { newValue in
@@ -918,6 +898,28 @@ struct MainAppView: View {
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
+                .onSubmit {
+                    // Process the search query when user taps search button
+                    if !searchText.isEmpty {
+                        let queryType = QueryRouter.shared.classifyQuery(searchText)
+                        switch queryType {
+                        case .action(let actionType):
+                            switch actionType {
+                            case .createEvent:
+                                let actionHandler = ActionQueryHandler.shared
+                                searchService.pendingEventCreation = actionHandler.parseEventCreation(from: searchText)
+                            case .createNote:
+                                let actionHandler = ActionQueryHandler.shared
+                                searchService.pendingNoteCreation = actionHandler.parseNoteCreation(from: searchText)
+                            default:
+                                break
+                            }
+                        default:
+                            // For questions and searches, keep the normal behavior
+                            break
+                        }
+                    }
+                }
 
             if !searchText.isEmpty {
                 Button(action: {
