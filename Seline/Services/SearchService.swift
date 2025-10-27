@@ -11,6 +11,8 @@ class SearchService: ObservableObject {
     @Published var currentQueryType: QueryType = .search
     @Published var pendingEventCreation: EventCreationData?
     @Published var pendingNoteCreation: NoteCreationData?
+    @Published var questionResponse: String? = nil
+    @Published var isLoadingQuestionResponse: Bool = false
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
@@ -67,10 +69,8 @@ class SearchService: ObservableObject {
             let results = await searchContent(query: trimmedQuery.lowercased())
             searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
         case .question:
-            // For now, questions are treated like searches
-            // In the future, this could route to OpenAI for conversational responses
-            let results = await searchContent(query: trimmedQuery.lowercased())
-            searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
+            // Handle questions with AI assistance
+            await handleQuestionQuery(trimmedQuery)
         }
 
         isSearching = false
@@ -93,6 +93,29 @@ class SearchService: ObservableObject {
                 searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
             }
         }
+    }
+
+    // MARK: - Question Query Handling
+
+    private func handleQuestionQuery(_ query: String) async {
+        isLoadingQuestionResponse = true
+        questionResponse = nil
+        searchResults = []
+
+        do {
+            let response = try await OpenAIService.shared.answerQuestion(
+                query: query,
+                taskManager: TaskManager.shared,
+                notesManager: NotesManager.shared,
+                emailService: EmailService.shared
+            )
+            questionResponse = response
+        } catch {
+            questionResponse = "I couldn't answer that question. Please try again or rephrase your question."
+            print("Error answering question: \(error)")
+        }
+
+        isLoadingQuestionResponse = false
     }
 
     // MARK: - Action Confirmation Methods

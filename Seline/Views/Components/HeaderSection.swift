@@ -7,6 +7,7 @@ struct HeaderSection: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.colorScheme) var colorScheme
     @State private var showingSettings = false
+    var onSearchSubmit: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -23,6 +24,9 @@ struct HeaderSection: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .submitLabel(.search)
+                    .onSubmit {
+                        onSearchSubmit?()
+                    }
 
                 if !searchText.isEmpty {
                     Button(action: {

@@ -2414,6 +2414,139 @@ class OpenAIService: ObservableObject {
 
         return processedContent
     }
+
+    // MARK: - Question Answering
+
+    /// Answers a question about the user's data using OpenAI
+    func answerQuestion(
+        query: String,
+        taskManager: TaskManager,
+        notesManager: NotesManager,
+        emailService: EmailService
+    ) async throws -> String {
+        // Rate limiting
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        // Extract context from the query
+        let context = buildContextForQuestion(
+            query: query,
+            taskManager: taskManager,
+            notesManager: notesManager,
+            emailService: emailService
+        )
+
+        let systemPrompt = """
+        You are a helpful personal assistant that helps users understand their schedule, notes, and emails.
+        Based on the provided context about the user's data, answer their question in a clear, concise way.
+        If the user asks about "tomorrow", "today", "next week", etc., use the current date context provided.
+        Always be helpful and provide specific details when available.
+        """
+
+        let userPrompt = """
+        Context about user's data:
+        \(context)
+
+        User's question: \(query)
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userPrompt]
+            ],
+            "temperature": 0.7,
+            "max_tokens": 500
+        ]
+
+        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+    }
+
+    private func buildContextForQuestion(
+        query: String,
+        taskManager: TaskManager,
+        notesManager: NotesManager,
+        emailService: EmailService
+    ) -> String {
+        var context = ""
+        let currentDate = Date()
+        let calendar = Calendar.current
+
+        // Check if question is about a specific date
+        let query_lower = query.lowercased()
+        var targetDate = currentDate
+
+        if query_lower.contains("tomorrow") {
+            targetDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+        } else if query_lower.contains("today") {
+            targetDate = currentDate
+        } else if query_lower.contains("next week") {
+            targetDate = calendar.date(byAdding: .day, value: 7, to: currentDate) ?? currentDate
+        }
+
+        // Get tasks for the relevant date
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        let dateString = dateFormatter.string(from: targetDate)
+
+        // Get tasks/events
+        let allTasks = taskManager.tasks.values.flatMap { $0 }
+        let relevantTasks = allTasks.filter { task in
+            guard let taskDate = task.targetDate else { return false }
+            return calendar.isDate(taskDate, inSameDayAs: targetDate)
+        }
+
+        if !relevantTasks.isEmpty {
+            context += "Tasks/Events for \(dateString):\n"
+            for task in relevantTasks.prefix(10) {
+                let status = task.isCompleted ? "✓" : "○"
+                let timeStr = task.scheduledTime.map { timeFormatter(date: $0) } ?? "All day"
+                context += "- \(status) \(task.title) at \(timeStr)\n"
+            }
+            context += "\n"
+        }
+
+        // Get recent notes if query mentions notes
+        if query_lower.contains("note") || query_lower.contains("note") {
+            let recentNotes = notesManager.notes.sorted { $0.dateModified > $1.dateModified }.prefix(5)
+            if !recentNotes.isEmpty {
+                context += "Recent Notes:\n"
+                for note in recentNotes {
+                    context += "- \(note.title): \(note.content.prefix(100))\n"
+                }
+                context += "\n"
+            }
+        }
+
+        // Get unread emails if query mentions email
+        if query_lower.contains("email") || query_lower.contains("mail") {
+            let unreadEmails = emailService.inboxEmails.filter { !$0.isRead }.prefix(5)
+            if !unreadEmails.isEmpty {
+                context += "Unread Emails:\n"
+                for email in unreadEmails {
+                    context += "- From \(email.sender.displayName): \(email.subject)\n"
+                }
+                context += "\n"
+            }
+        }
+
+        // Add current date/time context
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n"
+
+        return context.isEmpty ? "No specific context available." : context
+    }
+
+    private func timeFormatter(date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
 }
 
 // MARK: - Response Models (for future use if needed)

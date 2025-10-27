@@ -258,16 +258,35 @@ struct MainAppView: View {
                     HeaderSection(
                         selectedTab: $selectedTab,
                         searchText: $searchText,
-                        isSearchFocused: $isSearchFocused
+                        isSearchFocused: $isSearchFocused,
+                        onSearchSubmit: {
+                            // Explicitly trigger search when Enter is pressed
+                            Task {
+                                await searchService.performSearch(query: searchText)
+                            }
+                        }
                     )
                     .padding(.bottom, 8)
                     .background(colorScheme == .dark ? Color.black : Color.white)
 
-                    // Search results dropdown (only on home tab)
+                    // Search results or question response dropdown (only on home tab)
                     if !searchText.isEmpty && selectedTab == .home {
-                        searchResultsDropdown
-                            .padding(.horizontal, 20)
-                            .transition(.opacity)
+                        if let response = searchService.questionResponse {
+                            // Show question response
+                            questionResponseView(response)
+                                .padding(.horizontal, 20)
+                                .transition(.opacity)
+                        } else if !searchResults.isEmpty {
+                            // Show search results
+                            searchResultsDropdown
+                                .padding(.horizontal, 20)
+                                .transition(.opacity)
+                        } else if searchService.isLoadingQuestionResponse {
+                            // Show loading indicator for question
+                            loadingQuestionView
+                                .padding(.horizontal, 20)
+                                .transition(.opacity)
+                        }
                     }
                 }
                 .background(colorScheme == .dark ? Color.black : Color.white)
@@ -1067,6 +1086,69 @@ struct MainAppView: View {
             colorScheme == .dark ?
                 Color.black : Color.white
         )
+    }
+
+    // MARK: - Question Response View
+
+    private func questionResponseView(_ response: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.blue)
+
+                Text("AI Response")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.blue)
+
+                Spacer()
+
+                Button(action: {
+                    searchText = ""
+                    searchService.questionResponse = nil
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+            }
+
+            Text(response)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(
+            colorScheme == .dark ?
+                Color(red: 0.15, green: 0.15, blue: 0.15) :
+                Color(red: 0.95, green: 0.95, blue: 0.95)
+        )
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+    }
+
+    private var loadingQuestionView: some View {
+        VStack(alignment: .center, spacing: 12) {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.8, anchor: .center)
+
+                Text("Thinking...")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(12)
+        .background(
+            colorScheme == .dark ?
+                Color(red: 0.15, green: 0.15, blue: 0.15) :
+                Color(red: 0.95, green: 0.95, blue: 0.95)
+        )
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
     }
 
 }
