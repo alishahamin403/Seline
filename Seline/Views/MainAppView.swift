@@ -249,7 +249,6 @@ struct MainAppView: View {
                     // Fixed Footer - hide when keyboard appears
                     if keyboardHeight == 0 {
                         BottomTabBar(selectedTab: $selectedTab)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
