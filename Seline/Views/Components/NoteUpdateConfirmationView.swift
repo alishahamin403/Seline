@@ -174,7 +174,7 @@ struct NoteUpdateConfirmationView: View {
         formattedContentToAdd: "Q4 planning discussion: Need to increase budget by 15% for new initiatives. Timeline: Q1 2024."
     )
 
-    return NoteUpdateConfirmationView(
+    NoteUpdateConfirmationView(
         updateData: updateData,
         isPresented: .constant(true),
         onConfirm: {},
