@@ -2571,7 +2571,7 @@ class OpenAIService: ObservableObject {
 
             // Add available cities and countries for filtering
             let cities = locationsManager.getCities()
-            let countries = locationsManager.getCountries()
+            let countries = locationsManager.countries
             if !cities.isEmpty || !countries.isEmpty {
                 context += "Available Filters:\n"
                 if !countries.isEmpty {
