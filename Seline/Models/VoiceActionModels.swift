@@ -14,7 +14,7 @@ enum VoiceAction: String, Codable {
 
 // MARK: - Event Creation Data
 
-struct EventCreationData: Codable {
+struct EventCreationData: Codable, Equatable {
     let title: String
     let description: String?
     let date: String // ISO8601 date string
@@ -47,7 +47,7 @@ struct EventCreationData: Codable {
 
 // MARK: - Note Creation Data
 
-struct NoteCreationData: Codable {
+struct NoteCreationData: Codable, Equatable {
     let title: String
     let content: String
     let formattedContent: String // Auto-formatted version with bullets, headings, etc.

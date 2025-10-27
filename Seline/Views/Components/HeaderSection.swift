@@ -3,7 +3,6 @@ import SwiftUI
 struct HeaderSection: View {
     @Binding var selectedTab: TabSelection
     @Binding var searchText: String
-    @Binding var showingVoiceAssistant: Bool
     @FocusState.Binding var isSearchFocused: Bool
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.colorScheme) var colorScheme
@@ -17,22 +16,13 @@ struct HeaderSection: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                TextField("Search...", text: $searchText)
+                TextField("Search or ask for actions...", text: $searchText)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .focused($isSearchFocused)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .submitLabel(.search)
-
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showingVoiceAssistant = true
-                }) {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                }
 
                 if !searchText.isEmpty {
                     Button(action: {
@@ -78,7 +68,6 @@ struct HeaderSection: View {
     return HeaderSection(
         selectedTab: .constant(.home),
         searchText: .constant(""),
-        showingVoiceAssistant: .constant(false),
         isSearchFocused: $isSearchFocused
     )
     .environmentObject(AuthenticationManager.shared)

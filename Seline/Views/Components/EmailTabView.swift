@@ -50,13 +50,8 @@ struct EmailTabButton: View {
     }
 
     private var selectedColor: Color {
-        if colorScheme == .dark {
-            // Much darker gray for dark mode - #1a1a1a
-            return Color(red: 0.1, green: 0.1, blue: 0.1)
-        } else {
-            // Dark gray for light mode - #4a4a4a
-            return Color(red: 0.29, green: 0.29, blue: 0.29)
-        }
+        // Matches + sign button fill color - #333333
+        return Color(red: 0.2, green: 0.2, blue: 0.2)
     }
 
     private var backgroundColor: Color {

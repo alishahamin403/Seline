@@ -8,10 +8,15 @@ class SearchService: ObservableObject {
     @Published var searchResults: [SearchResult] = []
     @Published var isSearching: Bool = false
     @Published var searchQuery: String = ""
+    @Published var currentQueryType: QueryType = .search
+    @Published var pendingEventCreation: EventCreationData?
+    @Published var pendingNoteCreation: NoteCreationData?
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
+    private let queryRouter = QueryRouter.shared
+    private let actionQueryHandler = ActionQueryHandler.shared
 
     private init() {
         // Auto-refresh search when query changes with debounce
@@ -42,17 +47,117 @@ class SearchService: ObservableObject {
     func performSearch(query: String) async {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             searchResults = []
+            currentQueryType = .search
             isSearching = false
             return
         }
 
         isSearching = true
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let results = await searchContent(query: trimmedQuery)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
+        // Classify the query
+        currentQueryType = queryRouter.classifyQuery(trimmedQuery)
+
+        // Handle based on query type
+        switch currentQueryType {
+        case .action(let actionType):
+            handleActionQuery(trimmedQuery, actionType: actionType)
+        case .search:
+            let results = await searchContent(query: trimmedQuery.lowercased())
+            searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
+        case .question:
+            // For now, questions are treated like searches
+            // In the future, this could route to OpenAI for conversational responses
+            let results = await searchContent(query: trimmedQuery.lowercased())
+            searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
+        }
+
         isSearching = false
+    }
+
+    // MARK: - Action Query Handling
+
+    private func handleActionQuery(_ query: String, actionType: ActionType) {
+        switch actionType {
+        case .createEvent:
+            pendingEventCreation = actionQueryHandler.parseEventCreation(from: query)
+            searchResults = []
+        case .createNote:
+            pendingNoteCreation = actionQueryHandler.parseNoteCreation(from: query)
+            searchResults = []
+        default:
+            // For other action types, show search results for now
+            Task {
+                let results = await searchContent(query: query.lowercased())
+                searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
+            }
+        }
+    }
+
+    // MARK: - Action Confirmation Methods
+
+    func confirmEventCreation() {
+        guard let eventData = pendingEventCreation else { return }
+
+        let taskManager = TaskManager.shared
+
+        // Parse the date and time
+        let dateFormatter = ISO8601DateFormatter()
+        let targetDate = dateFormatter.date(from: eventData.date) ?? Date()
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+        let scheduledTime = (eventData.time ?? "").isEmpty ? nil : timeFormatter.date(from: eventData.time ?? "")
+
+        // Determine the weekday from the date
+        let calendar = Calendar.current
+        let weekdayIndex = calendar.component(.weekday, from: targetDate)
+
+        let weekday: WeekDay
+        switch weekdayIndex {
+        case 1: weekday = .sunday
+        case 2: weekday = .monday
+        case 3: weekday = .tuesday
+        case 4: weekday = .wednesday
+        case 5: weekday = .thursday
+        case 6: weekday = .friday
+        case 7: weekday = .saturday
+        default: weekday = .monday
+        }
+
+        // Create the task
+        taskManager.addTask(
+            title: eventData.title,
+            to: weekday,
+            description: eventData.description,
+            scheduledTime: scheduledTime,
+            endTime: nil,
+            targetDate: targetDate,
+            reminderTime: .none,
+            isRecurring: false,
+            recurrenceFrequency: nil,
+            tagId: nil
+        )
+
+        // Clear pending data
+        pendingEventCreation = nil
+    }
+
+    func confirmNoteCreation() {
+        guard let noteData = pendingNoteCreation else { return }
+
+        let notesManager = NotesManager.shared
+        let note = Note(title: noteData.title, content: noteData.content)
+        notesManager.addNote(note)
+
+        // Clear pending data
+        pendingNoteCreation = nil
+    }
+
+    func cancelAction() {
+        pendingEventCreation = nil
+        pendingNoteCreation = nil
     }
 
     private func searchContent(query: String) async -> [SearchResult] {

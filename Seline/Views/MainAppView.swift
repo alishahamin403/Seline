@@ -7,6 +7,7 @@ struct MainAppView: View {
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var locationService = LocationService.shared
+    @StateObject private var searchService = SearchService.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
@@ -22,9 +23,9 @@ struct MainAppView: View {
     @State private var showingEditTask = false
     @State private var notificationEmailId: String? = nil
     @State private var notificationTaskId: String? = nil
+    @State private var showingEventConfirmation = false
+    @State private var showingNoteConfirmation = false
     @FocusState private var isSearchFocused: Bool
-    @State private var showingVoiceAssistant = false
-
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
     }
@@ -72,6 +73,15 @@ struct MainAppView: View {
 
     private var searchResults: [OverlaySearchResult] {
         guard !searchText.isEmpty else { return [] }
+
+        // If there's a pending action (event or note creation), show action UI instead
+        if searchService.pendingEventCreation != nil {
+            return []
+        }
+        if searchService.pendingNoteCreation != nil {
+            return []
+        }
+
         var results: [OverlaySearchResult] = []
         let lowercasedSearch = searchText.lowercased()
 
@@ -328,8 +338,37 @@ struct MainAppView: View {
                     showingEditTask = false
                 }
             }
-            .fullScreenCover(isPresented: $showingVoiceAssistant) {
-                VoiceAssistantView()
+            .onChange(of: searchText) { newValue in
+                if newValue.isEmpty {
+                    // Clear pending actions when search is cleared
+                    searchService.cancelAction()
+                } else {
+                    // Classify the query
+                    let queryType = QueryRouter.shared.classifyQuery(newValue)
+                    switch queryType {
+                    case .action(let actionType):
+                        switch actionType {
+                        case .createEvent:
+                            let actionHandler = ActionQueryHandler.shared
+                            searchService.pendingEventCreation = actionHandler.parseEventCreation(from: newValue)
+                        case .createNote:
+                            let actionHandler = ActionQueryHandler.shared
+                            searchService.pendingNoteCreation = actionHandler.parseNoteCreation(from: newValue)
+                        default:
+                            break
+                        }
+                    default:
+                        // Clear pending actions for non-action queries
+                        searchService.cancelAction()
+                        break
+                    }
+                }
+            }
+            .onChange(of: searchService.pendingEventCreation) { newValue in
+                showingEventConfirmation = newValue != nil
+            }
+            .onChange(of: searchService.pendingNoteCreation) { newValue in
+                showingNoteConfirmation = newValue != nil
             }
             .overlay {
                 if showingAddEventPopup {
@@ -368,6 +407,38 @@ struct MainAppView: View {
                         }
                     )
                     .transition(.opacity)
+                }
+            }
+            .sheet(isPresented: $showingEventConfirmation) {
+                if let eventData = searchService.pendingEventCreation {
+                    ActionEventConfirmationView(
+                        eventData: eventData,
+                        isPresented: $showingEventConfirmation,
+                        onConfirm: {
+                            searchService.confirmEventCreation()
+                            searchText = ""
+                            isSearchFocused = false
+                        },
+                        onCancel: {
+                            searchService.cancelAction()
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showingNoteConfirmation) {
+                if let noteData = searchService.pendingNoteCreation {
+                    ActionNoteConfirmationView(
+                        noteData: noteData,
+                        isPresented: $showingNoteConfirmation,
+                        onConfirm: {
+                            searchService.confirmNoteCreation()
+                            searchText = ""
+                            isSearchFocused = false
+                        },
+                        onCancel: {
+                            searchService.cancelAction()
+                        }
+                    )
                 }
             }
         }
@@ -783,22 +854,13 @@ struct MainAppView: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-            TextField("Search emails, events, notes, locations...", text: $searchText)
+            TextField("Search or ask for actions...", text: $searchText)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 .focused($isSearchFocused)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
-
-            Button(action: {
-                HapticManager.shared.selection()
-                showingVoiceAssistant = true
-            }) {
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-            }
 
             if !searchText.isEmpty {
                 Button(action: {
@@ -954,7 +1016,6 @@ struct MainAppView: View {
             HeaderSection(
                 selectedTab: $selectedTab,
                 searchText: $searchText,
-                showingVoiceAssistant: $showingVoiceAssistant,
                 isSearchFocused: $isSearchFocused
             )
             .padding(.bottom, 8)
