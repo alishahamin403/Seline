@@ -214,7 +214,7 @@ struct MainAppView: View {
                 VStack(spacing: 0) {
                     // Padding to account for fixed header
                     Color.clear
-                        .frame(height: 76)
+                        .frame(height: 64)
 
                     // Content based on selected tab
                     Group {
@@ -1024,6 +1024,7 @@ struct MainAppView: View {
             // 60/40 split: Unread Emails and Pinned Notes
             emailAndNotesCards
         }
+        .padding(.top, 12)
     }
 
     private var emailAndNotesCards: some View {
