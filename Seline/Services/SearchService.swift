@@ -64,7 +64,7 @@ class SearchService: ObservableObject {
         // Handle based on query type
         switch currentQueryType {
         case .action(let actionType):
-            handleActionQuery(trimmedQuery, actionType: actionType)
+            await handleActionQuery(trimmedQuery, actionType: actionType)
         case .search:
             let results = await searchContent(query: trimmedQuery.lowercased())
             searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
@@ -78,20 +78,18 @@ class SearchService: ObservableObject {
 
     // MARK: - Action Query Handling
 
-    private func handleActionQuery(_ query: String, actionType: ActionType) {
+    private func handleActionQuery(_ query: String, actionType: ActionType) async {
         switch actionType {
         case .createEvent:
-            pendingEventCreation = actionQueryHandler.parseEventCreation(from: query)
+            pendingEventCreation = await actionQueryHandler.parseEventCreation(from: query)
             searchResults = []
         case .createNote:
             pendingNoteCreation = actionQueryHandler.parseNoteCreation(from: query)
             searchResults = []
         default:
             // For other action types, show search results for now
-            Task {
-                let results = await searchContent(query: query.lowercased())
-                searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
-            }
+            let results = await searchContent(query: query.lowercased())
+            searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
         }
     }
 
