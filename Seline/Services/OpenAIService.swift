@@ -2511,9 +2511,9 @@ class OpenAIService: ObservableObject {
         // Add ALL emails with full details
         if !emailService.inboxEmails.isEmpty {
             context += "=== ALL EMAILS ===\n"
-            for email in emailService.inboxEmails.sorted(by: { $0.date > $1.date }) {
+            for email in emailService.inboxEmails.sorted(by: { $0.timestamp > $1.timestamp }) {
                 let unreadMarker = email.isRead ? "[Read]" : "[Unread]"
-                context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.date))\nBody: \(email.body)\n---\n"
+                context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.timestamp))\nBody: \(email.body ?? "")\n---\n"
             }
             context += "\n"
         }
