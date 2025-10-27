@@ -49,7 +49,7 @@ struct NoteCreationData: Codable, Equatable {
 
 // MARK: - Note Update Data
 
-struct NoteUpdateData: Codable {
+struct NoteUpdateData: Codable, Equatable {
     let noteTitle: String // The existing note to update
     let contentToAdd: String // New content to append
     let formattedContentToAdd: String // Formatted version
@@ -63,7 +63,7 @@ struct NoteUpdateData: Codable {
 
 // MARK: - Event Update Data
 
-struct EventUpdateData: Codable {
+struct EventUpdateData: Codable, Equatable {
     let eventTitle: String // The existing event title to match
     let newDate: String // New ISO8601 date string
     let newTime: String? // New time in "HH:mm" format (optional)
@@ -79,7 +79,7 @@ struct EventUpdateData: Codable {
 
 // MARK: - Deletion Data
 
-struct DeletionData: Codable {
+struct DeletionData: Codable, Equatable {
     let itemType: String // "event" or "note"
     let itemTitle: String // The title of the item to delete
     let deleteAllOccurrences: Bool? // For recurring events, whether to delete all occurrences
