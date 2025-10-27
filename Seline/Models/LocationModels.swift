@@ -876,7 +876,7 @@ class LocationsManager: ObservableObject {
 
 // MARK: - User Location Preferences
 
-struct UserLocationPreferences: Codable {
+struct UserLocationPreferences: Codable, Equatable {
     var location1Address: String?
     var location1Latitude: Double?
     var location1Longitude: Double?
