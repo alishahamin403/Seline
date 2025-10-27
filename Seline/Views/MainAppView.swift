@@ -907,7 +907,9 @@ struct MainAppView: View {
                             switch actionType {
                             case .createEvent:
                                 let actionHandler = ActionQueryHandler.shared
-                                searchService.pendingEventCreation = actionHandler.parseEventCreation(from: searchText)
+                                Task {
+                                    searchService.pendingEventCreation = await actionHandler.parseEventCreation(from: searchText)
+                                }
                             case .createNote:
                                 let actionHandler = ActionQueryHandler.shared
                                 searchService.pendingNoteCreation = actionHandler.parseNoteCreation(from: searchText)

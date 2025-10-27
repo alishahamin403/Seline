@@ -6,14 +6,16 @@ class ActionQueryHandler {
 
     // MARK: - Event Creation Parsing
 
-    /// Attempts to parse an event creation request
+    /// Attempts to parse an event creation request with LLM-generated title
     /// Example: "add meeting with Sarah at 3pm tomorrow"
-    func parseEventCreation(from query: String) -> EventCreationData? {
-        var title = extractEventTitle(from: query)
+    @MainActor
+    func parseEventCreation(from query: String) async -> EventCreationData? {
         let time = extractTime(from: query)
         let date = extractDate(from: query)
 
-        // If we couldn't extract a clear title, use a generic one
+        // Use LLM to generate a better title
+        var title = await generateEventTitle(from: query, extractedTime: time, extractedDate: date)
+
         if title.isEmpty {
             title = "New Event"
         }
@@ -44,7 +46,39 @@ class ActionQueryHandler {
 
     // MARK: - Helper Methods
 
-    private func extractEventTitle(from query: String) -> String {
+    /// Generates a concise event title using LLM based on user's input
+    private func generateEventTitle(from query: String, extractedTime: String?, extractedDate: Date?) async -> String {
+        let systemPrompt = """
+        You are a helpful assistant that extracts event titles from user input.
+        Generate a SHORT, CONCISE event title (max 5 words) based on what the user wants to create.
+        Only return the title itself, nothing else.
+        """
+
+        let userPrompt = """
+        User input: "\(query)"
+
+        Generate a clear, concise event title from this input. Ignore action keywords like "add", "create", "schedule".
+        Ignore the time and date components. Just extract what the event is about.
+        Return ONLY the title, nothing else.
+        """
+
+        do {
+            let title = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                maxTokens: 20,
+                temperature: 0.7
+            )
+            return title.trimmingCharacters(in: .whitespaces)
+        } catch {
+            // Fallback to pattern-based extraction if LLM fails
+            print("Error generating title with LLM: \(error). Using fallback method.")
+            return extractEventTitleFallback(from: query)
+        }
+    }
+
+    /// Fallback method for extracting event title if LLM fails
+    private func extractEventTitleFallback(from query: String) -> String {
         let actionKeywords = ["add", "create", "schedule", "new"]
         var query = query.lowercased()
 

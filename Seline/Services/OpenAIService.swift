@@ -2417,6 +2417,35 @@ class OpenAIService: ObservableObject {
 
     // MARK: - Question Answering
 
+    /// Generates text using OpenAI with custom system and user prompts
+    @MainActor
+    func generateText(
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int = 500,
+        temperature: Double = 0.7
+    ) async throws -> String {
+        // Rate limiting
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userPrompt]
+            ],
+            "temperature": temperature,
+            "max_tokens": maxTokens
+        ]
+
+        let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Answers a question about the user's data using OpenAI
     @MainActor
     func answerQuestion(
