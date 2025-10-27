@@ -212,9 +212,11 @@ struct MainAppView: View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
-                    // Padding to account for fixed header
-                    Color.clear
-                        .frame(height: 48)
+                    // Padding to account for fixed header (only on home tab)
+                    if selectedTab == .home {
+                        Color.clear
+                            .frame(height: 48)
+                    }
 
                     // Content based on selected tab - expands to fill available space
                     Group {
@@ -246,6 +248,8 @@ struct MainAppView: View {
                     if keyboardHeight == 0 {
                         BottomTabBar(selectedTab: $selectedTab)
                     }
+
+                    Spacer()
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .background(
@@ -253,44 +257,46 @@ struct MainAppView: View {
                         Color.black : Color.white
                 )
 
-                // Fixed Header with search bar at top
-                VStack(spacing: 0) {
-                    HeaderSection(
-                        selectedTab: $selectedTab,
-                        searchText: $searchText,
-                        isSearchFocused: $isSearchFocused,
-                        onSearchSubmit: {
-                            // Explicitly trigger search when Enter is pressed
-                            Task {
-                                await searchService.performSearch(query: searchText)
+                // Fixed Header with search bar at top (only on home tab)
+                if selectedTab == .home {
+                    VStack(spacing: 0) {
+                        HeaderSection(
+                            selectedTab: $selectedTab,
+                            searchText: $searchText,
+                            isSearchFocused: $isSearchFocused,
+                            onSearchSubmit: {
+                                // Explicitly trigger search when Enter is pressed
+                                Task {
+                                    await searchService.performSearch(query: searchText)
+                                }
+                            }
+                        )
+                        .padding(.bottom, 8)
+                        .background(colorScheme == .dark ? Color.black : Color.white)
+
+                        // Search results or question response dropdown
+                        if !searchText.isEmpty {
+                            if let response = searchService.questionResponse {
+                                // Show question response
+                                questionResponseView(response)
+                                    .padding(.horizontal, 20)
+                                    .transition(.opacity)
+                            } else if !searchResults.isEmpty {
+                                // Show search results
+                                searchResultsDropdown
+                                    .padding(.horizontal, 20)
+                                    .transition(.opacity)
+                            } else if searchService.isLoadingQuestionResponse {
+                                // Show loading indicator for question
+                                loadingQuestionView
+                                    .padding(.horizontal, 20)
+                                    .transition(.opacity)
                             }
                         }
-                    )
-                    .padding(.bottom, 8)
-                    .background(colorScheme == .dark ? Color.black : Color.white)
-
-                    // Search results or question response dropdown (only on home tab)
-                    if !searchText.isEmpty && selectedTab == .home {
-                        if let response = searchService.questionResponse {
-                            // Show question response
-                            questionResponseView(response)
-                                .padding(.horizontal, 20)
-                                .transition(.opacity)
-                        } else if !searchResults.isEmpty {
-                            // Show search results
-                            searchResultsDropdown
-                                .padding(.horizontal, 20)
-                                .transition(.opacity)
-                        } else if searchService.isLoadingQuestionResponse {
-                            // Show loading indicator for question
-                            loadingQuestionView
-                                .padding(.horizontal, 20)
-                                .transition(.opacity)
-                        }
                     }
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .zIndex(100)
                 }
-                .background(colorScheme == .dark ? Color.black : Color.white)
-                .zIndex(100)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(
