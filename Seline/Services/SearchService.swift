@@ -84,7 +84,7 @@ class SearchService: ObservableObject {
             pendingEventCreation = await actionQueryHandler.parseEventCreation(from: query)
             searchResults = []
         case .createNote:
-            pendingNoteCreation = actionQueryHandler.parseNoteCreation(from: query)
+            pendingNoteCreation = await actionQueryHandler.parseNoteCreation(from: query)
             searchResults = []
         default:
             // For other action types, show search results for now

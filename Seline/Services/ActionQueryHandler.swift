@@ -45,16 +45,98 @@ class ActionQueryHandler {
         )
     }
 
-    /// Attempts to parse a note creation request
+    /// Attempts to parse a note creation request with LLM-generated title and content
     /// Example: "create note about meeting with Sarah"
-    func parseNoteCreation(from query: String) -> NoteCreationData? {
-        let title = extractNoteTitle(from: query)
+    @MainActor
+    func parseNoteCreation(from query: String) async -> NoteCreationData? {
+        var title = extractNoteTitle(from: query)
+        var content = ""
+
+        // Use LLM to generate better title and add context-aware content
+        let llmGeneratedTitle = await generateNoteTitle(from: query)
+        if !llmGeneratedTitle.isEmpty {
+            title = llmGeneratedTitle
+        }
+
+        // Generate detailed content based on the query
+        let generatedContent = await generateNoteContent(from: query)
+        if !generatedContent.isEmpty {
+            content = generatedContent
+        }
+
+        if title.isEmpty {
+            title = "New Note"
+        }
 
         return NoteCreationData(
-            title: title.isEmpty ? "New Note" : title,
-            content: "",
-            formattedContent: ""
+            title: title,
+            content: content,
+            formattedContent: content
         )
+    }
+
+    /// Uses LLM to generate a concise note title
+    private func generateNoteTitle(from query: String) async -> String {
+        let systemPrompt = """
+        You are a helpful assistant that generates concise note titles from user input.
+        Generate a SHORT, CLEAR note title (max 6 words) based on what the user wants to note.
+        Only return the title itself, nothing else. Do not include any explanation.
+        """
+
+        let userPrompt = """
+        User input: "\(query)"
+
+        Generate a clear, concise note title from this input.
+        Ignore action keywords like "add", "create", "write", "note", "memo".
+        Return ONLY the title, nothing else.
+        """
+
+        do {
+            let title = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                maxTokens: 20,
+                temperature: 0.7
+            )
+            return title.trimmingCharacters(in: .whitespaces)
+        } catch {
+            print("Error generating note title with LLM: \(error). Using fallback method.")
+            return extractNoteTitle(from: query)
+        }
+    }
+
+    /// Uses LLM to generate detailed note content
+    private func generateNoteContent(from query: String) async -> String {
+        let systemPrompt = """
+        You are a helpful assistant that expands brief notes into useful, detailed content.
+        Based on the user's input, generate a brief but detailed note (2-4 sentences).
+        Include relevant context, key details, and actionable information.
+        Write naturally and conversationally.
+        """
+
+        let userPrompt = """
+        User input: "\(query)"
+
+        Based on this input, generate a detailed note (2-4 sentences) that includes:
+        - Key information from the input
+        - Any important context or details
+        - Actionable items if applicable
+
+        Write the content, nothing else. No titles or labels needed.
+        """
+
+        do {
+            let content = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                maxTokens: 100,
+                temperature: 0.7
+            )
+            return content.trimmingCharacters(in: .whitespaces)
+        } catch {
+            print("Error generating note content with LLM: \(error).")
+            return ""
+        }
     }
 
     // MARK: - Helper Methods
@@ -155,17 +237,82 @@ class ActionQueryHandler {
     }
 
     private func extractTime(from query: String) -> String? {
-        let pattern = "\\b([0-1]?[0-9])(:[0-5][0-9])?\\s*(am|pm)?\\b"
-        let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        let lowercased = query.lowercased()
+
+        // Handle natural language time references first
+        let timeReferences: [String: String] = [
+            "morning": "09:00",
+            "afternoon": "14:00",
+            "evening": "18:00",
+            "night": "21:00",
+            "midnight": "00:00",
+            "noon": "12:00",
+            "lunch": "12:00",
+            "breakfast": "08:00",
+            "dinner": "19:00"
+        ]
+
+        for (reference, time) in timeReferences {
+            if lowercased.contains(reference) {
+                return time
+            }
+        }
+
+        // Pattern for: "3pm", "3:00pm", "3:00 pm", "3 pm", "15:30", "15:30pm", etc.
+        let patterns = [
+            "([0-2]?[0-9])\\s*:\\s*([0-5][0-9])\\s*(am|pm)?",  // HH:MM or HH:MM am/pm
+            "([0-2]?[0-9])\\s*(am|pm)",                         // HH am/pm (12-hour)
+            "([0-2][0-3])\\s*h\\s*([0-5][0-9])?",             // 23h30 (24-hour French format)
+        ]
+
         let nsQuery = query as NSString
         let range = NSRange(location: 0, length: nsQuery.length)
 
-        if let match = regex?.firstMatch(in: query, options: [], range: range) {
-            let matchedRange = match.range
-            return nsQuery.substring(with: matchedRange)
+        for patternString in patterns {
+            if let regex = try? NSRegularExpression(pattern: patternString, options: .caseInsensitive) {
+                if let match = regex.firstMatch(in: query, options: [], range: range) {
+                    let matchedRange = match.range
+                    var timeString = nsQuery.substring(with: matchedRange)
+
+                    // Normalize the extracted time
+                    timeString = normalizeTimeFormat(timeString)
+                    if !timeString.isEmpty {
+                        return timeString
+                    }
+                }
+            }
         }
 
         return nil
+    }
+
+    /// Normalize extracted time string to HH:mm format
+    private func normalizeTimeFormat(_ timeString: String) -> String {
+        let lowercased = timeString.lowercased().trimmingCharacters(in: .whitespaces)
+
+        // Already in HH:mm format
+        if lowercased.contains(":") && !lowercased.contains("am") && !lowercased.contains("pm") {
+            return lowercased
+        }
+
+        // Extract components
+        let components = lowercased.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }
+        guard components.count >= 1 else { return "" }
+
+        var hours = Int(components[0]) ?? 0
+        var minutes = components.count > 1 ? Int(components[1]) ?? 0 : 0
+
+        // Handle 12-hour format
+        if lowercased.contains("pm") && hours < 12 {
+            hours += 12
+        } else if lowercased.contains("am") && hours == 12 {
+            hours = 0
+        }
+
+        // Validate
+        guard hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60 else { return "" }
+
+        return String(format: "%02d:%02d", hours, minutes)
     }
 
     private func extractDate(from query: String) -> Date? {
