@@ -2466,6 +2466,7 @@ class OpenAIService: ObservableObject {
         return try await makeOpenAIRequest(url: url, requestBody: requestBody)
     }
 
+    @MainActor
     private func buildContextForQuestion(
         query: String,
         taskManager: TaskManager,
@@ -2504,14 +2505,14 @@ class OpenAIService: ObservableObject {
             context += "Tasks/Events for \(dateString):\n"
             for task in relevantTasks.prefix(10) {
                 let status = task.isCompleted ? "✓" : "○"
-                let timeStr = task.scheduledTime.map { timeFormatter(date: $0) } ?? "All day"
+                let timeStr = task.scheduledTime.map { formatTime(date: $0) } ?? "All day"
                 context += "- \(status) \(task.title) at \(timeStr)\n"
             }
             context += "\n"
         }
 
         // Get recent notes if query mentions notes
-        if query_lower.contains("note") || query_lower.contains("note") {
+        if query_lower.contains("note") {
             let recentNotes = notesManager.notes.sorted { $0.dateModified > $1.dateModified }.prefix(5)
             if !recentNotes.isEmpty {
                 context += "Recent Notes:\n"
@@ -2542,7 +2543,7 @@ class OpenAIService: ObservableObject {
         return context.isEmpty ? "No specific context available." : context
     }
 
-    private func timeFormatter(date: Date) -> String {
+    private func formatTime(date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
