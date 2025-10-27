@@ -28,7 +28,7 @@ class QueryRouter {
     private let eventKeywords = ["event", "meeting", "appointment", "task", "reminder", "call", "conference", "deadline"]
     private let noteKeywords = ["note", "memo", "reminder", "write", "record", "jot"]
 
-    private let questionKeywords = ["what", "when", "where", "how", "why", "am i", "can i", "do i", "show", "find", "give", "list", "tell"]
+    private let questionKeywords = ["what", "when", "where", "how", "why", "am i", "can i", "can you", "could you", "would you", "do i", "is there", "are there", "show", "find", "give", "list", "tell", "summarize", "explain", "describe"]
 
     // MARK: - Public API
 

@@ -1098,19 +1098,6 @@ struct MainAppView: View {
 
     private func questionResponseView(_ response: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Spacer()
-
-                Button(action: {
-                    searchText = ""
-                    searchService.questionResponse = nil
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                }
-            }
-
             Text(response)
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
