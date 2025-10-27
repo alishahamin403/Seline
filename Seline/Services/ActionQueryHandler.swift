@@ -72,11 +72,13 @@ class ActionQueryHandler {
         var contextInfo = ""
         if let weatherService = weatherService,
            let locationsManager = locationsManager {
-            contextInfo = OpenAIService.shared.buildContextForAction(
-                weatherService: weatherService,
-                locationsManager: locationsManager,
-                navigationService: navigationService
-            )
+            contextInfo = await MainActor.run {
+                OpenAIService.shared.buildContextForAction(
+                    weatherService: weatherService,
+                    locationsManager: locationsManager,
+                    navigationService: navigationService
+                )
+            }
         }
 
         let systemPrompt = """

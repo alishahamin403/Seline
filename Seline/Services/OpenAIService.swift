@@ -2551,6 +2551,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Builds comprehensive context for action queries (event/note creation) with weather, locations, and destinations
+    @MainActor
     func buildContextForAction(
         weatherService: WeatherService,
         locationsManager: LocationsManager,
@@ -2568,7 +2569,7 @@ class OpenAIService: ObservableObject {
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
 
         // Add weather data
-        if let weatherData = weatherService.weather {
+        if let weatherData = weatherService.weatherData {
             context += "=== WEATHER ===\n"
             context += "Location: \(weatherData.locationName)\n"
             context += "Current: \(weatherData.temperature)°C, \(weatherData.description)\n"
@@ -2607,19 +2608,19 @@ class OpenAIService: ObservableObject {
         if let navigationService = navigationService {
             context += "=== NAVIGATION DESTINATIONS ===\n"
 
-            // Home location ETA
-            if let homeETA = navigationService.homeETA {
-                context += "Home: \(homeETA) away\n"
+            // Location 1 ETA (Home)
+            if let location1ETA = navigationService.location1ETA {
+                context += "Location 1: \(location1ETA) away\n"
             }
 
-            // Work location ETA
-            if let workETA = navigationService.workETA {
-                context += "Work: \(workETA) away\n"
+            // Location 2 ETA (Work)
+            if let location2ETA = navigationService.location2ETA {
+                context += "Location 2: \(location2ETA) away\n"
             }
 
-            // Favorite location ETA
-            if let favoriteETA = navigationService.favoriteETA {
-                context += "Favorite: \(favoriteETA) away\n"
+            // Location 3 ETA (Favorite)
+            if let location3ETA = navigationService.location3ETA {
+                context += "Location 3: \(location3ETA) away\n"
             }
 
             context += "\n"
