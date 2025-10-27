@@ -1,17 +1,5 @@
 import Foundation
 
-// MARK: - Voice Action Types
-
-enum VoiceAction: String, Codable {
-    case createEvent = "create_event"
-    case updateEvent = "update_event"
-    case deleteEvent = "delete_event"
-    case createNote = "create_note"
-    case updateNote = "update_note"
-    case deleteNote = "delete_note"
-    case none = "none"
-}
-
 // MARK: - Event Creation Data
 
 struct EventCreationData: Codable, Equatable {
