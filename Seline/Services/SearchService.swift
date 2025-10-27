@@ -105,7 +105,10 @@ class SearchService: ObservableObject {
                 query: query,
                 taskManager: TaskManager.shared,
                 notesManager: NotesManager.shared,
-                emailService: EmailService.shared
+                emailService: EmailService.shared,
+                weatherService: WeatherService.shared,
+                locationsManager: LocationsManager.shared,
+                navigationService: NavigationService.shared
             )
             questionResponse = response
         } catch {

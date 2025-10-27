@@ -2447,12 +2447,16 @@ class OpenAIService: ObservableObject {
     }
 
     /// Answers a question about the user's data using OpenAI
+    /// Includes weather, locations, navigation, tasks, notes, and emails in context
     @MainActor
     func answerQuestion(
         query: String,
         taskManager: TaskManager,
         notesManager: NotesManager,
-        emailService: EmailService
+        emailService: EmailService,
+        weatherService: WeatherService? = nil,
+        locationsManager: LocationsManager? = nil,
+        navigationService: NavigationService? = nil
     ) async throws -> String {
         // Rate limiting
         await enforceRateLimit()
@@ -2461,18 +2465,23 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
-        // Extract context from the query
+        // Extract context from the query with all available data
         let context = buildContextForQuestion(
             query: query,
             taskManager: taskManager,
             notesManager: notesManager,
-            emailService: emailService
+            emailService: emailService,
+            weatherService: weatherService,
+            locationsManager: locationsManager,
+            navigationService: navigationService
         )
 
         let systemPrompt = """
-        You are a helpful personal assistant that helps users understand their schedule, notes, and emails.
+        You are a helpful personal assistant that helps users understand their schedule, notes, emails, weather, locations, and saved places.
         Based on the provided context about the user's data, answer their question in a clear, concise way.
         If the user asks about "tomorrow", "today", "next week", etc., use the current date context provided.
+        For location-based queries: You can filter by country, city, category (folder), distance, or duration.
+        For weather queries: Use the provided weather data and forecast.
         Always be helpful and provide specific details when available.
         """
 
@@ -2503,7 +2512,10 @@ class OpenAIService: ObservableObject {
         query: String,
         taskManager: TaskManager,
         notesManager: NotesManager,
-        emailService: EmailService
+        emailService: EmailService,
+        weatherService: WeatherService? = nil,
+        locationsManager: LocationsManager? = nil,
+        navigationService: NavigationService? = nil
     ) -> String {
         var context = ""
         let currentDate = Date()
@@ -2514,6 +2526,78 @@ class OpenAIService: ObservableObject {
         let timeFormatter = DateFormatter()
         timeFormatter.timeStyle = .short
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+
+        // Add weather data if available
+        if let weatherService = weatherService, let weatherData = weatherService.weatherData {
+            context += "=== WEATHER ===\n"
+            context += "Location: \(weatherData.locationName)\n"
+            context += "Current: \(weatherData.temperature)°C, \(weatherData.description)\n"
+            context += "Sunrise: \(timeFormatter.string(from: weatherData.sunrise))\n"
+            context += "Sunset: \(timeFormatter.string(from: weatherData.sunset))\n"
+
+            if !weatherData.dailyForecasts.isEmpty {
+                context += "6-Day Forecast:\n"
+                for forecast in weatherData.dailyForecasts {
+                    context += "- \(forecast.day): \(forecast.temperature)°C\n"
+                }
+            }
+            context += "\n"
+        }
+
+        // Add saved locations with filtering options
+        if let locationsManager = locationsManager, !locationsManager.savedPlaces.isEmpty {
+            context += "=== SAVED LOCATIONS ===\n"
+            context += "Available filters: country, city, category (folder), duration (10-120 mins)\n\n"
+
+            for place in locationsManager.savedPlaces.sorted(by: { $0.dateCreated > $1.dateCreated }) {
+                let displayName = place.customName ?? place.name
+                context += "- \(displayName)\n"
+                context += "  Category: \(place.category)\n"
+                context += "  Address: \(place.address)\n"
+                if let city = place.city {
+                    context += "  City: \(city)\n"
+                }
+                if let country = place.country {
+                    context += "  Country: \(country)\n"
+                }
+                if let rating = place.rating {
+                    context += "  Rating: \(String(format: "%.1f", rating))/5\n"
+                }
+                if let phone = place.phone {
+                    context += "  Phone: \(phone)\n"
+                }
+                context += "\n"
+            }
+
+            // Add available cities and countries for filtering
+            let cities = locationsManager.getCities()
+            let countries = locationsManager.getCountries()
+            if !cities.isEmpty || !countries.isEmpty {
+                context += "Available Filters:\n"
+                if !countries.isEmpty {
+                    context += "Countries: \(countries.sorted().joined(separator: ", "))\n"
+                }
+                if !cities.isEmpty {
+                    context += "Cities: \(cities.sorted().joined(separator: ", "))\n"
+                }
+                context += "\n"
+            }
+        }
+
+        // Add navigation destinations
+        if let navigationService = navigationService {
+            context += "=== NAVIGATION DESTINATIONS ===\n"
+            if let location1ETA = navigationService.location1ETA {
+                context += "Location 1: \(location1ETA) away\n"
+            }
+            if let location2ETA = navigationService.location2ETA {
+                context += "Location 2: \(location2ETA) away\n"
+            }
+            if let location3ETA = navigationService.location3ETA {
+                context += "Location 3: \(location3ETA) away\n"
+            }
+            context += "\n"
+        }
 
         // Add ALL tasks/events with full details
         let allTasks = taskManager.tasks.values.flatMap { $0 }
@@ -2528,11 +2612,16 @@ class OpenAIService: ObservableObject {
             context += "\n"
         }
 
-        // Add ALL notes with full content
+        // Add ALL notes with folder structure
         if !notesManager.notes.isEmpty {
             context += "=== ALL NOTES ===\n"
+            // Include folder information if available
+            if !notesManager.folders.isEmpty {
+                context += "Available Folders (Categories): \(notesManager.folders.map { $0.name }.sorted().joined(separator: ", "))\n\n"
+            }
             for note in notesManager.notes.sorted(by: { $0.dateModified > $1.dateModified }) {
-                context += "Note: \(note.title)\nContent: \(note.content)\n---\n"
+                let folderInfo = note.folderId.flatMap { id in notesManager.folders.first(where: { $0.id == id })?.name } ?? "Uncategorized"
+                context += "Note: \(note.title) [Folder: \(folderInfo)]\nContent: \(note.content)\n---\n"
             }
             context += "\n"
         }
