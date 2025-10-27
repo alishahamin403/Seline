@@ -2464,7 +2464,9 @@ class OpenAIService: ObservableObject {
             "max_tokens": 500
         ]
 
-        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+        let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
+        // Remove markdown formatting (** symbols)
+        return response.replacingOccurrences(of: "**", with: "")
     }
 
     @MainActor
@@ -2476,72 +2478,47 @@ class OpenAIService: ObservableObject {
     ) -> String {
         var context = ""
         let currentDate = Date()
-        let calendar = Calendar.current
-
-        // Check if question is about a specific date
-        let query_lower = query.lowercased()
-        var targetDate = currentDate
-
-        if query_lower.contains("tomorrow") {
-            targetDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
-        } else if query_lower.contains("today") {
-            targetDate = currentDate
-        } else if query_lower.contains("next week") {
-            targetDate = calendar.date(byAdding: .day, value: 7, to: currentDate) ?? currentDate
-        }
-
-        // Get tasks for the relevant date
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
-        let dateString = dateFormatter.string(from: targetDate)
 
-        // Get tasks/events
+        // Add current date/time context first
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+
+        // Add ALL tasks/events with full details
         let allTasks = taskManager.tasks.values.flatMap { $0 }
-        let relevantTasks = allTasks.filter { task in
-            guard let taskDate = task.targetDate else { return false }
-            return calendar.isDate(taskDate, inSameDayAs: targetDate)
-        }
-
-        if !relevantTasks.isEmpty {
-            context += "Tasks/Events for \(dateString):\n"
-            for task in relevantTasks.prefix(10) {
+        if !allTasks.isEmpty {
+            context += "=== ALL TASKS/EVENTS ===\n"
+            for task in allTasks.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
                 let status = task.isCompleted ? "✓" : "○"
+                let dateStr = task.targetDate.map { dateFormatter.string(from: $0) } ?? "No date"
                 let timeStr = task.scheduledTime.map { formatTime(date: $0) } ?? "All day"
-                context += "- \(status) \(task.title) at \(timeStr)\n"
+                context += "- \(status) \(task.title) | \(dateStr) at \(timeStr) | \(task.description ?? "")\n"
             }
             context += "\n"
         }
 
-        // Get recent notes if query mentions notes
-        if query_lower.contains("note") {
-            let recentNotes = notesManager.notes.sorted { $0.dateModified > $1.dateModified }.prefix(5)
-            if !recentNotes.isEmpty {
-                context += "Recent Notes:\n"
-                for note in recentNotes {
-                    context += "- \(note.title): \(note.content.prefix(100))\n"
-                }
-                context += "\n"
+        // Add ALL notes with full content
+        if !notesManager.notes.isEmpty {
+            context += "=== ALL NOTES ===\n"
+            for note in notesManager.notes.sorted(by: { $0.dateModified > $1.dateModified }) {
+                context += "Note: \(note.title)\nContent: \(note.content)\n---\n"
             }
+            context += "\n"
         }
 
-        // Get unread emails if query mentions email
-        if query_lower.contains("email") || query_lower.contains("mail") {
-            let unreadEmails = emailService.inboxEmails.filter { !$0.isRead }.prefix(5)
-            if !unreadEmails.isEmpty {
-                context += "Unread Emails:\n"
-                for email in unreadEmails {
-                    context += "- From \(email.sender.displayName): \(email.subject)\n"
-                }
-                context += "\n"
+        // Add ALL emails with full details
+        if !emailService.inboxEmails.isEmpty {
+            context += "=== ALL EMAILS ===\n"
+            for email in emailService.inboxEmails.sorted(by: { $0.date > $1.date }) {
+                let unreadMarker = email.isRead ? "[Read]" : "[Unread]"
+                context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.date))\nBody: \(email.body)\n---\n"
             }
+            context += "\n"
         }
 
-        // Add current date/time context
-        let timeFormatter = DateFormatter()
-        timeFormatter.timeStyle = .short
-        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n"
-
-        return context.isEmpty ? "No specific context available." : context
+        return context.isEmpty ? "No data available in the app." : context
     }
 
     private func formatTime(date: Date) -> String {

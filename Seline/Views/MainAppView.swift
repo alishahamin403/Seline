@@ -1099,14 +1099,6 @@ struct MainAppView: View {
     private func questionResponseView(_ response: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.blue)
-
-                Text("AI Response")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.blue)
-
                 Spacer()
 
                 Button(action: {
