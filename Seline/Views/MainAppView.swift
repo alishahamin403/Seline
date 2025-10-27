@@ -8,6 +8,8 @@ struct MainAppView: View {
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var locationService = LocationService.shared
     @StateObject private var searchService = SearchService.shared
+    @StateObject private var weatherService = WeatherService.shared
+    @StateObject private var navigationService = NavigationService.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
@@ -908,7 +910,12 @@ struct MainAppView: View {
                             case .createEvent:
                                 let actionHandler = ActionQueryHandler.shared
                                 Task {
-                                    searchService.pendingEventCreation = await actionHandler.parseEventCreation(from: searchText)
+                                    searchService.pendingEventCreation = await actionHandler.parseEventCreation(
+                                        from: searchText,
+                                        weatherService: weatherService,
+                                        locationsManager: locationsManager,
+                                        navigationService: navigationService
+                                    )
                                 }
                             case .createNote:
                                 let actionHandler = ActionQueryHandler.shared

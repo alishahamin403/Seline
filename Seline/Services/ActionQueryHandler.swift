@@ -8,13 +8,26 @@ class ActionQueryHandler {
 
     /// Attempts to parse an event creation request with LLM-generated title
     /// Example: "add meeting with Sarah at 3pm tomorrow"
+    /// Uses weather, locations, and destination context for smarter title generation
     @MainActor
-    func parseEventCreation(from query: String) async -> EventCreationData? {
+    func parseEventCreation(
+        from query: String,
+        weatherService: WeatherService? = nil,
+        locationsManager: LocationsManager? = nil,
+        navigationService: NavigationService? = nil
+    ) async -> EventCreationData? {
         let time = extractTime(from: query)
         let date = extractDate(from: query)
 
-        // Use LLM to generate a better title
-        var title = await generateEventTitle(from: query, extractedTime: time, extractedDate: date)
+        // Use LLM to generate a better title with context
+        var title = await generateEventTitle(
+            from: query,
+            extractedTime: time,
+            extractedDate: date,
+            weatherService: weatherService,
+            locationsManager: locationsManager,
+            navigationService: navigationService
+        )
 
         if title.isEmpty {
             title = "New Event"
@@ -46,19 +59,40 @@ class ActionQueryHandler {
 
     // MARK: - Helper Methods
 
-    /// Generates a concise event title using LLM based on user's input
-    private func generateEventTitle(from query: String, extractedTime: String?, extractedDate: Date?) async -> String {
+    /// Generates a concise event title using LLM based on user's input with contextual data
+    private func generateEventTitle(
+        from query: String,
+        extractedTime: String?,
+        extractedDate: Date?,
+        weatherService: WeatherService?,
+        locationsManager: LocationsManager?,
+        navigationService: NavigationService?
+    ) async -> String {
+        // Build contextual information
+        var contextInfo = ""
+        if let weatherService = weatherService,
+           let locationsManager = locationsManager {
+            contextInfo = OpenAIService.shared.buildContextForAction(
+                weatherService: weatherService,
+                locationsManager: locationsManager,
+                navigationService: navigationService
+            )
+        }
+
         let systemPrompt = """
         You are a helpful assistant that extracts event titles from user input.
         Generate a SHORT, CONCISE event title (max 5 words) based on what the user wants to create.
-        Only return the title itself, nothing else.
+        Consider the context provided (weather, locations, destinations) to generate better, more relevant titles.
+        Only return the title itself, nothing else. Do not include any explanation.
         """
 
         let userPrompt = """
-        User input: "\(query)"
+        \(contextInfo.isEmpty ? "" : "CONTEXT:\n\(contextInfo)\n\n")User input: "\(query)"
 
-        Generate a clear, concise event title from this input. Ignore action keywords like "add", "create", "schedule".
-        Ignore the time and date components. Just extract what the event is about.
+        Generate a clear, concise event title from this input.
+        Ignore action keywords like "add", "create", "schedule".
+        Ignore the time and date components.
+        Use the context above (if provided) to make better decisions about the title.
         Return ONLY the title, nothing else.
         """
 

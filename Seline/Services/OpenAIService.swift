@@ -2550,6 +2550,85 @@ class OpenAIService: ObservableObject {
         return context.isEmpty ? "No data available in the app." : context
     }
 
+    /// Builds comprehensive context for action queries (event/note creation) with weather, locations, and destinations
+    @MainActor
+    func buildContextForAction(
+        weatherService: WeatherService,
+        locationsManager: LocationsManager,
+        navigationService: NavigationService?
+    ) -> String {
+        var context = ""
+
+        // Add current date/time
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .full
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+        let currentDate = Date()
+
+        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+
+        // Add weather data
+        if let weatherData = weatherService.weather {
+            context += "=== WEATHER ===\n"
+            context += "Location: \(weatherData.locationName)\n"
+            context += "Current: \(weatherData.temperature)°C, \(weatherData.description)\n"
+            context += "Sunrise: \(timeFormatter.string(from: weatherData.sunrise))\n"
+            context += "Sunset: \(timeFormatter.string(from: weatherData.sunset))\n"
+
+            if !weatherData.dailyForecasts.isEmpty {
+                context += "6-Day Forecast:\n"
+                for forecast in weatherData.dailyForecasts {
+                    context += "- \(forecast.day): \(forecast.temperature)°C\n"
+                }
+            }
+            context += "\n"
+        } else if weatherService.isLoading {
+            context += "=== WEATHER ===\nWeather data is loading...\n\n"
+        }
+
+        // Add saved locations
+        if !locationsManager.savedPlaces.isEmpty {
+            context += "=== SAVED LOCATIONS ===\n"
+            for place in locationsManager.savedPlaces.sorted(by: { $0.dateCreated > $1.dateCreated }) {
+                let displayName = place.customName ?? place.name
+                context += "- \(displayName) (\(place.category))\n"
+                context += "  Address: \(place.address)\n"
+                if let rating = place.rating {
+                    context += "  Rating: \(String(format: "%.1f", rating))/5\n"
+                }
+                if let phone = place.phone {
+                    context += "  Phone: \(phone)\n"
+                }
+                context += "\n"
+            }
+        }
+
+        // Add navigation/destination ETAs if available
+        if let navigationService = navigationService {
+            context += "=== NAVIGATION DESTINATIONS ===\n"
+
+            // Home location ETA
+            if let homeETA = navigationService.homeETA {
+                context += "Home: \(homeETA) away\n"
+            }
+
+            // Work location ETA
+            if let workETA = navigationService.workETA {
+                context += "Work: \(workETA) away\n"
+            }
+
+            // Favorite location ETA
+            if let favoriteETA = navigationService.favoriteETA {
+                context += "Favorite: \(favoriteETA) away\n"
+            }
+
+            context += "\n"
+        }
+
+        return context.isEmpty ? "No contextual data available." : context
+    }
+
     private func formatTime(date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
