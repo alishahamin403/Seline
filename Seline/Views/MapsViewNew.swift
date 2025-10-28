@@ -768,126 +768,98 @@ struct LocationFiltersView: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Three dropdowns in a row
-            HStack(spacing: 12) {
-                // Country filter dropdown
-                if !locationsManager.countries.isEmpty {
-                    LocationFilterDropdown(
-                        title: "Country",
-                        selectedValue: $selectedCountry,
-                        options: ["All"] + Array(locationsManager.countries).sorted(),
-                        colorScheme: colorScheme,
-                        onChanged: {
+        VStack(spacing: 12) {
+            // Country filter pills
+            if !locationsManager.countries.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterPillButton(
+                            title: "All",
+                            isSelected: selectedCountry == nil,
+                            colorScheme: colorScheme
+                        ) {
+                            selectedCountry = nil
                             selectedProvince = nil
                             selectedCity = nil
                         }
-                    )
-                    .frame(maxWidth: .infinity)
-                }
 
-                // Province filter dropdown (only show if country is selected)
-                if let country = selectedCountry {
-                    let provinces = locationsManager.getProvinces(in: country)
-                    if !provinces.isEmpty {
-                        LocationFilterDropdown(
-                            title: "Province/State",
-                            selectedValue: $selectedProvince,
-                            options: ["All"] + Array(provinces).sorted(),
-                            colorScheme: colorScheme,
-                            onChanged: {
+                        ForEach(Array(locationsManager.countries).sorted(), id: \.self) { country in
+                            FilterPillButton(
+                                title: country,
+                                isSelected: selectedCountry == country,
+                                colorScheme: colorScheme
+                            ) {
+                                selectedCountry = country
+                                selectedProvince = nil
                                 selectedCity = nil
                             }
-                        )
-                        .frame(maxWidth: .infinity)
+                        }
                     }
-                }
-
-                // City filter dropdown (only show if province is selected)
-                if let country = selectedCountry, let province = selectedProvince {
-                    let cities = locationsManager.getCities(in: country, andProvince: province)
-                    if !cities.isEmpty {
-                        LocationFilterDropdown(
-                            title: "City",
-                            selectedValue: $selectedCity,
-                            options: ["All"] + Array(cities).sorted(),
-                            colorScheme: colorScheme
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
+                    .padding(.horizontal, 20)
                 }
             }
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
-    }
-}
 
-// MARK: - Location Filter Dropdown Component
+            // Province filter pills (only show if country is selected)
+            if let country = selectedCountry {
+                let provinces = locationsManager.getProvinces(in: country)
+                if !provinces.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            FilterPillButton(
+                                title: "All",
+                                isSelected: selectedProvince == nil,
+                                colorScheme: colorScheme
+                            ) {
+                                selectedProvince = nil
+                                selectedCity = nil
+                            }
 
-struct LocationFilterDropdown: View {
-    let title: String
-    @Binding var selectedValue: String?
-    let options: [String]
-    let colorScheme: ColorScheme
-    var onChanged: (() -> Void)? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-
-            Menu {
-                ForEach(options, id: \.self) { option in
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedValue = option == "All" ? nil : option
-                            onChanged?()
-                        }
-                    }) {
-                        HStack {
-                            Text(option)
-                            if (option == "All" && selectedValue == nil) ||
-                               (option != "All" && selectedValue == option) {
-                                Image(systemName: "checkmark")
+                            ForEach(Array(provinces).sorted(), id: \.self) { province in
+                                FilterPillButton(
+                                    title: province,
+                                    isSelected: selectedProvince == province,
+                                    colorScheme: colorScheme
+                                ) {
+                                    selectedProvince = province
+                                    selectedCity = nil
+                                }
                             }
                         }
+                        .padding(.horizontal, 20)
                     }
                 }
-            } label: {
-                HStack {
-                    Text(selectedValue ?? "All")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
 
-                    Spacer()
+            // City filter pills (only show if province is selected)
+            if let country = selectedCountry, let province = selectedProvince {
+                let cities = locationsManager.getCities(in: country, andProvince: province)
+                if !cities.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            FilterPillButton(
+                                title: "All",
+                                isSelected: selectedCity == nil,
+                                colorScheme: colorScheme
+                            ) {
+                                selectedCity = nil
+                            }
 
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            ForEach(Array(cities).sorted(), id: \.self) { city in
+                                FilterPillButton(
+                                    title: city,
+                                    isSelected: selectedCity == city,
+                                    colorScheme: colorScheme
+                                ) {
+                                    selectedCity = city
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(
-                            colorScheme == .dark ?
-                                Color.white.opacity(0.08) :
-                                Color.black.opacity(0.05)
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(
-                            colorScheme == .dark ?
-                                Color.white.opacity(0.12) :
-                                Color.black.opacity(0.08),
-                            lineWidth: 1
-                        )
-                )
             }
         }
+        .padding(.bottom, 16)
     }
 }
 
