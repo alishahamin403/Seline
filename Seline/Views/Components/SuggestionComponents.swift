@@ -1,6 +1,68 @@
 import SwiftUI
 import CoreLocation
 
+// MARK: - Compact Dropdown Component
+
+struct CompactDropdown: View {
+    let label: String
+    let options: [String]
+    let selectedOption: String?
+    let onSelect: (String) -> Void
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.self) { option in
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        onSelect(option)
+                    }
+                }) {
+                    HStack {
+                        Text(option)
+                        if (option == "All" && selectedOption == nil) ||
+                           (option != "All" && selectedOption == option) {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(
+                        colorScheme == .dark ?
+                            Color.white.opacity(0.08) :
+                            Color.black.opacity(0.05)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(
+                        colorScheme == .dark ?
+                            Color.white.opacity(0.12) :
+                            Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Category Filter Slider
 
 struct CategoryFilterSlider: View {
@@ -248,8 +310,17 @@ struct NearbyPlaceMiniTile: View {
 
 struct SuggestionsSectionHeader: View {
     @Binding var selectedTimeMinutes: Int
+    @Binding var selectedCategory: String?
+    let availableCategories: [String]
     @Environment(\.colorScheme) var colorScheme
-    @State private var showCustomTimes = false
+
+    var timeOptions: [String] {
+        ["10 min", "20 min", "30 min", "40 min", "50 min", "60 min", "2 hrs"]
+    }
+
+    var timeValues: [Int] {
+        [10, 20, 30, 40, 50, 60, 120]
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -261,139 +332,31 @@ struct SuggestionsSectionHeader: View {
                 Spacer()
             }
 
-            // Time selector
-            VStack(spacing: 8) {
-                // First row: Quick times + Custom button
-                HStack(spacing: 8) {
-                    ForEach([10, 20, 30], id: \.self) { time in
-                        Button(action: {
-                            selectedTimeMinutes = time
-                        }) {
-                            Text("\(time) min")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(
-                                    selectedTimeMinutes == time ?
-                                        (colorScheme == .dark ? .white : .black) :
-                                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule()
-                                        .fill(
-                                            selectedTimeMinutes == time ?
-                                                (colorScheme == .dark ?
-                                                    Color.white.opacity(0.15) :
-                                                    Color.black.opacity(0.15)) :
-                                                Color.clear
-                                        )
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .stroke(
-                                            selectedTimeMinutes == time ? Color.clear :
-                                                (colorScheme == .dark ?
-                                                    Color.white.opacity(0.2) :
-                                                    Color.black.opacity(0.1)),
-                                            lineWidth: 1
-                                        )
-                                )
+            // Two dropdowns side by side
+            HStack(spacing: 12) {
+                // Time dropdown
+                CompactDropdown(
+                    label: "\(selectedTimeMinutes == 120 ? "2 hrs" : "\(selectedTimeMinutes) min")",
+                    options: timeOptions,
+                    selectedOption: selectedTimeMinutes == 120 ? "2 hrs" : "\(selectedTimeMinutes) min",
+                    onSelect: { option in
+                        if let index = timeOptions.firstIndex(of: option) {
+                            selectedTimeMinutes = timeValues[index]
                         }
-                        .buttonStyle(PlainButtonStyle())
-                    }
+                    },
+                    colorScheme: colorScheme
+                )
 
-                    // Custom time button
-                    Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            showCustomTimes.toggle()
-                        }
-                    }) {
-                        HStack(spacing: 4) {
-                            Text("Custom")
-                                .font(.system(size: 12, weight: .semibold))
-                            Image(systemName: showCustomTimes ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
-                        }
-                        .foregroundColor(
-                            [40, 50, 60, 120].contains(selectedTimeMinutes) ?
-                                (colorScheme == .dark ? .white : .black) :
-                                (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(
-                                    [40, 50, 60, 120].contains(selectedTimeMinutes) ?
-                                        (colorScheme == .dark ?
-                                            Color.white.opacity(0.15) :
-                                            Color.black.opacity(0.15)) :
-                                        Color.clear
-                                )
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    [40, 50, 60, 120].contains(selectedTimeMinutes) ? Color.clear :
-                                        (colorScheme == .dark ?
-                                            Color.white.opacity(0.2) :
-                                            Color.black.opacity(0.1)),
-                                    lineWidth: 1
-                                )
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    Spacer()
-                }
-
-                // Second row: Custom time options (only shown when expanded)
-                if showCustomTimes {
-                    HStack(spacing: 8) {
-                        ForEach([40, 50, 60, 120], id: \.self) { time in
-                            Button(action: {
-                                selectedTimeMinutes = time
-                            }) {
-                                Text(time == 120 ? "2 hrs" : "\(time) min")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(
-                                        selectedTimeMinutes == time ?
-                                            (colorScheme == .dark ? .white : .black) :
-                                            (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                    )
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        Capsule()
-                                            .fill(
-                                                selectedTimeMinutes == time ?
-                                                    (colorScheme == .dark ?
-                                                        Color.white.opacity(0.15) :
-                                                        Color.black.opacity(0.15)) :
-                                                    Color.clear
-                                            )
-                                    )
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(
-                                                selectedTimeMinutes == time ? Color.clear :
-                                                    (colorScheme == .dark ?
-                                                        Color.white.opacity(0.2) :
-                                                        Color.black.opacity(0.1)),
-                                                lineWidth: 1
-                                            )
-                                    )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-
-                        Spacer()
-                    }
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.9).combined(with: .opacity),
-                        removal: .scale(scale: 0.9).combined(with: .opacity)
-                    ))
-                }
+                // Category dropdown
+                CompactDropdown(
+                    label: selectedCategory ?? "Category",
+                    options: ["All"] + availableCategories.sorted(),
+                    selectedOption: selectedCategory,
+                    onSelect: { option in
+                        selectedCategory = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
             }
         }
         .padding(.horizontal, 20)

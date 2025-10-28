@@ -92,16 +92,11 @@ struct MapsViewNew: View, Searchable {
                             } else {
                                 // Suggestions section - ALWAYS show this section
                                 VStack(spacing: 8) {
-                                    SuggestionsSectionHeader(selectedTimeMinutes: $selectedTimeMinutes)
-
-                                    // Category filter slider - only show if categories are available
-                                    if !availableNearbyCategories.isEmpty {
-                                        CategoryFilterSlider(
-                                            selectedCategory: $selectedSuggestionCategory,
-                                            categories: availableNearbyCategories
-                                        )
-                                        .padding(.bottom, 4)
-                                    }
+                                    SuggestionsSectionHeader(
+                                        selectedTimeMinutes: $selectedTimeMinutes,
+                                        selectedCategory: $selectedSuggestionCategory,
+                                        availableCategories: availableNearbyCategories
+                                    )
 
                                     // Nearby places horizontal scroll or empty state
                                     if nearbyPlaces.isEmpty {
@@ -768,97 +763,57 @@ struct LocationFiltersView: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Country filter pills
+        HStack(spacing: 12) {
+            // Country filter dropdown
             if !locationsManager.countries.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterPillButton(
-                            title: "All",
-                            isSelected: selectedCountry == nil,
-                            colorScheme: colorScheme
-                        ) {
-                            selectedCountry = nil
-                            selectedProvince = nil
-                            selectedCity = nil
-                        }
-
-                        ForEach(Array(locationsManager.countries).sorted(), id: \.self) { country in
-                            FilterPillButton(
-                                title: country,
-                                isSelected: selectedCountry == country,
-                                colorScheme: colorScheme
-                            ) {
-                                selectedCountry = country
-                                selectedProvince = nil
-                                selectedCity = nil
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
+                CompactDropdown(
+                    label: selectedCountry ?? "Country",
+                    options: ["All"] + Array(locationsManager.countries).sorted(),
+                    selectedOption: selectedCountry,
+                    onSelect: { option in
+                        selectedCountry = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
             }
 
-            // Province filter pills (only show if country is selected)
-            if let country = selectedCountry {
-                let provinces = locationsManager.getProvinces(in: country)
-                if !provinces.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            FilterPillButton(
-                                title: "All",
-                                isSelected: selectedProvince == nil,
-                                colorScheme: colorScheme
-                            ) {
-                                selectedProvince = nil
-                                selectedCity = nil
-                            }
-
-                            ForEach(Array(provinces).sorted(), id: \.self) { province in
-                                FilterPillButton(
-                                    title: province,
-                                    isSelected: selectedProvince == province,
-                                    colorScheme: colorScheme
-                                ) {
-                                    selectedProvince = province
-                                    selectedCity = nil
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                    }
-                }
+            // Province filter dropdown
+            let provinces = selectedCountry.map { locationsManager.getProvinces(in: $0) } ?? locationsManager.provinces
+            if !provinces.isEmpty {
+                CompactDropdown(
+                    label: selectedProvince ?? "Province",
+                    options: ["All"] + Array(provinces).sorted(),
+                    selectedOption: selectedProvince,
+                    onSelect: { option in
+                        selectedProvince = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
             }
 
-            // City filter pills (only show if province is selected)
+            // City filter dropdown
+            let cities: Set<String>
             if let country = selectedCountry, let province = selectedProvince {
-                let cities = locationsManager.getCities(in: country, andProvince: province)
-                if !cities.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            FilterPillButton(
-                                title: "All",
-                                isSelected: selectedCity == nil,
-                                colorScheme: colorScheme
-                            ) {
-                                selectedCity = nil
-                            }
+                cities = locationsManager.getCities(in: country, andProvince: province)
+            } else if let country = selectedCountry {
+                cities = locationsManager.getCities(in: country)
+            } else {
+                cities = []
+            }
 
-                            ForEach(Array(cities).sorted(), id: \.self) { city in
-                                FilterPillButton(
-                                    title: city,
-                                    isSelected: selectedCity == city,
-                                    colorScheme: colorScheme
-                                ) {
-                                    selectedCity = city
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                    }
-                }
+            if !cities.isEmpty {
+                CompactDropdown(
+                    label: selectedCity ?? "City",
+                    options: ["All"] + Array(cities).sorted(),
+                    selectedOption: selectedCity,
+                    onSelect: { option in
+                        selectedCity = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
             }
         }
+        .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }
 }
