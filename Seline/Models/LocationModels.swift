@@ -25,6 +25,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var city: String? // City extracted from address
     var userRating: Int? // User's personal rating (1-10)
     var userNotes: String? // User's personal notes
+    var userCuisine: String? // User's manual cuisine assignment
     var dateCreated: Date
     var dateModified: Date
 
@@ -45,6 +46,9 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.country = nil
         self.province = nil
         self.city = nil
+        self.userRating = nil
+        self.userNotes = nil
+        self.userCuisine = nil
         self.dateCreated = Date()
         self.dateModified = Date()
 
@@ -307,10 +311,11 @@ class LocationsManager: ObservableObject {
         }
     }
 
-    func updateRestaurantRating(_ placeId: UUID, rating: Int?, notes: String?) {
+    func updateRestaurantRating(_ placeId: UUID, rating: Int?, notes: String?, cuisine: String? = nil) {
         if let index = savedPlaces.firstIndex(where: { $0.id == placeId }) {
             savedPlaces[index].userRating = rating
             savedPlaces[index].userNotes = notes
+            savedPlaces[index].userCuisine = cuisine
             savedPlaces[index].dateModified = Date()
             savePlacesToStorage()
 

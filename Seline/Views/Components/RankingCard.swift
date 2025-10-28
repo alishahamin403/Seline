@@ -3,11 +3,15 @@ import SwiftUI
 struct RankingCard: View {
     let restaurant: SavedPlace
     let colorScheme: ColorScheme
-    let onRatingUpdate: (Int?, String?) -> Void
+    let onRatingUpdate: (Int?, String?, String?) -> Void
 
     @State private var isExpanded = false
     @State private var tempRating: Int? = nil
     @State private var tempNotes: String = ""
+    @State private var tempCuisine: String? = nil
+    @State private var showCuisineMenu = false
+
+    let cuisineOptions = ["Italian", "Chinese", "Japanese", "Thai", "Indian", "Mexican", "French", "Korean", "Pizza", "Burger", "Cafe", "Other"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +43,7 @@ struct RankingCard: View {
                 } else {
                     tempRating = restaurant.userRating
                     tempNotes = restaurant.userNotes ?? ""
+                    tempCuisine = restaurant.userCuisine
                     isExpanded = true
                 }
             }
@@ -91,6 +96,8 @@ struct RankingCard: View {
 
             ratingSliderView
 
+            cuisineFieldView
+
             notesFieldView
 
             saveButtonView
@@ -139,6 +146,71 @@ struct RankingCard: View {
         }
     }
 
+    private var cuisineFieldView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Cuisine")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+
+                Spacer()
+
+                Menu {
+                    Button(action: {
+                        tempCuisine = nil
+                    }) {
+                        HStack {
+                            Text("Clear")
+                            if tempCuisine == nil {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+
+                    ForEach(cuisineOptions, id: \.self) { cuisine in
+                        Button(action: {
+                            tempCuisine = cuisine
+                        }) {
+                            HStack {
+                                Text(cuisine)
+                                if tempCuisine == cuisine {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(tempCuisine ?? "Select cuisine")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(
+                                colorScheme == .dark ?
+                                    Color.white.opacity(0.05) : Color.gray.opacity(0.05)
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(
+                                colorScheme == .dark ?
+                                    Color.white.opacity(0.1) : Color.gray.opacity(0.1),
+                                lineWidth: 1
+                            )
+                    )
+                }
+            }
+        }
+    }
+
     private var notesFieldView: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Notes")
@@ -170,7 +242,7 @@ struct RankingCard: View {
 
     private var saveButtonView: some View {
         Button(action: {
-            onRatingUpdate(tempRating, tempNotes.isEmpty ? nil : tempNotes)
+            onRatingUpdate(tempRating, tempNotes.isEmpty ? nil : tempNotes, tempCuisine)
             withAnimation(.easeInOut(duration: 0.2)) {
                 isExpanded = false
             }

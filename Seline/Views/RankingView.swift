@@ -48,8 +48,12 @@ struct RankingView: View {
         // Apply cuisine filter
         if selectedCuisineFilter != "All Cuisines" {
             filtered = filtered.filter { place in
-                place.name.lowercased().contains(selectedCuisineFilter.lowercased()) ||
-                place.category.lowercased().contains(selectedCuisineFilter.lowercased())
+                // Check user-assigned cuisine first, then fall back to name/category detection
+                if let userCuisine = place.userCuisine {
+                    return userCuisine == selectedCuisineFilter
+                }
+                return place.name.lowercased().contains(selectedCuisineFilter.lowercased()) ||
+                       place.category.lowercased().contains(selectedCuisineFilter.lowercased())
             }
         }
 
@@ -70,39 +74,44 @@ struct RankingView: View {
         cuisines.insert("All Cuisines")
 
         for restaurant in restaurants {
-            // Extract cuisine from name or category
-            if restaurant.name.contains("Italian") || restaurant.category.contains("Italian") {
-                cuisines.insert("Italian")
-            }
-            if restaurant.name.contains("Chinese") || restaurant.category.contains("Chinese") {
-                cuisines.insert("Chinese")
-            }
-            if restaurant.name.contains("Japanese") || restaurant.category.contains("Japanese") {
-                cuisines.insert("Japanese")
-            }
-            if restaurant.name.contains("Thai") || restaurant.category.contains("Thai") {
-                cuisines.insert("Thai")
-            }
-            if restaurant.name.contains("Indian") || restaurant.category.contains("Indian") {
-                cuisines.insert("Indian")
-            }
-            if restaurant.name.contains("Mexican") || restaurant.category.contains("Mexican") {
-                cuisines.insert("Mexican")
-            }
-            if restaurant.name.contains("French") || restaurant.category.contains("French") {
-                cuisines.insert("French")
-            }
-            if restaurant.name.contains("Korean") || restaurant.category.contains("Korean") {
-                cuisines.insert("Korean")
-            }
-            if restaurant.name.contains("Pizza") || restaurant.category.contains("Pizza") {
-                cuisines.insert("Pizza")
-            }
-            if restaurant.name.contains("Burger") || restaurant.category.contains("Burger") {
-                cuisines.insert("Burger")
-            }
-            if restaurant.name.contains("Coffee") || restaurant.category.contains("Coffee") {
-                cuisines.insert("Cafe")
+            // Use user-assigned cuisine if available
+            if let userCuisine = restaurant.userCuisine {
+                cuisines.insert(userCuisine)
+            } else {
+                // Otherwise extract cuisine from name or category
+                if restaurant.name.contains("Italian") || restaurant.category.contains("Italian") {
+                    cuisines.insert("Italian")
+                }
+                if restaurant.name.contains("Chinese") || restaurant.category.contains("Chinese") {
+                    cuisines.insert("Chinese")
+                }
+                if restaurant.name.contains("Japanese") || restaurant.category.contains("Japanese") {
+                    cuisines.insert("Japanese")
+                }
+                if restaurant.name.contains("Thai") || restaurant.category.contains("Thai") {
+                    cuisines.insert("Thai")
+                }
+                if restaurant.name.contains("Indian") || restaurant.category.contains("Indian") {
+                    cuisines.insert("Indian")
+                }
+                if restaurant.name.contains("Mexican") || restaurant.category.contains("Mexican") {
+                    cuisines.insert("Mexican")
+                }
+                if restaurant.name.contains("French") || restaurant.category.contains("French") {
+                    cuisines.insert("French")
+                }
+                if restaurant.name.contains("Korean") || restaurant.category.contains("Korean") {
+                    cuisines.insert("Korean")
+                }
+                if restaurant.name.contains("Pizza") || restaurant.category.contains("Pizza") {
+                    cuisines.insert("Pizza")
+                }
+                if restaurant.name.contains("Burger") || restaurant.category.contains("Burger") {
+                    cuisines.insert("Burger")
+                }
+                if restaurant.name.contains("Coffee") || restaurant.category.contains("Coffee") {
+                    cuisines.insert("Cafe")
+                }
             }
         }
 
@@ -223,8 +232,8 @@ struct RankingView: View {
                             RankingCard(
                                 restaurant: restaurant,
                                 colorScheme: colorScheme,
-                                onRatingUpdate: { newRating, newNotes in
-                                    locationsManager.updateRestaurantRating(restaurant.id, rating: newRating, notes: newNotes)
+                                onRatingUpdate: { newRating, newNotes, newCuisine in
+                                    locationsManager.updateRestaurantRating(restaurant.id, rating: newRating, notes: newNotes, cuisine: newCuisine)
                                 }
                             )
                         }
