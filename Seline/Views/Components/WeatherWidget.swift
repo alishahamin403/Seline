@@ -45,7 +45,7 @@ struct WeatherWidget: View {
                 weatherCardButton(width: (geometry.size.width - 8) * 0.6)
 
             // Navigation Card (40%)
-            VStack(spacing: 6) {
+            VStack(spacing: 2) {
                 // Location 1 ETA
                 NavigationETARow(
                     icon: locationPreferences?.location1Icon ?? "house.fill",
@@ -110,7 +110,7 @@ struct WeatherWidget: View {
                 )
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .frame(width: (geometry.size.width - 8) * 0.4, height: 90, alignment: .leading)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
@@ -228,7 +228,7 @@ struct WeatherWidget: View {
         Button(action: {
             openWeatherApp()
         }) {
-            VStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .center, spacing: 2) {
                 // Row 1: Location | Temperature | Weather Icon
                 HStack(spacing: 6) {
                     // Location text
@@ -260,8 +260,6 @@ struct WeatherWidget: View {
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                 }
 
-                Spacer()
-
                 // Row 2: Sunrise and Sunset
                 HStack(spacing: 16) {
                     // Sunrise - yellow icon
@@ -284,8 +282,6 @@ struct WeatherWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                     }
                 }
-
-                Spacer()
 
                 // Row 3: 6-Day Forecast
                 HStack(spacing: 0) {
@@ -311,7 +307,7 @@ struct WeatherWidget: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .frame(width: width, height: 90, alignment: .center)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
