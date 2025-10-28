@@ -25,12 +25,13 @@ struct ReceiptStat: Identifiable, Hashable {
         self.month = month
     }
 
-    init(from note: Note, year: Int? = nil, month: String? = nil) {
+    init(from note: Note, year: Int? = nil, month: String? = nil, date: Date? = nil) {
         self.id = UUID()
         self.title = note.title
         // Extract amount from note content (body text), fallback to title if content is empty
         self.amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
-        self.date = note.dateModified
+        // Use provided date if available, otherwise use note.dateModified
+        self.date = date ?? note.dateModified
         self.noteId = note.id
         self.year = year
         self.month = month

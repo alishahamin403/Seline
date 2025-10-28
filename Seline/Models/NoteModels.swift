@@ -842,6 +842,88 @@ class NotesManager: ObservableObject {
         return nil
     }
 
+    // Extract full date (day, month, year) from receipt title
+    func extractFullDateFromTitle(_ title: String) -> Date? {
+        let datePatterns = [
+            // "December 15, 2024" or "Dec 15, 2024"
+            ("([A-Z][a-z]+)\\s+(\\d{1,2}),?\\s+(\\d{4})", "monthName"),
+            // "12/15/2024" or "12-15-2024"
+            ("(\\d{1,2})[/-](\\d{1,2})[/-](\\d{4})", "mmddyyyy"),
+            // "2024-12-15"
+            ("(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})", "yyyymmdd")
+        ]
+
+        let calendar = Calendar.current
+        let monthSymbols = calendar.monthSymbols
+
+        for (pattern, format) in datePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                let range = NSRange(title.startIndex..<title.endIndex, in: title)
+                if let match = regex.firstMatch(in: title, range: range) {
+                    if format == "monthName" {
+                        // Month name pattern
+                        if match.numberOfRanges >= 4,
+                           let monthRange = Range(match.range(at: 1), in: title),
+                           let dayRange = Range(match.range(at: 2), in: title),
+                           let yearRange = Range(match.range(at: 3), in: title) {
+                            let monthName = String(title[monthRange])
+                            if let monthIndex = monthSymbols.firstIndex(where: { $0.hasPrefix(monthName) }) {
+                                if let day = Int(String(title[dayRange])),
+                                   let year = Int(String(title[yearRange])) {
+                                    var dateComponents = DateComponents()
+                                    dateComponents.year = year
+                                    dateComponents.month = monthIndex + 1
+                                    dateComponents.day = day
+                                    if let date = calendar.date(from: dateComponents) {
+                                        return date
+                                    }
+                                }
+                            }
+                        }
+                    } else if format == "yyyymmdd" {
+                        // ISO format (YYYY-MM-DD)
+                        if match.numberOfRanges >= 4,
+                           let yearRange = Range(match.range(at: 1), in: title),
+                           let monthRange = Range(match.range(at: 2), in: title),
+                           let dayRange = Range(match.range(at: 3), in: title) {
+                            if let year = Int(String(title[yearRange])),
+                               let month = Int(String(title[monthRange])),
+                               let day = Int(String(title[dayRange])) {
+                                var dateComponents = DateComponents()
+                                dateComponents.year = year
+                                dateComponents.month = month
+                                dateComponents.day = day
+                                if let date = calendar.date(from: dateComponents) {
+                                    return date
+                                }
+                            }
+                        }
+                    } else if format == "mmddyyyy" {
+                        // MM/DD/YYYY or MM-DD-YYYY format
+                        if match.numberOfRanges >= 4,
+                           let monthRange = Range(match.range(at: 1), in: title),
+                           let dayRange = Range(match.range(at: 2), in: title),
+                           let yearRange = Range(match.range(at: 3), in: title) {
+                            if let month = Int(String(title[monthRange])),
+                               let day = Int(String(title[dayRange])),
+                               let year = Int(String(title[yearRange])) {
+                                var dateComponents = DateComponents()
+                                dateComponents.year = year
+                                dateComponents.month = month
+                                dateComponents.day = day
+                                if let date = calendar.date(from: dateComponents) {
+                                    return date
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
     // Get month name from month number
     func getMonthName(_ month: Int) -> String {
         let calendar = Calendar.current
@@ -1125,10 +1207,12 @@ class NotesManager: ObservableObject {
             return false
         }
 
-        // Convert notes to ReceiptStat with year and month extracted from folder hierarchy
+        // Convert notes to ReceiptStat with year, month, and date extracted
         let receiptStats = allReceiptsNotes.map { note in
             let (folderYear, folderMonth) = extractYearAndMonthFromFolderHierarchy(note.folderId)
-            return ReceiptStat(from: note, year: folderYear, month: folderMonth)
+            // Extract full date from title, fallback to note.dateModified if not found
+            let extractedDate = extractFullDateFromTitle(note.title) ?? note.dateModified
+            return ReceiptStat(from: note, year: folderYear, month: folderMonth, date: extractedDate)
         }
 
         // Group by year from folder hierarchy
