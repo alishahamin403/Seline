@@ -49,11 +49,11 @@ struct MonthlySummaryReceiptCard: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
 
-            // Content (Receipts)
+            // Content (Daily Breakdowns)
             if isExpanded {
-                VStack(spacing: 8) {
-                    ForEach(monthlySummary.receipts, id: \.id) { receipt in
-                        ReceiptItemRow(receipt: receipt, onTap: onReceiptTap)
+                VStack(spacing: 6) {
+                    ForEach(monthlySummary.dailySummaries, id: \.id) { daily in
+                        DailyReceiptCard(dailySummary: daily, onReceiptTap: onReceiptTap)
                     }
                 }
                 .padding(.horizontal, 16)

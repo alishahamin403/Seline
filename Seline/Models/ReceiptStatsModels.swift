@@ -37,22 +37,67 @@ struct ReceiptStat: Identifiable, Hashable {
     }
 }
 
+/// Represents all receipts for a specific day
+struct DailyReceiptSummary: Identifiable {
+    let id: UUID
+    let day: Int
+    let dayDate: Date
+    let receipts: [ReceiptStat]
+
+    var dailyTotal: Double {
+        receipts.reduce(0) { $0 + $1.amount }
+    }
+
+    init(day: Int, dayDate: Date, receipts: [ReceiptStat]) {
+        self.id = UUID()
+        self.day = day
+        self.dayDate = dayDate
+        self.receipts = receipts.sorted { $0.date > $1.date }
+    }
+
+    var dayString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d"
+        return formatter.string(from: dayDate)
+    }
+}
+
 /// Represents all receipts for a specific month
 struct MonthlyReceiptSummary: Identifiable {
     let id: UUID
     let month: String
     let monthDate: Date
-    let receipts: [ReceiptStat]
+    let dailySummaries: [DailyReceiptSummary]
 
     var monthlyTotal: Double {
-        receipts.reduce(0) { $0 + $1.amount }
+        dailySummaries.reduce(0) { $0 + $1.dailyTotal }
+    }
+
+    var receipts: [ReceiptStat] {
+        dailySummaries.flatMap { $0.receipts }
     }
 
     init(month: String, monthDate: Date, receipts: [ReceiptStat]) {
         self.id = UUID()
         self.month = month
         self.monthDate = monthDate
-        self.receipts = receipts.sorted { $0.date > $1.date }
+
+        // Group receipts by day
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: receipts) { receipt in
+            calendar.startOfDay(for: receipt.date)
+        }
+
+        // Create DailyReceiptSummary for each day, sorted by date (newest first)
+        self.dailySummaries = grouped
+            .map { dayDate, dayReceipts in
+                DailyReceiptSummary(
+                    day: calendar.component(.day, from: dayDate),
+                    dayDate: dayDate,
+                    receipts: dayReceipts
+                )
+            }
+            .sorted { $0.dayDate > $1.dayDate }
     }
 }
 

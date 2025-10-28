@@ -5,11 +5,17 @@ struct ReceiptItemRow: View {
     let onTap: (UUID) -> Void
     @Environment(\.colorScheme) var colorScheme
 
+    var destinationName: String {
+        // Extract text before the dash (-) if it exists
+        let components = receipt.title.split(separator: "-", maxSplits: 1)
+        return String(components.first ?? "").trimmingCharacters(in: .whitespaces)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Button(action: { onTap(receipt.noteId) }) {
-                    Text(receipt.title)
+                    Text(destinationName)
                         .font(.system(size: 14, weight: .regular))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
