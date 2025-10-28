@@ -779,43 +779,37 @@ struct LocationFiltersView: View {
     var body: some View {
         HStack(spacing: 12) {
             // Country filter dropdown
-            if !locationsManager.countries.isEmpty {
-                CompactDropdown(
-                    label: selectedCountry ?? "Country",
-                    options: ["All"] + Array(locationsManager.countries).sorted(),
-                    selectedOption: selectedCountry,
-                    onSelect: { option in
-                        selectedCountry = option == "All" ? nil : option
-                    },
-                    colorScheme: colorScheme
-                )
-            }
+            CompactDropdown(
+                label: selectedCountry ?? "Country",
+                options: ["All"] + Array(locationsManager.countries).sorted(),
+                selectedOption: selectedCountry,
+                onSelect: { option in
+                    selectedCountry = option == "All" ? nil : option
+                },
+                colorScheme: colorScheme
+            )
 
             // Province filter dropdown
-            if !provinces.isEmpty {
-                CompactDropdown(
-                    label: selectedProvince ?? "Province",
-                    options: ["All"] + Array(provinces).sorted(),
-                    selectedOption: selectedProvince,
-                    onSelect: { option in
-                        selectedProvince = option == "All" ? nil : option
-                    },
-                    colorScheme: colorScheme
-                )
-            }
+            CompactDropdown(
+                label: selectedProvince ?? "Province",
+                options: ["All"] + Array(provinces).sorted(),
+                selectedOption: selectedProvince,
+                onSelect: { option in
+                    selectedProvince = option == "All" ? nil : option
+                },
+                colorScheme: colorScheme
+            )
 
             // City filter dropdown
-            if !cities.isEmpty {
-                CompactDropdown(
-                    label: selectedCity ?? "City",
-                    options: ["All"] + Array(cities).sorted(),
-                    selectedOption: selectedCity,
-                    onSelect: { option in
-                        selectedCity = option == "All" ? nil : option
-                    },
-                    colorScheme: colorScheme
-                )
-            }
+            CompactDropdown(
+                label: selectedCity ?? "City",
+                options: ["All"] + Array(cities).sorted(),
+                selectedOption: selectedCity,
+                onSelect: { option in
+                    selectedCity = option == "All" ? nil : option
+                },
+                colorScheme: colorScheme
+            )
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
