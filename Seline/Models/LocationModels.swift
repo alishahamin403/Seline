@@ -108,8 +108,10 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         // Extract province/state by removing postal code
         var province: String? = nil
 
-        // Try to take everything before the postal code
-        if let postalRange = stateWithPostal.range(of: " [A-Z0-9]{3,}$", options: .regularExpression) {
+        // Remove postal code patterns at the end
+        // Matches: US format (12345 or 12345-1234), Canadian format (M5H 2R2)
+        let postalCodePattern = " (?:\\d{5}(?:-\\d{4})?|[A-Z]\\d[A-Z]\\s\\d[A-Z]\\d)$"
+        if let postalRange = stateWithPostal.range(of: postalCodePattern, options: .regularExpression) {
             province = String(stateWithPostal[..<postalRange.lowerBound])
         } else {
             province = stateWithPostal
