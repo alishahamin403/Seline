@@ -103,6 +103,12 @@ struct RankingView: View {
                 if restaurant.name.contains("Korean") || restaurant.category.contains("Korean") {
                     cuisines.insert("Korean")
                 }
+                if restaurant.name.contains("Shawarma") || restaurant.category.contains("Shawarma") {
+                    cuisines.insert("Shawarma")
+                }
+                if restaurant.name.contains("Jamaican") || restaurant.category.contains("Jamaican") {
+                    cuisines.insert("Jamaican")
+                }
                 if restaurant.name.contains("Pizza") || restaurant.category.contains("Pizza") {
                     cuisines.insert("Pizza")
                 }

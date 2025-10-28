@@ -11,7 +11,7 @@ struct RankingCard: View {
     @State private var tempCuisine: String? = nil
     @State private var showCuisineMenu = false
 
-    let cuisineOptions = ["Italian", "Chinese", "Japanese", "Thai", "Indian", "Mexican", "French", "Korean", "Pizza", "Burger", "Cafe", "Other"]
+    let cuisineOptions = ["Italian", "Chinese", "Japanese", "Thai", "Indian", "Mexican", "French", "Korean", "Shawarma", "Jamaican", "Pizza", "Burger", "Cafe", "Other"]
 
     var body: some View {
         VStack(spacing: 0) {
