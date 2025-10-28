@@ -4,8 +4,8 @@ enum TabSelection: String, CaseIterable {
     case home = "house"
     case email = "envelope"
     case events = "calendar"
-    case notes = "list.bullet"
-    case maps = "globe"
+    case notes = "pencil"
+    case maps = "location"
 
     var title: String {
         switch self {
@@ -22,8 +22,8 @@ enum TabSelection: String, CaseIterable {
         case .home: return "house.fill"
         case .email: return "envelope.fill"
         case .events: return "calendar"
-        case .notes: return "list.bullet.fill"
-        case .maps: return "globe"
+        case .notes: return "pencil.fill"
+        case .maps: return "location.fill"
         }
     }
 }
