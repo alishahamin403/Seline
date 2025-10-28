@@ -762,6 +762,20 @@ struct LocationFiltersView: View {
     @Binding var selectedCity: String?
     let colorScheme: ColorScheme
 
+    var provinces: Set<String> {
+        selectedCountry.map { locationsManager.getProvinces(in: $0) } ?? locationsManager.provinces
+    }
+
+    var cities: Set<String> {
+        if let country = selectedCountry, let province = selectedProvince {
+            return locationsManager.getCities(in: country, andProvince: province)
+        } else if let country = selectedCountry {
+            return locationsManager.getCities(in: country)
+        } else {
+            return []
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // Country filter dropdown
@@ -778,7 +792,6 @@ struct LocationFiltersView: View {
             }
 
             // Province filter dropdown
-            let provinces = selectedCountry.map { locationsManager.getProvinces(in: $0) } ?? locationsManager.provinces
             if !provinces.isEmpty {
                 CompactDropdown(
                     label: selectedProvince ?? "Province",
@@ -792,15 +805,6 @@ struct LocationFiltersView: View {
             }
 
             // City filter dropdown
-            let cities: Set<String>
-            if let country = selectedCountry, let province = selectedProvince {
-                cities = locationsManager.getCities(in: country, andProvince: province)
-            } else if let country = selectedCountry {
-                cities = locationsManager.getCities(in: country)
-            } else {
-                cities = []
-            }
-
             if !cities.isEmpty {
                 CompactDropdown(
                     label: selectedCity ?? "City",
