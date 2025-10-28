@@ -20,6 +20,7 @@ struct CompactDropdown: View {
                 }) {
                     HStack {
                         Text(option)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if (option == "All" && selectedOption == nil) ||
                            (option != "All" && selectedOption == option) {
                             Image(systemName: "checkmark")
@@ -34,6 +35,7 @@ struct CompactDropdown: View {
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .semibold))
