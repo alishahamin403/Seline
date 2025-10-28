@@ -333,16 +333,53 @@ struct MapsViewNew: View, Searchable {
 
         // Add saved places as searchable content
         for place in locationsManager.savedPlaces {
+            // Build metadata with location and ranking data
+            var metadata: [String: String] = [
+                "category": place.category,
+                "address": place.address,
+                "rating": place.rating != nil ? String(format: "%.1f", place.rating!) : "N/A",
+                "country": place.country ?? "Unknown",
+                "province": place.province ?? "Unknown",
+                "city": place.city ?? "Unknown"
+            ]
+
+            // Add ranking data
+            if let userRating = place.userRating {
+                metadata["userRating"] = String(userRating)
+            }
+
+            if let userNotes = place.userNotes {
+                metadata["userNotes"] = userNotes
+            }
+
+            if let userCuisine = place.userCuisine {
+                metadata["cuisine"] = userCuisine
+            }
+
+            // Build content with location and ranking info
+            var contentParts: [String] = [
+                "\(place.category): \(place.address)",
+                "Location: \(place.city ?? "Unknown"), \(place.province ?? "Unknown"), \(place.country ?? "Unknown")"
+            ]
+
+            if let cuisine = place.userCuisine {
+                contentParts.append("Cuisine: \(cuisine)")
+            }
+
+            if let userRating = place.userRating {
+                contentParts.append("Rating: \(userRating)/10")
+            }
+
+            if let notes = place.userNotes {
+                contentParts.append("Notes: \(notes)")
+            }
+
             items.append(SearchableItem(
-                title: place.name,
-                content: "\(place.category): \(place.address)",
+                title: place.displayName,
+                content: contentParts.joined(separator: " | "),
                 type: .maps,
                 identifier: "place-\(place.id)",
-                metadata: [
-                    "category": place.category,
-                    "address": place.address,
-                    "rating": place.rating != nil ? String(format: "%.1f", place.rating!) : "N/A"
-                ]
+                metadata: metadata
             ))
         }
 
