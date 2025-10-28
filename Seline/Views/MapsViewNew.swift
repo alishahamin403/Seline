@@ -6,6 +6,7 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var locationService = LocationService.shared
     @Environment(\.colorScheme) var colorScheme
 
+    @State private var selectedTab: String = "folders" // "folders" or "ranking"
     @State private var selectedCategory: String? = nil
     @State private var selectedSuggestionCategory: String? = nil
     @State private var showSearchModal = false
@@ -14,6 +15,7 @@ struct MapsViewNew: View, Searchable {
     @State private var availableNearbyCategories: [String] = []
     @State private var isLoadingNearby = false
     @State private var selectedCountry: String? = nil
+    @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
     @Binding var externalSelectedFolder: String?
 
@@ -25,15 +27,49 @@ struct MapsViewNew: View, Searchable {
         ZStack {
             // Main content layer
             VStack(spacing: 0) {
+                // Tab bar
+                HStack(spacing: 0) {
+                    ForEach(["folders", "ranking"], id: \.self) { tab in
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedTab = tab
+                            }
+                        }) {
+                            Text(tab == "folders" ? "Folders" : "Ranking")
+                                .font(.system(size: 14, weight: selectedTab == tab ? .semibold : .medium))
+                                .foregroundColor(selectedTab == tab ? .white : .gray)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(selectedTab == tab ? Color(red: 0.2, green: 0.2, blue: 0.2) : Color.clear)
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
+                .background(
+                    colorScheme == .dark ? Color.black : Color.white
+                )
+
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // Spacer for fixed header
-                        Rectangle()
-                            .fill(Color.clear)
-                            .frame(height: selectedCategory == nil ? 20 : 60)
+                        if selectedTab == "folders" {
+                            // FOLDERS TAB CONTENT
+                            // Spacer for fixed header
+                            Rectangle()
+                                .fill(Color.clear)
+                                .frame(height: selectedCategory == nil ? 20 : 60)
 
-                        if selectedCategory == nil {
+                            if selectedCategory == nil {
                             // Categories Grid
                             Group {
                             if locationsManager.categories.isEmpty {
@@ -130,15 +166,16 @@ struct MapsViewNew: View, Searchable {
                                 LocationFiltersView(
                                     locationsManager: locationsManager,
                                     selectedCountry: $selectedCountry,
+                                    selectedProvince: $selectedProvince,
                                     selectedCity: $selectedCity,
                                     colorScheme: colorScheme
                                 )
 
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                                    ForEach(Array(locationsManager.getCategories(country: selectedCountry, city: selectedCity)), id: \.self) { category in
+                                    ForEach(Array(locationsManager.getCategories(country: selectedCountry, province: selectedProvince, city: selectedCity)), id: \.self) { category in
                                         CategoryCard(
                                             category: category,
-                                            count: locationsManager.getPlaces(country: selectedCountry, city: selectedCity).filter { $0.category == category }.count,
+                                            count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count,
                                             colorScheme: colorScheme
                                         ) {
                                             withAnimation(.spring(response: 0.3)) {
@@ -154,9 +191,16 @@ struct MapsViewNew: View, Searchable {
                             .transition(.scale(scale: 0.85).combined(with: .opacity))
                         }
 
-                        // Bottom spacing
-                        Spacer()
-                            .frame(height: 100)
+                            // Bottom spacing
+                            Spacer()
+                                .frame(height: 100)
+                        } else {
+                            // RANKING TAB CONTENT
+                            RankingView(
+                                locationsManager: locationsManager,
+                                colorScheme: colorScheme
+                            )
+                        }
                     }
                 }
                 .background(
@@ -230,7 +274,7 @@ struct MapsViewNew: View, Searchable {
 
         // iPhone-style folder overlay
         if selectedCategory != nil {
-            let filteredPlaces = locationsManager.getPlaces(country: selectedCountry, city: selectedCity)
+            let filteredPlaces = locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity)
                 .filter { $0.category == selectedCategory }
             FolderOverlayView(
                 category: selectedCategory!,
@@ -719,156 +763,124 @@ struct FolderPlaceStatusView: View {
 struct LocationFiltersView: View {
     @ObservedObject var locationsManager: LocationsManager
     @Binding var selectedCountry: String?
+    @Binding var selectedProvince: String?
     @Binding var selectedCity: String?
     let colorScheme: ColorScheme
 
     var body: some View {
         VStack(spacing: 12) {
-            // Country filter
+            // Country filter dropdown
             if !locationsManager.countries.isEmpty {
-                CountryFilterView(
-                    locationsManager: locationsManager,
-                    selectedCountry: $selectedCountry,
-                    selectedCity: $selectedCity,
-                    colorScheme: colorScheme
+                LocationFilterDropdown(
+                    title: "Country",
+                    selectedValue: $selectedCountry,
+                    options: ["All"] + Array(locationsManager.countries).sorted(),
+                    colorScheme: colorScheme,
+                    onChanged: {
+                        selectedProvince = nil
+                        selectedCity = nil
+                    }
                 )
             }
 
-            // City filter
-            if let country = selectedCountry, !locationsManager.getCities(in: country).isEmpty {
-                CityFilterView(
-                    locationsManager: locationsManager,
-                    country: country,
-                    selectedCity: $selectedCity,
-                    colorScheme: colorScheme
-                )
+            // Province filter dropdown (only show if country is selected)
+            if let country = selectedCountry {
+                let provinces = locationsManager.getProvinces(in: country)
+                if !provinces.isEmpty {
+                    LocationFilterDropdown(
+                        title: "Province/State",
+                        selectedValue: $selectedProvince,
+                        options: ["All"] + Array(provinces).sorted(),
+                        colorScheme: colorScheme,
+                        onChanged: {
+                            selectedCity = nil
+                        }
+                    )
+                }
+            }
+
+            // City filter dropdown (only show if province is selected)
+            if let country = selectedCountry, let province = selectedProvince {
+                let cities = locationsManager.getCities(in: country, andProvince: province)
+                if !cities.isEmpty {
+                    LocationFilterDropdown(
+                        title: "City",
+                        selectedValue: $selectedCity,
+                        options: ["All"] + Array(cities).sorted(),
+                        colorScheme: colorScheme
+                    )
+                }
             }
         }
+        .padding(.horizontal, 20)
         .padding(.bottom, 16)
     }
 }
 
-// MARK: - Country Filter View
+// MARK: - Location Filter Dropdown Component
 
-struct CountryFilterView: View {
-    @ObservedObject var locationsManager: LocationsManager
-    @Binding var selectedCountry: String?
-    @Binding var selectedCity: String?
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                FilterButtonView(
-                    title: "All",
-                    isSelected: selectedCountry == nil,
-                    colorScheme: colorScheme,
-                    action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedCountry = nil
-                            selectedCity = nil
-                        }
-                    }
-                )
-
-                ForEach(Array(locationsManager.countries).sorted(), id: \.self) { country in
-                    FilterButtonView(
-                        title: country,
-                        isSelected: selectedCountry == country,
-                        colorScheme: colorScheme,
-                        action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedCountry = country
-                                selectedCity = nil
-                            }
-                        }
-                    )
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-}
-
-// MARK: - City Filter View
-
-struct CityFilterView: View {
-    @ObservedObject var locationsManager: LocationsManager
-    let country: String
-    @Binding var selectedCity: String?
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                FilterButtonView(
-                    title: "All",
-                    isSelected: selectedCity == nil,
-                    colorScheme: colorScheme,
-                    action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedCity = nil
-                        }
-                    }
-                )
-
-                ForEach(Array(locationsManager.getCities(in: country)).sorted(), id: \.self) { city in
-                    FilterButtonView(
-                        title: city,
-                        isSelected: selectedCity == city,
-                        colorScheme: colorScheme,
-                        action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedCity = city
-                            }
-                        }
-                    )
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-}
-
-// MARK: - Filter Button View
-
-struct FilterButtonView: View {
+struct LocationFilterDropdown: View {
     let title: String
-    let isSelected: Bool
+    @Binding var selectedValue: String?
+    let options: [String]
     let colorScheme: ColorScheme
-    let action: () -> Void
+    var onChanged: (() -> Void)? = nil
 
     var body: some View {
-        Button(action: action) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(
-                    isSelected ?
-                        (colorScheme == .dark ? .white : .black) :
-                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                )
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+
+            Menu {
+                ForEach(options, id: \.self) { option in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedValue = option == "All" ? nil : option
+                            onChanged?()
+                        }
+                    }) {
+                        HStack {
+                            Text(option)
+                            if (option == "All" && selectedValue == nil) ||
+                               (option != "All" && selectedValue == option) {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(selectedValue ?? "All")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.vertical, 10)
                 .background(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(
-                            isSelected ?
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.15) :
-                                    Color.black.opacity(0.15)) :
-                                Color.clear
+                            colorScheme == .dark ?
+                                Color.white.opacity(0.08) :
+                                Color.black.opacity(0.05)
                         )
                 )
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: 8)
                         .stroke(
-                            isSelected ? Color.clear :
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.2) :
-                                    Color.black.opacity(0.1)),
+                            colorScheme == .dark ?
+                                Color.white.opacity(0.12) :
+                                Color.black.opacity(0.08),
                             lineWidth: 1
                         )
                 )
+            }
         }
     }
 }

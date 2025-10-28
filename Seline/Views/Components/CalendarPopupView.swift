@@ -172,15 +172,15 @@ struct CalendarPopupView: View {
                         VStack(spacing: 8) {
                             Image(systemName: "checkmark.circle")
                                 .font(.system(size: 32))
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Text("No tasks")
                                 .font(.shadcnTextSm)
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Text("Tasks for this date will appear here")
                                 .font(.shadcnTextXs)
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 .multilineTextAlignment(.center)
                         }
                         .frame(maxWidth: .infinity)
@@ -574,9 +574,9 @@ struct TaskRowCalendar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Checkbox (completed or incomplete)
+            // Checkbox (completed or incomplete) - always use filter color
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isTaskCompleted ? accentColor : Color.shadcnMutedForeground(colorScheme))
+                .foregroundColor(accentColor)
                 .font(.system(size: 18, weight: .medium))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -899,7 +899,8 @@ struct ShadcnDayCell: View {
             // In light mode: primary color background with white text
             return colorScheme == .dark ? Color.black : Color.white
         } else if isToday {
-            return Color.shadcnPrimary
+            // Today: white/black per theme instead of blue
+            return colorScheme == .dark ? Color.white : Color.black
         } else if !isInCurrentMonth {
             return (colorScheme == .dark ? Color.white : Color.black).opacity(0.4)
         } else {

@@ -17,11 +17,14 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var longitude: Double
     var category: String // AI-generated category
     var photos: [String] // URLs to photos
-    var rating: Double?
+    var rating: Double? // Google's rating
     var openingHours: [String]? // Opening hours weekday descriptions
     var isOpenNow: Bool?
     var country: String? // Country extracted from address
+    var province: String? // Province/State extracted from address
     var city: String? // City extracted from address
+    var userRating: Int? // User's personal rating (1-10)
+    var userNotes: String? // User's personal notes
     var dateCreated: Date
     var dateModified: Date
 
@@ -40,12 +43,13 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.openingHours = openingHours
         self.isOpenNow = isOpenNow
         self.country = nil
+        self.province = nil
         self.city = nil
         self.dateCreated = Date()
         self.dateModified = Date()
 
-        // Extract country and city from address
-        (self.city, self.country) = Self.parseLocationFromAddress(address)
+        // Extract country, province, and city from address
+        (self.city, self.province, self.country) = Self.parseLocationFromAddress(address)
     }
 
     // Display name - shows custom name if set, otherwise original name
@@ -82,16 +86,16 @@ struct SavedPlace: Identifiable, Codable, Hashable {
 
     // MARK: - Location Parsing
 
-    /// Parse city and country from formatted address
+    /// Parse city, province/state, and country from formatted address
     /// Google Places format: "Street Address, City, State/Province PostalCode, Country"
-    /// We extract the State/Province as the main filter (e.g., "Ontario", "California")
+    /// Example: "123 Main St, Mississauga, ON M5H 2R2, Canada"
     /// - Parameter address: The formatted address string
-    /// - Returns: Tuple of (stateOrProvince, country)
-    static func parseLocationFromAddress(_ address: String) -> (city: String?, country: String?) {
+    /// - Returns: Tuple of (city, province, country)
+    static func parseLocationFromAddress(_ address: String) -> (city: String?, province: String?, country: String?) {
         let components = address.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
 
         guard components.count >= 3 else {
-            return (nil, nil)
+            return (nil, nil, nil)
         }
 
         // Last component is always country
@@ -99,37 +103,25 @@ struct SavedPlace: Identifiable, Codable, Hashable {
 
         // State/Province with postal code is typically the 3rd-to-last component
         // Format: "State/Province PostalCode" or just "State/Province"
-        // We need to extract just the state/province, not the postal code
         let stateWithPostal = components[components.count - 2]
 
-        // Split by space and filter out postal codes (all digits or postal code patterns)
-        let stateComponents = stateWithPostal.split(separator: " ").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Extract province/state by removing postal code
+        var province: String? = nil
 
+        // Try to take everything before the postal code
+        if let postalRange = stateWithPostal.range(of: " [A-Z0-9]{3,}$", options: .regularExpression) {
+            province = String(stateWithPostal[..<postalRange.lowerBound])
+        } else {
+            province = stateWithPostal
+        }
+
+        // City is typically the 2nd-to-last component (before state/province)
         var city: String? = nil
-
-        // Find the first component that's not a postal code (not all digits, not postal code format)
-        for component in stateComponents {
-            // Skip if it looks like a postal code (all digits, or contains digits/letters like M5V)
-            let isPostalCode = component.range(of: "^[A-Z0-9]{3,}$", options: .regularExpression) != nil ||
-                              component.range(of: "^\\d{5}(-\\d{4})?$", options: .regularExpression) != nil
-
-            if !isPostalCode && component.count > 1 {
-                city = component
-                break
-            }
+        if components.count >= 3 {
+            city = components[components.count - 3]
         }
 
-        // If we couldn't find state/province, fall back to the full component (without postal)
-        if city == nil && !stateWithPostal.isEmpty {
-            // Try to take everything before the postal code
-            if let postalRange = stateWithPostal.range(of: " [A-Z0-9]{3,}$", options: .regularExpression) {
-                city = String(stateWithPostal[..<postalRange.lowerBound])
-            } else {
-                city = stateWithPostal
-            }
-        }
-
-        return (city, country)
+        return (city, province, country)
     }
 }
 
@@ -153,6 +145,7 @@ class LocationsManager: ObservableObject {
     @Published var isLoading = false
     @Published var categories: Set<String> = []
     @Published var countries: Set<String> = []
+    @Published var provinces: Set<String> = []
     @Published var cities: Set<String> = []
 
     private let placesKey = "SavedPlaces"
@@ -237,9 +230,10 @@ class LocationsManager: ObservableObject {
             UserDefaults.standard.set(encoded, forKey: placesKey)
         }
 
-        // Update categories, countries, and cities sets
+        // Update categories, countries, provinces, and cities sets
         categories = Set(savedPlaces.map { $0.category })
         countries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+        provinces = Set(savedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
         cities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
     }
 
@@ -251,11 +245,12 @@ class LocationsManager: ObservableObject {
             var needsSave = false
 
             for i in 0..<migratedPlaces.count {
-                let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+                let (city, province, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
 
                 // Update if location data changed or was missing
-                if migratedPlaces[i].city != city || migratedPlaces[i].country != country {
+                if migratedPlaces[i].city != city || migratedPlaces[i].province != province || migratedPlaces[i].country != country {
                     migratedPlaces[i].city = city
+                    migratedPlaces[i].province = province
                     migratedPlaces[i].country = country
                     needsSave = true
                 }
@@ -264,6 +259,7 @@ class LocationsManager: ObservableObject {
             self.savedPlaces = migratedPlaces
             self.categories = Set(migratedPlaces.map { $0.category })
             self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+            self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
             self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
 
             // Save migrated data
@@ -309,6 +305,20 @@ class LocationsManager: ObservableObject {
         }
     }
 
+    func updateRestaurantRating(_ placeId: UUID, rating: Int?, notes: String?) {
+        if let index = savedPlaces.firstIndex(where: { $0.id == placeId }) {
+            savedPlaces[index].userRating = rating
+            savedPlaces[index].userNotes = notes
+            savedPlaces[index].dateModified = Date()
+            savePlacesToStorage()
+
+            // Sync with Supabase
+            Task {
+                await updatePlaceInSupabase(savedPlaces[index])
+            }
+        }
+    }
+
     func isPlaceSaved(googlePlaceId: String) -> Bool {
         return savedPlaces.contains { $0.googlePlaceId == googlePlaceId }
     }
@@ -337,16 +347,21 @@ class LocationsManager: ObservableObject {
 
     // MARK: - Location Filtering
 
-    /// Filter places by country and/or city
+    /// Filter places by country, province, and/or city
     /// - Parameters:
     ///   - country: Optional country filter
+    ///   - province: Optional province/state filter
     ///   - city: Optional city filter
     /// - Returns: Array of filtered SavedPlace objects
-    func getPlaces(country: String? = nil, city: String? = nil) -> [SavedPlace] {
+    func getPlaces(country: String? = nil, province: String? = nil, city: String? = nil) -> [SavedPlace] {
         var filtered = savedPlaces
 
         if let country = country, !country.isEmpty {
             filtered = filtered.filter { $0.country == country }
+        }
+
+        if let province = province, !province.isEmpty {
+            filtered = filtered.filter { $0.province == province }
         }
 
         if let city = city, !city.isEmpty {
@@ -356,24 +371,44 @@ class LocationsManager: ObservableObject {
         return filtered.sorted { $0.dateModified > $1.dateModified }
     }
 
-    /// Get folders (categories) with optional country and city filters
+    /// Get folders (categories) with optional country, province, and city filters
     /// - Parameters:
     ///   - country: Optional country filter
+    ///   - province: Optional province/state filter
     ///   - city: Optional city filter
     /// - Returns: Set of category names
-    func getCategories(country: String? = nil, city: String? = nil) -> Set<String> {
-        let filtered = getPlaces(country: country, city: city)
+    func getCategories(country: String? = nil, province: String? = nil, city: String? = nil) -> Set<String> {
+        let filtered = getPlaces(country: country, province: province, city: city)
         return Set(filtered.map { $0.category })
     }
 
-    /// Get all cities in a specific country
+    /// Get all provinces in a specific country
     /// - Parameter country: The country to filter by
-    /// - Returns: Set of city names in that country
-    func getCities(in country: String? = nil) -> Set<String> {
+    /// - Returns: Set of province/state names in that country
+    func getProvinces(in country: String? = nil) -> Set<String> {
         var filtered = savedPlaces
 
         if let country = country, !country.isEmpty {
             filtered = filtered.filter { $0.country == country }
+        }
+
+        return Set(filtered.compactMap { $0.province }.filter { !$0.isEmpty })
+    }
+
+    /// Get all cities in a specific country and province
+    /// - Parameters:
+    ///   - country: The country to filter by
+    ///   - province: Optional province/state to further filter by
+    /// - Returns: Set of city names in that location
+    func getCities(in country: String? = nil, andProvince province: String? = nil) -> Set<String> {
+        var filtered = savedPlaces
+
+        if let country = country, !country.isEmpty {
+            filtered = filtered.filter { $0.country == country }
+        }
+
+        if let province = province, !province.isEmpty {
+            filtered = filtered.filter { $0.province == province }
         }
 
         return Set(filtered.compactMap { $0.city }.filter { !$0.isEmpty })
@@ -611,6 +646,10 @@ class LocationsManager: ObservableObject {
         placeData["opening_hours"] = place.openingHours != nil ? .string(try! JSONEncoder().encode(place.openingHours!).base64EncodedString()) : .null
         placeData["is_open_now"] = place.isOpenNow != nil ? .bool(place.isOpenNow!) : .null
 
+        // Add user rating and notes
+        placeData["user_rating"] = place.userRating != nil ? .double(Double(place.userRating!)) : .null
+        placeData["user_notes"] = place.userNotes != nil ? .string(place.userNotes!) : .null
+
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
             try await client
@@ -648,6 +687,10 @@ class LocationsManager: ObservableObject {
         // Add opening_hours and is_open_now (migration completed)
         placeData["opening_hours"] = place.openingHours != nil ? .string(try! JSONEncoder().encode(place.openingHours!).base64EncodedString()) : .null
         placeData["is_open_now"] = place.isOpenNow != nil ? .bool(place.isOpenNow!) : .null
+
+        // Add user rating and notes
+        placeData["user_rating"] = place.userRating != nil ? .double(Double(place.userRating!)) : .null
+        placeData["user_notes"] = place.userNotes != nil ? .string(place.userNotes!) : .null
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
@@ -806,6 +849,8 @@ class LocationsManager: ObservableObject {
         place.category = data.category
         place.country = data.country
         place.city = data.city
+        place.userRating = data.user_rating
+        place.userNotes = data.user_notes
         place.dateCreated = dateCreated
         place.dateModified = dateModified
 
@@ -934,6 +979,8 @@ struct PlaceSupabaseData: Codable {
     let rating: Double?
     let opening_hours: String? // Base64 encoded JSON array
     let is_open_now: Bool?
+    let user_rating: Int?
+    let user_notes: String?
     let date_created: String
     let date_modified: String
 }

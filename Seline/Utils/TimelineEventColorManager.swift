@@ -96,12 +96,19 @@ struct TimelineEventColorManager {
     }
 
     // MARK: - Determine Filter Type from Task
-    /// Helper to determine the filter type based on task's tagId
+    /// Helper to determine the filter type based on task's tagId and event source
     static func filterType(from task: TaskItem) -> FilterType {
+        // Check if it's a calendar sync event (ID starts with "cal_")
+        if task.id.hasPrefix("cal_") {
+            return .personalSync
+        }
+
+        // Check if it has a tag
         if let tagId = task.tagId, !tagId.isEmpty {
             return .tag(tagId)
-        } else {
-            return .personal
         }
+
+        // Default to personal
+        return .personal
     }
 }

@@ -171,16 +171,12 @@ struct EventStatsView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundColor(colorScheme == .dark ? .black : .white)
+                .foregroundColor(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(
-                            colorScheme == .dark ?
-                                Color.white :
-                                Color.black
-                        )
+                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
                 )
             }
 
@@ -201,16 +197,12 @@ struct EventStatsView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundColor(colorScheme == .dark ? .black : .white)
+                .foregroundColor(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(
-                            colorScheme == .dark ?
-                                Color.white :
-                                Color.black
-                        )
+                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
                 )
             }
 

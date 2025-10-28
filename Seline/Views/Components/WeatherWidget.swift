@@ -41,10 +41,10 @@ struct WeatherWidget: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 8) {
-                // Weather Card (50%)
-                weatherCardButton(width: (geometry.size.width - 8) * 0.5)
+                // Weather Card (60%)
+                weatherCardButton(width: (geometry.size.width - 8) * 0.6)
 
-            // Navigation Card (50%)
+            // Navigation Card (40%)
             VStack(spacing: 6) {
                 // Location 1 ETA
                 NavigationETARow(
@@ -111,7 +111,7 @@ struct WeatherWidget: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .frame(width: (geometry.size.width - 8) * 0.5, height: 90, alignment: .leading)
+            .frame(width: (geometry.size.width - 8) * 0.4, height: 90, alignment: .leading)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
             }
@@ -228,7 +228,7 @@ struct WeatherWidget: View {
         Button(action: {
             openWeatherApp()
         }) {
-            VStack(alignment: .center, spacing: 4) {
+            VStack(alignment: .center, spacing: 0) {
                 // Row 1: Location | Temperature | Weather Icon
                 HStack(spacing: 6) {
                     // Location text
@@ -260,6 +260,8 @@ struct WeatherWidget: View {
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                 }
 
+                Spacer()
+
                 // Row 2: Sunrise and Sunset
                 HStack(spacing: 16) {
                     // Sunrise - yellow icon
@@ -283,8 +285,10 @@ struct WeatherWidget: View {
                     }
                 }
 
+                Spacer()
+
                 // Row 3: 6-Day Forecast
-                HStack(spacing: 8) {
+                HStack(spacing: 0) {
                     ForEach(weatherService.weatherData?.dailyForecasts ?? [], id: \.day) { forecast in
                         VStack(spacing: 2) {
                             Image(systemName: forecast.iconName)
@@ -302,6 +306,7 @@ struct WeatherWidget: View {
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                                 .frame(height: 10)
                         }
+                        .frame(maxWidth: .infinity)
                     }
                 }
             }
@@ -491,10 +496,6 @@ struct NavigationETARow: View {
                     }
 
                     Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                 } else {
                     // Location set but ETA failed/unavailable
                     Text("—")

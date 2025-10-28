@@ -1,7 +1,7 @@
 import SwiftUI
 import CoreLocation
 
-// MARK: - Category Filter Slider
+// MARK: - Category Filter Slider (Dropdown Version)
 
 struct CategoryFilterSlider: View {
     @Binding var selectedCategory: String?
@@ -9,74 +9,73 @@ struct CategoryFilterSlider: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                // "All" option
-                FilterPillButton(
-                    title: "All",
-                    isSelected: selectedCategory == nil,
-                    colorScheme: colorScheme
-                ) {
-                    selectedCategory = nil
-                }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Category")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
-                // Individual categories
-                ForEach(categories, id: \.self) { category in
-                    FilterPillButton(
-                        title: category,
-                        isSelected: selectedCategory == category,
-                        colorScheme: colorScheme
-                    ) {
-                        selectedCategory = category
+            Menu {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedCategory = nil
+                    }
+                }) {
+                    HStack {
+                        Text("All")
+                        if selectedCategory == nil {
+                            Image(systemName: "checkmark")
+                        }
                     }
                 }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-}
 
-// MARK: - Filter Pill Button
+                ForEach(categories, id: \.self) { category in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedCategory = category
+                        }
+                    }) {
+                        HStack {
+                            Text(category)
+                            if selectedCategory == category {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(selectedCategory ?? "All")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
 
-struct FilterPillButton: View {
-    let title: String
-    let isSelected: Bool
-    let colorScheme: ColorScheme
-    let action: () -> Void
+                    Spacer()
 
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(
-                    isSelected ?
-                        (colorScheme == .dark ? .white : .black) :
-                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                )
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.vertical, 10)
                 .background(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(
-                            isSelected ?
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.15) :
-                                    Color.black.opacity(0.15)) :
-                                Color.clear
+                            colorScheme == .dark ?
+                                Color.white.opacity(0.08) :
+                                Color.black.opacity(0.05)
                         )
                 )
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: 8)
                         .stroke(
-                            isSelected ? Color.clear :
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.2) :
-                                    Color.black.opacity(0.1)),
+                            colorScheme == .dark ?
+                                Color.white.opacity(0.12) :
+                                Color.black.opacity(0.08),
                             lineWidth: 1
                         )
                 )
+            }
         }
-        .buttonStyle(PlainButtonStyle())
+        .padding(.horizontal, 20)
     }
 }
 
