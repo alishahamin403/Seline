@@ -235,11 +235,11 @@ struct EmailCardWidget: View {
                                             Group {
                                                 if let icon = emailIcon(for: email) {
                                                     Image(systemName: icon)
-                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .font(.system(size: 8, weight: .semibold))
                                                         .foregroundColor(.white)
                                                 } else {
                                                     Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                                        .font(.system(size: 9, weight: .semibold))
+                                                        .font(FontManager.geist(size: .small, weight: .semibold))
                                                         .foregroundColor(.white)
                                                 }
                                             }
