@@ -768,47 +768,53 @@ struct LocationFiltersView: View {
     let colorScheme: ColorScheme
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Country filter dropdown
-            if !locationsManager.countries.isEmpty {
-                LocationFilterDropdown(
-                    title: "Country",
-                    selectedValue: $selectedCountry,
-                    options: ["All"] + Array(locationsManager.countries).sorted(),
-                    colorScheme: colorScheme,
-                    onChanged: {
-                        selectedProvince = nil
-                        selectedCity = nil
-                    }
-                )
-            }
-
-            // Province filter dropdown (only show if country is selected)
-            if let country = selectedCountry {
-                let provinces = locationsManager.getProvinces(in: country)
-                if !provinces.isEmpty {
+        VStack(spacing: 8) {
+            // Three dropdowns in a row
+            HStack(spacing: 12) {
+                // Country filter dropdown
+                if !locationsManager.countries.isEmpty {
                     LocationFilterDropdown(
-                        title: "Province/State",
-                        selectedValue: $selectedProvince,
-                        options: ["All"] + Array(provinces).sorted(),
+                        title: "Country",
+                        selectedValue: $selectedCountry,
+                        options: ["All"] + Array(locationsManager.countries).sorted(),
                         colorScheme: colorScheme,
                         onChanged: {
+                            selectedProvince = nil
                             selectedCity = nil
                         }
                     )
+                    .frame(maxWidth: .infinity)
                 }
-            }
 
-            // City filter dropdown (only show if province is selected)
-            if let country = selectedCountry, let province = selectedProvince {
-                let cities = locationsManager.getCities(in: country, andProvince: province)
-                if !cities.isEmpty {
-                    LocationFilterDropdown(
-                        title: "City",
-                        selectedValue: $selectedCity,
-                        options: ["All"] + Array(cities).sorted(),
-                        colorScheme: colorScheme
-                    )
+                // Province filter dropdown (only show if country is selected)
+                if let country = selectedCountry {
+                    let provinces = locationsManager.getProvinces(in: country)
+                    if !provinces.isEmpty {
+                        LocationFilterDropdown(
+                            title: "Province/State",
+                            selectedValue: $selectedProvince,
+                            options: ["All"] + Array(provinces).sorted(),
+                            colorScheme: colorScheme,
+                            onChanged: {
+                                selectedCity = nil
+                            }
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+
+                // City filter dropdown (only show if province is selected)
+                if let country = selectedCountry, let province = selectedProvince {
+                    let cities = locationsManager.getCities(in: country, andProvince: province)
+                    if !cities.isEmpty {
+                        LocationFilterDropdown(
+                            title: "City",
+                            selectedValue: $selectedCity,
+                            options: ["All"] + Array(cities).sorted(),
+                            colorScheme: colorScheme
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
                 }
             }
         }
