@@ -767,8 +767,9 @@ class LocationsManager: ObservableObject {
             // Always re-parse location data to ensure correct formatting (no postal codes)
             var migratedPlaces = parsedPlaces
             for i in 0..<migratedPlaces.count {
-                let (city, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
+                let (city, province, country) = SavedPlace.parseLocationFromAddress(migratedPlaces[i].address)
                 migratedPlaces[i].city = city
+                migratedPlaces[i].province = province
                 migratedPlaces[i].country = country
             }
 
@@ -777,6 +778,7 @@ class LocationsManager: ObservableObject {
                     self.savedPlaces = migratedPlaces
                     self.categories = Set(migratedPlaces.map { $0.category })
                     self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
+                    self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
                     self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
                     savePlacesToStorage()
                 } else if response.isEmpty {
