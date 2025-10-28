@@ -5,6 +5,9 @@ struct RankingView: View {
     let colorScheme: ColorScheme
 
     @State private var selectedCuisineFilter: String = "All Cuisines"
+    @State private var selectedCountry: String?
+    @State private var selectedProvince: String?
+    @State private var selectedCity: String?
 
     var restaurants: [SavedPlace] {
         locationsManager.savedPlaces.filter { place in
@@ -12,8 +15,35 @@ struct RankingView: View {
         }
     }
 
+    var provinces: Set<String> {
+        selectedCountry.map { locationsManager.getProvinces(in: $0) } ?? locationsManager.provinces
+    }
+
+    var cities: Set<String> {
+        if let country = selectedCountry, let province = selectedProvince {
+            return locationsManager.getCities(in: country, andProvince: province)
+        } else if let country = selectedCountry {
+            return locationsManager.getCities(in: country)
+        } else {
+            return []
+        }
+    }
+
     var filteredAndSortedRestaurants: [SavedPlace] {
         var filtered = restaurants
+
+        // Apply location filters
+        if let country = selectedCountry, !country.isEmpty {
+            filtered = filtered.filter { $0.country == country }
+        }
+
+        if let province = selectedProvince, !province.isEmpty {
+            filtered = filtered.filter { $0.province == province }
+        }
+
+        if let city = selectedCity, !city.isEmpty {
+            filtered = filtered.filter { $0.city == city }
+        }
 
         // Apply cuisine filter
         if selectedCuisineFilter != "All Cuisines" {
@@ -95,7 +125,45 @@ struct RankingView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 16)
 
-            // Cuisine filter
+            // Location filters (dropdowns)
+            HStack(spacing: 12) {
+                // Country filter dropdown
+                CompactDropdown(
+                    label: selectedCountry ?? "Country",
+                    options: ["All"] + Array(locationsManager.countries).sorted(),
+                    selectedOption: selectedCountry,
+                    onSelect: { option in
+                        selectedCountry = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
+
+                // Province filter dropdown
+                CompactDropdown(
+                    label: selectedProvince ?? "Province",
+                    options: ["All"] + Array(provinces).sorted(),
+                    selectedOption: selectedProvince,
+                    onSelect: { option in
+                        selectedProvince = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
+
+                // City filter dropdown
+                CompactDropdown(
+                    label: selectedCity ?? "City",
+                    options: ["All"] + Array(cities).sorted(),
+                    selectedOption: selectedCity,
+                    onSelect: { option in
+                        selectedCity = option == "All" ? nil : option
+                    },
+                    colorScheme: colorScheme
+                )
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+
+            // Cuisine filter (pills)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(availableCuisines, id: \.self) { cuisine in
