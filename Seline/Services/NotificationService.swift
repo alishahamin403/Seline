@@ -177,4 +177,34 @@ class NotificationService: ObservableObject {
             withIdentifiers: ["task-reminder-\(taskId)"]
         )
     }
+
+    // MARK: - Top Stories Notifications
+
+    func scheduleTopStoryNotification(title: String, category: String) async {
+        // Check if we have authorization
+        guard isAuthorized else {
+            print("Notification authorization not granted")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "New Top Story"
+        content.body = title
+        content.sound = .default
+        content.categoryIdentifier = "top_story"
+        content.userInfo = ["type": "top_story", "category": category]
+
+        let request = UNNotificationRequest(
+            identifier: "top-story-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil // Show immediately
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("📰 Scheduled notification for new top story: \(title)")
+        } catch {
+            print("Failed to schedule top story notification: \(error)")
+        }
+    }
 }

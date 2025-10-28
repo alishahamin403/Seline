@@ -819,15 +819,13 @@ class EmailService: ObservableObject {
                     }
                 }
 
-                // CRITICAL FIX: Only show notification if app is in background
-                if !isAppActive {
-                    await notificationService.scheduleNewEmailNotification(
-                        emailCount: newMessageIds.count,
-                        latestSender: latestSender,
-                        latestSubject: latestSubject,
-                        latestEmailId: latestEmailId
-                    )
-                }
+                // Show notification for new emails (real-time notifications)
+                await notificationService.scheduleNewEmailNotification(
+                    emailCount: newMessageIds.count,
+                    latestSender: latestSender,
+                    latestSubject: latestSubject,
+                    latestEmailId: latestEmailId
+                )
 
                 // Update badge count
                 let currentUnreadCount = inboxEmails.filter { !$0.isRead }.count

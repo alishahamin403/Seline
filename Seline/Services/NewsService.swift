@@ -15,6 +15,10 @@ class NewsService: ObservableObject {
     private var isAppActive = false
     private var newsRefreshTimer: Timer?
 
+    // Track previous articles for change detection
+    private var previousArticleIds: [NewsCategory: Set<String>] = [:]
+    private let notificationService = NotificationService.shared
+
     // You'll need to get your own API key from https://newsapi.org/
     private let apiKey = "5f3f2612b55c41bab3bb31360c6c2581"
     private let baseURL = "https://newsapi.org/v2/top-headlines"
@@ -72,16 +76,20 @@ class NewsService: ObservableObject {
                 article.description != nil && !article.description!.isEmpty
             }
             let sortedArticles = validArticles.sorted { $0.publishedAt > $1.publishedAt }.prefix(5)
+            let finalArticles = Array(sortedArticles)
+
+            // Check for new articles and notify
+            await detectAndNotifyNewArticles(finalArticles, for: category)
 
             await MainActor.run {
-                self.topNews = Array(sortedArticles)
+                self.topNews = finalArticles
                 self.isLoading = false
 
                 // Store in category dictionary for voice assistant
-                self.newsByCategory[category] = Array(sortedArticles)
+                self.newsByCategory[category] = finalArticles
 
                 // Cache the results
-                cacheNews(Array(sortedArticles), for: category)
+                cacheNews(finalArticles, for: category)
                 UserDefaults.standard.set(Date(), forKey: cacheKey)
             }
         } else {
@@ -89,6 +97,28 @@ class NewsService: ObservableObject {
                 self.isLoading = false
             }
         }
+    }
+
+    // Detect new articles and send notifications
+    private func detectAndNotifyNewArticles(_ newArticles: [NewsArticle], for category: NewsCategory) async {
+        let newArticleIds = Set(newArticles.map { $0.title }) // Use title as unique identifier
+        let previousIds = previousArticleIds[category] ?? Set()
+
+        // Find articles that are new (in current but not in previous)
+        let newTitles = newArticleIds.subtracting(previousIds)
+
+        // Send notifications for each new article (limit to 3 to avoid spam)
+        for newTitle in newTitles.prefix(3) {
+            if let newArticle = newArticles.first(where: { $0.title == newTitle }) {
+                await notificationService.scheduleTopStoryNotification(
+                    title: newArticle.title,
+                    category: category.displayName
+                )
+            }
+        }
+
+        // Update previous article IDs
+        previousArticleIds[category] = newArticleIds
     }
 
     func fetchTopWorldNews() async {
