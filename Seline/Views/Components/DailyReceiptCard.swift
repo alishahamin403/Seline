@@ -30,7 +30,7 @@ struct DailyReceiptCard: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(CurrencyParser.formatAmount(dailySummary.dailyTotal))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
