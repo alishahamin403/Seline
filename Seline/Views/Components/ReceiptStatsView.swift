@@ -25,14 +25,18 @@ struct ReceiptStatsView: View {
                 VStack(spacing: 0) {
                     // Year selector header with total
                     HStack(spacing: 12) {
-                        Button(action: { selectPreviousYear() }) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        if !availableYears.isEmpty && currentYear != availableYears.min() {
+                            Button(action: { selectPreviousYear() }) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .frame(width: 32, height: 32)
+                            }
+                        } else {
+                            // Placeholder to maintain spacing
+                            Color.clear
                                 .frame(width: 32, height: 32)
                         }
-                        .disabled(availableYears.isEmpty || currentYear == availableYears.min())
-                        .opacity(availableYears.isEmpty || currentYear == availableYears.min() ? 0.3 : 1)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(String(format: "%d", currentYear))
@@ -48,14 +52,18 @@ struct ReceiptStatsView: View {
 
                         Spacer()
 
-                        Button(action: { selectNextYear() }) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        if !availableYears.isEmpty && currentYear != availableYears.max() {
+                            Button(action: { selectNextYear() }) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .frame(width: 32, height: 32)
+                            }
+                        } else {
+                            // Placeholder to maintain spacing
+                            Color.clear
                                 .frame(width: 32, height: 32)
                         }
-                        .disabled(availableYears.isEmpty || currentYear == availableYears.max())
-                        .opacity(availableYears.isEmpty || currentYear == availableYears.max() ? 0.3 : 1)
                     }
                     .padding(16)
 
