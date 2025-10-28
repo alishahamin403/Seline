@@ -321,7 +321,7 @@ struct NotesView: View, Searchable {
                     Spacer()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 60)
             .background(
                 (colorScheme == .dark ? Color.black : Color.white)
