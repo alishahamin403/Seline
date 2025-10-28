@@ -188,6 +188,21 @@ struct EmailCardWidget: View {
         return "building.2.fill"
     }
 
+    // Email avatar color based on sender email (Google brand colors)
+    private func emailAvatarColor(for email: Email) -> Color {
+        let colors: [Color] = [
+            Color(red: 0.2588, green: 0.5216, blue: 0.9569),  // Google Blue #4285F4
+            Color(red: 0.9176, green: 0.2627, blue: 0.2078),  // Google Red #EA4335
+            Color(red: 0.9843, green: 0.7373, blue: 0.0157),  // Google Yellow #FBBC04
+            Color(red: 0.2039, green: 0.6588, blue: 0.3255),  // Google Green #34A853
+        ]
+
+        // Generate deterministic color based on sender email
+        let hash = email.sender.email.hashValue
+        let colorIndex = abs(hash) % colors.count
+        return colors[colorIndex]
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
@@ -212,13 +227,9 @@ struct EmailCardWidget: View {
                                 selectedEmail = email
                             }) {
                                 HStack(spacing: 8) {
-                                    // Avatar circle with icon
+                                    // Avatar circle with colored background and icon
                                     Circle()
-                                        .fill(
-                                            colorScheme == .dark ?
-                                                Color.white :
-                                                Color.black
-                                        )
+                                        .fill(emailAvatarColor(for: email))
                                         .frame(width: 20, height: 20)
                                         .overlay(
                                             Group {
