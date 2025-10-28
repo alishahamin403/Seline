@@ -387,6 +387,7 @@ struct NotesView: View, Searchable {
                         }
                     }
                 }
+                .allowsHitTesting(showingFolderSidebar)
             )
         }
         .sheet(isPresented: $showingNewNoteSheet) {
