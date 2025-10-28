@@ -312,7 +312,7 @@ struct NotesView: View, Searchable {
 
                         // Bottom spacer for floating button
                         Spacer()
-                            .frame(height: 40)
+                            .frame(height: 0)
                     }
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
@@ -322,7 +322,7 @@ struct NotesView: View, Searchable {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 30)
+            .padding(.bottom, 0)
             .background(
                 (colorScheme == .dark ? Color.black : Color.white)
                     .ignoresSafeArea()
