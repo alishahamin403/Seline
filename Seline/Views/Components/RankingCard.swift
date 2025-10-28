@@ -288,6 +288,6 @@ struct RankingCard: View {
             rating: 4.5
         ),
         colorScheme: .dark,
-        onRatingUpdate: { _, _ in }
+        onRatingUpdate: { _, _, _ in }
     )
 }
