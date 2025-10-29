@@ -431,8 +431,8 @@ struct MainAppView: View {
             }
             .frame(maxHeight: .infinity)
 
-            // Fixed Footer - hide when keyboard appears or any sheet is open
-            if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup {
+            // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
+            if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
                 BottomTabBar(selectedTab: $selectedTab)
             }
         }

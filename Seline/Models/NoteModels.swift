@@ -144,6 +144,7 @@ class NotesManager: ObservableObject {
     @Published var deletedNotes: [DeletedNote] = []
     @Published var deletedFolders: [DeletedFolder] = []
     @Published var isLoading = false
+    @Published var isViewingNoteInNavigation = false
 
     private let notesKey = "SavedNotes"
     private let foldersKey = "SavedNoteFolders"

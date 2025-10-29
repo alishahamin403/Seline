@@ -398,6 +398,9 @@ struct NotesView: View, Searchable {
                     .navigationBarBackButtonHidden(false)
             }
         }
+        .onChange(of: navigationPath) { oldPath, newPath in
+            notesManager.isViewingNoteInNavigation = !newPath.isEmpty
+        }
         .sheet(isPresented: $showingNewNoteSheet) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
         }
