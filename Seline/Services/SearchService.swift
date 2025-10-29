@@ -112,10 +112,58 @@ class SearchService: ObservableObject {
         case .updateNote:
             // Find the note to update
             if let matchingNote = findNoteToUpdate(from: query) {
-                pendingNoteUpdate = await actionQueryHandler.parseNoteUpdate(
-                    from: query,
-                    existingNoteTitle: matchingNote.title
-                )
+                // Check if this is a computational/analytical request
+                let computationalKeywords = ["sum", "total", "calculate", "add up", "count", "analyze", "summarize", "summarise", "average", "mean", "median", "breakdown", "extract", "compile"]
+                let isComputational = computationalKeywords.contains { keyword in
+                    query.lowercased().contains(keyword)
+                }
+
+                if isComputational {
+                    // Use LLM to compute the result
+                    let computePrompt = """
+                    The user is asking you to process their note and provide a computed result.
+
+                    Current note content:
+                    "\(matchingNote.content)"
+
+                    User request: "\(query)"
+
+                    Analyze the note content and fulfill their request. Return ONLY the result/answer they asked for, without explanation. For example:
+                    - If they ask "sum up all expenses", return something like "Total: $3,080"
+                    - If they ask "count items", return something like "Total items: 5"
+                    - If they ask "summarize", provide a concise summary
+
+                    Return the computed result ready to add to the note.
+                    """
+
+                    do {
+                        let computedResult = try await OpenAIService.shared.generateText(
+                            systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
+                            userPrompt: computePrompt,
+                            maxTokens: 500,
+                            temperature: 0.0
+                        )
+
+                        // Store pending update with computed result
+                        pendingNoteUpdate = NoteUpdateData(
+                            noteTitle: matchingNote.title,
+                            contentToAdd: computedResult,
+                            formattedContentToAdd: computedResult
+                        )
+                    } catch {
+                        // Fallback: use regular parsing
+                        pendingNoteUpdate = await actionQueryHandler.parseNoteUpdate(
+                            from: query,
+                            existingNoteTitle: matchingNote.title
+                        )
+                    }
+                } else {
+                    // Regular update: parse as before
+                    pendingNoteUpdate = await actionQueryHandler.parseNoteUpdate(
+                        from: query,
+                        existingNoteTitle: matchingNote.title
+                    )
+                }
                 searchResults = []
             } else {
                 // Show search results if no matching note found
