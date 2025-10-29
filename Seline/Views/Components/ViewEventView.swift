@@ -39,7 +39,7 @@ struct ViewEventView: View {
 
                     Text(task.title)
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -52,7 +52,7 @@ struct ViewEventView: View {
 
                         Text(description)
                             .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -70,7 +70,7 @@ struct ViewEventView: View {
 
                         Text(formattedDate)
                             .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                         Spacer()
                     }
@@ -90,7 +90,7 @@ struct ViewEventView: View {
 
                             Text(task.formattedTimeRange)
                                 .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
                         }
@@ -111,7 +111,7 @@ struct ViewEventView: View {
 
                             Text(frequency.rawValue.capitalized)
                                 .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
                         }
@@ -132,7 +132,7 @@ struct ViewEventView: View {
 
                             Text(reminderTime.displayName)
                                 .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
                         }
@@ -313,15 +313,15 @@ struct ViewEventView: View {
 
                                 Text(aiSummary)
                                     .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .multilineTextAlignment(.leading)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
                                             .fill(colorScheme == .dark ?
-                                                Color.white.opacity(0.1) :
-                                                Color.black.opacity(0.05))
+                                                Color.white.opacity(0.05) :
+                                                Color.black.opacity(0.03))
                                     )
                             }
                             .padding(.bottom, 12)
@@ -337,7 +337,7 @@ struct ViewEventView: View {
                                 ScrollView {
                                     Text(emailBody)
                                         .font(.system(size: 14, weight: .regular))
-                                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                         .multilineTextAlignment(.leading)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -345,7 +345,7 @@ struct ViewEventView: View {
                             } else if let snippet = task.emailSnippet {
                                 Text(snippet)
                                     .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .multilineTextAlignment(.leading)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }

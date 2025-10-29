@@ -54,9 +54,10 @@ struct ConversationSearchView: View {
                             HStack(spacing: 8) {
                                 ProgressView()
                                     .scaleEffect(0.8)
+                                    .tint(colorScheme == .dark ? Color.white : Color.black)
                                 Text("Thinking...")
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 Spacer()
                             }
                             .padding(.horizontal, 16)
@@ -136,6 +137,7 @@ struct ConversationSearchView: View {
                         "Ask a follow-up question...",
                         text: $messageText
                     )
+                    .font(.system(size: 13, weight: .regular))
                     .focused($isInputFocused)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .textFieldStyle(PlainTextFieldStyle())

@@ -49,25 +49,25 @@ struct EditTaskView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 // Title Input
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Event Title")
                         .font(.shadcnTextSm)
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     TextField("Enter event title", text: $title)
                         .font(.shadcnTextBase)
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                                .fill(colorScheme == .dark ? Color.black : Color.white)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                         )
                 }
 
@@ -75,21 +75,21 @@ struct EditTaskView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Description (Optional)")
                         .font(.shadcnTextSm)
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     TextField("Add additional details...", text: $description, axis: .vertical)
                         .font(.shadcnTextBase)
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .lineLimit(3...6)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                                .fill(colorScheme == .dark ? Color.black : Color.white)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                         )
                 }
 
@@ -97,7 +97,7 @@ struct EditTaskView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Tag (Optional)")
                         .font(.shadcnTextSm)
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     Button(action: {
                         showingTagOptions.toggle()
@@ -108,28 +108,30 @@ struct EditTaskView: View {
                                     .fill(tag.color)
                                     .frame(width: 10, height: 10)
                                 Text(tag.name)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             } else {
                                 Circle()
                                     .fill(Color.blue)
                                     .frame(width: 10, height: 10)
                                 Text("Personal (Default)")
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             }
 
                             Spacer()
 
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 12))
-                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                                .fill(colorScheme == .dark ? Color.black : Color.white)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                         )
                     }
                     .sheet(isPresented: $showingTagOptions) {
@@ -145,7 +147,7 @@ struct EditTaskView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Date")
                         .font(.shadcnTextSm)
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     HStack {
                         DatePicker("", selection: $selectedDate, displayedComponents: .date)
@@ -157,22 +159,22 @@ struct EditTaskView: View {
                 }
 
                 // Time Toggle and Picker
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Toggle("Include Time", isOn: $hasTime)
                             .font(.shadcnTextSm)
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                         Spacer()
                     }
 
                     if hasTime {
-                        VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
                             // Start Time
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Start Time")
-                                    .font(.shadcnTextXs)
-                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                                Text("Start")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                 DatePicker("Start Time", selection: $selectedTime, displayedComponents: .hourAndMinute)
                                     .datePickerStyle(WheelDatePickerStyle())
@@ -185,9 +187,9 @@ struct EditTaskView: View {
 
                             // End Time
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("End Time")
-                                    .font(.shadcnTextXs)
-                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                                Text("End")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                 DatePicker("End Time", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
                                     .datePickerStyle(WheelDatePickerStyle())
@@ -198,11 +200,11 @@ struct EditTaskView: View {
                 }
 
                 // Recurring Toggle and Settings
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Toggle("Recurring Event", isOn: $isRecurring)
                             .font(.shadcnTextSm)
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                         Spacer()
                     }
@@ -211,30 +213,30 @@ struct EditTaskView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Repeat")
                                 .font(.shadcnTextSm)
-                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                             // Show frequency as read-only if task was already recurring
                             if task.isRecurring {
                                 HStack {
                                     Text(recurrenceFrequency.rawValue.capitalized)
                                         .font(.shadcnTextBase)
-                                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                                     Spacer()
 
                                     Text("Cannot change frequency")
                                         .font(.shadcnTextXs)
-                                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(colorScheme == .dark ? Color.black.opacity(0.1) : Color.gray.opacity(0.1))
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.shadcnBorder(colorScheme).opacity(0.5), lineWidth: 1)
+                                        .stroke(Color.gray.opacity(0.1), lineWidth: 1)
                                 )
                             } else {
                                 // Allow frequency selection for new recurring tasks
@@ -244,23 +246,23 @@ struct EditTaskView: View {
                                     HStack {
                                         Text(recurrenceFrequency.rawValue.capitalized)
                                             .font(.shadcnTextBase)
-                                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                         Spacer()
 
                                         Image(systemName: "chevron.down")
                                             .font(.system(size: 12))
-                                            .foregroundColor(Color.shadcnMuted(colorScheme))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                     }
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                                            .fill(colorScheme == .dark ? Color.black : Color.white)
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                                     )
                                 }
                                 .sheet(isPresented: $showingRecurrenceOptions) {
@@ -279,7 +281,7 @@ struct EditTaskView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Reminder")
                         .font(.shadcnTextSm)
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     Button(action: {
                         showingReminderOptions.toggle()
@@ -287,27 +289,27 @@ struct EditTaskView: View {
                         HStack {
                             Image(systemName: selectedReminder.icon)
                                 .font(.system(size: 16))
-                                .foregroundColor(selectedReminder == .none ? Color.shadcnMuted(colorScheme) : Color.shadcnPrimary)
+                                .foregroundColor(selectedReminder == .none ? (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)) : Color.blue)
 
                             Text(selectedReminder.displayName)
                                 .font(.shadcnTextBase)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
 
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 12))
-                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color.white)
+                                .fill(colorScheme == .dark ? Color.black : Color.white)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                         )
                     }
                     .sheet(isPresented: $showingReminderOptions) {
@@ -322,17 +324,21 @@ struct EditTaskView: View {
                 Spacer()
 
                 // Action Buttons
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     Button("Cancel") {
                         onCancel()
                     }
                     .font(.shadcnTextBase)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                            .fill(Color.gray.opacity(0.1))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                     )
 
                     Button("Save") {
@@ -364,9 +370,9 @@ struct EditTaskView: View {
                         onSave(updatedTask)
                     }
                     .font(.shadcnTextBase)
-                    .foregroundColor(.white)
+                    .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
                             .fill(isValidInput ?
