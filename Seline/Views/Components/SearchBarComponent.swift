@@ -4,7 +4,6 @@ struct SearchBarComponent: View {
     @ObservedObject var searchService = SearchService.shared
     @Environment(\.colorScheme) var colorScheme
     @Binding var selectedTab: TabSelection
-    @State private var showConversationModal = false
 
     init(selectedTab: Binding<TabSelection>) {
         self._selectedTab = selectedTab
@@ -43,27 +42,13 @@ struct SearchBarComponent: View {
             )
             .padding(.horizontal, 20)
 
-            // Search results
-            if !searchService.searchQuery.isEmpty && !searchService.isInConversationMode {
+            // Search results (conversation modal is handled at MainAppView level)
+            if !searchService.searchQuery.isEmpty {
                 SearchResultsView(
                     results: searchService.searchResults,
                     isSearching: searchService.isSearching,
                     selectedTab: $selectedTab
                 )
-            }
-        }
-        .fullScreenCover(isPresented: $showConversationModal) {
-            ConversationSearchView()
-        }
-        .onChange(of: searchService.isInConversationMode) { newValue in
-            print("DEBUG SearchBarComponent: Syncing showConversationModal to \(newValue)")
-            showConversationModal = newValue
-        }
-        .onChange(of: showConversationModal) { newValue in
-            print("DEBUG SearchBarComponent: showConversationModal changed to \(newValue)")
-            if !newValue {
-                searchService.clearConversation()
-                searchService.clearSearch()
             }
         }
     }

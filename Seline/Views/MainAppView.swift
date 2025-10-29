@@ -29,6 +29,8 @@ struct MainAppView: View {
     @State private var showingNoteConfirmation = false
     @State private var showingNoteUpdateConfirmation = false
     @FocusState private var isSearchFocused: Bool
+    @State private var showConversationModal = false
+
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
     }
@@ -277,6 +279,12 @@ struct MainAppView: View {
                         }
                     )
                 }
+            }
+            .onChange(of: searchService.isInConversationMode) { newValue in
+                showConversationModal = newValue
+            }
+            .fullScreenCover(isPresented: $showConversationModal) {
+                ConversationSearchView()
             }
     }
 
