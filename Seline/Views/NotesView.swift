@@ -398,9 +398,6 @@ struct NotesView: View, Searchable {
                     .navigationBarBackButtonHidden(false)
             }
         }
-        .onChange(of: navigationPath) { oldPath, newPath in
-            notesManager.isViewingNoteInNavigation = !newPath.isEmpty
-        }
         .sheet(isPresented: $showingNewNoteSheet) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
         }
@@ -986,6 +983,9 @@ struct NoteEditView: View {
     // MARK: - Lifecycle Methods
 
     private func onAppearAction() {
+        // Track that a note is being viewed (for tab bar visibility)
+        notesManager.isViewingNoteInNavigation = true
+
         // Add keyboard observers
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { _ in
             isKeyboardVisible = true
@@ -1031,6 +1031,9 @@ struct NoteEditView: View {
     }
 
     private func onDisappearAction() {
+        // Clear the flag when note view disappears
+        notesManager.isViewingNoteInNavigation = false
+
         // Notes are only saved explicitly via save button or swipe down
         // No auto-save on disappear
     }
