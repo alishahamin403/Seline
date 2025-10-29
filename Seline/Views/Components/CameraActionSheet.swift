@@ -201,7 +201,20 @@ struct CameraActionSheet: View {
         isProcessing = true
         Task {
             do {
-                let response = try await CalendarPhotoExtractionService.shared.extractEventsFromPhoto(image)
+                var response = try await CalendarPhotoExtractionService.shared.extractEventsFromPhoto(image)
+
+                // Check if events already exist in the calendar
+                let taskManager = TaskManager.shared
+                for i in 0..<response.events.count {
+                    let event = response.events[i]
+                    response.events[i].alreadyExists = taskManager.doesEventExist(
+                        title: event.title,
+                        date: event.startTime,
+                        time: event.startTime,
+                        endTime: event.endTime
+                    )
+                }
+
                 await MainActor.run {
                     extractionResponse = response
                     isProcessing = false

@@ -400,30 +400,48 @@ struct SimpleEventCard: View {
         VStack(alignment: .leading, spacing: 0) {
             // Main event row
             HStack(spacing: 12) {
-                Toggle("", isOn: $event.isSelected)
-                    .labelsHidden()
+                if event.alreadyExists {
+                    // Already exists - show info icon instead of toggle
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.gray)
+                        .opacity(0.5)
+                } else {
+                    Toggle("", isOn: $event.isSelected)
+                        .labelsHidden()
+                }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(event.title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        Text(event.title)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .lineLimit(2)
+                            .foregroundColor(event.alreadyExists ? .gray : .primary)
+
+                        if event.alreadyExists {
+                            Text("(Already exists)")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                    }
 
                     Text(formatTimeRange())
                         .font(.caption)
                         .foregroundColor(.gray)
+                        .opacity(event.alreadyExists ? 0.5 : 1)
                 }
 
                 Spacer()
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
+            .opacity(event.alreadyExists ? 0.6 : 1)
 
             // Divider
             Divider()
                 .padding(.horizontal, 14)
 
-            // Time editing section
+            // Time editing section - disabled if event already exists
             VStack(alignment: .leading, spacing: 0) {
                 // Start time
                 VStack(alignment: .leading, spacing: 8) {
@@ -432,33 +450,37 @@ struct SimpleEventCard: View {
                             Text("Start")
                                 .font(.caption)
                                 .foregroundColor(.gray)
+                                .opacity(event.alreadyExists ? 0.5 : 1)
 
                             if !showStartTimePicker {
                                 Text(formatTime(event.startTime))
                                     .font(.subheadline)
                                     .fontWeight(.medium)
+                                    .opacity(event.alreadyExists ? 0.5 : 1)
                             }
                         }
 
                         Spacer()
 
-                        if !showStartTimePicker {
-                            Button(action: { showStartTimePicker = true }) {
-                                Image(systemName: "pencil.circle.fill")
-                                    .foregroundColor(.black)
-                                    .opacity(0.5)
-                            }
-                        } else {
-                            Button(action: { showStartTimePicker = false }) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.black)
+                        if !event.alreadyExists {
+                            if !showStartTimePicker {
+                                Button(action: { showStartTimePicker = true }) {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .foregroundColor(.black)
+                                        .opacity(0.5)
+                                }
+                            } else {
+                                Button(action: { showStartTimePicker = false }) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.black)
+                                }
                             }
                         }
                     }
                     .padding(.vertical, 12)
                     .padding(.horizontal, 14)
 
-                    if showStartTimePicker {
+                    if showStartTimePicker && !event.alreadyExists {
                         DatePicker("", selection: $event.startTime, displayedComponents: .hourAndMinute)
                             .datePickerStyle(.wheel)
                             .labelsHidden()
@@ -480,39 +502,44 @@ struct SimpleEventCard: View {
                                 Text("End")
                                     .font(.caption)
                                     .foregroundColor(.gray)
+                                    .opacity(event.alreadyExists ? 0.5 : 1)
 
                                 if !showEndTimePicker {
                                     if let endTime = event.endTime {
                                         Text(formatTime(endTime))
                                             .font(.subheadline)
                                             .fontWeight(.medium)
+                                            .opacity(event.alreadyExists ? 0.5 : 1)
                                     } else {
                                         Text("No end time")
                                             .font(.subheadline)
                                             .foregroundColor(.gray)
+                                            .opacity(event.alreadyExists ? 0.5 : 1)
                                     }
                                 }
                             }
 
                             Spacer()
 
-                            if !showEndTimePicker {
-                                Button(action: { showEndTimePicker = true }) {
-                                    Image(systemName: "pencil.circle.fill")
-                                        .foregroundColor(.black)
-                                        .opacity(0.5)
-                                }
-                            } else {
-                                Button(action: { showEndTimePicker = false }) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.black)
+                            if !event.alreadyExists {
+                                if !showEndTimePicker {
+                                    Button(action: { showEndTimePicker = true }) {
+                                        Image(systemName: "pencil.circle.fill")
+                                            .foregroundColor(.black)
+                                            .opacity(0.5)
+                                    }
+                                } else {
+                                    Button(action: { showEndTimePicker = false }) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.black)
+                                    }
                                 }
                             }
                         }
                         .padding(.vertical, 12)
                         .padding(.horizontal, 14)
 
-                        if showEndTimePicker {
+                        if showEndTimePicker && !event.alreadyExists {
                             DatePicker("", selection: .init(get: { event.endTime ?? Date() }, set: { event.endTime = $0 }), displayedComponents: .hourAndMinute)
                                 .datePickerStyle(.wheel)
                                 .labelsHidden()

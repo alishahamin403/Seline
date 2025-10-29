@@ -471,6 +471,47 @@ class TaskManager: ObservableObject {
         }
     }
 
+    /// Check if an event already exists with the same title, date, and time
+    func doesEventExist(title: String, date: Date, time: Date, endTime: Date? = nil) -> Bool {
+        let calendar = Calendar.current
+        let eventDateComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        let eventTimeComponents = calendar.dateComponents([.hour, .minute], from: time)
+
+        // Check all tasks across all weekdays
+        for (_, weekdayTasks) in tasks {
+            for task in weekdayTasks {
+                // Compare titles (case-insensitive, trimmed)
+                let titleMatch = task.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ==
+                                title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+                guard titleMatch else { continue }
+
+                // Compare dates
+                if let targetDate = task.targetDate {
+                    let taskDateComponents = calendar.dateComponents([.year, .month, .day], from: targetDate)
+                    let dateMatch = eventDateComponents.year == taskDateComponents.year &&
+                                   eventDateComponents.month == taskDateComponents.month &&
+                                   eventDateComponents.day == taskDateComponents.day
+
+                    if !dateMatch { continue }
+
+                    // Compare times (if scheduled time exists)
+                    if let scheduledTime = task.scheduledTime {
+                        let taskTimeComponents = calendar.dateComponents([.hour, .minute], from: scheduledTime)
+                        let timeMatch = eventTimeComponents.hour == taskTimeComponents.hour &&
+                                       eventTimeComponents.minute == taskTimeComponents.minute
+
+                        if timeMatch {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
     func toggleTaskCompletion(_ task: TaskItem, forDate: Date? = nil) {
         guard let weekdayTasks = tasks[task.weekday],
               let index = weekdayTasks.firstIndex(where: { $0.id == task.id }) else { return }
@@ -2604,6 +2645,7 @@ struct ExtractedEvent: Identifiable, Codable {
     var dateConfidence: Bool            // true if date was clearly readable
     var notes: String = ""
     var isSelected: Bool = true         // User can deselect before creating
+    var alreadyExists: Bool = false     // true if event already exists in calendar (not codable)
 
     // For display purposes
     var formattedTime: String {
