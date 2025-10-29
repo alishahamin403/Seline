@@ -514,22 +514,6 @@ struct NoteEditView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 20)
-                        .onChanged { gesture in
-                            // Dismiss keyboard when scrolling (but only if no text is selected)
-                            if abs(gesture.translation.height) > 40 && selectedTextRange.length == 0 {
-                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                            }
-                        }
-                        .onEnded { gesture in
-                            // Swipe down to save and dismiss (only if no text is selected)
-                            if gesture.translation.height > 100 && selectedTextRange.length == 0 {
-                                HapticManager.shared.save()
-                                saveNoteAndDismiss()
-                            }
-                        }
-                )
 
                 // Receipt processing indicator - fixed above bottom buttons
                 if isProcessingReceipt {
@@ -552,11 +536,8 @@ struct NoteEditView: View {
         }
         .navigationBarHidden(true)
         .toolbarBackground(.hidden, for: .tabBar)
-        .highPriorityGesture(
-            DragGesture()
-                .onChanged { _ in }
-                .onEnded { _ in }
-        )
+        .toolbar(.hidden, for: .tabBar)
+        .interactiveDismissDisabled()
         .onAppear(perform: onAppearAction)
         .onDisappear(perform: onDisappearAction)
         .sheet(isPresented: $showingFolderPicker) {
