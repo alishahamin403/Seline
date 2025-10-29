@@ -208,7 +208,7 @@ struct ConversationMessageView: View {
 
             Text(message.formattedTime)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                 .padding(.horizontal, 12)
         }
         .padding(.horizontal, 16)
@@ -242,7 +242,7 @@ struct ActionConfirmationView: View {
                 Button(action: onCancel) {
                     Text("Cancel")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(Color.gray.opacity(0.15))

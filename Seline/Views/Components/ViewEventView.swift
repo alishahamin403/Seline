@@ -30,7 +30,7 @@ struct ViewEventView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: 8) {
                 // Title
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Event Title")
@@ -152,23 +152,19 @@ struct ViewEventView: View {
                 }) {
                     Text("Edit Event")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(
-                                    colorScheme == .dark ?
-                                        Color(red: 0.518, green: 0.792, blue: 0.914) :
-                                        Color(red: 0.20, green: 0.34, blue: 0.40)
-                                )
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 40)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 32)
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .navigationTitle("Event Details")
@@ -210,7 +206,7 @@ struct ViewEventView: View {
     // MARK: - Attached Email Section
 
     private var attachedEmailSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Attached Email")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
