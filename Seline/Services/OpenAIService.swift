@@ -1909,23 +1909,29 @@ class OpenAIService: ObservableObject {
                 lowerQuery.contains(keyword)
             }
 
-            if queryHasNewsKeywords && !newsService.topNews.isEmpty {
-                context += "=== AVAILABLE NEWS ===\n"
+            if queryHasNewsKeywords {
+                let allNews = newsService.getAllNews()
+                if !allNews.isEmpty {
+                    context += "=== AVAILABLE NEWS ===\n"
 
-                // Format the date for display
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
+                    // Format the date for display
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
 
-                for article in newsService.topNews {
-                    let dateStr = dateFormatter.string(from: article.publishedAt)
-                    context += "- Title: \(article.title)\n"
-                    context += "  Description: \(article.description ?? "No description")\n"
-                    context += "  Source: \(article.source)\n"
-                    context += "  Date: \(dateStr)\n"
-                    context += "  URL: \(article.url)\n"
-                    context += "---\n"
+                    for (category, articles) in allNews {
+                        context += "\n📰 Category: \(category)\n"
+                        for article in articles {
+                            let dateStr = dateFormatter.string(from: article.publishedAt)
+                            context += "- Title: \(article.title)\n"
+                            context += "  Description: \(article.description ?? "No description")\n"
+                            context += "  Source: \(article.source)\n"
+                            context += "  Date: \(dateStr)\n"
+                            context += "  URL: \(article.url)\n"
+                            context += "---\n"
+                        }
+                    }
+                    context += "\n"
                 }
-                context += "\n"
             }
         }
 
