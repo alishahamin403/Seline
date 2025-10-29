@@ -160,7 +160,7 @@ struct ConversationSearchView: View {
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color.blue)
+                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
@@ -231,7 +231,7 @@ struct ActionConfirmationView: View {
 
                 Text(details)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .lineLimit(4)
             }
             .padding(12)
@@ -253,10 +253,10 @@ struct ActionConfirmationView: View {
                 Button(action: onConfirm) {
                     Text("Confirm")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.blue)
+                        .background(colorScheme == .dark ? Color.white : Color.black)
                         .cornerRadius(6)
                 }
                 .buttonStyle(PlainButtonStyle())

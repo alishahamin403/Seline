@@ -251,12 +251,46 @@ class SearchService: ObservableObject {
         let dateFormatter = ISO8601DateFormatter()
         let targetDate = dateFormatter.date(from: eventData.date) ?? Date()
 
-        let timeFormatter = DateFormatter()
-        timeFormatter.timeStyle = .short
-        let scheduledTime = (eventData.time ?? "").isEmpty ? nil : timeFormatter.date(from: eventData.time ?? "")
+        // Parse the time properly - extract hours and minutes from time string
+        let calendar = Calendar.current
+        var scheduledTime: Date? = nil
+        if let timeStr = eventData.time, !timeStr.isEmpty {
+            // Try multiple time format parsers
+            let timeFormatters: [DateFormatter] = {
+                let f1 = DateFormatter()
+                f1.dateFormat = "HH:mm"  // 24-hour format (15:00)
+
+                let f2 = DateFormatter()
+                f2.dateFormat = "h:mm a" // 12-hour format (3:00 PM)
+
+                let f3 = DateFormatter()
+                f3.timeStyle = .short    // System short time
+                f3.dateStyle = .none
+
+                return [f1, f2, f3]
+            }()
+
+            // Try each formatter until one succeeds
+            for formatter in timeFormatters {
+                if let parsedTime = formatter.date(from: timeStr) {
+                    // Extract hour and minute from parsed time
+                    let timeComponents = calendar.dateComponents([.hour, .minute], from: parsedTime)
+
+                    // Create a new date with the target date but the parsed time
+                    if let scheduledDate = calendar.date(
+                        bySettingHour: timeComponents.hour ?? 0,
+                        minute: timeComponents.minute ?? 0,
+                        second: 0,
+                        of: targetDate
+                    ) {
+                        scheduledTime = scheduledDate
+                        break
+                    }
+                }
+            }
+        }
 
         // Determine the weekday from the date
-        let calendar = Calendar.current
         let weekdayIndex = calendar.component(.weekday, from: targetDate)
 
         let weekday: WeekDay
