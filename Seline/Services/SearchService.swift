@@ -63,6 +63,12 @@ class SearchService: ObservableObject {
 
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Skip search processing if this is a question that should use conversation mode
+        if isQuestion(trimmedQuery) {
+            isSearching = false
+            return
+        }
+
         // Classify the query
         currentQueryType = queryRouter.classifyQuery(trimmedQuery)
 
@@ -74,7 +80,7 @@ class SearchService: ObservableObject {
             let results = await searchContent(query: trimmedQuery.lowercased())
             searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
         case .question:
-            // Handle questions with AI assistance
+            // Handle questions with AI assistance (only if not detected as conversation question)
             await handleQuestionQuery(trimmedQuery)
         }
 

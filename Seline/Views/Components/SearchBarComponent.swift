@@ -44,24 +44,21 @@ struct SearchBarComponent: View {
 
             // Search results or conversation trigger
             if !searchService.searchQuery.isEmpty {
-                // Check if query is a question and auto-trigger conversation
-                if searchService.isQuestion(searchService.searchQuery) {
-                    // Empty placeholder that triggers conversation
-                    Color.clear
-                        .onAppear {
-                            if !searchService.isInConversationMode {
-                                Task {
-                                    await searchService.startConversation(with: searchService.searchQuery)
-                                }
-                            }
-                        }
-                } else {
-                    // Show regular search results
+                if !searchService.isInConversationMode {
+                    // Show regular search results (only if not in conversation mode)
                     SearchResultsView(
                         results: searchService.searchResults,
                         isSearching: searchService.isSearching,
                         selectedTab: $selectedTab
                     )
+                    .onChange(of: searchService.searchQuery) { newQuery in
+                        // Auto-trigger conversation for questions
+                        if searchService.isQuestion(newQuery) {
+                            Task {
+                                await searchService.startConversation(with: newQuery)
+                            }
+                        }
+                    }
                 }
             }
         }
