@@ -1471,7 +1471,7 @@ struct ImageViewer: View {
                 HStack {
                     Spacer()
                     Button(action: {
-                        isLockedInSession = false
+                        self.isLockedInSession = false
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 20, weight: .semibold))
