@@ -80,44 +80,6 @@ struct HeaderSection: View {
     }
 }
 
-struct ConversationHistoryView: View {
-    @Environment(\.dismiss) var dismiss
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        NavigationView {
-            VStack {
-                Text("Conversation History")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Text("No conversations yet")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 20)
-            .background(Color.shadcnBackground(colorScheme))
-            .navigationBarBackButtonHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        HStack {
-                            Image(systemName: "chevron.left")
-                            Text("Back")
-                        }
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                }
-            }
-        }
-    }
-}
-
 #Preview {
     @FocusState var isSearchFocused: Bool
 
