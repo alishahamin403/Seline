@@ -282,8 +282,8 @@ struct MainAppView: View {
                     }
                     .frame(maxHeight: .infinity)
 
-                    // Fixed Footer - hide when keyboard appears
-                    if keyboardHeight == 0 {
+                    // Fixed Footer - hide when keyboard appears or note editor is open
+                    if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil {
                         BottomTabBar(selectedTab: $selectedTab)
                     }
                 }
@@ -363,9 +363,11 @@ struct MainAppView: View {
                     get: { selectedNoteToOpen != nil },
                     set: { if !$0 { selectedNoteToOpen = nil } }
                 ))
+                .interactiveDismissalDisabled()
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+                    .interactiveDismissalDisabled()
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
                 LocationSetupView()
@@ -375,6 +377,7 @@ struct MainAppView: View {
                     get: { searchSelectedNote != nil },
                     set: { if !$0 { searchSelectedNote = nil } }
                 ))
+                .interactiveDismissalDisabled()
             }
             .sheet(item: $searchSelectedEmail) { email in
                 EmailDetailView(email: email)
