@@ -322,8 +322,7 @@ class SearchService: ObservableObject {
                 // Create the note immediately
                 let newNote = Note(
                     title: noteData.title,
-                    content: noteData.content,
-                    folderId: noteData.folderId
+                    content: noteData.content
                 )
                 NotesManager.shared.addNote(newNote)
 
