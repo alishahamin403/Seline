@@ -1911,6 +1911,11 @@ class OpenAIService: ObservableObject {
 
             if queryHasNewsKeywords {
                 let allNews = newsService.getAllNews()
+                print("🔍 News context: Found \(allNews.count) categories with \(allNews.flatMap { $0.articles }.count) total articles")
+                for (category, articles) in allNews {
+                    print("  - \(category): \(articles.count) articles")
+                }
+
                 if !allNews.isEmpty {
                     context += "=== AVAILABLE NEWS ===\n"
 
@@ -1931,6 +1936,8 @@ class OpenAIService: ObservableObject {
                         }
                     }
                     context += "\n"
+                } else {
+                    print("⚠️  getAllNews() returned empty - no news articles available in LLM context")
                 }
             }
         }
