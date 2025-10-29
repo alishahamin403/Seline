@@ -276,19 +276,25 @@ class SearchService: ObservableObject {
                 // Auto-apply the note update during conversation
                 if let updateData = updateData {
                     var note = matchingNote
-                    // Append the new content to existing content
-                    if !note.content.isEmpty {
-                        note.content += "\n\n" + updateData.contentToAdd
-                    } else {
-                        note.content = updateData.contentToAdd
-                    }
+                    let originalContent = note.content
+
+                    // Smart update: detect if this is a replacement or addition
+                    let (updatedContent, delta, updateType) = applySmartNoteUpdate(
+                        originalContent: originalContent,
+                        suggestedContent: updateData.contentToAdd,
+                        query: query
+                    )
+
+                    note.content = updatedContent
+
                     // Update the note immediately
                     NotesManager.shared.updateNote(note)
 
-                    // Add confirmation message to conversation
+                    // Add confirmation message with delta (only what changed)
+                    let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
                     let confirmationMsg = ConversationMessage(
                         isUser: false,
-                        text: "✓ Updated your note: \"\(updateData.noteTitle)\"",
+                        text: "✓ \(updateType): \"\(updateData.noteTitle)\"\n\n\(deltaPreview)",
                         intent: .notes
                     )
                     conversationHistory.append(confirmationMsg)
@@ -1045,6 +1051,90 @@ class SearchService: ObservableObject {
         }
 
         return nil
+    }
+
+    /// Smart note update that detects if content should replace existing text or be added
+    /// Returns: (updatedContent, delta, updateType) where delta is only what changed
+    private func applySmartNoteUpdate(
+        originalContent: String,
+        suggestedContent: String,
+        query: String
+    ) -> (updatedContent: String, delta: String, updateType: String) {
+        let lowerQuery = query.lowercased()
+
+        // Check if this is a replacement/change operation based on keywords
+        let replacementKeywords = ["change", "replace", "update to", "modify", "swap", "remove", "delete", "update"]
+        let isReplacement = replacementKeywords.contains { keyword in
+            lowerQuery.contains(keyword)
+        }
+
+        if isReplacement {
+            // Try to detect pattern: "change/replace X to/with Y"
+            let patterns = [
+                "(?:change|replace|update|modify)\\s+[\"']?([^\"']+?)[\"']?\\s+(?:to|with)\\s+[\"']?([^\"']+?)[\"']?\\s*$",
+                "(?:change|replace|update|modify)\\s+([^\\n]+?)\\s+(?:to|with)\\s+([^\\n]+)"
+            ]
+
+            for pattern in patterns {
+                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                    let nsString = query as NSString
+                    if let match = regex.firstMatch(in: query, options: [], range: NSRange(location: 0, length: nsString.length)) {
+                        if match.numberOfRanges >= 3,
+                           let range1 = Range(match.range(at: 1), in: query),
+                           let range2 = Range(match.range(at: 2), in: query) {
+                            let textToReplace = String(query[range1]).trimmingCharacters(in: .whitespaces)
+                            let replacementText = String(query[range2]).trimmingCharacters(in: .whitespaces)
+
+                            // Check if the text to replace exists in original content
+                            if originalContent.lowercased().contains(textToReplace.lowercased()) {
+                                let updatedContent = originalContent.replacingOccurrences(
+                                    of: textToReplace,
+                                    with: replacementText,
+                                    options: .caseInsensitive
+                                )
+
+                                return (
+                                    updatedContent: updatedContent,
+                                    delta: "Changed \"\(textToReplace)\" to \"\(replacementText)\"",
+                                    updateType: "Changed"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback for replacement: replace entire content
+            return (
+                updatedContent: suggestedContent,
+                delta: suggestedContent,
+                updateType: "Updated"
+            )
+        } else {
+            // Addition: only add if content doesn't already exist
+            let originalLower = originalContent.lowercased()
+            let suggestedLower = suggestedContent.lowercased()
+
+            if !originalLower.contains(suggestedLower) && !suggestedLower.contains(originalLower) {
+                // Content is new, add it
+                let updatedContent = originalContent.isEmpty ?
+                    suggestedContent :
+                    originalContent + "\n\n" + suggestedContent
+
+                return (
+                    updatedContent: updatedContent,
+                    delta: suggestedContent,
+                    updateType: "Added"
+                )
+            } else {
+                // Content already exists, don't duplicate
+                return (
+                    updatedContent: originalContent,
+                    delta: "(Content already in note)",
+                    updateType: "Already exists"
+                )
+            }
+        }
     }
 
     /// Delete conversation from history
