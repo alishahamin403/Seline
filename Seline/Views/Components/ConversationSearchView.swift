@@ -2,21 +2,22 @@ import SwiftUI
 
 struct ConversationSearchView: View {
     @Environment(\.colorScheme) var colorScheme
-    @Environment(\.dismiss) var dismiss
     @StateObject private var searchService = SearchService.shared
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
 
     var body: some View {
-        VStack(spacing: 0) {
+        print("DEBUG ConversationSearchView: body is rendering, conversation history count: \(searchService.conversationHistory.count)")
+
+        return VStack(spacing: 0) {
             // Header
             HStack {
                 Button(action: {
                     HapticManager.shared.selection()
                     // Clear conversation state when dismissing
                     searchService.clearConversation()
-                    dismiss()
+                    searchService.clearSearch()
                 }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))
