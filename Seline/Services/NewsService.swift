@@ -48,10 +48,60 @@ class NewsService: ObservableObject {
 
         // Set up app lifecycle observers instead of auto-starting timer
         setupAppLifecycleObservers()
+
+        // Initialize all news categories for LLM access
+        Task {
+            await initializeAllCategories()
+        }
     }
 
     deinit {
         newsRefreshTimer?.invalidate()
+    }
+
+    /// Initialize all news categories for LLM access
+    /// Fetches news for all categories in parallel (without blocking the main thread)
+    private func initializeAllCategories() async {
+        print("📰 NewsService: Initializing all news categories for LLM access...")
+
+        // Fetch all categories in parallel
+        let categories = NewsCategory.allCases
+        let fetchTasks = categories.map { category -> Task<Void, Never> in
+            Task {
+                // Only fetch if we have no cached data for this category
+                if newsByCategory[category] == nil {
+                    let cacheKey = "lastNewsFetchDate_\(category.rawValue)"
+                    if let lastFetchDate = UserDefaults.standard.object(forKey: cacheKey) as? Date {
+                        let hoursSinceLastFetch = Date().timeIntervalSince(lastFetchDate) / 3600
+                        if hoursSinceLastFetch < 24.0 { // Use 24-hour cache
+                            return // Use cached data
+                        }
+                    }
+
+                    // Fetch news for this category
+                    if let articles = await fetchNewsForCategory(category, limit: 10) {
+                        let validArticles = articles.filter { article in
+                            article.description != nil && !article.description!.isEmpty
+                        }
+                        let finalArticles = Array(validArticles.prefix(5))
+
+                        if !finalArticles.isEmpty {
+                            await MainActor.run {
+                                self.newsByCategory[category] = finalArticles
+                                print("✅ Initialized \(category.displayName): \(finalArticles.count) articles")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Wait for all fetches to complete
+        for task in fetchTasks {
+            await task.value
+        }
+
+        print("✅ All news categories initialized for LLM access")
     }
 
     func fetchNews(for category: NewsCategory) async {
