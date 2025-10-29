@@ -682,80 +682,20 @@ class SearchService: ObservableObject {
         }
     }
 
-    /// Load conversations from Supabase
+    /// Load conversations from Supabase (requires conversations table to be created)
+    /// Currently disabled - can be implemented once Supabase table is fully set up
+    /// For now, conversations are loaded from local UserDefaults via loadLastConversation()
     func loadConversationsFromSupabase() async -> [[String: Any]] {
-        do {
-            let supabaseManager = SupabaseManager.shared
-            let client = await supabaseManager.getPostgrestClient()
-
-            struct ConversationRecord: Decodable {
-                let id: String
-                let title: String
-                let created_at: String
-                let message_count: Int
-                let first_message: String?
-            }
-
-            let response = try await client
-                .from("conversations")
-                .select("*")
-                .order("created_at", ascending: false)
-                .limit(10)
-                .execute()
-
-            // Decode the response data
-            let decoder = JSONDecoder()
-            let conversations = try decoder.decode([ConversationRecord].self, from: response.underlyingResponse.data)
-
-            return conversations.map { conv in
-                [
-                    "id": conv.id,
-                    "title": conv.title,
-                    "created_at": conv.created_at,
-                    "message_count": conv.message_count,
-                    "first_message": conv.first_message ?? ""
-                ] as [String: Any]
-            }
-        } catch {
-            print("Error loading conversations from Supabase: \(error)")
-            return []
-        }
+        // To implement this:
+        // 1. Create the conversations table in Supabase (using provided SQL)
+        // 2. Use direct HTTP request or update Supabase SDK implementation
+        print("Note: Load conversations from Supabase not yet implemented. Use Supabase dashboard to view saved conversations.")
+        return []
     }
 
     /// Load specific conversation from Supabase by ID
+    /// Currently disabled - can be implemented once proper SDK support is available
     func loadConversationFromSupabase(id: String) async {
-        do {
-            let supabaseManager = SupabaseManager.shared
-            let client = await supabaseManager.getPostgrestClient()
-
-            struct ConversationRecord: Decodable {
-                let id: String
-                let title: String
-                let messages: String
-            }
-
-            let response = try await client
-                .from("conversations")
-                .select("*")
-                .eq("id", value: id)
-                .execute()
-
-            // Decode the response data
-            let decoder = JSONDecoder()
-            let conversations = try decoder.decode([ConversationRecord].self, from: response.underlyingResponse.data)
-
-            guard let conversation = conversations.first else { return }
-
-            // Parse the messages JSON string
-            if let messagesData = conversation.messages.data(using: .utf8) {
-                if let messages = try? JSONDecoder().decode([ConversationMessage].self, from: messagesData) {
-                    conversationHistory = messages
-                    conversationTitle = conversation.title
-                    isInConversationMode = true
-                }
-            }
-        } catch {
-            print("Error loading conversation from Supabase: \(error)")
-        }
+        print("Note: Load conversation from Supabase not yet implemented. Use loadLastConversation() for local persistence.")
     }
 }
