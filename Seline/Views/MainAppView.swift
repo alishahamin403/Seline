@@ -247,38 +247,6 @@ struct MainAppView: View {
     }
 
     private var mainContent: some View {
-        mainContentWithModifiers
-    }
-
-    private var mainContentWithModifiers: some View {
-        mainContentWithNoteSheets
-            .mainContentEventSheets()
-            .mainContentPopupOverlay()
-    }
-
-    private var mainContentWithNoteSheets: some View {
-        mainContentWithLifecycle
-            .sheet(item: $selectedNoteToOpen) { note in
-                NoteEditView(note: note, isPresented: Binding<Bool>(
-                    get: { selectedNoteToOpen != nil },
-                    set: { if !$0 { selectedNoteToOpen = nil } }
-                ))
-                .interactiveDismissalDisabled()
-            }
-            .sheet(isPresented: $showingNewNoteSheet) {
-                NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
-                    .interactiveDismissalDisabled()
-            }
-            .sheet(item: $searchSelectedNote) { note in
-                NoteEditView(note: note, isPresented: Binding<Bool>(
-                    get: { searchSelectedNote != nil },
-                    set: { if !$0 { searchSelectedNote = nil } }
-                ))
-                .interactiveDismissalDisabled()
-            }
-    }
-
-    private var mainContentWithLifecycle: some View {
         mainContentBase
             .onAppear {
                 locationService.requestLocationPermission()
@@ -296,6 +264,119 @@ struct MainAppView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
                 handleTaskNotification(notification)
+            }
+            .sheet(item: $selectedNoteToOpen) { note in
+                NoteEditView(note: note, isPresented: Binding<Bool>(
+                    get: { selectedNoteToOpen != nil },
+                    set: { if !$0 { selectedNoteToOpen = nil } }
+                ))
+                .presentationDragIndicator(.hidden)
+            }
+            .sheet(isPresented: $showingNewNoteSheet) {
+                NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+                    .presentationDragIndicator(.hidden)
+            }
+            .sheet(item: $searchSelectedNote) { note in
+                NoteEditView(note: note, isPresented: Binding<Bool>(
+                    get: { searchSelectedNote != nil },
+                    set: { if !$0 { searchSelectedNote = nil } }
+                ))
+                .presentationDragIndicator(.hidden)
+            }
+            .sheet(isPresented: $authManager.showLocationSetup) {
+                LocationSetupView()
+            }
+            .sheet(item: $searchSelectedEmail) { email in
+                EmailDetailView(email: email)
+            }
+            .sheet(item: $searchSelectedTask) { task in
+                if showingEditTask {
+                    NavigationView {
+                        EditTaskView(
+                            task: task,
+                            onSave: { updatedTask in
+                                taskManager.editTask(updatedTask)
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            },
+                            onCancel: {
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            },
+                            onDelete: { taskToDelete in
+                                taskManager.deleteTask(taskToDelete)
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            },
+                            onDeleteRecurringSeries: { taskToDelete in
+                                taskManager.deleteRecurringTask(taskToDelete)
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            }
+                        )
+                    }
+                } else {
+                    NavigationView {
+                        ViewEventView(
+                            task: task,
+                            onEdit: {
+                                showingEditTask = true
+                            },
+                            onDelete: { taskToDelete in
+                                taskManager.deleteTask(taskToDelete)
+                                searchSelectedTask = nil
+                            },
+                            onDeleteRecurringSeries: { taskToDelete in
+                                taskManager.deleteRecurringTask(taskToDelete)
+                                searchSelectedTask = nil
+                            }
+                        )
+                    }
+                }
+            }
+            .onChange(of: searchSelectedTask) { newValue in
+                if newValue != nil {
+                    showingEditTask = false
+                } else {
+                    showingEditTask = false
+                }
+            }
+            .overlay {
+                if showingAddEventPopup {
+                    AddEventPopupView(
+                        isPresented: $showingAddEventPopup,
+                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                            let calendar = Calendar.current
+                            let weekdayIndex = calendar.component(.weekday, from: date)
+
+                            let weekday: WeekDay
+                            switch weekdayIndex {
+                            case 1: weekday = .sunday
+                            case 2: weekday = .monday
+                            case 3: weekday = .tuesday
+                            case 4: weekday = .wednesday
+                            case 5: weekday = .thursday
+                            case 6: weekday = .friday
+                            case 7: weekday = .saturday
+                            default: weekday = .monday
+                            }
+
+                            taskManager.addTask(
+                                title: title,
+                                to: weekday,
+                                description: description,
+                                scheduledTime: time,
+                                endTime: endTime,
+                                targetDate: date,
+                                reminderTime: reminder,
+                                isRecurring: recurring,
+                                recurrenceFrequency: frequency,
+                                tagId: tagId
+                            )
+                        }
+                    )
+                    .transition(.opacity)
+                }
             }
     }
 
@@ -1072,111 +1153,6 @@ struct MainAppView: View {
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
     }
 
-}
-
-extension MainAppView {
-    func mainContentEventSheets() -> some View {
-        self
-            .sheet(isPresented: $authManager.showLocationSetup) {
-                LocationSetupView()
-            }
-            .sheet(item: $searchSelectedEmail) { email in
-                EmailDetailView(email: email)
-            }
-            .sheet(item: $searchSelectedTask) { task in
-                if showingEditTask {
-                    NavigationView {
-                        EditTaskView(
-                            task: task,
-                            onSave: { updatedTask in
-                                taskManager.editTask(updatedTask)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onCancel: {
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onDelete: { taskToDelete in
-                                taskManager.deleteTask(taskToDelete)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onDeleteRecurringSeries: { taskToDelete in
-                                taskManager.deleteRecurringTask(taskToDelete)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            }
-                        )
-                    }
-                } else {
-                    NavigationView {
-                        ViewEventView(
-                            task: task,
-                            onEdit: {
-                                showingEditTask = true
-                            },
-                            onDelete: { taskToDelete in
-                                taskManager.deleteTask(taskToDelete)
-                                searchSelectedTask = nil
-                            },
-                            onDeleteRecurringSeries: { taskToDelete in
-                                taskManager.deleteRecurringTask(taskToDelete)
-                                searchSelectedTask = nil
-                            }
-                        )
-                    }
-                }
-            }
-            .onChange(of: searchSelectedTask) { newValue in
-                if newValue != nil {
-                    showingEditTask = false
-                } else {
-                    showingEditTask = false
-                }
-            }
-    }
-
-    func mainContentPopupOverlay() -> some View {
-        self
-            .overlay {
-                if showingAddEventPopup {
-                    AddEventPopupView(
-                        isPresented: $showingAddEventPopup,
-                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
-                            let calendar = Calendar.current
-                            let weekdayIndex = calendar.component(.weekday, from: date)
-
-                            let weekday: WeekDay
-                            switch weekdayIndex {
-                            case 1: weekday = .sunday
-                            case 2: weekday = .monday
-                            case 3: weekday = .tuesday
-                            case 4: weekday = .wednesday
-                            case 5: weekday = .thursday
-                            case 6: weekday = .friday
-                            case 7: weekday = .saturday
-                            default: weekday = .monday
-                            }
-
-                            taskManager.addTask(
-                                title: title,
-                                to: weekday,
-                                description: description,
-                                scheduledTime: time,
-                                endTime: endTime,
-                                targetDate: date,
-                                reminderTime: reminder,
-                                isRecurring: recurring,
-                                recurrenceFrequency: frequency,
-                                tagId: tagId
-                            )
-                        }
-                    )
-                    .transition(.opacity)
-                }
-            }
-    }
 }
 
 #Preview {
