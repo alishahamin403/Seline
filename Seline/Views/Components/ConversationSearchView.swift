@@ -8,6 +8,18 @@ struct ConversationSearchView: View {
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
 
+    private var eventConfirmationDetails: String {
+        guard let eventData = searchService.pendingEventCreation else { return "" }
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        let targetDate = ISO8601DateFormatter().date(from: eventData.date) ?? Date()
+
+        let dateStr = dateFormatter.string(from: targetDate)
+        let timeStr = eventData.time ?? "all day"
+
+        return "Date: \(dateStr)\nTime: \(timeStr)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Minimalist header - just close button
@@ -60,6 +72,51 @@ struct ConversationSearchView: View {
                         }
                     }
                 }
+            }
+
+            // Action confirmation area (shown when pending action exists)
+            if searchService.pendingEventCreation != nil {
+                ActionConfirmationView(
+                    title: searchService.pendingEventCreation?.title ?? "Event",
+                    details: eventConfirmationDetails,
+                    onConfirm: {
+                        HapticManager.shared.selection()
+                        searchService.confirmEventCreation()
+                    },
+                    onCancel: {
+                        HapticManager.shared.selection()
+                        searchService.cancelAction()
+                    },
+                    colorScheme: colorScheme
+                )
+            } else if searchService.pendingNoteCreation != nil {
+                ActionConfirmationView(
+                    title: searchService.pendingNoteCreation?.title ?? "Note",
+                    details: "Content: \(searchService.pendingNoteCreation?.content ?? "")",
+                    onConfirm: {
+                        HapticManager.shared.selection()
+                        searchService.confirmNoteCreation()
+                    },
+                    onCancel: {
+                        HapticManager.shared.selection()
+                        searchService.cancelAction()
+                    },
+                    colorScheme: colorScheme
+                )
+            } else if searchService.pendingNoteUpdate != nil {
+                ActionConfirmationView(
+                    title: searchService.pendingNoteUpdate?.noteTitle ?? "Note",
+                    details: "Adding: \(searchService.pendingNoteUpdate?.contentToAdd ?? "")",
+                    onConfirm: {
+                        HapticManager.shared.selection()
+                        searchService.confirmNoteUpdate()
+                    },
+                    onCancel: {
+                        HapticManager.shared.selection()
+                        searchService.cancelAction()
+                    },
+                    colorScheme: colorScheme
+                )
             }
 
             // Input area
@@ -145,6 +202,59 @@ struct ConversationMessageView: View {
                 .padding(.horizontal, 12)
         }
         .padding(.horizontal, 16)
+    }
+}
+
+struct ActionConfirmationView: View {
+    let title: String
+    let details: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                Text(details)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                    .lineLimit(4)
+            }
+            .padding(12)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
+
+            HStack(spacing: 10) {
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.15))
+                        .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Button(action: onConfirm) {
+                    Text("Confirm")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.blue)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
     }
 }
 

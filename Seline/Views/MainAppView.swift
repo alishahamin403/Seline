@@ -224,13 +224,22 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: searchService.pendingEventCreation) { newValue in
-                showingEventConfirmation = newValue != nil
+                // Only show sheet if NOT in conversation mode (conversation handles it internally)
+                if !searchService.isInConversationMode {
+                    showingEventConfirmation = newValue != nil
+                }
             }
             .onChange(of: searchService.pendingNoteCreation) { newValue in
-                showingNoteConfirmation = newValue != nil
+                // Only show sheet if NOT in conversation mode (conversation handles it internally)
+                if !searchService.isInConversationMode {
+                    showingNoteConfirmation = newValue != nil
+                }
             }
             .onChange(of: searchService.pendingNoteUpdate) { newValue in
-                showingNoteUpdateConfirmation = newValue != nil
+                // Only show sheet if NOT in conversation mode (conversation handles it internally)
+                if !searchService.isInConversationMode {
+                    showingNoteUpdateConfirmation = newValue != nil
+                }
             }
             .sheet(isPresented: $showingEventConfirmation) {
                 if let eventData = searchService.pendingEventCreation {
