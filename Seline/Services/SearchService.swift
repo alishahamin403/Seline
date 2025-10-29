@@ -1,15 +1,6 @@
 import Foundation
 import Combine
 
-// MARK: - Conversation Message Model
-
-struct ConversationMessage: Identifiable {
-    let id = UUID()
-    let content: String
-    let isUser: Bool
-    let timestamp: Date = Date()
-}
-
 @MainActor
 class SearchService: ObservableObject {
     static let shared = SearchService()
@@ -386,7 +377,7 @@ class SearchService: ObservableObject {
         }
 
         // Add user message to history
-        let userMsg = ConversationMessage(content: trimmed, isUser: true)
+        let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
 
         // Get AI response
@@ -402,12 +393,13 @@ class SearchService: ObservableObject {
                 navigationService: NavigationService.shared
             )
 
-            let assistantMsg = ConversationMessage(content: response, isUser: false)
+            let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
             conversationHistory.append(assistantMsg)
         } catch {
             let errorMsg = ConversationMessage(
-                content: "I couldn't answer that question. Please try again or rephrase your question.",
-                isUser: false
+                isUser: false,
+                text: "I couldn't answer that question. Please try again or rephrase your question.",
+                intent: .general
             )
             conversationHistory.append(errorMsg)
             print("Error in conversation: \(error)")

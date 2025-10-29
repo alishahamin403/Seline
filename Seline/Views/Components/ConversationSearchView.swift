@@ -134,7 +134,7 @@ struct ConversationMessageView: View {
                 }
 
                 VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
-                    Text(message.content)
+                    Text(message.text)
                         .font(.system(size: 15, weight: .regular))
                         .foregroundColor(message.isUser ? Color.white : Color.shadcnForeground(colorScheme))
                         .textSelection(.enabled)
@@ -151,18 +151,12 @@ struct ConversationMessageView: View {
                 }
             }
 
-            Text(formatTime(message.timestamp))
+            Text(message.formattedTime)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundColor(Color.shadcnMutedForeground(colorScheme))
                 .padding(.horizontal, 12)
         }
         .padding(.horizontal, 16)
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
     }
 }
 
