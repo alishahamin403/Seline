@@ -272,10 +272,20 @@ class CalendarPhotoExtractionService {
             "temperature": 0.1
         ]
 
+        // Validate API key before making request
+        if apiKey.isEmpty || apiKey.contains("YOUR_") || apiKey == "sk-" {
+            throw ExtractionError.apiError("Invalid OpenAI API key. Please check Config.swift")
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30  // 30 second timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        print("📡 Sending request to OpenAI API...")
+        print("📡 URL: \(baseURL)")
+        print("📡 Image size: \(String(format: "%.2f", Double(base64Image.count) / 1024))KB")
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
@@ -283,19 +293,62 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.networkError(error)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError {
+            print("🔴 URLError: \(error.localizedDescription)")
+            print("🔴 Error code: \(error.code.rawValue)")
+            print("🔴 Underlying error: \(error.underlyingError?.localizedDescription ?? "none")")
+
+            // Provide helpful error messages for common network issues
+            switch error.code {
+            case .notConnectedToInternet:
+                throw ExtractionError.apiError("No internet connection. Check WiFi/cellular.")
+            case .timedOut:
+                throw ExtractionError.apiError("Request timed out. Check your connection speed.")
+            case .networkConnectionLost:
+                throw ExtractionError.apiError("Network connection lost. Try again.")
+            case .dnsLookupFailed:
+                throw ExtractionError.apiError("Cannot reach OpenAI servers. Check your DNS.")
+            default:
+                throw ExtractionError.networkError(error)
+            }
+        } catch {
+            print("🔴 Network error: \(error.localizedDescription)")
+            throw ExtractionError.networkError(error)
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ExtractionError.networkError(NSError(domain: "InvalidResponse", code: -1))
         }
 
+        print("📡 Response status: \(httpResponse.statusCode)")
+
         // Handle API errors
         if httpResponse.statusCode != 200 {
+            print("🔴 HTTP Error \(httpResponse.statusCode)")
+            print("🔴 Response: \(String(data: data, encoding: .utf8) ?? "No data")")
+
             if let errorBody = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
+                print("🔴 API Error: \(errorBody.error.message)")
                 throw ExtractionError.apiError(errorBody.error.message)
             }
-            throw ExtractionError.apiError("HTTP \(httpResponse.statusCode)")
+
+            let statusDescription = {
+                switch httpResponse.statusCode {
+                case 400: return "Bad Request - Invalid image or parameters"
+                case 401: return "Unauthorized - Invalid API key"
+                case 429: return "Rate limited - Too many requests"
+                case 500...599: return "Server error - OpenAI servers have issues"
+                default: return "HTTP \(httpResponse.statusCode)"
+                }
+            }()
+
+            throw ExtractionError.apiError(statusDescription)
         }
+
+        print("✅ API request successful")
 
         guard let decodedResponse = try? JSONDecoder().decode(OpenAIResponse.self, from: data),
               let content = decodedResponse.choices.first?.message.content else {
