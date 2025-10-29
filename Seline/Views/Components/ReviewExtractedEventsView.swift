@@ -426,81 +426,30 @@ struct SimpleEventCard: View {
             // Time editing section
             VStack(alignment: .leading, spacing: 0) {
                 // Start time
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Start")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-
-                        if showStartTimePicker {
-                            DatePicker("", selection: $event.startTime, displayedComponents: .hourAndMinute)
-                                .datePickerStyle(.wheel)
-                                .labelsHidden()
-                                .frame(height: 120)
-                        } else {
-                            Text(formatTime(event.startTime))
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                        }
-                    }
-
-                    Spacer()
-
-                    if !showStartTimePicker {
-                        Button(action: { showStartTimePicker = true }) {
-                            Image(systemName: "pencil.circle.fill")
-                                .foregroundColor(.black)
-                                .opacity(0.5)
-                        }
-                    } else {
-                        Button(action: { showStartTimePicker = false }) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.black)
-                        }
-                    }
-                }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 14)
-
-                if event.endTime != nil {
-                    Divider()
-                        .padding(.horizontal, 14)
-
-                    // End time
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("End")
+                            Text("Start")
                                 .font(.caption)
                                 .foregroundColor(.gray)
 
-                            if showEndTimePicker {
-                                DatePicker("", selection: .init(get: { event.endTime ?? Date() }, set: { event.endTime = $0 }), displayedComponents: .hourAndMinute)
-                                    .datePickerStyle(.wheel)
-                                    .labelsHidden()
-                                    .frame(height: 120)
-                            } else {
-                                if let endTime = event.endTime {
-                                    Text(formatTime(endTime))
-                                        .font(.subheadline)
-                                        .fontWeight(.medium)
-                                } else {
-                                    Text("No end time")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                }
+                            if !showStartTimePicker {
+                                Text(formatTime(event.startTime))
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
                             }
                         }
 
                         Spacer()
 
-                        if !showEndTimePicker {
-                            Button(action: { showEndTimePicker = true }) {
+                        if !showStartTimePicker {
+                            Button(action: { showStartTimePicker = true }) {
                                 Image(systemName: "pencil.circle.fill")
                                     .foregroundColor(.black)
                                     .opacity(0.5)
                             }
                         } else {
-                            Button(action: { showEndTimePicker = false }) {
+                            Button(action: { showStartTimePicker = false }) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.black)
                             }
@@ -508,6 +457,71 @@ struct SimpleEventCard: View {
                     }
                     .padding(.vertical, 12)
                     .padding(.horizontal, 14)
+
+                    if showStartTimePicker {
+                        DatePicker("", selection: $event.startTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(.wheel)
+                            .labelsHidden()
+                            .frame(height: 100)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 12)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if event.endTime != nil {
+                    Divider()
+                        .padding(.horizontal, 14)
+
+                    // End time
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("End")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+
+                                if !showEndTimePicker {
+                                    if let endTime = event.endTime {
+                                        Text(formatTime(endTime))
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                    } else {
+                                        Text("No end time")
+                                            .font(.subheadline)
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                            }
+
+                            Spacer()
+
+                            if !showEndTimePicker {
+                                Button(action: { showEndTimePicker = true }) {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .foregroundColor(.black)
+                                        .opacity(0.5)
+                                }
+                            } else {
+                                Button(action: { showEndTimePicker = false }) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.black)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+
+                        if showEndTimePicker {
+                            DatePicker("", selection: .init(get: { event.endTime ?? Date() }, set: { event.endTime = $0 }), displayedComponents: .hourAndMinute)
+                                .datePickerStyle(.wheel)
+                                .labelsHidden()
+                                .frame(height: 100)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 12)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 

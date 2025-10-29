@@ -49,6 +49,12 @@ struct AddEventPopupView: View {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private func formatTimeWithAMPM(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
     var body: some View {
         ZStack {
             // Dimmed background
@@ -138,27 +144,45 @@ struct AddEventPopupView: View {
 
                                 if hasTime {
                                     VStack(spacing: 12) {
-                                        HStack {
-                                            Text("From")
-                                                .font(.system(size: 13, weight: .medium))
-                                                .foregroundColor(Color.shadcnMuted(colorScheme))
-                                            Spacer()
+                                        // From time
+                                        VStack(spacing: 8) {
+                                            HStack {
+                                                Text("From")
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                                                Spacer()
+                                                VStack(alignment: .trailing, spacing: 2) {
+                                                    Text(formatTimeWithAMPM(selectedTime))
+                                                        .font(.system(size: 15, weight: .semibold))
+                                                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                                                }
+                                            }
                                             DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
                                                 .datePickerStyle(WheelDatePickerStyle())
                                                 .labelsHidden()
+                                                .frame(height: 100)
                                                 .onChange(of: selectedTime) { newStartTime in
                                                     selectedEndTime = newStartTime.addingTimeInterval(3600)
                                                 }
                                         }
 
-                                        HStack {
-                                            Text("To")
-                                                .font(.system(size: 13, weight: .medium))
-                                                .foregroundColor(Color.shadcnMuted(colorScheme))
-                                            Spacer()
+                                        // To time
+                                        VStack(spacing: 8) {
+                                            HStack {
+                                                Text("To")
+                                                    .font(.system(size: 13, weight: .medium))
+                                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                                                Spacer()
+                                                VStack(alignment: .trailing, spacing: 2) {
+                                                    Text(formatTimeWithAMPM(selectedEndTime))
+                                                        .font(.system(size: 15, weight: .semibold))
+                                                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                                                }
+                                            }
                                             DatePicker("", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
                                                 .datePickerStyle(WheelDatePickerStyle())
                                                 .labelsHidden()
+                                                .frame(height: 100)
                                         }
                                     }
                                     .padding(.top, 8)
