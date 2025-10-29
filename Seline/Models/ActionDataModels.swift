@@ -90,3 +90,17 @@ struct DeletionData: Codable, Equatable {
         self.deleteAllOccurrences = deleteAllOccurrences
     }
 }
+
+// MARK: - Multi-Action Request Data
+
+struct MultiActionRequest: Equatable {
+    let actionType: ActionType
+    let query: String // The specific query for this action
+    let originalFullQuery: String // The original full query from the user
+
+    init(actionType: ActionType, query: String, originalFullQuery: String) {
+        self.actionType = actionType
+        self.query = query
+        self.originalFullQuery = originalFullQuery
+    }
+}

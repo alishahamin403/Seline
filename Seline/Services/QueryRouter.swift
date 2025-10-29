@@ -203,6 +203,60 @@ class QueryRouter {
         return .unknown
     }
 
+    /// Detect multiple actions in a single query using LLM
+    /// Returns an array of (ActionType, query) tuples if multiple actions are detected
+    func detectMultipleActions(_ query: String) async -> [(actionType: ActionType, query: String)] {
+        let lowercased = query.lowercased()
+
+        // Quick check for separator keywords that indicate multiple actions
+        let separators = [" and ", " plus ", " also ", " additionally "]
+        let hasMultipleActions = separators.contains { lowercased.contains($0) }
+
+        if !hasMultipleActions {
+            return []
+        }
+
+        let systemPrompt = """
+        You are an action parser. Analyze this user query and extract ALL distinct actions they want to perform.
+
+        Return a JSON array of actions, where each action has "type" and "query" fields.
+        Types can be: "create_note", "create_event", "update_note", "update_event", "delete_note", "delete_event"
+
+        Example input: "add telus bill $82 and update sum in monthly expenses note"
+        Example output: [{"type":"create_note","query":"add telus bill $82"},{"type":"update_note","query":"update sum in monthly expenses note"}]
+
+        Return ONLY the JSON array, nothing else.
+        """
+
+        do {
+            let response = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: query,
+                maxTokens: 200,
+                temperature: 0.0
+            )
+
+            // Parse the JSON response
+            if let data = response.data(using: .utf8),
+               let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: String]] {
+                var actions: [(actionType: ActionType, query: String)] = []
+                for actionDict in jsonArray {
+                    if let typeStr = actionDict["type"], let actionQuery = actionDict["query"] {
+                        let actionType = parseSemanticClassification(typeStr)
+                        if actionType != .unknown {
+                            actions.append((actionType: actionType, query: actionQuery))
+                        }
+                    }
+                }
+                return actions.isEmpty ? [] : actions
+            }
+        } catch {
+            print("Error detecting multiple actions: \(error)")
+        }
+
+        return []
+    }
+
     /// Helper to check if string contains any of the keywords
     private func containsAny(of keywords: [String], in text: String) -> Bool {
         for keyword in keywords {

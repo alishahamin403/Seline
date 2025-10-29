@@ -102,47 +102,92 @@ struct ConversationSearchView: View {
 
             // Action confirmation area (shown when pending action exists)
             if searchService.pendingEventCreation != nil {
-                ActionConfirmationView(
-                    title: searchService.pendingEventCreation?.title ?? "Event",
-                    details: eventConfirmationDetails,
-                    onConfirm: {
-                        HapticManager.shared.selection()
-                        searchService.confirmEventCreation()
-                    },
-                    onCancel: {
-                        HapticManager.shared.selection()
-                        searchService.cancelAction()
-                    },
-                    colorScheme: colorScheme
-                )
+                VStack(spacing: 0) {
+                    // Multi-action progress indicator
+                    if !searchService.pendingMultiActions.isEmpty && searchService.currentMultiActionIndex < searchService.pendingMultiActions.count - 1 {
+                        HStack(spacing: 8) {
+                            Text("Action \(searchService.currentMultiActionIndex + 1) of \(searchService.pendingMultiActions.count)")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
+                    }
+
+                    ActionConfirmationView(
+                        title: searchService.pendingEventCreation?.title ?? "Event",
+                        details: eventConfirmationDetails,
+                        onConfirm: {
+                            HapticManager.shared.selection()
+                            searchService.confirmEventCreation()
+                        },
+                        onCancel: {
+                            HapticManager.shared.selection()
+                            searchService.cancelAction()
+                        },
+                        colorScheme: colorScheme
+                    )
+                }
             } else if searchService.pendingNoteCreation != nil {
-                ActionConfirmationView(
-                    title: searchService.pendingNoteCreation?.title ?? "Note",
-                    details: "Content: \(searchService.pendingNoteCreation?.content ?? "")",
-                    onConfirm: {
-                        HapticManager.shared.selection()
-                        searchService.confirmNoteCreation()
-                    },
-                    onCancel: {
-                        HapticManager.shared.selection()
-                        searchService.cancelAction()
-                    },
-                    colorScheme: colorScheme
-                )
+                VStack(spacing: 0) {
+                    // Multi-action progress indicator
+                    if !searchService.pendingMultiActions.isEmpty && searchService.currentMultiActionIndex < searchService.pendingMultiActions.count - 1 {
+                        HStack(spacing: 8) {
+                            Text("Action \(searchService.currentMultiActionIndex + 1) of \(searchService.pendingMultiActions.count)")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
+                    }
+
+                    ActionConfirmationView(
+                        title: searchService.pendingNoteCreation?.title ?? "Note",
+                        details: "Content: \(searchService.pendingNoteCreation?.content ?? "")",
+                        onConfirm: {
+                            HapticManager.shared.selection()
+                            searchService.confirmNoteCreation()
+                        },
+                        onCancel: {
+                            HapticManager.shared.selection()
+                            searchService.cancelAction()
+                        },
+                        colorScheme: colorScheme
+                    )
+                }
             } else if searchService.pendingNoteUpdate != nil {
-                ActionConfirmationView(
-                    title: searchService.pendingNoteUpdate?.noteTitle ?? "Note",
-                    details: "Adding: \(searchService.pendingNoteUpdate?.contentToAdd ?? "")",
-                    onConfirm: {
-                        HapticManager.shared.selection()
-                        searchService.confirmNoteUpdate()
-                    },
-                    onCancel: {
-                        HapticManager.shared.selection()
-                        searchService.cancelAction()
-                    },
-                    colorScheme: colorScheme
-                )
+                VStack(spacing: 0) {
+                    // Multi-action progress indicator
+                    if !searchService.pendingMultiActions.isEmpty && searchService.currentMultiActionIndex < searchService.pendingMultiActions.count - 1 {
+                        HStack(spacing: 8) {
+                            Text("Action \(searchService.currentMultiActionIndex + 1) of \(searchService.pendingMultiActions.count)")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
+                    }
+
+                    ActionConfirmationView(
+                        title: searchService.pendingNoteUpdate?.noteTitle ?? "Note",
+                        details: "Adding: \(searchService.pendingNoteUpdate?.contentToAdd ?? "")",
+                        onConfirm: {
+                            HapticManager.shared.selection()
+                            searchService.confirmNoteUpdate()
+                        },
+                        onCancel: {
+                            HapticManager.shared.selection()
+                            searchService.cancelAction()
+                        },
+                        colorScheme: colorScheme
+                    )
+                }
             }
 
             // Input area

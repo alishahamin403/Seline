@@ -27,6 +27,11 @@ class SearchService: ObservableObject {
     @Published var currentNoteBeingRefined: Note? = nil
     @Published var pendingRefinementContent: String? = nil  // Computed content waiting for user confirmation
 
+    // Multi-action support
+    @Published var pendingMultiActions: [(actionType: ActionType, query: String)] = []
+    @Published var currentMultiActionIndex: Int = 0
+    private var originalMultiActionQuery: String = ""  // Track original query for context
+
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
@@ -715,6 +720,43 @@ class SearchService: ObservableObject {
         }
     }
 
+    // MARK: - Multi-Action Helper
+
+    private func processNextMultiAction() async {
+        // Check if there are more actions to process
+        let nextIndex = currentMultiActionIndex + 1
+        if nextIndex < pendingMultiActions.count {
+            currentMultiActionIndex = nextIndex
+            let nextAction = pendingMultiActions[nextIndex]
+
+            // Add a separator message
+            let separatorMsg = ConversationMessage(
+                isUser: false,
+                text: "Processing next action...",
+                intent: .general
+            )
+            conversationHistory.append(separatorMsg)
+
+            // Process the next action
+            await handleConversationActionQuery(nextAction.query, actionType: nextAction.actionType)
+            saveConversationLocally()
+        } else {
+            // All actions completed
+            let completionMsg = ConversationMessage(
+                isUser: false,
+                text: "✓ All actions completed!",
+                intent: .general
+            )
+            conversationHistory.append(completionMsg)
+
+            // Clear multi-action state
+            pendingMultiActions = []
+            currentMultiActionIndex = 0
+            originalMultiActionQuery = ""
+            saveConversationLocally()
+        }
+    }
+
     // MARK: - Action Confirmation Methods
 
     func confirmEventCreation() {
@@ -810,6 +852,11 @@ class SearchService: ObservableObject {
 
         // Clear pending data
         pendingEventCreation = nil
+
+        // Check if there are more multi-actions to process
+        Task {
+            await processNextMultiAction()
+        }
     }
 
     func confirmNoteCreation() {
@@ -831,6 +878,11 @@ class SearchService: ObservableObject {
 
         // Clear pending data
         pendingNoteCreation = nil
+
+        // Check if there are more multi-actions to process
+        Task {
+            await processNextMultiAction()
+        }
     }
 
     func confirmNoteUpdate() {
@@ -863,6 +915,11 @@ class SearchService: ObservableObject {
 
         // Clear pending data
         pendingNoteUpdate = nil
+
+        // Check if there are more multi-actions to process
+        Task {
+            await processNextMultiAction()
+        }
     }
 
     func cancelAction() {
@@ -872,8 +929,16 @@ class SearchService: ObservableObject {
         pendingNoteCreation = nil
         pendingNoteUpdate = nil
 
+        // Cancel multi-actions as well
+        let hasMultiActions = !pendingMultiActions.isEmpty
+        if hasMultiActions {
+            pendingMultiActions = []
+            currentMultiActionIndex = 0
+            originalMultiActionQuery = ""
+        }
+
         // If in conversation mode and had a pending action, add cancellation message
-        if isInConversationMode && hasAction {
+        if isInConversationMode && (hasAction || hasMultiActions) {
             let cancelMsg = ConversationMessage(
                 isUser: false,
                 text: "Okay, I cancelled that action. What else can I help you with?",
@@ -1023,7 +1088,23 @@ class SearchService: ObservableObject {
             return
         }
 
-        // Check if this is an action query (create event, create note, etc.) BEFORE sending to AI
+        // Check for MULTI-ACTIONS first (e.g., "add X and update Y")
+        let multiActions = await queryRouter.detectMultipleActions(trimmed)
+        if !multiActions.isEmpty {
+            // Multiple actions detected - store them and process sequentially
+            pendingMultiActions = multiActions
+            currentMultiActionIndex = 0
+            originalMultiActionQuery = trimmed
+
+            // Process first action immediately
+            if let firstAction = multiActions.first {
+                await handleConversationActionQuery(firstAction.query, actionType: firstAction.actionType)
+                saveConversationLocally()
+            }
+            return
+        }
+
+        // Check if this is a single action query (create event, create note, etc.) BEFORE sending to AI
         var queryType = queryRouter.classifyQuery(trimmed)
 
         // If keyword matching didn't detect action, try semantic classification
