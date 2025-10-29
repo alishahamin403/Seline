@@ -44,17 +44,18 @@ struct SearchBarComponent: View {
 
             // Search results or conversation trigger
             if !searchService.searchQuery.isEmpty {
-                // Always show search results (or loading state)
-                // The sheet modal will appear on top if in conversation mode
-                SearchResultsView(
-                    results: searchService.searchResults,
-                    isSearching: searchService.isSearching,
-                    selectedTab: $selectedTab
-                )
+                if searchService.isInConversationMode {
+                    // Show conversation view inline if in conversation mode
+                    ConversationSearchView()
+                } else {
+                    // Always show search results (or loading state)
+                    SearchResultsView(
+                        results: searchService.searchResults,
+                        isSearching: searchService.isSearching,
+                        selectedTab: $selectedTab
+                    )
+                }
             }
-        }
-        .sheet(isPresented: $searchService.isInConversationMode) {
-            ConversationSearchView()
         }
     }
 }
