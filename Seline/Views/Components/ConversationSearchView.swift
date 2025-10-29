@@ -7,6 +7,7 @@ struct ConversationSearchView: View {
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
+    @State private var showingHistory = false
 
     private var eventConfirmationDetails: String {
         guard let eventData = searchService.pendingEventCreation else { return "" }
@@ -51,6 +52,16 @@ struct ConversationSearchView: View {
                 }
 
                 Spacer()
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showingHistory = true
+                }) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -190,6 +201,9 @@ struct ConversationSearchView: View {
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .onAppear {
             isInputFocused = true
+        }
+        .sheet(isPresented: $showingHistory) {
+            ConversationHistoryView()
         }
     }
 }

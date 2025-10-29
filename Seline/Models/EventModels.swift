@@ -2030,7 +2030,13 @@ class TaskManager: ObservableObject {
 
     // MARK: - Notification Scheduling
     private func scheduleReminder(for task: TaskItem, at scheduledTime: Date, reminderBefore: ReminderTime) {
-        // Calculate the reminder time
+        // Only schedule if reminder is not "none"
+        guard reminderBefore != .none else {
+            print("⏰ No reminder set for \(task.title)")
+            return
+        }
+
+        // Calculate the reminder time (alert/notification before event)
         let reminderDate = Calendar.current.date(byAdding: .minute, value: -reminderBefore.minutes, to: scheduledTime)
 
         guard let reminderDate = reminderDate, reminderDate > Date() else {
@@ -2043,16 +2049,30 @@ class TaskManager: ObservableObject {
         timeFormatter.timeStyle = .short
         let eventTimeString = timeFormatter.string(from: scheduledTime)
 
-        let body = "Starts at \(eventTimeString)"
+        // FIRST NOTIFICATION: Alert/reminder notification (e.g., 15 min before)
+        let reminderBody = "\(reminderBefore.displayName) - Event starts at \(eventTimeString)"
 
-        // Use the notification service to schedule
         Task {
+            // Schedule the alert reminder notification
             await NotificationService.shared.scheduleTaskReminder(
                 taskId: task.id,
                 title: task.title,
-                body: body,
-                scheduledTime: reminderDate
+                body: reminderBody,
+                scheduledTime: reminderDate,
+                isAlertReminder: true
             )
+
+            // SECOND NOTIFICATION: Event time notification (when event actually starts)
+            if scheduledTime > Date() {
+                let eventStartBody = "Starting now!"
+                await NotificationService.shared.scheduleTaskReminder(
+                    taskId: task.id,
+                    title: task.title,
+                    body: eventStartBody,
+                    scheduledTime: scheduledTime,
+                    isAlertReminder: false
+                )
+            }
         }
     }
 

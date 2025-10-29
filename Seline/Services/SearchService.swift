@@ -19,6 +19,7 @@ class SearchService: ObservableObject {
     @Published var conversationHistory: [ConversationMessage] = []
     @Published var isInConversationMode: Bool = false
     @Published var conversationTitle: String = "New Conversation"
+    @Published var savedConversations: [SavedConversation] = []
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
@@ -27,6 +28,9 @@ class SearchService: ObservableObject {
     private let actionQueryHandler = ActionQueryHandler.shared
 
     private init() {
+        // Load saved conversations from local storage
+        loadConversationHistoryLocally()
+
         // Auto-refresh search when query changes with debounce
         $searchQuery
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
@@ -533,17 +537,14 @@ class SearchService: ObservableObject {
         // Enter conversation mode if not already in it
         if !isInConversationMode {
             isInConversationMode = true
-            updateConversationTitle()
         }
 
         // Add user message to history
         let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
 
-        // Update title after adding first message
-        if conversationHistory.count == 1 {
-            updateConversationTitle()
-        }
+        // Update title based on conversation context
+        updateConversationTitle()
 
         // Check if this is an action query (create event, create note, etc.) BEFORE sending to AI
         let queryType = queryRouter.classifyQuery(trimmed)
@@ -586,6 +587,11 @@ class SearchService: ObservableObject {
 
     /// Clear conversation state completely (called when user dismisses conversation modal)
     func clearConversation() {
+        // Save to history before clearing (if there's content)
+        if !conversationHistory.isEmpty {
+            saveConversationToHistory()
+        }
+
         conversationHistory = []
         isInConversationMode = false
         isLoadingQuestionResponse = false
@@ -601,8 +607,30 @@ class SearchService: ObservableObject {
         await addConversationMessage(initialQuestion)
     }
 
-    /// Update conversation title based on the first user message
+    /// Update conversation title based on conversation context
+    /// Updates as conversation progresses to better reflect the topic
     private func updateConversationTitle() {
+        guard !conversationHistory.isEmpty else {
+            conversationTitle = "New Conversation"
+            return
+        }
+
+        // If we have multiple messages, use recent context for better title
+        if conversationHistory.count >= 4 {
+            // Get the last user message for context
+            if let lastUserMessage = conversationHistory.reversed().first(where: { $0.isUser }) {
+                let words = lastUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
+                let newTitle = String(words.isEmpty ? "Conversation" : words)
+
+                // Only update if it's meaningfully different
+                if newTitle != conversationTitle {
+                    conversationTitle = newTitle
+                }
+                return
+            }
+        }
+
+        // Fall back to first user message for new conversations
         if let firstUserMessage = conversationHistory.first(where: { $0.isUser }) {
             let words = firstUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
             conversationTitle = String(words.isEmpty ? "New Conversation" : words)
@@ -697,5 +725,74 @@ class SearchService: ObservableObject {
     /// Currently disabled - can be implemented once proper SDK support is available
     func loadConversationFromSupabase(id: String) async {
         print("Note: Load conversation from Supabase not yet implemented. Use loadLastConversation() for local persistence.")
+    }
+
+    /// Save current conversation to history
+    func saveConversationToHistory() {
+        guard !conversationHistory.isEmpty else { return }
+
+        let saved = SavedConversation(
+            id: UUID(),
+            title: conversationTitle,
+            messages: conversationHistory,
+            createdAt: Date()
+        )
+
+        savedConversations.insert(saved, at: 0)  // Add to beginning for chronological order
+        saveConversationHistoryLocally()
+    }
+
+    /// Load all saved conversations from local storage
+    func loadConversationHistoryLocally() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: "conversationHistory") else { return }
+
+        do {
+            savedConversations = try JSONDecoder().decode([SavedConversation].self, from: data)
+        } catch {
+            print("Error loading conversation history: \(error)")
+        }
+    }
+
+    /// Save all conversations to local storage
+    private func saveConversationHistoryLocally() {
+        let defaults = UserDefaults.standard
+        do {
+            let encoded = try JSONEncoder().encode(savedConversations)
+            defaults.set(encoded, forKey: "conversationHistory")
+        } catch {
+            print("Error saving conversation history: \(error)")
+        }
+    }
+
+    /// Load specific conversation by ID
+    func loadConversation(withId id: UUID) {
+        if let saved = savedConversations.first(where: { $0.id == id }) {
+            conversationHistory = saved.messages
+            conversationTitle = saved.title
+            isInConversationMode = true
+        }
+    }
+
+    /// Delete conversation from history
+    func deleteConversation(withId id: UUID) {
+        savedConversations.removeAll { $0.id == id }
+        saveConversationHistoryLocally()
+    }
+}
+
+// MARK: - Saved Conversation Model
+
+struct SavedConversation: Identifiable, Codable {
+    let id: UUID
+    let title: String
+    let messages: [ConversationMessage]
+    let createdAt: Date
+
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: createdAt)
     }
 }

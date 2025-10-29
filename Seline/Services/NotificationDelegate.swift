@@ -58,8 +58,39 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             // Navigate to task view
             NotificationCenter.default.post(name: .navigateToTask, object: nil, userInfo: userInfo)
 
+        case "top_story":
+            // Open article URL in Chrome
+            if let urlString = userInfo["url"] as? String, let url = URL(string: urlString) {
+                openInChrome(url: url)
+            } else {
+                print("⚠️ Top story notification has no URL")
+            }
+
         default:
             print("Unknown notification type: \(notificationType ?? "nil")")
+        }
+    }
+
+    private func openInChrome(url: URL) {
+        // Chrome URL scheme: googlechrome://[url without scheme]
+        var chromURLString = url.absoluteString.replacingOccurrences(of: "http://", with: "")
+        chromURLString = chromURLString.replacingOccurrences(of: "https://", with: "")
+
+        guard let chromeURL = URL(string: "googlechrome://\(chromURLString)") else {
+            // Fallback to default browser if Chrome URL fails
+            print("⚠️ Could not create Chrome URL, using default browser")
+            UIApplication.shared.open(url)
+            return
+        }
+
+        // Check if Chrome is installed
+        if UIApplication.shared.canOpenURL(chromeURL) {
+            UIApplication.shared.open(chromeURL)
+            print("📱 Opened article in Chrome: \(url.host ?? "Unknown")")
+        } else {
+            // Fallback to Safari/default browser if Chrome is not installed
+            print("📱 Chrome not installed, opening in default browser")
+            UIApplication.shared.open(url)
         }
     }
 }

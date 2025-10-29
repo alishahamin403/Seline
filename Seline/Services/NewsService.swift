@@ -112,7 +112,8 @@ class NewsService: ObservableObject {
             if let newArticle = newArticles.first(where: { $0.title == newTitle }) {
                 await notificationService.scheduleTopStoryNotification(
                     title: newArticle.title,
-                    category: category.displayName
+                    category: category.displayName,
+                    url: newArticle.url
                 )
             }
         }

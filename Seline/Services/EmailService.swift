@@ -738,24 +738,23 @@ class EmailService: ObservableObject {
 
     @objc private func appDidEnterBackground() {
         isAppActive = false
-        stopNewEmailPolling()
+        // Keep email polling running in background for notifications
+        // The polling will continue checking for new emails every 60 seconds
+        print("App entered background - email polling continues for background notifications")
     }
 
     // MARK: - New Email Polling (Only when app is active)
 
     private func startNewEmailPolling() {
-        // Only start if app is active
-        guard isAppActive else {
+        // Only start if we don't already have a timer running
+        guard newEmailTimer == nil else {
             return
         }
 
-        newEmailTimer?.invalidate()
         newEmailTimer = Timer.scheduledTimer(withTimeInterval: newEmailCheckInterval, repeats: true) { _ in
             Task { @MainActor in
-                // Only check if app is still active
-                guard self.isAppActive else {
-                    return
-                }
+                // Check for new emails even in background for notifications
+                // This enables real-time email notifications when app is backgrounded
                 await self.checkForNewEmails()
             }
         }

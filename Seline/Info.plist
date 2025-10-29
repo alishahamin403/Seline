@@ -102,10 +102,17 @@
         <string>gmail</string>
         <string>comgooglemaps</string>
         <string>weather</string>
+        <string>googlechrome</string>
     </array>
 
     <!-- API Keys -->
     <key>OpenWeatherMapAPIKey</key>
     <string>YOUR_OPENWEATHERMAP_API_KEY_HERE</string>
+
+    <!-- Background Modes for Email Notifications -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+    </array>
 </dict>
 </plist>

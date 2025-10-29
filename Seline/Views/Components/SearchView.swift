@@ -137,10 +137,14 @@ struct SearchView: View {
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
+                        .onChange(of: searchText) { newValue in
+                            searchService.searchQuery = newValue
+                        }
 
                     if !searchText.isEmpty {
                         Button(action: {
                             searchText = ""
+                            searchService.searchQuery = ""
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))

@@ -136,7 +136,7 @@ class NotificationService: ObservableObject {
 
     // MARK: - Task Reminders
 
-    func scheduleTaskReminder(taskId: String, title: String, body: String, scheduledTime: Date) async {
+    func scheduleTaskReminder(taskId: String, title: String, body: String, scheduledTime: Date, isAlertReminder: Bool = true) async {
         // Check if we have authorization
         guard isAuthorized else {
             print("Notification authorization not granted")
@@ -144,11 +144,11 @@ class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Event Reminder"
-        content.body = title  // Just show the event name
+        content.title = isAlertReminder ? "Event Reminder" : "Event Starting"
+        content.body = body
         content.sound = .default
         content.categoryIdentifier = "task_reminder"
-        content.userInfo = ["type": "task_reminder", "taskId": taskId]
+        content.userInfo = ["type": "task_reminder", "taskId": taskId, "isAlertReminder": isAlertReminder]
 
         // Create date components from the scheduled time
         let dateComponents = Calendar.current.dateComponents(
@@ -158,29 +158,37 @@ class NotificationService: ObservableObject {
 
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
 
+        // Create unique identifier for each notification type
+        let notificationType = isAlertReminder ? "alert" : "start"
         let request = UNNotificationRequest(
-            identifier: "task-reminder-\(taskId)",
+            identifier: "task-reminder-\(taskId)-\(notificationType)",
             content: content,
             trigger: trigger
         )
 
         do {
             try await UNUserNotificationCenter.current().add(request)
-            print("⏰ Scheduled reminder for '\(title)' at \(scheduledTime)")
+            let type = isAlertReminder ? "alert reminder" : "event start"
+            print("⏰ Scheduled \(type) for '\(title)' at \(scheduledTime)")
         } catch {
             print("Failed to schedule task reminder: \(error)")
         }
     }
 
     func cancelTaskReminder(taskId: String) {
+        // Cancel both alert reminder and event start notifications
         UNUserNotificationCenter.current().removePendingNotificationRequests(
-            withIdentifiers: ["task-reminder-\(taskId)"]
+            withIdentifiers: [
+                "task-reminder-\(taskId)-alert",
+                "task-reminder-\(taskId)-start",
+                "task-reminder-\(taskId)"  // Legacy format for backward compatibility
+            ]
         )
     }
 
     // MARK: - Top Stories Notifications
 
-    func scheduleTopStoryNotification(title: String, category: String) async {
+    func scheduleTopStoryNotification(title: String, category: String, url: String? = nil) async {
         // Check if we have authorization
         guard isAuthorized else {
             print("Notification authorization not granted")
@@ -192,7 +200,13 @@ class NotificationService: ObservableObject {
         content.body = title
         content.sound = .default
         content.categoryIdentifier = "top_story"
-        content.userInfo = ["type": "top_story", "category": category]
+
+        // Store URL in userInfo for deep linking
+        var userInfo: [AnyHashable: Any] = ["type": "top_story", "category": category]
+        if let url = url {
+            userInfo["url"] = url
+        }
+        content.userInfo = userInfo
 
         let request = UNNotificationRequest(
             identifier: "top-story-\(Date().timeIntervalSince1970)",

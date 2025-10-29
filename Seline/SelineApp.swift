@@ -3,6 +3,7 @@ import Auth
 import GoogleSignIn
 import UserNotifications
 import EventKit
+import BackgroundTasks
 
 @main
 struct SelineApp: App {
@@ -14,6 +15,7 @@ struct SelineApp: App {
         configureSupabase()
         configureGoogleSignIn()
         configureNotifications()
+        configureBackgroundRefresh()
         syncCalendarEventsOnFirstLaunch()
     }
 
@@ -76,6 +78,38 @@ struct SelineApp: App {
             } else {
                 print("❌ Notification permissions denied")
             }
+        }
+    }
+
+    private func configureBackgroundRefresh() {
+        // Register Background App Refresh task for email notifications
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: "com.seline.emailRefresh", using: nil) { task in
+            Task {
+                print("📧 Background refresh task started")
+                await EmailService.shared.handleBackgroundRefresh()
+
+                // Schedule the next background refresh
+                scheduleBackgroundRefresh()
+
+                // Mark task as completed
+                task.setTaskCompleted(success: true)
+            }
+        }
+
+        // Schedule the first background refresh
+        scheduleBackgroundRefresh()
+    }
+
+    private func scheduleBackgroundRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: "com.seline.emailRefresh")
+        // Schedule refresh in 15 minutes (minimum is 15 minutes for app refresh)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            print("📅 Background refresh scheduled for 15 minutes from now")
+        } catch {
+            print("⚠️ Failed to schedule background refresh: \(error)")
         }
     }
 
