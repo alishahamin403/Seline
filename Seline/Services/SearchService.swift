@@ -214,12 +214,24 @@ class SearchService: ObservableObject {
             // Find the event to update
             if let matchingEvent = findEventToUpdate(from: query) {
                 // Parse the updated event details based on the query
-                if var updatedEvent = await actionQueryHandler.parseEventCreation(from: query) {
+                if let updatedEvent = await actionQueryHandler.parseEventCreation(from: query) {
                     // If the parsed event doesn't have a title, use the existing one
                     if updatedEvent.title.isEmpty {
-                        updatedEvent.title = matchingEvent.title
+                        // Create a new EventCreationData with the existing event's title
+                        let eventWithTitle = EventCreationData(
+                            title: matchingEvent.title,
+                            description: updatedEvent.description,
+                            date: updatedEvent.date,
+                            time: updatedEvent.time,
+                            endTime: updatedEvent.endTime,
+                            recurrenceFrequency: updatedEvent.recurrenceFrequency,
+                            isAllDay: updatedEvent.isAllDay,
+                            requiresFollowUp: updatedEvent.requiresFollowUp
+                        )
+                        pendingEventCreation = eventWithTitle
+                    } else {
+                        pendingEventCreation = updatedEvent
                     }
-                    pendingEventCreation = updatedEvent
                 }
             } else {
                 // If no matching event, ask AI to handle it as a question
