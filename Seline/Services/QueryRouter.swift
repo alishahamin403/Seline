@@ -96,8 +96,25 @@ class QueryRouter {
     /// Keyword-based action detection
     private func detectActionByKeywords(_ query: String) -> ActionType? {
         // Check for note-related actions FIRST (explicit priority over events)
-        // When user says "create a note", we should ALWAYS create a note, not an event
         if containsAny(of: noteKeywords, in: query) {
+            // Smart handling of "add" keyword - it can mean create OR update
+            // "add to my X note" = update (existing note)
+            // "add a new note" = create (new note)
+            let hasExistingNoteReference = query.lowercased().contains("my ") ||
+                                          query.lowercased().contains("the ") ||
+                                          query.lowercased().contains("existing ") ||
+                                          query.lowercased().contains("to ") ||
+                                          query.lowercased().contains("this ")
+
+            let hasAddKeyword = containsAny(of: ["add"], in: query)
+            let hasCreateOnlyKeyword = containsAny(of: ["create", "new", "make"], in: query)
+
+            // If "add" is used with reference to existing note, treat as update
+            if hasAddKeyword && hasExistingNoteReference && !hasCreateOnlyKeyword {
+                return .updateNote
+            }
+
+            // Otherwise use standard logic
             if containsAny(of: createKeywords, in: query) {
                 return .createNote
             } else if containsAny(of: updateKeywords, in: query) {
