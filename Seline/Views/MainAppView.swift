@@ -270,10 +270,12 @@ struct MainAppView: View {
                     get: { selectedNoteToOpen != nil },
                     set: { if !$0 { selectedNoteToOpen = nil } }
                 ))
+                .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.hidden)
             }
             .sheet(item: $searchSelectedNote) { note in
@@ -281,6 +283,7 @@ struct MainAppView: View {
                     get: { searchSelectedNote != nil },
                     set: { if !$0 { searchSelectedNote = nil } }
                 ))
+                .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
