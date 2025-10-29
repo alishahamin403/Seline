@@ -192,9 +192,15 @@ struct ConversationSearchView: View {
             isInputFocused = true
         }
         .onDisappear {
-            // Reset conversation state when exiting
-            searchService.isInConversationMode = false
-            searchService.clearConversation()
+            // Generate final title based on full conversation before clearing
+            Task {
+                await searchService.generateFinalConversationTitle()
+                // Then clear the conversation state
+                DispatchQueue.main.async {
+                    searchService.isInConversationMode = false
+                    searchService.clearConversation()
+                }
+            }
         }
         .sheet(isPresented: $showingHistory) {
             ConversationHistoryView()

@@ -124,6 +124,31 @@ class SearchService: ObservableObject {
         }
     }
 
+    /// Finds an event that matches the user's intent to update
+    private func findEventToUpdate(from query: String) -> Task? {
+        let taskManager = TaskManager.shared
+        let lowerQuery = query.lowercased()
+
+        // Try exact title match first
+        for task in taskManager.tasks {
+            if lowerQuery.contains(task.title.lowercased()) {
+                return task
+            }
+        }
+
+        // Try partial match
+        for task in taskManager.tasks {
+            let words = task.title.lowercased().split(separator: " ")
+            for word in words {
+                if lowerQuery.contains(String(word)) && word.count > 3 {
+                    return task
+                }
+            }
+        }
+
+        return nil
+    }
+
     /// Finds a note that matches the user's intent to update
     private func findNoteToUpdate(from query: String) -> Note? {
         let notesManager = NotesManager.shared
@@ -181,6 +206,43 @@ class SearchService: ObservableObject {
         switch actionType {
         case .createEvent:
             pendingEventCreation = await actionQueryHandler.parseEventCreation(from: query)
+        case .updateEvent:
+            // Find the event to update
+            if let matchingEvent = findEventToUpdate(from: query) {
+                // Parse the updated event details based on the query
+                var updatedEvent = await actionQueryHandler.parseEventCreation(from: query)
+                // If the parsed event doesn't have a title, use the existing one
+                if updatedEvent.title.isEmpty {
+                    updatedEvent.title = matchingEvent.title
+                }
+                pendingEventCreation = updatedEvent
+            } else {
+                // If no matching event, ask AI to handle it as a question
+                isLoadingQuestionResponse = true
+                do {
+                    let response = try await OpenAIService.shared.answerQuestion(
+                        query: query,
+                        taskManager: TaskManager.shared,
+                        notesManager: NotesManager.shared,
+                        emailService: EmailService.shared,
+                        weatherService: WeatherService.shared,
+                        locationsManager: LocationsManager.shared,
+                        navigationService: NavigationService.shared,
+                        conversationHistory: conversationHistory.dropLast()
+                    )
+
+                    let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
+                    conversationHistory.append(assistantMsg)
+                } catch {
+                    let errorMsg = ConversationMessage(
+                        isUser: false,
+                        text: "I couldn't process that request. Please try again.",
+                        intent: .general
+                    )
+                    conversationHistory.append(errorMsg)
+                }
+                isLoadingQuestionResponse = false
+            }
         case .createNote:
             pendingNoteCreation = await actionQueryHandler.parseNoteCreation(from: query)
         case .updateNote:
@@ -653,6 +715,45 @@ class SearchService: ObservableObject {
             conversationTitle = String(words.isEmpty ? "New Conversation" : words)
         } else {
             conversationTitle = "New Conversation"
+        }
+    }
+
+    /// Generate a conversation title based on the full conversation summary
+    /// Called when user exits the conversation
+    func generateFinalConversationTitle() async {
+        guard conversationHistory.count >= 2 else { return }
+
+        // Get all user messages for context
+        let userMessages = conversationHistory.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
+
+        guard !userMessages.isEmpty else { return }
+
+        do {
+            // Use AI to generate a concise summary title
+            let userPrompt = """
+            Based on this conversation summary, generate a concise 3-5 word title that captures the main topic or action:
+            \(userMessages)
+
+            Respond with ONLY the title, no additional text or punctuation.
+            """
+
+            let response = try await OpenAIService.shared.generateText(
+                systemPrompt: "You are an expert at creating concise, descriptive conversation titles.",
+                userPrompt: userPrompt,
+                maxTokens: 50,
+                temperature: 0.5
+            )
+            let cleanedTitle = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !cleanedTitle.isEmpty && cleanedTitle.count < 50 {
+                conversationTitle = cleanedTitle
+            }
+        } catch {
+            // If AI fails, fall back to last user message
+            if let lastUserMessage = conversationHistory.reversed().first(where: { $0.isUser }) {
+                let words = lastUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
+                conversationTitle = String(words.isEmpty ? "Conversation" : words)
+            }
         }
     }
 
