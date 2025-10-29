@@ -920,9 +920,10 @@ class TaskManager: ObservableObject {
             }
         }
 
-        if !recurringTasks.isEmpty {
-            print("📋 Returning \(filteredTasks.count) tasks for \(weekday.displayName)")
-        }
+        // Removed repetitive logging - this was printing hundreds of times per app session
+        // if !recurringTasks.isEmpty {
+        //     print("📋 Returning \(filteredTasks.count) tasks for \(weekday.displayName)")
+        // }
 
         return filteredTasks.sorted { task1, task2 in
             // Sort by scheduled time if available, otherwise by creation date

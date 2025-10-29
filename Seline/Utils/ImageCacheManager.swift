@@ -28,7 +28,6 @@ class ImageCacheManager {
 
         // Check memory cache first
         if let cachedImage = cache.object(forKey: key) {
-            print("📦 Loaded image from memory cache: \(url.suffix(30))")
             return cachedImage
         }
 
@@ -39,7 +38,6 @@ class ImageCacheManager {
         if let imageData = try? Data(contentsOf: fileURL),
            let image = UIImage(data: imageData) {
             cache.setObject(image, forKey: key)
-            print("💾 Loaded image from disk cache: \(url.suffix(30))")
             return image
         }
 

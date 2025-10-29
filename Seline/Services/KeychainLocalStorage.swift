@@ -36,8 +36,6 @@ class KeychainLocalStorage: AuthLocalStorage, @unchecked Sendable {
             if status != errSecSuccess {
                 throw KeychainError.unableToStore(status)
             }
-
-            print("✅ Stored auth data in keychain for key: \(key)")
         }
     }
 
@@ -56,11 +54,9 @@ class KeychainLocalStorage: AuthLocalStorage, @unchecked Sendable {
 
             if status == errSecSuccess {
                 if let data = result as? Data {
-                    print("✅ Retrieved auth data from keychain for key: \(key)")
                     return data
                 }
             } else if status == errSecItemNotFound {
-                print("⚠️ No auth data found in keychain for key: \(key)")
                 return nil
             } else {
                 throw KeychainError.unableToRetrieve(status)
@@ -83,8 +79,6 @@ class KeychainLocalStorage: AuthLocalStorage, @unchecked Sendable {
             if status != errSecSuccess && status != errSecItemNotFound {
                 throw KeychainError.unableToDelete(status)
             }
-
-            print("✅ Removed auth data from keychain for key: \(key)")
         }
     }
 }
