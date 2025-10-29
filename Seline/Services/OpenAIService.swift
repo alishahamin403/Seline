@@ -1780,6 +1780,7 @@ class OpenAIService: ObservableObject {
         navigationService: NavigationService? = nil,
         newsService: NewsService? = nil
     ) -> String {
+        print("📋 buildContextForQuestion called with query: '\(query)'")
         var context = ""
         let currentDate = Date()
         let dateFormatter = DateFormatter()
@@ -1901,6 +1902,7 @@ class OpenAIService: ObservableObject {
 
         // Add news articles if available and relevant to the query
         if let newsService = newsService {
+            print("✅ NewsService is available")
             let lowerQuery = query.lowercased()
 
             // Check if query is about news or contains news-related keywords
@@ -1908,6 +1910,7 @@ class OpenAIService: ObservableObject {
             let queryHasNewsKeywords = newsKeywords.contains { keyword in
                 lowerQuery.contains(keyword)
             }
+            print("🔎 News keyword check: query='\(lowerQuery)' has keywords: \(queryHasNewsKeywords)")
 
             if queryHasNewsKeywords {
                 let allNews = newsService.getAllNews()
@@ -1940,6 +1943,8 @@ class OpenAIService: ObservableObject {
                     print("⚠️  getAllNews() returned empty - no news articles available in LLM context")
                 }
             }
+        } else {
+            print("❌ NewsService is nil - no news context available")
         }
 
         return context.isEmpty ? "No data available in the app." : context
