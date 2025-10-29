@@ -165,15 +165,22 @@ class NewsService: ObservableObject {
         // Find articles that are new (in current but not in previous)
         let newTitles = newArticleIds.subtracting(previousIds)
 
-        // Send notifications for each new article (limit to 3 to avoid spam)
-        for newTitle in newTitles.prefix(3) {
-            if let newArticle = newArticles.first(where: { $0.title == newTitle }) {
-                await notificationService.scheduleTopStoryNotification(
-                    title: newArticle.title,
-                    category: category.displayName,
-                    url: newArticle.url
-                )
+        // Only send notifications if app is in background (not active in foreground)
+        if !isAppActive && !newTitles.isEmpty {
+            print("🔔 Sending \(newTitles.count) news notifications for \(category.displayName)")
+
+            // Send notifications for each new article (limit to 3 to avoid spam)
+            for newTitle in newTitles.prefix(3) {
+                if let newArticle = newArticles.first(where: { $0.title == newTitle }) {
+                    await notificationService.scheduleTopStoryNotification(
+                        title: newArticle.title,
+                        category: category.displayName,
+                        url: newArticle.url
+                    )
+                }
             }
+        } else if isAppActive && !newTitles.isEmpty {
+            print("🔔 App is active - skipping notifications for \(newTitles.count) new \(category.displayName) articles")
         }
 
         // Update previous article IDs
