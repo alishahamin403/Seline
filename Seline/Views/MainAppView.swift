@@ -311,7 +311,8 @@ struct MainAppView: View {
                         .background(colorScheme == .dark ? Color.black : Color.white)
 
                         // Search results or question response dropdown
-                        if !searchText.isEmpty {
+                        // Only show inline results if NOT in conversation mode (conversations handle their own display)
+                        if !searchText.isEmpty && !searchService.isInConversationMode {
                             if let response = searchService.questionResponse {
                                 // Show question response
                                 questionResponseView(response)
