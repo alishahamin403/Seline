@@ -31,67 +31,65 @@ struct ReviewExtractedEventsView: View {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Review Extracted Events")
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Review Events")
                                     .font(.title2)
                                     .fontWeight(.bold)
-                                Text("Found \(extractionResponse.events.count) events")
-                                    .font(.subheadline)
+                                Text("\(extractionResponse.events.count) events found")
+                                    .font(.caption)
                                     .foregroundColor(.gray)
                             }
                             Spacer()
                             Button(action: { onDismiss() }) {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.gray)
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.black)
+                                    .opacity(0.5)
                             }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
-                    .background(Color(UIColor.systemGray6))
+                    .background(Color(UIColor.systemBackground))
 
                     // Content ScrollView
                     ScrollView(showsIndicators: true) {
                         VStack(spacing: 16) {
                             // Tag selector section
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Select Tag:")
-                                    .font(.subheadline)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Save to:")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
 
-                                HStack(spacing: 12) {
+                                HStack(spacing: 10) {
                                     // Tag display button
                                     Button(action: {
                                         showingTagOptions.toggle()
                                     }) {
-                                        HStack {
+                                        HStack(spacing: 6) {
                                             if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
                                                 Circle()
                                                     .fill(tag.color)
-                                                    .frame(width: 10, height: 10)
+                                                    .frame(width: 8, height: 8)
                                                 Text(tag.name)
                                             } else {
                                                 Circle()
                                                     .fill(Color.blue)
-                                                    .frame(width: 10, height: 10)
-                                                Text("Personal (Default)")
+                                                    .frame(width: 8, height: 8)
+                                                Text("Personal")
                                             }
 
                                             Spacer()
 
                                             Image(systemName: "chevron.down")
-                                                .font(.system(size: 12))
+                                                .font(.system(size: 10))
                                         }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 10)
-                                        .background(Color(UIColor.systemBackground))
-                                        .cornerRadius(8)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                                        )
+                                        .font(.subheadline)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(Color(UIColor.systemGray6))
+                                        .cornerRadius(6)
                                     }
                                     .foregroundColor(.primary)
 
@@ -100,8 +98,9 @@ struct ReviewExtractedEventsView: View {
                                         showingCreateTag.toggle()
                                     }) {
                                         Image(systemName: "plus.circle.fill")
-                                            .font(.system(size: 24))
-                                            .foregroundColor(.blue)
+                                            .font(.system(size: 20))
+                                            .foregroundColor(.black)
+                                            .opacity(0.4)
                                     }
                                 }
 
@@ -129,9 +128,8 @@ struct ReviewExtractedEventsView: View {
                                     .presentationDetents([.height(300)])
                                 }
                             }
-                            .padding(16)
-                            .background(Color(UIColor.systemGray6))
-                            .cornerRadius(12)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                             // Events header
                             Text("Events to Create")
@@ -143,16 +141,15 @@ struct ReviewExtractedEventsView: View {
                             if extractionResponse.events.isEmpty {
                                 VStack(spacing: 12) {
                                     Image(systemName: "calendar.badge.exclamationmark")
-                                        .font(.system(size: 40))
+                                        .font(.system(size: 32))
                                         .foregroundColor(.gray)
+                                        .opacity(0.5)
                                     Text("No events found")
                                         .foregroundColor(.gray)
-                                        .font(.subheadline)
+                                        .font(.caption)
                                 }
                                 .padding(40)
                                 .frame(maxWidth: .infinity)
-                                .background(Color(UIColor.systemGray6))
-                                .cornerRadius(12)
                             } else {
                                 VStack(spacing: 12) {
                                     ForEach($extractionResponse.events, id: \.id) { $event in
@@ -163,49 +160,46 @@ struct ReviewExtractedEventsView: View {
 
                             // Summary section
                             let selectedCount = extractionResponse.events.filter { $0.isSelected }.count
-                            VStack(spacing: 8) {
-                                HStack {
-                                    Text("Selected events:")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Text("\(selectedCount) of \(extractionResponse.events.count)")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.blue)
-                                }
+                            HStack {
+                                Text("Selected:")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Text("\(selectedCount) of \(extractionResponse.events.count)")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.black)
                             }
-                            .padding(12)
-                            .background(Color(UIColor.systemGray6))
-                            .cornerRadius(8)
+                            .padding(.vertical, 4)
                         }
                         .padding(16)
                     }
                     .background(Color(UIColor.systemBackground))
 
                     // Action buttons
-                    VStack(spacing: 12) {
+                    VStack(spacing: 10) {
                         let selectedCount = extractionResponse.events.filter { $0.isSelected }.count
 
                         Button(action: { confirmAndCreate() }) {
-                            Text("Confirm & Create \(selectedCount) Events")
-                                .font(.headline)
+                            Text("Create \(selectedCount) Event\(selectedCount == 1 ? "" : "s")")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(selectedCount > 0 ? Color.blue : Color.gray)
-                                .cornerRadius(12)
+                                .frame(height: 48)
+                                .background(selectedCount > 0 ? Color.black : Color.gray)
+                                .cornerRadius(8)
                         }
                         .disabled(selectedCount == 0 || isCreatingEvents)
 
                         Button(action: { onDismiss() }) {
                             Text("Cancel")
-                                .font(.headline)
-                                .foregroundColor(.blue)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.black)
+                                .opacity(0.6)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color(UIColor.systemGray6))
-                                .cornerRadius(12)
+                                .frame(height: 48)
                         }
                         .disabled(isCreatingEvents)
                     }
@@ -216,19 +210,19 @@ struct ReviewExtractedEventsView: View {
                 VStack(spacing: 24) {
                     Spacer()
 
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.green)
+                            .font(.system(size: 56))
+                            .foregroundColor(.black)
 
-                        VStack(spacing: 8) {
-                            Text("✅ \(createdCount) Events Created!")
-                                .font(.title2)
-                                .fontWeight(.bold)
+                        VStack(spacing: 6) {
+                            Text("\(createdCount) Event\(createdCount == 1 ? "" : "s") Created")
+                                .font(.title3)
+                                .fontWeight(.semibold)
                                 .foregroundColor(.primary)
 
-                            Text(selectedTagId != nil && tagManager.getTag(by: selectedTagId) != nil ? "Added to \(tagManager.getTag(by: selectedTagId)?.name ?? "")" : "Added to Personal")
-                                .font(.subheadline)
+                            Text(selectedTagId != nil && tagManager.getTag(by: selectedTagId) != nil ? "Saved to \(tagManager.getTag(by: selectedTagId)?.name ?? "")" : "Saved to Personal")
+                                .font(.caption)
                                 .foregroundColor(.gray)
                         }
                         .multilineTextAlignment(.center)
@@ -238,12 +232,13 @@ struct ReviewExtractedEventsView: View {
 
                     Button(action: { onDismiss() }) {
                         Text("Done")
-                            .font(.headline)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.blue)
-                            .cornerRadius(12)
+                            .frame(height: 48)
+                            .background(Color.black)
+                            .cornerRadius(8)
                     }
                     .padding(16)
                 }
@@ -252,19 +247,20 @@ struct ReviewExtractedEventsView: View {
             // Loading overlay
             if isCreatingEvents {
                 ZStack {
-                    Color.black.opacity(0.3)
+                    Color.black.opacity(0.2)
                         .ignoresSafeArea()
 
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         ProgressView()
-                            .scaleEffect(1.5)
+                            .scaleEffect(1.3)
                         Text("Creating events...")
-                            .font(.headline)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
                             .foregroundColor(.black)
                     }
-                    .padding(32)
+                    .padding(28)
                     .background(Color.white)
-                    .cornerRadius(16)
+                    .cornerRadius(12)
                 }
             }
         }
@@ -382,63 +378,163 @@ struct CreateTagSheet: View {
 
 struct SimpleEventCard: View {
     @Binding var event: ExtractedEvent
+    @State private var showStartTimePicker = false
+    @State private var showEndTimePicker = false
 
-    private func formatTimeRange() -> String {
+    private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
-        let startStr = formatter.string(from: event.startTime)
+        return formatter.string(from: date)
+    }
+
+    private func formatTimeRange() -> String {
+        let startStr = formatTime(event.startTime)
         if let endTime = event.endTime {
-            let endStr = formatter.string(from: endTime)
+            let endStr = formatTime(endTime)
             return "\(startStr) - \(endStr)"
         }
         return startStr
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Main event row
             HStack(spacing: 12) {
                 Toggle("", isOn: $event.isSelected)
                     .labelsHidden()
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(event.title)
-                        .font(.headline)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                         .lineLimit(2)
 
-                    // Show time range if end time exists, otherwise just start time
-                    if event.endTime != nil {
-                        Text(formatTimeRange())
-                            .font(.caption)
-                            .foregroundColor(.gray)
-
-                        if let duration = event.durationText {
-                            Text("(\(duration))")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                        }
-                    } else {
-                        Text(formatTimeRange())
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        Text("(no end time)")
-                            .font(.caption2)
-                            .foregroundColor(.red)
-                    }
+                    Text(formatTimeRange())
+                        .font(.caption)
+                        .foregroundColor(.gray)
                 }
 
                 Spacer()
             }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
 
+            // Divider
+            Divider()
+                .padding(.horizontal, 14)
+
+            // Time editing section
+            VStack(alignment: .leading, spacing: 0) {
+                // Start time
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Start")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+
+                        if showStartTimePicker {
+                            DatePicker("", selection: $event.startTime, displayedComponents: .hourAndMinute)
+                                .datePickerStyle(.wheel)
+                                .labelsHidden()
+                                .frame(height: 120)
+                        } else {
+                            Text(formatTime(event.startTime))
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                    }
+
+                    Spacer()
+
+                    if !showStartTimePicker {
+                        Button(action: { showStartTimePicker = true }) {
+                            Image(systemName: "pencil.circle.fill")
+                                .foregroundColor(.black)
+                                .opacity(0.5)
+                        }
+                    } else {
+                        Button(action: { showStartTimePicker = false }) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.black)
+                        }
+                    }
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+
+                if event.endTime != nil {
+                    Divider()
+                        .padding(.horizontal, 14)
+
+                    // End time
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("End")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+
+                            if showEndTimePicker {
+                                DatePicker("", selection: .init(get: { event.endTime ?? Date() }, set: { event.endTime = $0 }), displayedComponents: .hourAndMinute)
+                                    .datePickerStyle(.wheel)
+                                    .labelsHidden()
+                                    .frame(height: 120)
+                            } else {
+                                if let endTime = event.endTime {
+                                    Text(formatTime(endTime))
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                } else {
+                                    Text("No end time")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                        }
+
+                        Spacer()
+
+                        if !showEndTimePicker {
+                            Button(action: { showEndTimePicker = true }) {
+                                Image(systemName: "pencil.circle.fill")
+                                    .foregroundColor(.black)
+                                    .opacity(0.5)
+                            }
+                        } else {
+                            Button(action: { showEndTimePicker = false }) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.black)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                }
+            }
+
+            // Attendees section
             if !event.attendees.isEmpty {
-                Text(event.attendees.joined(separator: ", "))
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .lineLimit(1)
+                Divider()
+                    .padding(.horizontal, 14)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Attendees")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Text(event.attendees.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
             }
         }
-        .padding(12)
-        .background(Color(UIColor.systemGray5))
-        .cornerRadius(10)
+        .background(Color.white)
+        .cornerRadius(0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.black.opacity(0.1), lineWidth: 1)
+        )
     }
 }
 
