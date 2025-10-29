@@ -30,22 +30,13 @@ struct ReviewExtractedEventsView: View {
                 VStack(spacing: 0) {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Review Events")
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                Text("\(extractionResponse.events.count) events found")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                            Spacer()
-                            Button(action: { onDismiss() }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.black)
-                                    .opacity(0.5)
-                            }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Review Events")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Text("\(extractionResponse.events.count) events found")
+                                .font(.caption)
+                                .foregroundColor(.gray)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
