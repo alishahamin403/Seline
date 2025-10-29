@@ -148,13 +148,13 @@ class QueryRouter {
 
         do {
             let response = try await OpenAIService.shared.generateText(
-                prompt: query,
                 systemPrompt: systemPrompt,
+                userPrompt: query,
                 maxTokens: 10,
                 temperature: 0.0
             )
 
-            let classified = response.lowercased().trimmingCharacters(in: .whitespaces)
+            let classified = response.lowercased().trimmingCharacters(in: CharacterSet.whitespaces)
             let result: ActionType = parseSemanticClassification(classified)
 
             // Cache the result
