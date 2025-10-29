@@ -1697,6 +1697,7 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
         navigationService: NavigationService? = nil,
+        newsService: NewsService? = nil,
         conversationHistory: [ConversationMessage] = []
     ) async throws -> String {
         // Rate limiting
@@ -1714,7 +1715,8 @@ class OpenAIService: ObservableObject {
             emailService: emailService,
             weatherService: weatherService,
             locationsManager: locationsManager,
-            navigationService: navigationService
+            navigationService: navigationService,
+            newsService: newsService
         )
 
         let systemPrompt = """
@@ -1775,7 +1777,8 @@ class OpenAIService: ObservableObject {
         emailService: EmailService,
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
-        navigationService: NavigationService? = nil
+        navigationService: NavigationService? = nil,
+        newsService: NewsService? = nil
     ) -> String {
         var context = ""
         let currentDate = Date()
@@ -1894,6 +1897,36 @@ class OpenAIService: ObservableObject {
                 context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.timestamp))\nBody: \(email.body ?? "")\n---\n"
             }
             context += "\n"
+        }
+
+        // Add news articles if available and relevant to the query
+        if let newsService = newsService {
+            let lowerQuery = query.lowercased()
+
+            // Check if query is about news or contains news-related keywords
+            let newsKeywords = ["news", "tech", "technology", "science", "business", "health", "sports", "entertainment", "headline", "story", "articles"]
+            let queryHasNewsKeywords = newsKeywords.contains { keyword in
+                lowerQuery.contains(keyword)
+            }
+
+            if queryHasNewsKeywords && !newsService.topNews.isEmpty {
+                context += "=== AVAILABLE NEWS ===\n"
+
+                // Format the date for display
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateStyle = .medium
+
+                for article in newsService.topNews {
+                    let dateStr = dateFormatter.string(from: article.publishedAt)
+                    context += "- Title: \(article.title)\n"
+                    context += "  Description: \(article.description ?? "No description")\n"
+                    context += "  Source: \(article.source)\n"
+                    context += "  Date: \(dateStr)\n"
+                    context += "  URL: \(article.url)\n"
+                    context += "---\n"
+                }
+                context += "\n"
+            }
         }
 
         return context.isEmpty ? "No data available in the app." : context

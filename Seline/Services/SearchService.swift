@@ -193,7 +193,8 @@ class SearchService: ObservableObject {
                 emailService: EmailService.shared,
                 weatherService: WeatherService.shared,
                 locationsManager: LocationsManager.shared,
-                navigationService: NavigationService.shared
+                navigationService: NavigationService.shared,
+                newsService: NewsService.shared
             )
             questionResponse = response
         } catch {
@@ -245,6 +246,7 @@ class SearchService: ObservableObject {
                         weatherService: WeatherService.shared,
                         locationsManager: LocationsManager.shared,
                         navigationService: NavigationService.shared,
+                        newsService: NewsService.shared,
                         conversationHistory: conversationHistory.dropLast()
                     )
 
@@ -281,6 +283,7 @@ class SearchService: ObservableObject {
                         weatherService: WeatherService.shared,
                         locationsManager: LocationsManager.shared,
                         navigationService: NavigationService.shared,
+                        newsService: NewsService.shared,
                         conversationHistory: conversationHistory.dropLast()
                     )
 
