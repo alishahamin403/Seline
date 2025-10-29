@@ -44,14 +44,13 @@ struct SearchBarComponent: View {
 
             // Search results or conversation trigger
             if !searchService.searchQuery.isEmpty {
-                if !searchService.isInConversationMode {
-                    // Show regular search results (only if not in conversation mode)
-                    SearchResultsView(
-                        results: searchService.searchResults,
-                        isSearching: searchService.isSearching,
-                        selectedTab: $selectedTab
-                    )
-                }
+                // Always show search results (or loading state)
+                // The sheet modal will appear on top if in conversation mode
+                SearchResultsView(
+                    results: searchService.searchResults,
+                    isSearching: searchService.isSearching,
+                    selectedTab: $selectedTab
+                )
             }
         }
         .onChange(of: searchService.searchQuery) { newQuery in
@@ -67,10 +66,13 @@ struct SearchBarComponent: View {
         }
         .sheet(isPresented: $searchService.isInConversationMode) {
             ConversationSearchView()
-                .onDisappear {
-                    // Clear conversation state when modal closes
-                    searchService.clearConversation()
-                }
+        }
+        .onChange(of: searchService.isInConversationMode) { isInMode in
+            print("DEBUG: isInConversationMode changed to: \(isInMode)")
+            if !isInMode {
+                print("DEBUG: Clearing conversation due to mode change")
+                searchService.clearConversation()
+            }
         }
     }
 }
