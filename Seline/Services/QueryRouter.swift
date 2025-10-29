@@ -95,18 +95,8 @@ class QueryRouter {
 
     /// Keyword-based action detection
     private func detectActionByKeywords(_ query: String) -> ActionType? {
-        // Check for event-related actions
-        if containsAny(of: eventKeywords, in: query) {
-            if containsAny(of: createKeywords, in: query) {
-                return .createEvent
-            } else if containsAny(of: updateKeywords, in: query) {
-                return .updateEvent
-            } else if containsAny(of: deleteKeywords, in: query) {
-                return .deleteEvent
-            }
-        }
-
-        // Check for note-related actions (prioritize over events for clarity)
+        // Check for note-related actions FIRST (explicit priority over events)
+        // When user says "create a note", we should ALWAYS create a note, not an event
         if containsAny(of: noteKeywords, in: query) {
             if containsAny(of: createKeywords, in: query) {
                 return .createNote
@@ -114,6 +104,17 @@ class QueryRouter {
                 return .updateNote
             } else if containsAny(of: deleteKeywords, in: query) {
                 return .deleteNote
+            }
+        }
+
+        // Check for event-related actions only if no note keywords found
+        if containsAny(of: eventKeywords, in: query) {
+            if containsAny(of: createKeywords, in: query) {
+                return .createEvent
+            } else if containsAny(of: updateKeywords, in: query) {
+                return .updateEvent
+            } else if containsAny(of: deleteKeywords, in: query) {
+                return .deleteEvent
             }
         }
 
