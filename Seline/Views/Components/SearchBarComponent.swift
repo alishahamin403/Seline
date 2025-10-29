@@ -44,10 +44,13 @@ struct SearchBarComponent: View {
 
             // Search results or conversation trigger
             if !searchService.searchQuery.isEmpty {
+                print("DEBUG SearchBarComponent: isInConversationMode = \(searchService.isInConversationMode)")
                 if searchService.isInConversationMode {
+                    print("DEBUG SearchBarComponent: Showing ConversationSearchView")
                     // Show conversation view inline if in conversation mode
                     ConversationSearchView()
                 } else {
+                    print("DEBUG SearchBarComponent: Showing SearchResultsView")
                     // Always show search results (or loading state)
                     SearchResultsView(
                         results: searchService.searchResults,
