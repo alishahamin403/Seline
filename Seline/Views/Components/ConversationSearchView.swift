@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConversationSearchView: View {
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
     @StateObject private var searchService = SearchService.shared
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
@@ -17,7 +18,7 @@ struct ConversationSearchView: View {
                     HapticManager.shared.selection()
                     // Clear conversation state when dismissing
                     searchService.clearConversation()
-                    searchService.clearSearch()
+                    dismiss()
                 }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))

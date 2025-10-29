@@ -4,6 +4,7 @@ struct SearchBarComponent: View {
     @ObservedObject var searchService = SearchService.shared
     @Environment(\.colorScheme) var colorScheme
     @Binding var selectedTab: TabSelection
+    @State private var showConversationModal = false
 
     init(selectedTab: Binding<TabSelection>) {
         self._selectedTab = selectedTab
@@ -51,8 +52,19 @@ struct SearchBarComponent: View {
                 )
             }
         }
-        .fullScreenCover(isPresented: $searchService.isInConversationMode) {
+        .fullScreenCover(isPresented: $showConversationModal) {
             ConversationSearchView()
+        }
+        .onChange(of: searchService.isInConversationMode) { newValue in
+            print("DEBUG SearchBarComponent: Syncing showConversationModal to \(newValue)")
+            showConversationModal = newValue
+        }
+        .onChange(of: showConversationModal) { newValue in
+            print("DEBUG SearchBarComponent: showConversationModal changed to \(newValue)")
+            if !newValue {
+                searchService.clearConversation()
+                searchService.clearSearch()
+            }
         }
     }
 }
