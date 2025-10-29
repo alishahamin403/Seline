@@ -211,17 +211,72 @@ class SearchService: ObservableObject {
 
     // MARK: - Note Refinement Mode
 
+    /// Classification for messages during note refinement
+    enum RefinementMessageType {
+        case addContent
+        case exitRefinement
+        case metaInstruction
+        case ambiguous
+    }
+
+    /// Classify a user message during note refinement using semantic understanding
+    private func classifyRefinementMessage(_ userInput: String, noteTitle: String) async -> RefinementMessageType {
+        let systemPrompt = """
+        You are analyzing a user message during interactive note refinement. The user is adding details to a note titled "\(noteTitle)".
+
+        Classify the user's message into ONE of these categories:
+        1. "add_content" - User is providing content/details to add to the note (e.g., "add budget info", "include the deadline")
+        2. "exit_refinement" - User wants to stop editing the note (e.g., "done", "that's it for now", "i'm finished", "no more", "that's all")
+        3. "meta_instruction" - User is asking to modify/remove/change existing note content (e.g., "remove that part", "change the title", "delete the first line")
+        4. "ambiguous" - The intent is unclear
+
+        CRITICAL RULES:
+        - "That's it for now" = exit_refinement (NOT add_content)
+        - "Done with editing" = exit_refinement (NOT add_content)
+        - Messages that ask to remove/delete/change content = meta_instruction (NOT add_content)
+        - Brief affirmations like "yes", "ok", "sure" in context of exiting = exit_refinement
+        - Actual new information or details = add_content
+
+        Return ONLY: "add_content", "exit_refinement", "meta_instruction", or "ambiguous"
+        """
+
+        do {
+            let response = try await OpenAIService.shared.generateText(
+                systemPrompt: systemPrompt,
+                userPrompt: userInput,
+                maxTokens: 10,
+                temperature: 0.0
+            )
+
+            let classified = response.lowercased().trimmingCharacters(in: .whitespaces)
+
+            if classified.contains("exit") {
+                return .exitRefinement
+            } else if classified.contains("meta") {
+                return .metaInstruction
+            } else if classified.contains("add") {
+                return .addContent
+            } else {
+                return .ambiguous
+            }
+        } catch {
+            print("Error classifying refinement message: \(error)")
+            // Fallback to simple keyword matching
+            let lowerInput = userInput.lowercased()
+            let exitKeywords = ["done", "that's it", "finish", "all set", "no more", "that's all", "no more", "finished", "complete"]
+            let exitDetected = exitKeywords.contains { keyword in lowerInput.contains(keyword) }
+            return exitDetected ? .exitRefinement : .addContent
+        }
+    }
+
     /// Handle user input when refining a note - update note content interactively
     private func handleNoteRefinement(_ userInput: String, for note: Note) async {
-        // Check if user wants to exit refinement mode
-        let exitKeywords = ["done", "that's it", "finish", "all set", "no more", "that's all"]
-        let lowerInput = userInput.lowercased()
-        let shouldExit = exitKeywords.contains { keyword in
-            lowerInput.contains(keyword)
-        }
+        // Classify the user's message to understand their intent
+        let messageType = await classifyRefinementMessage(userInput, noteTitle: note.title)
 
-        if shouldExit {
-            // Exit refinement mode
+        switch messageType {
+        case .exitRefinement:
+            // Exit refinement mode without adding the exit message to note
             isRefiningNote = false
             currentNoteBeingRefined = nil
 
@@ -232,31 +287,73 @@ class SearchService: ObservableObject {
             )
             conversationHistory.append(exitMsg)
             return
+
+        case .metaInstruction:
+            // User is asking to modify/remove content from the note
+            // Use LLM to understand what to change
+            let metaPrompt = """
+            The user wants to modify a note titled "\(note.title)".
+            Current note content: "\(note.content)"
+            User instruction: "\(userInput)"
+
+            Apply the user's requested change to the note content. Return the updated content.
+            """
+
+            do {
+                let updatedContent = try await OpenAIService.shared.generateText(
+                    systemPrompt: "You are a note editor. Apply the user's edits to note content.",
+                    userPrompt: metaPrompt,
+                    maxTokens: 500,
+                    temperature: 0.0
+                )
+
+                var updatedNote = note
+                updatedNote.content = updatedContent.trimmingCharacters(in: .whitespaces)
+                updatedNote.dateModified = Date()
+
+                NotesManager.shared.updateNote(updatedNote)
+                currentNoteBeingRefined = updatedNote
+
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Updated \"\(updatedNote.title)\". The note has been modified as requested. Anything else?",
+                    intent: .notes
+                )
+                conversationHistory.append(confirmationMsg)
+            } catch {
+                let errorMsg = ConversationMessage(
+                    isUser: false,
+                    text: "I couldn't apply that change. Could you clarify what you'd like to modify?",
+                    intent: .notes
+                )
+                conversationHistory.append(errorMsg)
+            }
+
+        case .addContent, .ambiguous:
+            // Update the note with new content
+            var updatedNote = note
+            let (updatedContent, delta, _) = applySmartNoteUpdate(
+                originalContent: updatedNote.content,
+                suggestedContent: userInput,
+                query: userInput
+            )
+
+            updatedNote.content = updatedContent
+            updatedNote.dateModified = Date()
+
+            // Save the updated note
+            NotesManager.shared.updateNote(updatedNote)
+            currentNoteBeingRefined = updatedNote
+
+            // Show confirmation with what was added
+            let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+            let confirmationMsg = ConversationMessage(
+                isUser: false,
+                text: "✓ Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                intent: .notes
+            )
+            conversationHistory.append(confirmationMsg)
         }
-
-        // Update the note with new content
-        var updatedNote = note
-        let (updatedContent, delta, _) = applySmartNoteUpdate(
-            originalContent: updatedNote.content,
-            suggestedContent: userInput,
-            query: userInput
-        )
-
-        updatedNote.content = updatedContent
-        updatedNote.dateModified = Date()
-
-        // Save the updated note
-        NotesManager.shared.updateNote(updatedNote)
-        currentNoteBeingRefined = updatedNote
-
-        // Show confirmation with what was added
-        let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
-        let confirmationMsg = ConversationMessage(
-            isUser: false,
-            text: "✓ Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
-            intent: .notes
-        )
-        conversationHistory.append(confirmationMsg)
     }
 
     // MARK: - Conversation Action Handling
