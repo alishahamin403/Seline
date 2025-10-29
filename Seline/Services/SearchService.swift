@@ -267,10 +267,32 @@ class SearchService: ObservableObject {
         case .updateNote:
             // Find the note to update
             if let matchingNote = findNoteToUpdate(from: query) {
-                pendingNoteUpdate = await actionQueryHandler.parseNoteUpdate(
+                // Parse the note update content from the conversation
+                let updateData = await actionQueryHandler.parseNoteUpdate(
                     from: query,
                     existingNoteTitle: matchingNote.title
                 )
+
+                // Auto-apply the note update during conversation
+                if let updateData = updateData {
+                    var note = matchingNote
+                    // Append the new content to existing content
+                    if !note.content.isEmpty {
+                        note.content += "\n\n" + updateData.contentToAdd
+                    } else {
+                        note.content = updateData.contentToAdd
+                    }
+                    // Update the note immediately
+                    NotesManager.shared.updateNote(note)
+
+                    // Add confirmation message to conversation
+                    let confirmationMsg = ConversationMessage(
+                        isUser: false,
+                        text: "✓ Updated your note: \"\(updateData.noteTitle)\"",
+                        intent: .notes
+                    )
+                    conversationHistory.append(confirmationMsg)
+                }
             } else {
                 // If no matching note, ask AI to handle it as a question
                 isLoadingQuestionResponse = true
