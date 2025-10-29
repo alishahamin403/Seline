@@ -696,13 +696,16 @@ class SearchService: ObservableObject {
                 let first_message: String?
             }
 
-            let conversations: [ConversationRecord] = try await client
+            let response = try await client
                 .from("conversations")
                 .select("*")
                 .order("created_at", ascending: false)
                 .limit(10)
                 .execute()
-                .decoded()
+
+            // Decode the response data
+            let decoder = JSONDecoder()
+            let conversations = try decoder.decode([ConversationRecord].self, from: response.underlyingResponse.data)
 
             return conversations.map { conv in
                 [
@@ -731,12 +734,15 @@ class SearchService: ObservableObject {
                 let messages: String
             }
 
-            let conversations: [ConversationRecord] = try await client
+            let response = try await client
                 .from("conversations")
                 .select("*")
                 .eq("id", value: id)
                 .execute()
-                .decoded()
+
+            // Decode the response data
+            let decoder = JSONDecoder()
+            let conversations = try decoder.decode([ConversationRecord].self, from: response.underlyingResponse.data)
 
             guard let conversation = conversations.first else { return }
 
