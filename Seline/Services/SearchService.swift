@@ -125,23 +125,27 @@ class SearchService: ObservableObject {
     }
 
     /// Finds an event that matches the user's intent to update
-    private func findEventToUpdate(from query: String) -> Task? {
+    private func findEventToUpdate(from query: String) -> TaskItem? {
         let taskManager = TaskManager.shared
         let lowerQuery = query.lowercased()
 
         // Try exact title match first
-        for task in taskManager.tasks {
-            if lowerQuery.contains(task.title.lowercased()) {
-                return task
+        for (_, taskItems) in taskManager.tasks {
+            for taskItem in taskItems {
+                if lowerQuery.contains(taskItem.title.lowercased()) {
+                    return taskItem
+                }
             }
         }
 
         // Try partial match
-        for task in taskManager.tasks {
-            let words = task.title.lowercased().split(separator: " ")
-            for word in words {
-                if lowerQuery.contains(String(word)) && word.count > 3 {
-                    return task
+        for (_, taskItems) in taskManager.tasks {
+            for taskItem in taskItems {
+                let words = taskItem.title.lowercased().split(separator: " ")
+                for word in words {
+                    if lowerQuery.contains(String(word)) && word.count > 3 {
+                        return taskItem
+                    }
                 }
             }
         }
@@ -210,12 +214,13 @@ class SearchService: ObservableObject {
             // Find the event to update
             if let matchingEvent = findEventToUpdate(from: query) {
                 // Parse the updated event details based on the query
-                var updatedEvent = await actionQueryHandler.parseEventCreation(from: query)
-                // If the parsed event doesn't have a title, use the existing one
-                if updatedEvent.title.isEmpty {
-                    updatedEvent.title = matchingEvent.title
+                if var updatedEvent = await actionQueryHandler.parseEventCreation(from: query) {
+                    // If the parsed event doesn't have a title, use the existing one
+                    if updatedEvent.title.isEmpty {
+                        updatedEvent.title = matchingEvent.title
+                    }
+                    pendingEventCreation = updatedEvent
                 }
-                pendingEventCreation = updatedEvent
             } else {
                 // If no matching event, ask AI to handle it as a question
                 isLoadingQuestionResponse = true
