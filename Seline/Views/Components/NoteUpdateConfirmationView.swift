@@ -28,20 +28,6 @@ struct NoteUpdateConfirmationView: View {
                         .foregroundColor(Color.shadcnForeground(colorScheme))
 
                     Spacer()
-
-                    Button(action: {
-                        onCancel()
-                        isPresented = false
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(Color.shadcnMuted(colorScheme))
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                            )
-                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 24)

@@ -10,16 +10,6 @@ struct ConversationHistoryView: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 12) {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    dismiss()
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                }
-                .buttonStyle(PlainButtonStyle())
-
                 Text("Conversation History")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
