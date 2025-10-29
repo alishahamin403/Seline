@@ -1317,9 +1317,36 @@ class SearchService: ObservableObject {
             isInConversationMode = true
             currentlyLoadedConversationId = id  // Track which conversation is loaded
 
+            // Restore the note being edited from conversation context
+            restoreNoteContextFromConversation()
+
             // Process any pending note updates from historical conversations
             Task {
                 await processPendingNoteUpdatesInHistory()
+            }
+        }
+    }
+
+    /// Restore which note was being edited by scanning conversation for note updates
+    private func restoreNoteContextFromConversation() {
+        let notesManager = NotesManager.shared
+
+        // Scan conversation history to find the most recent note mention
+        for message in conversationHistory.reversed() {
+            guard !message.isUser else { continue }
+
+            let messageText = message.text
+            let notesManager = NotesManager.shared
+
+            // Look for note title patterns in messages like "Updated 'Monthly expenses'" or "Note updated: Monthly expenses"
+            for note in notesManager.notes {
+                if messageText.lowercased().contains(note.title.lowercased()) {
+                    // Found the note being edited - restore it as the current context
+                    currentNoteBeingRefined = note
+                    isRefiningNote = true
+                    pendingRefinementContent = nil  // Clear any pending to start fresh
+                    return
+                }
             }
         }
     }
