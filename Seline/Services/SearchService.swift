@@ -169,6 +169,77 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = false
     }
 
+    // MARK: - Conversation Action Handling
+
+    private func handleConversationActionQuery(_ query: String, actionType: ActionType) async {
+        switch actionType {
+        case .createEvent:
+            pendingEventCreation = await actionQueryHandler.parseEventCreation(from: query)
+        case .createNote:
+            pendingNoteCreation = await actionQueryHandler.parseNoteCreation(from: query)
+        case .updateNote:
+            // Find the note to update
+            if let matchingNote = findNoteToUpdate(from: query) {
+                pendingNoteUpdate = await actionQueryHandler.parseNoteUpdate(
+                    from: query,
+                    existingNoteTitle: matchingNote.title
+                )
+            } else {
+                // If no matching note, ask AI to handle it as a question
+                isLoadingQuestionResponse = true
+                do {
+                    let response = try await OpenAIService.shared.answerQuestion(
+                        query: query,
+                        taskManager: TaskManager.shared,
+                        notesManager: NotesManager.shared,
+                        emailService: EmailService.shared,
+                        weatherService: WeatherService.shared,
+                        locationsManager: LocationsManager.shared,
+                        navigationService: NavigationService.shared,
+                        conversationHistory: conversationHistory.dropLast()
+                    )
+
+                    let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
+                    conversationHistory.append(assistantMsg)
+                } catch {
+                    let errorMsg = ConversationMessage(
+                        isUser: false,
+                        text: "I couldn't process that request. Please try again.",
+                        intent: .general
+                    )
+                    conversationHistory.append(errorMsg)
+                }
+                isLoadingQuestionResponse = false
+            }
+        default:
+            // For other action types, ask AI to handle it
+            isLoadingQuestionResponse = true
+            do {
+                let response = try await OpenAIService.shared.answerQuestion(
+                    query: query,
+                    taskManager: TaskManager.shared,
+                    notesManager: NotesManager.shared,
+                    emailService: EmailService.shared,
+                    weatherService: WeatherService.shared,
+                    locationsManager: LocationsManager.shared,
+                    navigationService: NavigationService.shared,
+                    conversationHistory: conversationHistory.dropLast()
+                )
+
+                let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
+                conversationHistory.append(assistantMsg)
+            } catch {
+                let errorMsg = ConversationMessage(
+                    isUser: false,
+                    text: "I couldn't answer that question. Please try again or rephrase your question.",
+                    intent: .general
+                )
+                conversationHistory.append(errorMsg)
+            }
+            isLoadingQuestionResponse = false
+        }
+    }
+
     // MARK: - Action Confirmation Methods
 
     func confirmEventCreation() {
@@ -214,6 +285,18 @@ class SearchService: ObservableObject {
             tagId: nil
         )
 
+        // If in conversation mode, add confirmation message
+        if isInConversationMode {
+            let formattedDate = dateFormatter.string(from: targetDate)
+            let timeText = scheduledTime.map { timeFormatter.string(from: $0) } ?? "all day"
+            let confirmationMsg = ConversationMessage(
+                isUser: false,
+                text: "✓ Event created: \"\(eventData.title)\" on \(formattedDate) at \(timeText)",
+                intent: .general
+            )
+            conversationHistory.append(confirmationMsg)
+        }
+
         // Clear pending data
         pendingEventCreation = nil
     }
@@ -224,6 +307,16 @@ class SearchService: ObservableObject {
         let notesManager = NotesManager.shared
         let note = Note(title: noteData.title, content: noteData.content)
         notesManager.addNote(note)
+
+        // If in conversation mode, add confirmation message
+        if isInConversationMode {
+            let confirmationMsg = ConversationMessage(
+                isUser: false,
+                text: "✓ Note created: \"\(noteData.title)\"",
+                intent: .general
+            )
+            conversationHistory.append(confirmationMsg)
+        }
 
         // Clear pending data
         pendingNoteCreation = nil
@@ -245,6 +338,16 @@ class SearchService: ObservableObject {
             }
             // Update the note
             notesManager.updateNote(note)
+
+            // If in conversation mode, add confirmation message
+            if isInConversationMode {
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Note updated: \"\(updateData.noteTitle)\"",
+                    intent: .general
+                )
+                conversationHistory.append(confirmationMsg)
+            }
         }
 
         // Clear pending data
@@ -252,9 +355,21 @@ class SearchService: ObservableObject {
     }
 
     func cancelAction() {
+        let hasAction = pendingEventCreation != nil || pendingNoteCreation != nil || pendingNoteUpdate != nil
+
         pendingEventCreation = nil
         pendingNoteCreation = nil
         pendingNoteUpdate = nil
+
+        // If in conversation mode and had a pending action, add cancellation message
+        if isInConversationMode && hasAction {
+            let cancelMsg = ConversationMessage(
+                isUser: false,
+                text: "Okay, I cancelled that action. What else can I help you with?",
+                intent: .general
+            )
+            conversationHistory.append(cancelMsg)
+        }
     }
 
     private func searchContent(query: String) async -> [SearchResult] {
@@ -386,6 +501,14 @@ class SearchService: ObservableObject {
         // Add user message to history
         let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
+
+        // Check if this is an action query (create event, create note, etc.) BEFORE sending to AI
+        let queryType = queryRouter.classifyQuery(trimmed)
+        if case .action(let actionType) = queryType {
+            // Handle action query in conversation
+            await handleConversationActionQuery(trimmed, actionType: actionType)
+            return
+        }
 
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
