@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SearchBarComponent: View {
-    @StateObject private var searchService = SearchService.shared
+    @ObservedObject var searchService = SearchService.shared
     @Environment(\.colorScheme) var colorScheme
     @Binding var selectedTab: TabSelection
 
