@@ -322,6 +322,8 @@ class SearchService: ObservableObject {
         // If in conversation mode, add confirmation message
         if isInConversationMode {
             let formattedDate = dateFormatter.string(from: targetDate)
+            let timeFormatter = DateFormatter()
+            timeFormatter.timeStyle = .short
             let timeText = scheduledTime.map { timeFormatter.string(from: $0) } ?? "all day"
             let confirmationMsg = ConversationMessage(
                 isUser: false,
