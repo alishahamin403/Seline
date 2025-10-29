@@ -209,15 +209,13 @@ struct EventsCardWidget: View {
                     }) {
                         Text(todayDateNumber)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(today) ? (colorScheme == .dark ? Color.black : Color.white) : (colorScheme == .dark ? Color.white : Color.black))
+                            .foregroundColor(isDateSelected(today) ? Color.white : (colorScheme == .dark ? Color.white : Color.black))
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(
                                         isDateSelected(today) ?
-                                            (colorScheme == .dark ?
-                                                Color.white :
-                                                Color.black) :
+                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
                                             Color.clear
                                     )
                             )
@@ -240,15 +238,13 @@ struct EventsCardWidget: View {
                     }) {
                         Text(tomorrowDateNumber)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(tomorrow) ? (colorScheme == .dark ? Color.black : Color.white) : (colorScheme == .dark ? Color.white : Color.black))
+                            .foregroundColor(isDateSelected(tomorrow) ? Color.white : (colorScheme == .dark ? Color.white : Color.black))
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(
                                         isDateSelected(tomorrow) ?
-                                            (colorScheme == .dark ?
-                                                Color.white :
-                                                Color.black) :
+                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
                                             Color.clear
                                     )
                             )
@@ -271,15 +267,13 @@ struct EventsCardWidget: View {
                     }) {
                         Text(dayAfterDateNumber)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(dayAfterTomorrow) ? (colorScheme == .dark ? Color.black : Color.white) : (colorScheme == .dark ? Color.white : Color.black))
+                            .foregroundColor(isDateSelected(dayAfterTomorrow) ? Color.white : (colorScheme == .dark ? Color.white : Color.black))
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(
                                         isDateSelected(dayAfterTomorrow) ?
-                                            (colorScheme == .dark ?
-                                                Color.white :
-                                                Color.black) :
+                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
                                             Color.clear
                                     )
                             )

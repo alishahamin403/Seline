@@ -100,8 +100,7 @@ struct CategoryChip: View {
         Button(action: action) {
             Text(category.displayName)
                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .foregroundColor(isSelected ?
-                    (colorScheme == .dark ? Color.black : Color.white) :
+                .foregroundColor(isSelected ? Color.white :
                     (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                 )
                 .padding(.horizontal, 12)
@@ -109,9 +108,7 @@ struct CategoryChip: View {
                 .background(
                     RoundedRectangle(cornerRadius: 16)
                         .fill(isSelected ?
-                            (colorScheme == .dark ?
-                                Color.white :
-                                Color.black) :
+                            Color(red: 0.2, green: 0.2, blue: 0.2) :
                             (colorScheme == .dark ?
                                 Color.white.opacity(0.1) :
                                 Color.black.opacity(0.05))
