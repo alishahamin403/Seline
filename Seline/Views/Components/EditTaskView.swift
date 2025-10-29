@@ -583,16 +583,18 @@ struct TimePickerSheet: View {
     var onClose: () -> Void
     @Environment(\.dismiss) var dismiss
 
-    @State private var selectedHour: Int = 0
+    @State private var selectedHour: Int = 12
     @State private var selectedMinute: Int = 0
+    @State private var selectedPeriod: String = "AM"
 
-    private let hours = Array(0...23)
+    private let hours = Array(1...12)
     private let minutes = Array(stride(from: 0, to: 60, by: 5))
+    private let periods = ["AM", "PM"]
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     VStack(alignment: .center, spacing: 8) {
                         Text("Hour")
                             .font(.system(size: 12, weight: .medium))
@@ -600,7 +602,7 @@ struct TimePickerSheet: View {
 
                         Picker("Hour", selection: $selectedHour) {
                             ForEach(hours, id: \.self) { hour in
-                                Text(String(format: "%02d", hour))
+                                Text(String(format: "%d", hour))
                                     .tag(hour)
                             }
                         }
@@ -616,6 +618,20 @@ struct TimePickerSheet: View {
                             ForEach(minutes, id: \.self) { minute in
                                 Text(String(format: "%02d", minute))
                                     .tag(minute)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                    }
+
+                    VStack(alignment: .center, spacing: 8) {
+                        Text("Period")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        Picker("Period", selection: $selectedPeriod) {
+                            ForEach(periods, id: \.self) { period in
+                                Text(period)
+                                    .tag(period)
                             }
                         }
                         .pickerStyle(.wheel)
@@ -641,7 +657,20 @@ struct TimePickerSheet: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         var components = Calendar.current.dateComponents([.year, .month, .day], from: time)
-                        components.hour = selectedHour
+
+                        // Convert 12-hour format to 24-hour format
+                        var hour24 = selectedHour
+                        if selectedPeriod == "AM" {
+                            if hour24 == 12 {
+                                hour24 = 0 // 12 AM is 0 in 24-hour format
+                            }
+                        } else { // PM
+                            if hour24 != 12 {
+                                hour24 += 12 // Convert 1-11 PM to 13-23
+                            }
+                        }
+
+                        components.hour = hour24
                         components.minute = selectedMinute
                         if let newTime = Calendar.current.date(from: components) {
                             time = newTime
@@ -655,8 +684,23 @@ struct TimePickerSheet: View {
         }
         .onAppear {
             let components = Calendar.current.dateComponents([.hour, .minute], from: time)
-            selectedHour = components.hour ?? 0
+            let hour24 = components.hour ?? 0
             selectedMinute = (components.minute ?? 0) / 5 * 5
+
+            // Convert 24-hour format to 12-hour format
+            if hour24 == 0 {
+                selectedHour = 12
+                selectedPeriod = "AM"
+            } else if hour24 < 12 {
+                selectedHour = hour24
+                selectedPeriod = "AM"
+            } else if hour24 == 12 {
+                selectedHour = 12
+                selectedPeriod = "PM"
+            } else {
+                selectedHour = hour24 - 12
+                selectedPeriod = "PM"
+            }
         }
     }
 }
