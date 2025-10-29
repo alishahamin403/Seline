@@ -143,9 +143,25 @@ struct CameraActionSheet: View {
                 }
             }
         } else {
-            // Just show action sheet - no visible content, only dialogs
-            EmptyView()
-                .sheet(isPresented: $showImagePicker) {
+            // Show loading screen while waiting for user to select image
+            ZStack {
+                Color(UIColor.systemBackground)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+
+                    VStack(spacing: 8) {
+                        Text("Ready to import...")
+                            .font(.headline)
+                        Text("Select an image from camera or gallery")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+            .sheet(isPresented: $showImagePicker) {
                     CameraAndLibraryPicker(image: $selectedImage, sourceType: sourceType)
                         .onDisappear {
                             if selectedImage != nil {

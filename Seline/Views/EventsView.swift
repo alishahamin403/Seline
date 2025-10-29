@@ -115,7 +115,11 @@ struct EventsView: View {
             CameraAndLibraryPicker(image: $selectedImage, sourceType: cameraSourceType)
                 .onDisappear {
                     if selectedImage != nil {
-                        showCameraActionSheet = true
+                        // Delay sheet presentation to allow image picker to fully dismiss
+                        // This prevents blank screen from sheet transition conflict
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showCameraActionSheet = true
+                        }
                     }
                 }
         }
