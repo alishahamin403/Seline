@@ -5,6 +5,7 @@ struct SearchView: View {
     @StateObject private var emailService = EmailService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var searchService = SearchService.shared
     @Binding var isPresented: Bool
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
@@ -174,15 +175,51 @@ struct SearchView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if searchResults.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "doc.text.magnifyingglass")
+                VStack(spacing: 16) {
+                    Image(systemName: "sparkles")
                         .font(.system(size: 48))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         .padding(.top, 60)
 
                     Text("No results found")
                         .font(.system(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                    Text("Ask AI about this instead")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        Task {
+                            isPresented = false
+                            // Close search view first
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                searchService.isInConversationMode = true
+                                Task {
+                                    await searchService.addConversationMessage(searchText)
+                                }
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "bubble.left.fill")
+                                .font(.system(size: 14, weight: .medium))
+
+                            Text("Chat with AI")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                    }
+                    .padding(.horizontal, 40)
+
+                    Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
