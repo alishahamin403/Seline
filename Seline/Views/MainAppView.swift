@@ -247,117 +247,17 @@ struct MainAppView: View {
     }
 
     private var mainContent: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                VStack(spacing: 0) {
-                    // Padding to account for fixed header (only on home tab)
-                    if selectedTab == .home {
-                        Color.clear
-                            .frame(height: 48)
-                    }
+        mainContentWithModifiers
+    }
 
-                    // Content based on selected tab - expands to fill available space
-                    Group {
-                        switch selectedTab {
-                        case .home:
-                            NavigationView {
-                                homeContentWithoutHeader
-                            }
-                            .navigationViewStyle(StackNavigationViewStyle())
-                            .navigationBarHidden(true)
-                            .onAppear {
-                                Task {
-                                    await emailService.loadEmailsForFolder(.inbox)
-                                }
-                            }
-                        case .email:
-                            EmailView()
-                        case .events:
-                            EventsView()
-                        case .notes:
-                            NotesView()
-                        case .maps:
-                            MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
+    private var mainContentWithModifiers: some View {
+        mainContentWithNoteSheets
+            .mainContentEventSheets()
+            .mainContentPopupOverlay()
+    }
 
-                    // Fixed Footer - hide when keyboard appears or note editor is open
-                    if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil {
-                        BottomTabBar(selectedTab: $selectedTab)
-                    }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(
-                    colorScheme == .dark ?
-                        Color.black : Color.white
-                )
-
-                // Fixed Header with search bar at top (only on home tab)
-                if selectedTab == .home {
-                    VStack(spacing: 0) {
-                        HeaderSection(
-                            selectedTab: $selectedTab,
-                            searchText: $searchText,
-                            isSearchFocused: $isSearchFocused,
-                            onSearchSubmit: {
-                                // Explicitly trigger search when Enter is pressed
-                                Task {
-                                    await searchService.performSearch(query: searchText)
-                                }
-                            }
-                        )
-                        .padding(.bottom, 8)
-                        .background(colorScheme == .dark ? Color.black : Color.white)
-
-                        // Search results or question response dropdown
-                        // Only show inline results if NOT in conversation mode (conversations handle their own display)
-                        if !searchText.isEmpty && !searchService.isInConversationMode {
-                            if let response = searchService.questionResponse {
-                                // Show question response
-                                questionResponseView(response)
-                                    .padding(.horizontal, 20)
-                                    .transition(.opacity)
-                            } else if !searchResults.isEmpty {
-                                // Show search results
-                                searchResultsDropdown
-                                    .padding(.horizontal, 20)
-                                    .transition(.opacity)
-                            } else if searchService.isLoadingQuestionResponse {
-                                // Show loading indicator for question
-                                loadingQuestionView
-                                    .padding(.horizontal, 20)
-                                    .transition(.opacity)
-                            }
-                        }
-                    }
-                    .background(colorScheme == .dark ? Color.black : Color.white)
-                    .zIndex(100)
-                }
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .background(
-                colorScheme == .dark ?
-                    Color.black : Color.white
-            )
-            .onAppear {
-                // Pre-load location services for Maps tab
-                locationService.requestLocationPermission()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-                    keyboardHeight = keyboardFrame.cgRectValue.height
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                keyboardHeight = 0
-            }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToEmail)) { notification in
-                handleEmailNotification(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
-                handleTaskNotification(notification)
-            }
+    private var mainContentWithNoteSheets: some View {
+        mainContentWithLifecycle
             .sheet(item: $selectedNoteToOpen) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { selectedNoteToOpen != nil },
@@ -369,9 +269,6 @@ struct MainAppView: View {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
                     .interactiveDismissalDisabled()
             }
-            .sheet(isPresented: $authManager.showLocationSetup) {
-                LocationSetupView()
-            }
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { searchSelectedNote != nil },
@@ -379,103 +276,122 @@ struct MainAppView: View {
                 ))
                 .interactiveDismissalDisabled()
             }
-            .sheet(item: $searchSelectedEmail) { email in
-                EmailDetailView(email: email)
+    }
+
+    private var mainContentWithLifecycle: some View {
+        mainContentBase
+            .onAppear {
+                locationService.requestLocationPermission()
             }
-            .sheet(item: $searchSelectedTask) { task in
-                if showingEditTask {
-                    NavigationView {
-                        EditTaskView(
-                            task: task,
-                            onSave: { updatedTask in
-                                taskManager.editTask(updatedTask)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onCancel: {
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onDelete: { taskToDelete in
-                                taskManager.deleteTask(taskToDelete)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            },
-                            onDeleteRecurringSeries: { taskToDelete in
-                                taskManager.deleteRecurringTask(taskToDelete)
-                                searchSelectedTask = nil
-                                showingEditTask = false
-                            }
-                        )
-                    }
-                } else {
-                    NavigationView {
-                        ViewEventView(
-                            task: task,
-                            onEdit: {
-                                showingEditTask = true
-                            },
-                            onDelete: { taskToDelete in
-                                taskManager.deleteTask(taskToDelete)
-                                searchSelectedTask = nil
-                            },
-                            onDeleteRecurringSeries: { taskToDelete in
-                                taskManager.deleteRecurringTask(taskToDelete)
-                                searchSelectedTask = nil
-                            }
-                        )
-                    }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+                    keyboardHeight = keyboardFrame.cgRectValue.height
                 }
             }
-            .onChange(of: searchSelectedTask) { newValue in
-                // Reset showingEditTask when a new task is selected or when dismissed
-                if newValue != nil {
-                    showingEditTask = false
-                } else {
-                    showingEditTask = false
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardHeight = 0
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToEmail)) { notification in
+                handleEmailNotification(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
+                handleTaskNotification(notification)
+            }
+    }
+
+    private var mainContentBase: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                mainContentVStack(geometry: geometry)
+
+                // Fixed Header with search bar at top (only on home tab)
+                if selectedTab == .home {
+                    mainContentHeader
                 }
             }
-            .overlay {
-                if showingAddEventPopup {
-                    AddEventPopupView(
-                        isPresented: $showingAddEventPopup,
-                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
-                            // Determine the weekday from the selected date
-                            let calendar = Calendar.current
-                            let weekdayIndex = calendar.component(.weekday, from: date)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .background(colorScheme == .dark ? Color.black : Color.white)
+        }
+    }
 
-                            let weekday: WeekDay
-                            switch weekdayIndex {
-                            case 1: weekday = .sunday
-                            case 2: weekday = .monday
-                            case 3: weekday = .tuesday
-                            case 4: weekday = .wednesday
-                            case 5: weekday = .thursday
-                            case 6: weekday = .friday
-                            case 7: weekday = .saturday
-                            default: weekday = .monday
-                            }
+    private func mainContentVStack(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            // Padding to account for fixed header (only on home tab)
+            if selectedTab == .home {
+                Color.clear.frame(height: 48)
+            }
 
-                            // Create the task with recurring parameters
-                            taskManager.addTask(
-                                title: title,
-                                to: weekday,
-                                description: description,
-                                scheduledTime: time,
-                                endTime: endTime,
-                                targetDate: date,
-                                reminderTime: reminder,
-                                isRecurring: recurring,
-                                recurrenceFrequency: frequency,
-                                tagId: tagId
-                            )
+            // Content based on selected tab
+            Group {
+                switch selectedTab {
+                case .home:
+                    NavigationView {
+                        homeContentWithoutHeader
+                    }
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .navigationBarHidden(true)
+                    .onAppear {
+                        Task {
+                            await emailService.loadEmailsForFolder(.inbox)
                         }
-                    )
-                    .transition(.opacity)
+                    }
+                case .email:
+                    EmailView()
+                case .events:
+                    EventsView()
+                case .notes:
+                    NotesView()
+                case .maps:
+                    MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            // Fixed Footer - hide when keyboard appears or note editor is open
+            if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil {
+                BottomTabBar(selectedTab: $selectedTab)
+            }
+        }
+        .frame(width: geometry.size.width, height: geometry.size.height)
+        .background(colorScheme == .dark ? Color.black : Color.white)
+    }
+
+    private var mainContentHeader: some View {
+        VStack(spacing: 0) {
+            HeaderSection(
+                selectedTab: $selectedTab,
+                searchText: $searchText,
+                isSearchFocused: $isSearchFocused,
+                onSearchSubmit: {
+                    Task {
+                        await searchService.performSearch(query: searchText)
+                    }
+                }
+            )
+            .padding(.bottom, 8)
+            .background(colorScheme == .dark ? Color.black : Color.white)
+
+            // Search results or question response
+            if !searchText.isEmpty && !searchService.isInConversationMode {
+                if let response = searchService.questionResponse {
+                    questionResponseView(response)
+                        .padding(.horizontal, 20)
+                        .transition(.opacity)
+                } else if !searchResults.isEmpty {
+                    searchResultsDropdown
+                        .padding(.horizontal, 20)
+                        .transition(.opacity)
+                } else if searchService.isLoadingQuestionResponse {
+                    loadingQuestionView
+                        .padding(.horizontal, 20)
+                        .transition(.opacity)
                 }
             }
         }
+        .background(colorScheme == .dark ? Color.black : Color.white)
+        .zIndex(100)
     }
+
 
     // MARK: - Detail Content
 
@@ -1156,6 +1072,111 @@ struct MainAppView: View {
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
     }
 
+}
+
+extension MainAppView {
+    func mainContentEventSheets() -> some View {
+        self
+            .sheet(isPresented: $authManager.showLocationSetup) {
+                LocationSetupView()
+            }
+            .sheet(item: $searchSelectedEmail) { email in
+                EmailDetailView(email: email)
+            }
+            .sheet(item: $searchSelectedTask) { task in
+                if showingEditTask {
+                    NavigationView {
+                        EditTaskView(
+                            task: task,
+                            onSave: { updatedTask in
+                                taskManager.editTask(updatedTask)
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            },
+                            onCancel: {
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            },
+                            onDelete: { taskToDelete in
+                                taskManager.deleteTask(taskToDelete)
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            },
+                            onDeleteRecurringSeries: { taskToDelete in
+                                taskManager.deleteRecurringTask(taskToDelete)
+                                searchSelectedTask = nil
+                                showingEditTask = false
+                            }
+                        )
+                    }
+                } else {
+                    NavigationView {
+                        ViewEventView(
+                            task: task,
+                            onEdit: {
+                                showingEditTask = true
+                            },
+                            onDelete: { taskToDelete in
+                                taskManager.deleteTask(taskToDelete)
+                                searchSelectedTask = nil
+                            },
+                            onDeleteRecurringSeries: { taskToDelete in
+                                taskManager.deleteRecurringTask(taskToDelete)
+                                searchSelectedTask = nil
+                            }
+                        )
+                    }
+                }
+            }
+            .onChange(of: searchSelectedTask) { newValue in
+                if newValue != nil {
+                    showingEditTask = false
+                } else {
+                    showingEditTask = false
+                }
+            }
+    }
+
+    func mainContentPopupOverlay() -> some View {
+        self
+            .overlay {
+                if showingAddEventPopup {
+                    AddEventPopupView(
+                        isPresented: $showingAddEventPopup,
+                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                            let calendar = Calendar.current
+                            let weekdayIndex = calendar.component(.weekday, from: date)
+
+                            let weekday: WeekDay
+                            switch weekdayIndex {
+                            case 1: weekday = .sunday
+                            case 2: weekday = .monday
+                            case 3: weekday = .tuesday
+                            case 4: weekday = .wednesday
+                            case 5: weekday = .thursday
+                            case 6: weekday = .friday
+                            case 7: weekday = .saturday
+                            default: weekday = .monday
+                            }
+
+                            taskManager.addTask(
+                                title: title,
+                                to: weekday,
+                                description: description,
+                                scheduledTime: time,
+                                endTime: endTime,
+                                targetDate: date,
+                                reminderTime: reminder,
+                                isRecurring: recurring,
+                                recurrenceFrequency: frequency,
+                                tagId: tagId
+                            )
+                        }
+                    )
+                    .transition(.opacity)
+                }
+            }
+    }
 }
 
 #Preview {
