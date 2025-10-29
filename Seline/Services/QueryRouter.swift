@@ -100,11 +100,13 @@ class QueryRouter {
             // Smart handling of "add" keyword - it can mean create OR update
             // "add to my X note" = update (existing note)
             // "add a new note" = create (new note)
-            let hasExistingNoteReference = query.lowercased().contains("my ") ||
-                                          query.lowercased().contains("the ") ||
-                                          query.lowercased().contains("existing ") ||
-                                          query.lowercased().contains("to ") ||
-                                          query.lowercased().contains("this ")
+            let lowercasedQuery = query.lowercased()
+
+            let hasExistingNoteReference = lowercasedQuery.contains("my ") ||
+                                          lowercasedQuery.contains("the ") ||
+                                          lowercasedQuery.contains("existing ") ||
+                                          lowercasedQuery.contains("to ") ||
+                                          lowercasedQuery.contains("this ")
 
             let hasAddKeyword = containsAny(of: ["add"], in: query)
             let hasCreateOnlyKeyword = containsAny(of: ["create", "new", "make"], in: query)
@@ -114,11 +116,14 @@ class QueryRouter {
                 return .updateNote
             }
 
+            // Check if query mentions "update" or "modify" - these are always updates
+            if containsAny(of: updateKeywords, in: query) {
+                return .updateNote
+            }
+
             // Otherwise use standard logic
             if containsAny(of: createKeywords, in: query) {
                 return .createNote
-            } else if containsAny(of: updateKeywords, in: query) {
-                return .updateNote
             } else if containsAny(of: deleteKeywords, in: query) {
                 return .deleteNote
             }

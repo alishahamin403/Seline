@@ -1092,32 +1092,9 @@ class SearchService: ObservableObject {
             return
         }
 
-        // Check for MULTI-ACTIONS first (e.g., "add X and update Y")
-        print("🔍 [SearchService] Checking for multi-actions...")
-        let multiActions = await queryRouter.detectMultipleActions(trimmed)
-        print("📊 [SearchService] Multi-actions result count: \(multiActions.count)")
-
-        if !multiActions.isEmpty {
-            print("🎯 [SearchService] FOUND \(multiActions.count) MULTI-ACTIONS!")
-            for (index, action) in multiActions.enumerated() {
-                print("   Action \(index + 1): type=\(action.actionType), query=\(action.query)")
-            }
-
-            // Multiple actions detected - store them and process sequentially
-            pendingMultiActions = multiActions
-            currentMultiActionIndex = 0
-            originalMultiActionQuery = trimmed
-
-            // Process first action immediately
-            if let firstAction = multiActions.first {
-                print("⚡ [SearchService] Processing first action: \(firstAction.actionType)")
-                await handleConversationActionQuery(firstAction.query, actionType: firstAction.actionType)
-                saveConversationLocally()
-            }
-            return
-        }
-
-        print("ℹ️ [SearchService] No multi-actions detected, checking for single action...")
+        // DISABLED: Multi-action splitting was causing context loss
+        // Instead, pass full query to action handlers so they can understand complex requests
+        print("ℹ️ [SearchService] Checking for single action with full context...")
 
         // Check if this is a single action query (create event, create note, etc.) BEFORE sending to AI
         var queryType = queryRouter.classifyQuery(trimmed)
