@@ -25,9 +25,6 @@ struct MainAppView: View {
     @State private var showingEditTask = false
     @State private var notificationEmailId: String? = nil
     @State private var notificationTaskId: String? = nil
-    @State private var showingEventConfirmation = false
-    @State private var showingNoteConfirmation = false
-    @State private var showingNoteUpdateConfirmation = false
     @FocusState private var isSearchFocused: Bool
     @State private var showConversationModal = false
 
@@ -224,69 +221,21 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: searchService.pendingEventCreation) { newValue in
-                // Only show sheet if NOT in conversation mode (conversation handles it internally)
-                if !searchService.isInConversationMode {
-                    showingEventConfirmation = newValue != nil
+                // Trigger conversation modal when event creation is detected from search
+                if newValue != nil && !searchService.isInConversationMode {
+                    searchService.isInConversationMode = true
                 }
             }
             .onChange(of: searchService.pendingNoteCreation) { newValue in
-                // Only show sheet if NOT in conversation mode (conversation handles it internally)
-                if !searchService.isInConversationMode {
-                    showingNoteConfirmation = newValue != nil
+                // Trigger conversation modal when note creation is detected from search
+                if newValue != nil && !searchService.isInConversationMode {
+                    searchService.isInConversationMode = true
                 }
             }
             .onChange(of: searchService.pendingNoteUpdate) { newValue in
-                // Only show sheet if NOT in conversation mode (conversation handles it internally)
-                if !searchService.isInConversationMode {
-                    showingNoteUpdateConfirmation = newValue != nil
-                }
-            }
-            .sheet(isPresented: $showingEventConfirmation) {
-                if let eventData = searchService.pendingEventCreation {
-                    ActionEventConfirmationView(
-                        eventData: eventData,
-                        isPresented: $showingEventConfirmation,
-                        onConfirm: {
-                            searchService.confirmEventCreation()
-                            searchText = ""
-                            isSearchFocused = false
-                        },
-                        onCancel: {
-                            searchService.cancelAction()
-                        }
-                    )
-                }
-            }
-            .sheet(isPresented: $showingNoteConfirmation) {
-                if let noteData = searchService.pendingNoteCreation {
-                    ActionNoteConfirmationView(
-                        noteData: noteData,
-                        isPresented: $showingNoteConfirmation,
-                        onConfirm: {
-                            searchService.confirmNoteCreation()
-                            searchText = ""
-                            isSearchFocused = false
-                        },
-                        onCancel: {
-                            searchService.cancelAction()
-                        }
-                    )
-                }
-            }
-            .sheet(isPresented: $showingNoteUpdateConfirmation) {
-                if let updateData = searchService.pendingNoteUpdate {
-                    NoteUpdateConfirmationView(
-                        updateData: updateData,
-                        isPresented: $showingNoteUpdateConfirmation,
-                        onConfirm: {
-                            searchService.confirmNoteUpdate()
-                            searchText = ""
-                            isSearchFocused = false
-                        },
-                        onCancel: {
-                            searchService.cancelAction()
-                        }
-                    )
+                // Trigger conversation modal when note update is detected from search
+                if newValue != nil && !searchService.isInConversationMode {
+                    searchService.isInConversationMode = true
                 }
             }
             .onChange(of: searchService.isInConversationMode) { newValue in
