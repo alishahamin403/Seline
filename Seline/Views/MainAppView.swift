@@ -450,6 +450,15 @@ struct MainAppView: View {
                     Task {
                         await searchService.performSearch(query: searchText)
                     }
+                },
+                onNewConversation: {
+                    HapticManager.shared.selection()
+                    searchService.clearConversation()
+                    Task {
+                        searchService.conversationHistory = []
+                        searchService.conversationTitle = "New Conversation"
+                        searchService.isInConversationMode = true
+                    }
                 }
             )
             .padding(.bottom, 8)

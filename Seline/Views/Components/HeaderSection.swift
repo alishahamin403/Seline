@@ -7,8 +7,8 @@ struct HeaderSection: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.colorScheme) var colorScheme
     @State private var showingSettings = false
-    @State private var showingHistory = false
     var onSearchSubmit: (() -> Void)? = nil
+    var onNewConversation: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -48,11 +48,11 @@ struct HeaderSection: View {
             )
             .cornerRadius(10)
 
-            // History icon
+            // New conversation button
             Button(action: {
-                showingHistory = true
+                onNewConversation?()
             }) {
-                Image(systemName: "clock.arrow.circlepath")
+                Image(systemName: "plus.bubble.fill")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
@@ -71,9 +71,6 @@ struct HeaderSection: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 4)
         .background(Color.clear)
-        .sheet(isPresented: $showingHistory) {
-            ConversationHistoryView()
-        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
