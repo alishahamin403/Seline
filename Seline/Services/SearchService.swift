@@ -22,6 +22,10 @@ class SearchService: ObservableObject {
     @Published var savedConversations: [SavedConversation] = []
     private var currentlyLoadedConversationId: UUID? = nil
 
+    // Note refinement mode - for interactive note creation/updating
+    @Published var isRefiningNote: Bool = false
+    @Published var currentNoteBeingRefined: Note? = nil
+
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
@@ -205,6 +209,56 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = false
     }
 
+    // MARK: - Note Refinement Mode
+
+    /// Handle user input when refining a note - update note content interactively
+    private func handleNoteRefinement(_ userInput: String, for note: Note) async {
+        // Check if user wants to exit refinement mode
+        let exitKeywords = ["done", "that's it", "finish", "all set", "no more", "that's all"]
+        let lowerInput = userInput.lowercased()
+        let shouldExit = exitKeywords.contains { keyword in
+            lowerInput.contains(keyword)
+        }
+
+        if shouldExit {
+            // Exit refinement mode
+            isRefiningNote = false
+            currentNoteBeingRefined = nil
+
+            let exitMsg = ConversationMessage(
+                isUser: false,
+                text: "✓ Note updated! Is there anything else I can help you with?",
+                intent: .notes
+            )
+            conversationHistory.append(exitMsg)
+            return
+        }
+
+        // Update the note with new content
+        var updatedNote = note
+        let (updatedContent, delta, _) = applySmartNoteUpdate(
+            originalContent: updatedNote.content,
+            suggestedContent: userInput,
+            query: userInput
+        )
+
+        updatedNote.content = updatedContent
+        updatedNote.dateModified = Date()
+
+        // Save the updated note
+        NotesManager.shared.updateNote(updatedNote)
+        currentNoteBeingRefined = updatedNote
+
+        // Show confirmation with what was added
+        let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+        let confirmationMsg = ConversationMessage(
+            isUser: false,
+            text: "✓ Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+            intent: .notes
+        )
+        conversationHistory.append(confirmationMsg)
+    }
+
     // MARK: - Conversation Action Handling
 
     private func handleConversationActionQuery(_ query: String, actionType: ActionType) async {
@@ -263,7 +317,28 @@ class SearchService: ObservableObject {
                 isLoadingQuestionResponse = false
             }
         case .createNote:
-            pendingNoteCreation = await actionQueryHandler.parseNoteCreation(from: query)
+            // Parse note creation details
+            if let noteData = await actionQueryHandler.parseNoteCreation(from: query) {
+                // Create the note immediately
+                let newNote = Note(
+                    title: noteData.title,
+                    content: noteData.content,
+                    folderId: noteData.folderId
+                )
+                NotesManager.shared.addNote(newNote)
+
+                // Enter note refinement mode for interactive updates
+                isRefiningNote = true
+                currentNoteBeingRefined = newNote
+
+                // Add confirmation message
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Created note \"\(noteData.title)\"\n\nWhat else would you like to add to this note?",
+                    intent: .notes
+                )
+                conversationHistory.append(confirmationMsg)
+            }
         case .updateNote:
             // Find the note to update
             if let matchingNote = findNoteToUpdate(from: query) {
@@ -658,8 +733,26 @@ class SearchService: ObservableObject {
         // Update title based on conversation context
         updateConversationTitle()
 
+        // REFINEMENT MODE: If user is adding details to a note, update it instead
+        if isRefiningNote, let noteBeingRefined = currentNoteBeingRefined {
+            await handleNoteRefinement(trimmed, for: noteBeingRefined)
+            saveConversationLocally()
+            return
+        }
+
         // Check if this is an action query (create event, create note, etc.) BEFORE sending to AI
-        let queryType = queryRouter.classifyQuery(trimmed)
+        var queryType = queryRouter.classifyQuery(trimmed)
+
+        // If keyword matching didn't detect action, try semantic classification
+        if case .action = queryType {
+            // Action detected via keywords
+        } else {
+            // Try semantic LLM fallback for ambiguous cases
+            if let semanticAction = await queryRouter.classifyIntentWithLLM(trimmed) {
+                queryType = .action(semanticAction)
+            }
+        }
+
         if case .action(let actionType) = queryType {
             // Handle action query in conversation
             await handleConversationActionQuery(trimmed, actionType: actionType)
