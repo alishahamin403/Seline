@@ -135,16 +135,16 @@ struct FilterPillButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                 .foregroundColor(textColor)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 16)
                         .fill(backgroundColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(borderColor, lineWidth: 1)
                 )
         }
@@ -344,60 +344,46 @@ struct SuggestionsSectionHeader: View {
             .padding(.horizontal, 20)
 
             // Time filter pills
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Time")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .padding(.horizontal, 20)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(timeOptions.enumerated()), id: \.offset) { index, timeOption in
-                            FilterPillButton(
-                                title: timeOption,
-                                isSelected: selectedTimeMinutes == timeValues[index],
-                                colorScheme: colorScheme,
-                                action: {
-                                    selectedTimeMinutes = timeValues[index]
-                                }
-                            )
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(timeOptions.enumerated()), id: \.offset) { index, timeOption in
+                        FilterPillButton(
+                            title: timeOption,
+                            isSelected: selectedTimeMinutes == timeValues[index],
+                            colorScheme: colorScheme,
+                            action: {
+                                selectedTimeMinutes = timeValues[index]
+                            }
+                        )
                     }
-                    .padding(.horizontal, 20)
                 }
+                .padding(.horizontal, 20)
             }
 
             // Category filter pills
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Category")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    .padding(.horizontal, 20)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    FilterPillButton(
+                        title: "All",
+                        isSelected: selectedCategory == nil,
+                        colorScheme: colorScheme,
+                        action: {
+                            selectedCategory = nil
+                        }
+                    )
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    ForEach(availableCategories.sorted(), id: \.self) { category in
                         FilterPillButton(
-                            title: "All",
-                            isSelected: selectedCategory == nil,
+                            title: category,
+                            isSelected: selectedCategory == category,
                             colorScheme: colorScheme,
                             action: {
-                                selectedCategory = nil
+                                selectedCategory = category
                             }
                         )
-
-                        ForEach(availableCategories.sorted(), id: \.self) { category in
-                            FilterPillButton(
-                                title: category,
-                                isSelected: selectedCategory == category,
-                                colorScheme: colorScheme,
-                                action: {
-                                    selectedCategory = category
-                                }
-                            )
-                        }
                     }
-                    .padding(.horizontal, 20)
                 }
+                .padding(.horizontal, 20)
             }
         }
         .padding(.top, 4)
