@@ -34,9 +34,16 @@ struct ConversationSearchView: View {
 
                 Button(action: {
                     HapticManager.shared.selection()
-                    showingHistory = true
+                    // Clear current conversation and start new one
+                    searchService.clearConversation()
+                    Task {
+                        // Reset for new conversation
+                        searchService.conversationHistory = []
+                        searchService.conversationTitle = "New Conversation"
+                        searchService.isInConversationMode = true
+                    }
                 }) {
-                    Image(systemName: "clock.arrow.circlepath")
+                    Image(systemName: "plus.bubble.fill")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }

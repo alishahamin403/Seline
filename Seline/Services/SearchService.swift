@@ -78,8 +78,10 @@ class SearchService: ObservableObject {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Check if this is a question that should use conversation mode
+        // ALL questions should go to conversation, not search results
         if isQuestion(trimmedQuery) {
             // Start conversation instead of normal search
+            print("🟦 [SearchService] Question detected, starting conversation: \(trimmedQuery)")
             await startConversation(with: trimmedQuery)
             return
         }
@@ -97,8 +99,12 @@ class SearchService: ObservableObject {
             let results = await searchContent(query: trimmedQuery.lowercased())
             searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
         case .question:
-            // Handle questions with AI assistance (only if not detected as conversation question)
-            await handleQuestionQuery(trimmedQuery)
+            // This should rarely happen now since questions are caught above
+            // But if it does, send to conversation
+            print("🟦 [SearchService] Question type detected via router, starting conversation: \(trimmedQuery)")
+            await startConversation(with: trimmedQuery)
+            isSearching = false
+            return
         }
 
         isSearching = false
