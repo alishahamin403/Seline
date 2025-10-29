@@ -698,6 +698,7 @@ struct ShadcnCalendar: View {
     let onDateChange: (Date) -> Void
 
     @State private var currentMonth = Date()
+    @State private var dragStartX: CGFloat = 0
 
     private var calendar: Calendar {
         Calendar.current
@@ -825,6 +826,28 @@ struct ShadcnCalendar: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        dragStartX = value.location.x
+                    }
+                    .onEnded { value in
+                        let dragDistance = value.location.x - dragStartX
+                        let threshold: CGFloat = 50
+
+                        if dragDistance > threshold {
+                            // Swiped right - previous month
+                            withAnimation {
+                                previousMonth()
+                            }
+                        } else if dragDistance < -threshold {
+                            // Swiped left - next month
+                            withAnimation {
+                                nextMonth()
+                            }
+                        }
+                    }
+            )
         }
     }
 
@@ -896,7 +919,7 @@ struct ShadcnDayCell: View {
     private var textColor: Color {
         if isSelected {
             // In dark mode: white background with black text
-            // In light mode: primary color background with white text
+            // In light mode: black background with white text
             return colorScheme == .dark ? Color.black : Color.white
         } else if isToday {
             // Today: white/black per theme instead of blue
@@ -910,11 +933,12 @@ struct ShadcnDayCell: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            // In dark mode: white fill for selected day
-            // In light mode: primary color fill
-            return colorScheme == .dark ? Color.white : Color.shadcnPrimary
+            // In dark mode: white fill for selected day with black text
+            // In light mode: black fill for selected day with white text
+            return colorScheme == .dark ? Color.white : Color.black
         } else if isToday {
-            return Color.shadcnPrimary.opacity(0.1)
+            // Today: light gray indicator instead of blue
+            return (colorScheme == .dark ? Color.white : Color.black).opacity(0.1)
         } else {
             return Color.clear
         }
