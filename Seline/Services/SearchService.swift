@@ -391,7 +391,7 @@ class SearchService: ObservableObject {
 
         case .addContent, .ambiguous:
             // Check if user is confirming a pending addition
-            let confirmationKeywords = ["yes", "yep", "yup", "sure", "ok", "okay", "go", "add it", "confirm", "please", "do it", "add", "true", "affirmative"]
+            let confirmationKeywords = ["yes", "yep", "yup", "yeah", "yea", "sure", "ok", "okay", "go", "add it", "confirm", "please", "do it", "add", "true", "affirmative"]
             let isConfirming = pendingRefinementContent != nil && confirmationKeywords.contains { keyword in
                 userInput.lowercased().contains(keyword)
             }
