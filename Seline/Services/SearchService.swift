@@ -330,30 +330,97 @@ class SearchService: ObservableObject {
             }
 
         case .addContent, .ambiguous:
-            // Update the note with new content
-            var updatedNote = note
-            let (updatedContent, delta, _) = applySmartNoteUpdate(
-                originalContent: updatedNote.content,
-                suggestedContent: userInput,
-                query: userInput
-            )
+            // Check if this is a computational/analytical request that needs LLM processing
+            let computationalKeywords = ["sum", "total", "calculate", "add up", "count", "analyze", "summarize", "summarise", "average", "mean", "median", "breakdown", "extract", "compile"]
+            let isComputational = computationalKeywords.contains { keyword in
+                userInput.lowercased().contains(keyword)
+            }
 
-            updatedNote.content = updatedContent
-            updatedNote.dateModified = Date()
+            var finalContent: String
+            var delta: String
 
-            // Save the updated note and WAIT for Supabase sync to complete
-            let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
-            currentNoteBeingRefined = updatedNote
+            if isComputational {
+                // Use LLM to process the computational request
+                let computePrompt = """
+                The user is asking you to process their note and provide a computed result.
 
-            // Show confirmation with what was added (only after save completes)
-            let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
-            let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
-            let confirmationMsg = ConversationMessage(
-                isUser: false,
-                text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
-                intent: .notes
-            )
-            conversationHistory.append(confirmationMsg)
+                Current note content:
+                "\(note.content)"
+
+                User request: "\(userInput)"
+
+                Analyze the note content and fulfill their request. Return ONLY the result/answer they asked for, without explanation. For example:
+                - If they ask "sum up all expenses", return something like "Total: $3,080"
+                - If they ask "count items", return something like "Total items: 5"
+                - If they ask "summarize", provide a concise summary
+
+                Return the computed result ready to add to the note.
+                """
+
+                do {
+                    delta = try await OpenAIService.shared.generateText(
+                        systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
+                        userPrompt: computePrompt,
+                        maxTokens: 500,
+                        temperature: 0.0
+                    )
+
+                    // Add the computed result to the note
+                    var updatedNote = note
+                    finalContent = updatedNote.content.isEmpty ?
+                        delta :
+                        updatedNote.content + "\n\n" + delta
+
+                    updatedNote.content = finalContent
+                    updatedNote.dateModified = Date()
+
+                    // Save the updated note and WAIT for Supabase sync to complete
+                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
+                    currentNoteBeingRefined = updatedNote
+
+                    // Show confirmation with the computed result
+                    let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                    let confirmationMsg = ConversationMessage(
+                        isUser: false,
+                        text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                        intent: .notes
+                    )
+                    conversationHistory.append(confirmationMsg)
+                } catch {
+                    let errorMsg = ConversationMessage(
+                        isUser: false,
+                        text: "I couldn't process that calculation. Could you rephrase your request?",
+                        intent: .notes
+                    )
+                    conversationHistory.append(errorMsg)
+                }
+            } else {
+                // Regular content addition
+                var updatedNote = note
+                let (updatedContent, deltaStr, _) = applySmartNoteUpdate(
+                    originalContent: updatedNote.content,
+                    suggestedContent: userInput,
+                    query: userInput
+                )
+
+                updatedNote.content = updatedContent
+                updatedNote.dateModified = Date()
+
+                // Save the updated note and WAIT for Supabase sync to complete
+                let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
+                currentNoteBeingRefined = updatedNote
+
+                // Show confirmation with what was added (only after save completes)
+                let deltaPreview = deltaStr.count > 200 ? String(deltaStr.prefix(200)) + "..." : deltaStr
+                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                    intent: .notes
+                )
+                conversationHistory.append(confirmationMsg)
+            }
         }
     }
 
@@ -450,12 +517,68 @@ class SearchService: ObservableObject {
                     var note = matchingNote
                     let originalContent = note.content
 
-                    // Smart update: detect if this is a replacement or addition
-                    let (updatedContent, delta, updateType) = applySmartNoteUpdate(
-                        originalContent: originalContent,
-                        suggestedContent: updateData.contentToAdd,
-                        query: query
-                    )
+                    // Check if this is a computational/analytical request that needs LLM processing
+                    let computationalKeywords = ["sum", "total", "calculate", "add up", "count", "analyze", "summarize", "summarise", "average", "mean", "median", "breakdown", "extract", "compile"]
+                    let isComputational = computationalKeywords.contains { keyword in
+                        query.lowercased().contains(keyword)
+                    }
+
+                    var updatedContent: String
+                    var delta: String
+                    var updateType: String
+
+                    if isComputational {
+                        // Use LLM to process the computational request
+                        let computePrompt = """
+                        The user is asking you to process their note and provide a computed result.
+
+                        Current note content:
+                        "\(originalContent)"
+
+                        User request: "\(query)"
+
+                        Analyze the note content and fulfill their request. Return ONLY the result/answer they asked for, without explanation. For example:
+                        - If they ask "sum up all expenses", return something like "Total: $3,080"
+                        - If they ask "count items", return something like "Total items: 5"
+                        - If they ask "summarize", provide a concise summary
+
+                        Return the computed result ready to add to the note.
+                        """
+
+                        do {
+                            delta = try await OpenAIService.shared.generateText(
+                                systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
+                                userPrompt: computePrompt,
+                                maxTokens: 500,
+                                temperature: 0.0
+                            )
+
+                            updatedContent = originalContent.isEmpty ?
+                                delta :
+                                originalContent + "\n\n" + delta
+                            updateType = "Computed & Added"
+                        } catch {
+                            // Fallback if computation fails
+                            let (fallbackContent, fallbackDelta, fallbackType) = applySmartNoteUpdate(
+                                originalContent: originalContent,
+                                suggestedContent: updateData.contentToAdd,
+                                query: query
+                            )
+                            updatedContent = fallbackContent
+                            delta = fallbackDelta
+                            updateType = fallbackType
+                        }
+                    } else {
+                        // Smart update: detect if this is a replacement or addition
+                        let (content, deltaStr, type) = applySmartNoteUpdate(
+                            originalContent: originalContent,
+                            suggestedContent: updateData.contentToAdd,
+                            query: query
+                        )
+                        updatedContent = content
+                        delta = deltaStr
+                        updateType = type
+                    }
 
                     note.content = updatedContent
 
