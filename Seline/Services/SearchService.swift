@@ -1069,6 +1069,8 @@ class SearchService: ObservableObject {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        print("🔵 [SearchService] addConversationMessage called with: \(trimmed)")
+
         // Enter conversation mode if not already in it
         if !isInConversationMode {
             isInConversationMode = true
@@ -1077,20 +1079,30 @@ class SearchService: ObservableObject {
         // Add user message to history
         let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
+        print("✅ [SearchService] User message added to history. Total messages: \(conversationHistory.count)")
 
         // Update title based on conversation context
         updateConversationTitle()
 
         // REFINEMENT MODE: If user is adding details to a note, update it instead
         if isRefiningNote, let noteBeingRefined = currentNoteBeingRefined {
+            print("🔄 [SearchService] In refinement mode, handling note refinement")
             await handleNoteRefinement(trimmed, for: noteBeingRefined)
             saveConversationLocally()
             return
         }
 
         // Check for MULTI-ACTIONS first (e.g., "add X and update Y")
+        print("🔍 [SearchService] Checking for multi-actions...")
         let multiActions = await queryRouter.detectMultipleActions(trimmed)
+        print("📊 [SearchService] Multi-actions result count: \(multiActions.count)")
+
         if !multiActions.isEmpty {
+            print("🎯 [SearchService] FOUND \(multiActions.count) MULTI-ACTIONS!")
+            for (index, action) in multiActions.enumerated() {
+                print("   Action \(index + 1): type=\(action.actionType), query=\(action.query)")
+            }
+
             // Multiple actions detected - store them and process sequentially
             pendingMultiActions = multiActions
             currentMultiActionIndex = 0
@@ -1098,11 +1110,14 @@ class SearchService: ObservableObject {
 
             // Process first action immediately
             if let firstAction = multiActions.first {
+                print("⚡ [SearchService] Processing first action: \(firstAction.actionType)")
                 await handleConversationActionQuery(firstAction.query, actionType: firstAction.actionType)
                 saveConversationLocally()
             }
             return
         }
+
+        print("ℹ️ [SearchService] No multi-actions detected, checking for single action...")
 
         // Check if this is a single action query (create event, create note, etc.) BEFORE sending to AI
         var queryType = queryRouter.classifyQuery(trimmed)
