@@ -7,6 +7,7 @@ struct HeaderSection: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.colorScheme) var colorScheme
     @State private var showingSettings = false
+    @State private var showingHistory = false
     var onSearchSubmit: (() -> Void)? = nil
 
     var body: some View {
@@ -47,6 +48,16 @@ struct HeaderSection: View {
             )
             .cornerRadius(10)
 
+            // History icon
+            Button(action: {
+                showingHistory = true
+            }) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+            }
+            .buttonStyle(PlainButtonStyle())
+
             // Settings icon
             Button(action: {
                 showingSettings = true
@@ -60,8 +71,49 @@ struct HeaderSection: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 4)
         .background(Color.clear)
+        .sheet(isPresented: $showingHistory) {
+            ConversationHistoryView()
+        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+    }
+}
+
+struct ConversationHistoryView: View {
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                Text("Conversation History")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                Spacer()
+
+                Text("No conversations yet")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 20)
+            .background(Color.shadcnBackground(colorScheme))
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        HStack {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    }
+                }
+            }
         }
     }
 }
