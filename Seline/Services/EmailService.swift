@@ -46,6 +46,8 @@ class EmailService: ObservableObject {
     private let openAIService = OpenAIService.shared
 
     private init() {
+        // Clear old cached data on app startup to prevent showing yesterday's emails
+        validateAndCleanCache()
         loadCachedData()
         // Set initial loading states based on cached data
         if !inboxEmails.isEmpty {
@@ -804,31 +806,43 @@ class EmailService: ObservableObject {
                 // CRITICAL FIX: Reload inbox emails to show new emails in UI
                 await loadEmailsForFolder(.inbox, forceRefresh: true)
 
-                // Fetch metadata for the latest new email to show in notification
-                // This uses format=metadata which is lightweight (only ~5 quota units)
-                var latestSender: String?
-                var latestSubject: String?
-                var latestEmailId: String?
-
-                if let firstNewId = newMessageIds.first {
-                    if let newEmail = try? await gmailAPIClient.fetchSingleEmail(messageId: firstNewId) {
-                        latestSender = newEmail.sender.displayName
-                        latestSubject = newEmail.subject
-                        latestEmailId = newEmail.id
+                // Only notify for emails from TODAY to prevent showing old cached emails
+                // Filter newly loaded emails to today's emails only
+                let todaysNewEmails = newMessageIds.compactMap { newId in
+                    inboxEmails.first { email in
+                        email.id == newId && Calendar.current.isDateInToday(email.timestamp)
                     }
                 }
 
-                // Show notification for new emails (real-time notifications)
-                await notificationService.scheduleNewEmailNotification(
-                    emailCount: newMessageIds.count,
-                    latestSender: latestSender,
-                    latestSubject: latestSubject,
-                    latestEmailId: latestEmailId
-                )
+                // Only send notification if we have new emails from TODAY
+                if !todaysNewEmails.isEmpty {
+                    // Fetch metadata for the latest new email from today
+                    var latestSender: String?
+                    var latestSubject: String?
+                    var latestEmailId: String?
 
-                // Update badge count
-                let currentUnreadCount = inboxEmails.filter { !$0.isRead }.count
-                notificationService.updateAppBadge(count: currentUnreadCount)
+                    if let firstNewEmail = todaysNewEmails.first {
+                        latestSender = firstNewEmail.sender.displayName
+                        latestSubject = firstNewEmail.subject
+                        latestEmailId = firstNewEmail.id
+                    }
+
+                    // Show notification for new emails (real-time notifications)
+                    await notificationService.scheduleNewEmailNotification(
+                        emailCount: todaysNewEmails.count,
+                        latestSender: latestSender,
+                        latestSubject: latestSubject,
+                        latestEmailId: latestEmailId
+                    )
+
+                    // Update badge count (only count today's unread emails)
+                    let currentUnreadCount = todaysNewEmails.filter { !$0.isRead }.count
+                    notificationService.updateAppBadge(count: currentUnreadCount)
+
+                    print("📧 New emails from TODAY: \(todaysNewEmails.count)")
+                } else {
+                    print("📧 New emails found but none from today - suppressing old notification")
+                }
             }
         } catch {
             print("Error checking for new emails: \(error)")
@@ -836,6 +850,36 @@ class EmailService: ObservableObject {
     }
 
     // MARK: - Cache Management
+
+    /// Validates and cleans cached data on app startup
+    /// Removes emails that are not from today to prevent stale notifications
+    private func validateAndCleanCache() {
+        // Load current cache
+        if let inboxData = UserDefaults.standard.data(forKey: CacheKeys.inboxEmails),
+           let cachedInboxEmails = try? JSONDecoder().decode([Email].self, from: inboxData) {
+            // Filter to keep only today's emails
+            let todaysEmails = filterTodaysEmails(cachedInboxEmails)
+
+            // If we had emails and now we have fewer, save the cleaned cache
+            if cachedInboxEmails.count > todaysEmails.count {
+                print("🧹 Cleaning cache: removed \(cachedInboxEmails.count - todaysEmails.count) old emails")
+
+                // Save cleaned emails back to cache
+                if let encoded = try? JSONEncoder().encode(todaysEmails) {
+                    UserDefaults.standard.set(encoded, forKey: CacheKeys.inboxEmails)
+                }
+            }
+        }
+
+        // Clear cache timestamps if older than today (force refresh)
+        if let inboxTimestamp = UserDefaults.standard.object(forKey: CacheKeys.inboxTimestamp) as? Date {
+            let calendar = Calendar.current
+            if !calendar.isDateInToday(inboxTimestamp) {
+                print("🧹 Clearing old cache timestamp")
+                UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
+            }
+        }
+    }
 
     private func loadCachedData() {
         // Load cached emails from persistent storage
