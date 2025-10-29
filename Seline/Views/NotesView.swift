@@ -398,7 +398,7 @@ struct NotesView: View, Searchable {
                     .navigationBarBackButtonHidden(false)
             }
         }
-        .sheet(isPresented: $showingNewNoteSheet) {
+        .fullScreenCover(isPresented: $showingNewNoteSheet) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
         }
         .onAppear {
