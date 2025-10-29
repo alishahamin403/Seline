@@ -169,20 +169,20 @@ struct EditTaskView: View {
                     }
 
                     if hasTime {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 12) {
                             // Start Time
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Start")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                                DatePicker("Start Time", selection: $selectedTime, displayedComponents: .hourAndMinute)
-                                    .datePickerStyle(WheelDatePickerStyle())
-                                    .labelsHidden()
-                                    .onChange(of: selectedTime) { newStartTime in
-                                        // Auto-update end time to be 1 hour after start time
+                                TimePickerField(
+                                    time: $selectedTime,
+                                    onTimeChange: { newStartTime in
                                         selectedEndTime = newStartTime.addingTimeInterval(3600)
-                                    }
+                                    },
+                                    colorScheme: colorScheme
+                                )
                             }
 
                             // End Time
@@ -191,9 +191,10 @@ struct EditTaskView: View {
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                                DatePicker("End Time", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
-                                    .datePickerStyle(WheelDatePickerStyle())
-                                    .labelsHidden()
+                                TimePickerField(
+                                    time: $selectedEndTime,
+                                    colorScheme: colorScheme
+                                )
                             }
                         }
                     }
@@ -527,6 +528,135 @@ struct ReminderOptionsSheet: View {
                     )
                 }
             }
+        }
+    }
+}
+
+struct TimePickerField: View {
+    @Binding var time: Date
+    var onTimeChange: ((Date) -> Void)? = nil
+    let colorScheme: ColorScheme
+    @State private var showingTimePicker = false
+
+    private var formattedTime: String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: time)
+    }
+
+    var body: some View {
+        Button(action: { showingTimePicker = true }) {
+            HStack {
+                Text(formattedTime)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                Spacer()
+
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.black : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .sheet(isPresented: $showingTimePicker) {
+            TimePickerSheet(time: $time, colorScheme: colorScheme, onClose: {
+                onTimeChange?(time)
+            })
+        }
+    }
+}
+
+struct TimePickerSheet: View {
+    @Binding var time: Date
+    let colorScheme: ColorScheme
+    var onClose: () -> Void
+    @Environment(\.dismiss) var dismiss
+
+    @State private var selectedHour: Int = 0
+    @State private var selectedMinute: Int = 0
+
+    private let hours = Array(0...23)
+    private let minutes = Array(stride(from: 0, to: 60, by: 5))
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                HStack(spacing: 16) {
+                    VStack(alignment: .center, spacing: 8) {
+                        Text("Hour")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        Picker("Hour", selection: $selectedHour) {
+                            ForEach(hours, id: \.self) { hour in
+                                Text(String(format: "%02d", hour))
+                                    .tag(hour)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                    }
+
+                    VStack(alignment: .center, spacing: 8) {
+                        Text("Minute")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        Picker("Minute", selection: $selectedMinute) {
+                            ForEach(minutes, id: \.self) { minute in
+                                Text(String(format: "%02d", minute))
+                                    .tag(minute)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+
+                Spacer()
+            }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            .navigationTitle("Select Time")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        var components = Calendar.current.dateComponents([.year, .month, .day], from: time)
+                        components.hour = selectedHour
+                        components.minute = selectedMinute
+                        if let newTime = Calendar.current.date(from: components) {
+                            time = newTime
+                        }
+                        onClose()
+                        dismiss()
+                    }
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
+            }
+        }
+        .onAppear {
+            let components = Calendar.current.dateComponents([.hour, .minute], from: time)
+            selectedHour = components.hour ?? 0
+            selectedMinute = (components.minute ?? 0) / 5 * 5
         }
     }
 }
