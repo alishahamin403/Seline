@@ -272,11 +272,13 @@ struct MainAppView: View {
                 ))
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
+                .interactiveDismissalDisabled()
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.hidden)
+                    .interactiveDismissalDisabled()
             }
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
@@ -285,6 +287,7 @@ struct MainAppView: View {
                 ))
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
+                .interactiveDismissalDisabled()
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
                 LocationSetupView()
@@ -431,8 +434,8 @@ struct MainAppView: View {
             }
             .frame(maxHeight: .infinity)
 
-            // Fixed Footer - hide when keyboard appears or note editor is open
-            if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil {
+            // Fixed Footer - hide when keyboard appears or any sheet is open
+            if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup {
                 BottomTabBar(selectedTab: $selectedTab)
             }
         }
