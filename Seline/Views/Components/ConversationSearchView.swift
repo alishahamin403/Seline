@@ -25,31 +25,10 @@ struct ConversationSearchView: View {
         VStack(spacing: 0) {
             // Header with title and close button
             HStack(spacing: 12) {
-                Button(action: {
-                    HapticManager.shared.selection()
-                    // Save conversation to Supabase before closing
-                    Task {
-                        await searchService.saveConversationToSupabase()
-                    }
-                    searchService.clearConversation()
-                    dismiss()
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Conversation")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                    Text(searchService.conversationTitle)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .lineLimit(1)
-                }
+                Text(searchService.conversationTitle)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .lineLimit(1)
 
                 Spacer()
 

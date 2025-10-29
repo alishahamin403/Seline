@@ -20,8 +20,6 @@ struct ConversationHistoryView: View {
             .padding(.vertical, 12)
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
 
-            Divider()
-
             // Conversations list
             if searchService.savedConversations.isEmpty {
                 VStack(spacing: 12) {
@@ -85,9 +83,17 @@ struct ConversationHistoryView: View {
                                 .padding(.vertical, 12)
                             }
                             .buttonStyle(PlainButtonStyle())
-
-                            Divider()
-                                .padding(.leading, 16)
+                            .contextMenu {
+                                Button(role: .destructive, action: {
+                                    HapticManager.shared.selection()
+                                    searchService.deleteConversation(withId: conversation.id)
+                                }) {
+                                    HStack {
+                                        Image(systemName: "trash")
+                                        Text("Delete")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
