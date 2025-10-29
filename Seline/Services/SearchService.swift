@@ -63,7 +63,6 @@ class SearchService: ObservableObject {
 
         // Check if this is a question that should use conversation mode
         if isQuestion(trimmedQuery) {
-            print("DEBUG performSearch: Detected question, starting conversation")
             // Start conversation instead of normal search
             await startConversation(with: trimmedQuery)
             return
@@ -379,8 +378,6 @@ class SearchService: ObservableObject {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        print("DEBUG addConversationMessage: Adding user message: \(trimmed)")
-
         // Enter conversation mode if not already in it
         if !isInConversationMode {
             isInConversationMode = true
@@ -389,11 +386,9 @@ class SearchService: ObservableObject {
         // Add user message to history
         let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
-        print("DEBUG addConversationMessage: User message added, history count: \(conversationHistory.count)")
 
         // Get AI response
         isLoadingQuestionResponse = true
-        print("DEBUG addConversationMessage: Calling OpenAI answerQuestion...")
         do {
             let response = try await OpenAIService.shared.answerQuestion(
                 query: trimmed,
@@ -405,19 +400,15 @@ class SearchService: ObservableObject {
                 navigationService: NavigationService.shared
             )
 
-            print("DEBUG addConversationMessage: Got response from OpenAI: \(response.prefix(100))...")
             let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
             conversationHistory.append(assistantMsg)
-            print("DEBUG addConversationMessage: Assistant message added, history count: \(conversationHistory.count)")
         } catch {
-            print("DEBUG addConversationMessage: ERROR - \(error)")
             let errorMsg = ConversationMessage(
                 isUser: false,
                 text: "I couldn't answer that question. Please try again or rephrase your question.",
                 intent: .general
             )
             conversationHistory.append(errorMsg)
-            print("Error in conversation: \(error)")
         }
 
         isLoadingQuestionResponse = false
@@ -433,11 +424,8 @@ class SearchService: ObservableObject {
 
     /// Start a conversation with an initial question
     func startConversation(with initialQuestion: String) async {
-        print("DEBUG SearchService: startConversation called with: \(initialQuestion)")
         clearConversation()
         isInConversationMode = true
-        print("DEBUG SearchService: isInConversationMode set to true")
         await addConversationMessage(initialQuestion)
-        print("DEBUG SearchService: addConversationMessage completed, conversationHistory count: \(conversationHistory.count)")
     }
 }

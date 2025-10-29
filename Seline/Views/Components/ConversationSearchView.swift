@@ -9,9 +9,7 @@ struct ConversationSearchView: View {
     @State private var scrollToBottom: UUID?
 
     var body: some View {
-        print("DEBUG ConversationSearchView: body is rendering, conversation history count: \(searchService.conversationHistory.count)")
-
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             // Header
             HStack {
                 Button(action: {
