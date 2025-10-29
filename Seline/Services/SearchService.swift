@@ -653,18 +653,27 @@ class SearchService: ObservableObject {
                 historyJson = jsonString
             }
 
-            let conversationData: [String: AnyJSON] = [
-                "title": AnyJSON.string(conversationTitle),
-                "messages": AnyJSON.string(historyJson),
-                "message_count": AnyJSON.number(Double(conversationHistory.count)),
-                "first_message": AnyJSON.string(conversationHistory.first?.text ?? ""),
-                "created_at": AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
-            ]
+            // Create a struct that conforms to Encodable
+            struct ConversationData: Encodable {
+                let title: String
+                let messages: String
+                let message_count: Int
+                let first_message: String
+                let created_at: String
+            }
+
+            let data = ConversationData(
+                title: conversationTitle,
+                messages: historyJson,
+                message_count: conversationHistory.count,
+                first_message: conversationHistory.first?.text ?? "",
+                created_at: ISO8601DateFormatter().string(from: Date())
+            )
 
             // Save to conversations table
             try await client
                 .from("conversations")
-                .insert(conversationData)
+                .insert(data)
                 .execute()
 
             print("✓ Conversation saved to Supabase")
@@ -686,9 +695,7 @@ class SearchService: ObservableObject {
                 .limit(10)
                 .execute()
 
-            let data = response.data
-            if let jsonData = data.data(using: .utf8),
-               let jsonArray = try JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
+            if let jsonArray = try JSONSerialization.jsonObject(with: response) as? [[String: Any]] {
                 return jsonArray
             }
             return []
@@ -711,9 +718,7 @@ class SearchService: ObservableObject {
                 .single()
                 .execute()
 
-            let data = response.data
-            if let jsonData = data.data(using: .utf8),
-               let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+            if let json = try JSONSerialization.jsonObject(with: response) as? [String: Any],
                let messagesString = json["messages"] as? String,
                let messagesData = messagesString.data(using: .utf8) {
 
