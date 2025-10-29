@@ -42,29 +42,17 @@ struct SearchBarComponent: View {
             )
             .padding(.horizontal, 20)
 
-            // Search results or conversation trigger
-            if !searchService.searchQuery.isEmpty {
-                if searchService.isInConversationMode {
-                    // Show conversation view inline if in conversation mode
-                    ConversationSearchView()
-                        .onAppear {
-                            print("DEBUG SearchBarComponent: ConversationSearchView appeared, history: \(searchService.conversationHistory.count)")
-                        }
-                } else {
-                    // Always show search results (or loading state)
-                    SearchResultsView(
-                        results: searchService.searchResults,
-                        isSearching: searchService.isSearching,
-                        selectedTab: $selectedTab
-                    )
-                        .onAppear {
-                            print("DEBUG SearchBarComponent: SearchResultsView appeared")
-                        }
-                }
+            // Search results
+            if !searchService.searchQuery.isEmpty && !searchService.isInConversationMode {
+                SearchResultsView(
+                    results: searchService.searchResults,
+                    isSearching: searchService.isSearching,
+                    selectedTab: $selectedTab
+                )
             }
         }
-        .onChange(of: searchService.isInConversationMode) { newValue in
-            print("DEBUG SearchBarComponent: isInConversationMode changed to \(newValue)")
+        .fullScreenCover(isPresented: $searchService.isInConversationMode) {
+            ConversationSearchView()
         }
     }
 }
