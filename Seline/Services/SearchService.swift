@@ -1,6 +1,15 @@
 import Foundation
 import Combine
 
+// MARK: - Conversation Message Model
+
+struct ConversationMessage: Identifiable {
+    let id = UUID()
+    let content: String
+    let isUser: Bool
+    let timestamp: Date = Date()
+}
+
 @MainActor
 class SearchService: ObservableObject {
     static let shared = SearchService()
@@ -14,6 +23,10 @@ class SearchService: ObservableObject {
     @Published var pendingNoteUpdate: NoteUpdateData?
     @Published var questionResponse: String? = nil
     @Published var isLoadingQuestionResponse: Bool = false
+
+    // Conversation state
+    @Published var conversationHistory: [ConversationMessage] = []
+    @Published var isInConversationMode: Bool = false
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
@@ -338,5 +351,83 @@ class SearchService: ObservableObject {
         searchQuery = ""
         searchResults = []
         isSearching = false
+    }
+
+    // MARK: - Conversation Management
+
+    /// Check if a query should trigger conversation mode
+    func isQuestion(_ query: String) -> Bool {
+        let lowercased = query.lowercased()
+
+        // Check for question mark
+        if lowercased.contains("?") {
+            return true
+        }
+
+        // Check for question keywords
+        let questionKeywords = ["why", "how", "what", "when", "where", "who", "compare", "summarize", "explain", "analyze", "between", "difference", "which", "tell me", "show me", "list"]
+        for keyword in questionKeywords {
+            if lowercased.hasPrefix(keyword) || lowercased.contains(" " + keyword + " ") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Add a message to the conversation and process it
+    func addConversationMessage(_ userMessage: String) async {
+        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Enter conversation mode if not already in it
+        if !isInConversationMode {
+            isInConversationMode = true
+        }
+
+        // Add user message to history
+        let userMsg = ConversationMessage(content: trimmed, isUser: true)
+        conversationHistory.append(userMsg)
+
+        // Get AI response
+        isLoadingQuestionResponse = true
+        do {
+            let response = try await OpenAIService.shared.answerQuestion(
+                query: trimmed,
+                taskManager: TaskManager.shared,
+                notesManager: NotesManager.shared,
+                emailService: EmailService.shared,
+                weatherService: WeatherService.shared,
+                locationsManager: LocationsManager.shared,
+                navigationService: NavigationService.shared
+            )
+
+            let assistantMsg = ConversationMessage(content: response, isUser: false)
+            conversationHistory.append(assistantMsg)
+        } catch {
+            let errorMsg = ConversationMessage(
+                content: "I couldn't answer that question. Please try again or rephrase your question.",
+                isUser: false
+            )
+            conversationHistory.append(errorMsg)
+            print("Error in conversation: \(error)")
+        }
+
+        isLoadingQuestionResponse = false
+    }
+
+    /// Clear conversation state completely (called when user dismisses conversation modal)
+    func clearConversation() {
+        conversationHistory = []
+        isInConversationMode = false
+        isLoadingQuestionResponse = false
+        questionResponse = nil
+    }
+
+    /// Start a conversation with an initial question
+    func startConversation(with initialQuestion: String) async {
+        clearConversation()
+        isInConversationMode = true
+        await addConversationMessage(initialQuestion)
     }
 }

@@ -42,14 +42,35 @@ struct SearchBarComponent: View {
             )
             .padding(.horizontal, 20)
 
-            // Search results
+            // Search results or conversation trigger
             if !searchService.searchQuery.isEmpty {
-                SearchResultsView(
-                    results: searchService.searchResults,
-                    isSearching: searchService.isSearching,
-                    selectedTab: $selectedTab
-                )
+                // Check if query is a question and auto-trigger conversation
+                if searchService.isQuestion(searchService.searchQuery) {
+                    // Empty placeholder that triggers conversation
+                    Color.clear
+                        .onAppear {
+                            if !searchService.isInConversationMode {
+                                Task {
+                                    await searchService.startConversation(with: searchService.searchQuery)
+                                }
+                            }
+                        }
+                } else {
+                    // Show regular search results
+                    SearchResultsView(
+                        results: searchService.searchResults,
+                        isSearching: searchService.isSearching,
+                        selectedTab: $selectedTab
+                    )
+                }
             }
+        }
+        .sheet(isPresented: $searchService.isInConversationMode) {
+            ConversationSearchView()
+                .onDisappear {
+                    // Clear conversation state when modal closes
+                    searchService.clearConversation()
+                }
         }
     }
 }
