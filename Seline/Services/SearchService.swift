@@ -20,6 +20,7 @@ class SearchService: ObservableObject {
     @Published var isInConversationMode: Bool = false
     @Published var conversationTitle: String = "New Conversation"
     @Published var savedConversations: [SavedConversation] = []
+    private var currentlyLoadedConversationId: UUID? = nil
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
@@ -589,7 +590,21 @@ class SearchService: ObservableObject {
     func clearConversation() {
         // Save to history before clearing (if there's content)
         if !conversationHistory.isEmpty {
-            saveConversationToHistory()
+            // Check if this is an existing conversation being updated
+            if let loadedId = currentlyLoadedConversationId,
+               let index = savedConversations.firstIndex(where: { $0.id == loadedId }) {
+                // Update existing conversation
+                savedConversations[index] = SavedConversation(
+                    id: loadedId,
+                    title: conversationTitle,
+                    messages: conversationHistory,
+                    createdAt: savedConversations[index].createdAt
+                )
+                saveConversationHistoryLocally()
+            } else {
+                // Create new conversation only if it's not an existing one
+                saveConversationToHistory()
+            }
         }
 
         conversationHistory = []
@@ -597,11 +612,13 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = false
         questionResponse = nil
         conversationTitle = "New Conversation"
+        currentlyLoadedConversationId = nil
     }
 
     /// Start a conversation with an initial question
     func startConversation(with initialQuestion: String) async {
         clearConversation()
+        currentlyLoadedConversationId = nil  // Ensure we're not treating this as an existing conversation
         isInConversationMode = true
         updateConversationTitle()
         await addConversationMessage(initialQuestion)
@@ -771,6 +788,7 @@ class SearchService: ObservableObject {
             conversationHistory = saved.messages
             conversationTitle = saved.title
             isInConversationMode = true
+            currentlyLoadedConversationId = id  // Track which conversation is loaded
         }
     }
 
