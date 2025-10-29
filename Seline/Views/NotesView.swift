@@ -448,6 +448,7 @@ struct NoteEditView: View {
     let initialFolderId: UUID?
     @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
 
     @State private var title: String = ""
     @State private var content: String = ""
@@ -550,6 +551,7 @@ struct NoteEditView: View {
             }
         }
         .navigationBarHidden(true)
+        .toolbarBackground(.hidden, for: .tabBar)
         .onAppear(perform: onAppearAction)
         .onDisappear(perform: onDisappearAction)
         .sheet(isPresented: $showingFolderPicker) {
@@ -1053,7 +1055,7 @@ struct NoteEditView: View {
 
         // Don't save completely empty notes
         guard !trimmedContent.isEmpty || !trimmedTitle.isEmpty || !imageAttachments.isEmpty else {
-            isPresented = false
+            dismiss()
             return
         }
 
@@ -1067,7 +1069,7 @@ struct NoteEditView: View {
                         self.title = generatedTitle
                         performSave(title: generatedTitle, content: contentToSave)
                         isGeneratingTitle = false
-                        isPresented = false
+                        dismiss()
                     }
                 } catch {
                     // If AI fails, use timestamp as fallback
@@ -1076,7 +1078,7 @@ struct NoteEditView: View {
                         self.title = "Note \(timestamp)"
                         performSave(title: self.title, content: contentToSave)
                         isGeneratingTitle = false
-                        isPresented = false
+                        dismiss()
                     }
                 }
             }
@@ -1084,7 +1086,7 @@ struct NoteEditView: View {
         }
 
         performSave(title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle, content: contentToSave)
-        isPresented = false
+        dismiss()
     }
 
     private func performSave(title: String, content: String) {
@@ -1158,7 +1160,7 @@ struct NoteEditView: View {
     private func deleteNote() {
         guard let note = note else { return }
         notesManager.deleteNote(note)
-        isPresented = false
+        dismiss()
     }
 
     private func toggleLock() {
@@ -1180,7 +1182,7 @@ struct NoteEditView: View {
                     } else {
                         // Authentication failed, show alert or dismiss
                         showingFaceIDPrompt = true
-                        isPresented = false
+                        dismiss()
                     }
                 }
             }
@@ -1469,7 +1471,7 @@ struct ImageViewer: View {
                 HStack {
                     Spacer()
                     Button(action: {
-                        isPresented = false
+                        dismiss()
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 20, weight: .semibold))
@@ -1645,7 +1647,7 @@ struct FormattingMenuView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        isPresented = false
+                        dismiss()
                     }
                     .foregroundColor(
                         colorScheme == .dark ?
