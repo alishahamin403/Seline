@@ -1716,7 +1716,8 @@ class OpenAIService: ObservableObject {
             weatherService: weatherService,
             locationsManager: locationsManager,
             navigationService: navigationService,
-            newsService: newsService
+            newsService: newsService,
+            conversationHistory: conversationHistory
         )
 
         let systemPrompt = """
@@ -1778,7 +1779,8 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
         navigationService: NavigationService? = nil,
-        newsService: NewsService? = nil
+        newsService: NewsService? = nil,
+        conversationHistory: [ConversationMessage] = []
     ) -> String {
         print("📋 buildContextForQuestion called with query: '\(query)'")
         var context = ""
