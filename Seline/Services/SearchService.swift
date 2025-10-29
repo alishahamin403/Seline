@@ -934,7 +934,117 @@ class SearchService: ObservableObject {
             conversationTitle = saved.title
             isInConversationMode = true
             currentlyLoadedConversationId = id  // Track which conversation is loaded
+
+            // Process any pending note updates from historical conversations
+            Task {
+                await processPendingNoteUpdatesInHistory()
+            }
         }
+    }
+
+    /// Process historical conversations to apply any pending note updates
+    private func processPendingNoteUpdatesInHistory() async {
+        var updatedHistory = conversationHistory
+        var hasChanges = false
+
+        // Iterate through conversation messages to find note updates
+        for (index, message) in updatedHistory.enumerated() {
+            // Skip user messages and already-confirmed updates
+            guard !message.isUser else { continue }
+            guard !message.text.contains("✓ Updated your note") else { continue }
+
+            // Check if message indicates a note update (e.g., contains a note title and content)
+            let messageText = message.text.lowercased()
+            let noteKeywords = ["note", "update", "has been updated", "following"]
+
+            if noteKeywords.allSatisfy({ messageText.contains($0) }) {
+                // This looks like a note update response from LLM
+                // Try to extract the note title and apply the update
+                if let noteTitle = extractNoteTitle(from: message.text) {
+                    let notesManager = NotesManager.shared
+                    if let noteIndex = notesManager.notes.firstIndex(where: { $0.title == noteTitle }) {
+                        var note = notesManager.notes[noteIndex]
+
+                        // Extract and append the content from the LLM response
+                        if let contentToAdd = extractNoteContent(from: message.text) {
+                            if !note.content.isEmpty {
+                                note.content += "\n\n" + contentToAdd
+                            } else {
+                                note.content = contentToAdd
+                            }
+
+                            // Update the note
+                            notesManager.updateNote(note)
+
+                            // Add confirmation message after the update message
+                            let confirmationMsg = ConversationMessage(
+                                isUser: false,
+                                text: "✓ Updated your note: \"\(noteTitle)\"",
+                                intent: .notes
+                            )
+
+                            // Insert confirmation right after the update message
+                            if index + 1 < updatedHistory.count {
+                                updatedHistory.insert(confirmationMsg, at: index + 1)
+                            } else {
+                                updatedHistory.append(confirmationMsg)
+                            }
+
+                            hasChanges = true
+                            print("✅ Applied pending note update for: \(noteTitle)")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update conversation history if changes were made
+        if hasChanges {
+            await MainActor.run {
+                self.conversationHistory = updatedHistory
+                self.saveConversationLocally()
+            }
+        }
+    }
+
+    /// Extract note title from LLM response
+    private func extractNoteTitle(from text: String) -> String? {
+        // Look for patterns like: Your "Note Title" note has been updated
+        // or: Updated "Note Title" to the following:
+        let patterns = [
+            "\"([^\"]+)\"\\s+note",  // "Title" note
+            "Updated\\s+\"([^\"]+)\"",  // Updated "Title"
+        ]
+
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let nsString = text as NSString
+                if let match = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: nsString.length)) {
+                    if let range = Range(match.range(at: 1), in: text) {
+                        return String(text[range])
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Extract note content from LLM response
+    private func extractNoteContent(from text: String) -> String? {
+        // Find content after "following:" or similar markers
+        let markers = ["following:", "following\n", ":\n\n"]
+
+        for marker in markers {
+            if let range = text.range(of: marker, options: .caseInsensitive) {
+                let content = String(text[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if !content.isEmpty {
+                    return content
+                }
+            }
+        }
+
+        return nil
     }
 
     /// Delete conversation from history
