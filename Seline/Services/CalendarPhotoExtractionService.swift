@@ -53,15 +53,33 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.invalidURL
         }
 
-        // Convert image to base64 with high quality for better OCR
-        // Try JPEG first, then PNG if JPEG fails
+        print("📸 Processing image - Size: \(image.size), Scale: \(image.scale)")
+
+        // Convert image to base64 with adaptive quality based on image size
+        // For large images (from gallery), use lower compression to avoid memory issues
         var base64Image: String
-        if let jpegData = image.jpegData(compressionQuality: 0.95) {
+
+        // Determine compression quality based on image size
+        let imagePixels = image.size.width * image.size.height * image.scale * image.scale
+        let compressionQuality: CGFloat = imagePixels > 1_000_000 ? 0.7 : 0.95
+
+        print("📸 Image pixels: \(Int(imagePixels)), Compression quality: \(compressionQuality)")
+
+        // Try JPEG first with adaptive quality, then PNG if JPEG fails
+        if let jpegData = image.jpegData(compressionQuality: compressionQuality) {
             base64Image = jpegData.base64EncodedString()
+            print("📸 JPEG size: \(String(format: "%.2f", Double(jpegData.count) / 1024 / 1024))MB")
         } else if let pngData = image.pngData() {
             base64Image = pngData.base64EncodedString()
+            print("📸 PNG size: \(String(format: "%.2f", Double(pngData.count) / 1024 / 1024))MB")
         } else {
             throw ExtractionError.imageConversionError
+        }
+
+        // Validate base64 size isn't too large for API (max reasonable size)
+        if base64Image.count > 20_000_000 { // 20MB base64 is ~15MB binary
+            print("🔴 Image too large after encoding: \(String(format: "%.2f", Double(base64Image.count) / 1024 / 1024))MB")
+            throw ExtractionError.apiError("Image is too large. Please select a smaller image.")
         }
 
         // Get today's date for fallback in the prompt
@@ -279,7 +297,9 @@ class CalendarPhotoExtractionService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30  // 30 second timeout
+        // Increase timeout for larger images - base64 encoding and upload can take time
+        let timeoutInterval: TimeInterval = base64Image.count > 10_000_000 ? 60 : 45
+        request.timeoutInterval = timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
@@ -295,22 +315,28 @@ class CalendarPhotoExtractionService {
 
         let (data, response): (Data, URLResponse)
         do {
+            print("📡 Request timeout interval: \(request.timeoutInterval)s")
+            print("📡 Base64 image size: \(base64Image.count / 1024)KB")
             (data, response) = try await URLSession.shared.data(for: request)
         } catch let error as URLError {
             print("🔴 URLError: \(error.localizedDescription)")
             print("🔴 Error code: \(error.code.rawValue)")
-            print("🔴 Underlying error: \(error.underlyingError?.localizedDescription ?? "none")")
 
             // Provide helpful error messages for common network issues
             switch error.code {
             case .notConnectedToInternet:
                 throw ExtractionError.apiError("No internet connection. Check WiFi/cellular.")
             case .timedOut:
-                throw ExtractionError.apiError("Request timed out. Check your connection speed.")
+                let sizeWarning = base64Image.count > 10_000_000 ? " Your image may be too large - try a smaller one." : ""
+                throw ExtractionError.apiError("Request timed out. Check your connection speed.\(sizeWarning)")
             case .networkConnectionLost:
                 throw ExtractionError.apiError("Network connection lost. Try again.")
             case .dnsLookupFailed:
                 throw ExtractionError.apiError("Cannot reach OpenAI servers. Check your DNS.")
+            case .badServerResponse:
+                throw ExtractionError.apiError("Server returned an invalid response. Try again.")
+            case .cannotConnectToHost:
+                throw ExtractionError.apiError("Cannot connect to OpenAI servers. Check your internet and DNS.")
             default:
                 throw ExtractionError.networkError(error)
             }
