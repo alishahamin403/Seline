@@ -379,110 +379,98 @@ class SearchService: ObservableObject {
             }
 
         case .addContent, .ambiguous:
-            // Check if this is a computational/analytical request that needs LLM processing
-            let computationalKeywords = ["sum", "total", "calculate", "add up", "count", "analyze", "summarize", "summarise", "average", "mean", "median", "breakdown", "extract", "compile"]
-            let isComputational = computationalKeywords.contains { keyword in
+            // Check if user is confirming a pending addition
+            let confirmationKeywords = ["yes", "yep", "yup", "sure", "ok", "okay", "go", "add it", "confirm", "please", "do it", "add", "true", "affirmative"]
+            let isConfirming = pendingRefinementContent != nil && confirmationKeywords.contains { keyword in
                 userInput.lowercased().contains(keyword)
             }
 
-            if isComputational {
-                // Use LLM to process the computational request
-                let computePrompt = """
-                The user is asking you to process their note and provide a computed result.
+            if isConfirming, let pendingContent = pendingRefinementContent {
+                // User confirmed - add the pending content to the note
+                var updatedNote = note
+                let finalContent = updatedNote.content.isEmpty ?
+                    pendingContent :
+                    updatedNote.content + "\n\n" + pendingContent
 
-                Current note content:
-                "\(note.content)"
+                updatedNote.content = finalContent
+                updatedNote.dateModified = Date()
 
-                User request: "\(userInput)"
+                // Save and wait for sync - CRUCIAL to fetch latest version
+                let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
+                currentNoteBeingRefined = updatedNote
+                pendingRefinementContent = nil  // Clear pending
 
-                Analyze the note content and fulfill their request. Return ONLY the result/answer they asked for, without explanation. For example:
-                - If they ask "sum up all expenses", return something like "Total: $3,080"
-                - If they ask "count items", return something like "Total items: 5"
-                - If they ask "summarize", provide a concise summary
-
-                Return the computed result ready to add to the note.
-                """
-
-                do {
-                    let computedResult = try await OpenAIService.shared.generateText(
-                        systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
-                        userPrompt: computePrompt,
-                        maxTokens: 500,
-                        temperature: 0.0
-                    )
-
-                    // Store the computed content and ask for confirmation
-                    pendingRefinementContent = computedResult
-
-                    // Show what was computed and ask for confirmation
-                    let previewText = computedResult.count > 200 ? String(computedResult.prefix(200)) + "..." : computedResult
-                    let confirmationMsg = ConversationMessage(
-                        isUser: false,
-                        text: "I computed this result:\n\n\(previewText)\n\nShould I add this to the note?",
-                        intent: .notes
-                    )
-                    conversationHistory.append(confirmationMsg)
-                } catch {
-                    let errorMsg = ConversationMessage(
-                        isUser: false,
-                        text: "I couldn't process that calculation. Could you rephrase your request?",
-                        intent: .notes
-                    )
-                    conversationHistory.append(errorMsg)
-                }
+                // Show confirmation
+                let previewText = pendingContent.count > 200 ? String(pendingContent.prefix(200)) + "..." : pendingContent
+                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(previewText)\n\nAnything else?",
+                    intent: .notes
+                )
+                conversationHistory.append(confirmationMsg)
             } else {
-                // Check if user is confirming a pending computation
-                let confirmationKeywords = ["yes", "yep", "yup", "sure", "ok", "okay", "go", "add it", "confirm", "please", "do it"]
-                let isConfirming = pendingRefinementContent != nil && confirmationKeywords.contains { keyword in
+                // Check if this is a computational/analytical request
+                let computationalKeywords = ["sum", "total", "calculate", "add up", "count", "analyze", "summarize", "summarise", "average", "mean", "median", "breakdown", "extract", "compile"]
+                let isComputational = computationalKeywords.contains { keyword in
                     userInput.lowercased().contains(keyword)
                 }
 
-                if isConfirming, let pendingContent = pendingRefinementContent {
-                    // User confirmed - add the computed content to the note
-                    var updatedNote = note
-                    let finalContent = updatedNote.content.isEmpty ?
-                        pendingContent :
-                        updatedNote.content + "\n\n" + pendingContent
+                if isComputational {
+                    // Use LLM to process the computational request
+                    let computePrompt = """
+                    The user is asking you to process their note and provide a computed result.
 
-                    updatedNote.content = finalContent
-                    updatedNote.dateModified = Date()
+                    Current note content:
+                    "\(note.content)"
 
-                    // Save and wait for sync
-                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
-                    currentNoteBeingRefined = updatedNote
-                    pendingRefinementContent = nil  // Clear pending
+                    User request: "\(userInput)"
 
-                    // Show confirmation
-                    let previewText = pendingContent.count > 200 ? String(pendingContent.prefix(200)) + "..." : pendingContent
-                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
-                    let confirmationMsg = ConversationMessage(
-                        isUser: false,
-                        text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(previewText)\n\nAnything else?",
-                        intent: .notes
-                    )
-                    conversationHistory.append(confirmationMsg)
+                    Analyze the note content and fulfill their request. Return ONLY the result/answer they asked for, without explanation. For example:
+                    - If they ask "sum up all expenses", return something like "Total: $3,080"
+                    - If they ask "count items", return something like "Total items: 5"
+                    - If they ask "summarize", provide a concise summary
+
+                    Return the computed result ready to add to the note.
+                    """
+
+                    do {
+                        let computedResult = try await OpenAIService.shared.generateText(
+                            systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
+                            userPrompt: computePrompt,
+                            maxTokens: 500,
+                            temperature: 0.0
+                        )
+
+                        // Store the computed content and ask for confirmation
+                        pendingRefinementContent = computedResult
+
+                        // Show what was computed and ask for confirmation
+                        let previewText = computedResult.count > 200 ? String(computedResult.prefix(200)) + "..." : computedResult
+                        let confirmationMsg = ConversationMessage(
+                            isUser: false,
+                            text: "I computed this result:\n\n\(previewText)\n\nShould I add this to the note?",
+                            intent: .notes
+                        )
+                        conversationHistory.append(confirmationMsg)
+                    } catch {
+                        let errorMsg = ConversationMessage(
+                            isUser: false,
+                            text: "I couldn't process that calculation. Could you rephrase your request?",
+                            intent: .notes
+                        )
+                        conversationHistory.append(errorMsg)
+                    }
                 } else {
-                    // Regular content addition
-                    var updatedNote = note
-                    let (updatedContent, deltaStr, _) = applySmartNoteUpdate(
-                        originalContent: updatedNote.content,
-                        suggestedContent: userInput,
-                        query: userInput
-                    )
+                    // Regular content addition - ask for confirmation before adding
+                    // Store the content and ask for confirmation
+                    pendingRefinementContent = userInput
 
-                    updatedNote.content = updatedContent
-                    updatedNote.dateModified = Date()
-
-                    // Save the updated note and WAIT for Supabase sync to complete
-                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
-                    currentNoteBeingRefined = updatedNote
-
-                    // Show confirmation with what was added (only after save completes)
-                    let deltaPreview = deltaStr.count > 200 ? String(deltaStr.prefix(200)) + "..." : deltaStr
-                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                    // Show what will be added and ask for confirmation
+                    let previewText = userInput.count > 200 ? String(userInput.prefix(200)) + "..." : userInput
                     let confirmationMsg = ConversationMessage(
                         isUser: false,
-                        text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                        text: "I'll add this to \"\(note.title)\":\n\n\(previewText)\n\nOK?",
                         intent: .notes
                     )
                     conversationHistory.append(confirmationMsg)
