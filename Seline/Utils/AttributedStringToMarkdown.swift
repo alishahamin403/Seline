@@ -40,24 +40,23 @@ class AttributedStringToMarkdown {
         }
 
         // Check for heading at start (first character has bold font at specific sizes)
+        // Only treat truly larger bold fonts as headings, not body text with bold applied
         if trimmedText.count > 0 {
             if let firstFont = lineAttrString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
                 let fontSize = firstFont.pointSize
                 let isBold = firstFont.fontDescriptor.symbolicTraits.contains(.traitBold)
 
                 if isBold {
-                    // Detect headings by font size
-                    // Both now use: H1≈19pt, H2≈17pt, H3=15pt
+                    // Detect headings by font size - only H1 (19pt) and H2 (17pt)
+                    // DO NOT treat 15pt bold as heading - that's just bold body text
                     if fontSize >= 18.5 {
                         // >= 18.5: H1 (19pt)
                         return "# " + trimmedText
-                    } else if fontSize >= 16.5 {
+                    } else if fontSize >= 16.5 && fontSize < 18.5 {
                         // 16.5-18.5: H2 (17pt)
                         return "## " + trimmedText
-                    } else if fontSize >= 14.5 {
-                        // 14.5-16.5: H3 (15pt)
-                        return "### " + trimmedText
                     }
+                    // Skip H3 and below - they're just regular formatting
                 }
             }
         }
