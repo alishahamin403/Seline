@@ -314,24 +314,42 @@ class NotesManager: ObservableObject {
             notes[index] = updatedNote
             saveNotes()
 
-            // Sync with Supabase with retry logic
+            // Sync with Supabase with retry logic (fire-and-forget for UI responsiveness)
             Task {
                 await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
             }
         }
     }
 
-    private func updateNoteInSupabaseWithRetry(_ note: Note, maxRetries: Int, currentAttempt: Int = 1) async {
+    /// Async version that waits for Supabase sync to complete
+    /// Use this when the note update must be persisted before continuing
+    func updateNoteAndWaitForSync(_ note: Note) async -> Bool {
+        if let index = notes.firstIndex(where: { $0.id == note.id }) {
+            var updatedNote = note
+            updatedNote.dateModified = Date()
+            notes[index] = updatedNote
+            saveNotes()
+
+            // Wait for Supabase update to complete with retry logic
+            let result = await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
+            return result
+        }
+        return false
+    }
+
+    private func updateNoteInSupabaseWithRetry(_ note: Note, maxRetries: Int, currentAttempt: Int = 1) async -> Bool {
         let result = await updateNoteInSupabaseAndTrackResult(note)
 
         if !result.success && currentAttempt < maxRetries {
             let delaySeconds = pow(2.0, Double(currentAttempt))
             print("⏳ Retrying note update in \(delaySeconds)s (attempt \(currentAttempt + 1)/\(maxRetries))")
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
-            await updateNoteInSupabaseWithRetry(note, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
+            return await updateNoteInSupabaseWithRetry(note, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
         } else if !result.success {
             print("❌ Failed to update note after \(maxRetries) attempts: \(result.error ?? "Unknown error")")
+            return false
         }
+        return true
     }
 
     private func updateNoteInSupabaseAndTrackResult(_ note: Note) async -> (success: Bool, error: String?) {

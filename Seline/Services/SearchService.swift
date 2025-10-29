@@ -341,15 +341,16 @@ class SearchService: ObservableObject {
             updatedNote.content = updatedContent
             updatedNote.dateModified = Date()
 
-            // Save the updated note
-            NotesManager.shared.updateNote(updatedNote)
+            // Save the updated note and WAIT for Supabase sync to complete
+            let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
             currentNoteBeingRefined = updatedNote
 
-            // Show confirmation with what was added
+            // Show confirmation with what was added (only after save completes)
             let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+            let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
             let confirmationMsg = ConversationMessage(
                 isUser: false,
-                text: "✓ Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
                 intent: .notes
             )
             conversationHistory.append(confirmationMsg)
