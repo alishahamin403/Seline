@@ -218,43 +218,111 @@ class QueryRouter {
 
         let systemPrompt = """
         You are an action parser. Analyze this user query and extract ALL distinct actions they want to perform.
-
         Return a JSON array of actions, where each action has "type" and "query" fields.
-        Types can be: "create_note", "create_event", "update_note", "update_event", "delete_note", "delete_event"
 
-        Example input: "add telus bill $82 and update sum in monthly expenses note"
+        Types must be one of: "create_note", "create_event", "update_note", "update_event", "delete_note", "delete_event"
+
+        Example input: add telus bill $82 and update sum in monthly expenses note
         Example output: [{"type":"create_note","query":"add telus bill $82"},{"type":"update_note","query":"update sum in monthly expenses note"}]
 
-        Return ONLY the JSON array, nothing else.
+        Return ONLY valid JSON array, nothing else. No markdown, no extra text.
         """
 
         do {
             let response = try await OpenAIService.shared.generateText(
                 systemPrompt: systemPrompt,
                 userPrompt: query,
-                maxTokens: 200,
+                maxTokens: 300,
                 temperature: 0.0
             )
 
-            // Parse the JSON response
-            if let data = response.data(using: .utf8),
+            print("DEBUG: Multi-action LLM response: \(response)")
+
+            // Try to extract JSON from response (LLM might include markdown or extra text)
+            let jsonString = extractJSON(from: response)
+
+            if let data = jsonString.data(using: .utf8),
                let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: String]] {
                 var actions: [(actionType: ActionType, query: String)] = []
                 for actionDict in jsonArray {
                     if let typeStr = actionDict["type"], let actionQuery = actionDict["query"] {
                         let actionType = parseSemanticClassification(typeStr)
                         if actionType != .unknown {
+                            print("DEBUG: Detected action - type: \(actionType), query: \(actionQuery)")
                             actions.append((actionType: actionType, query: actionQuery))
                         }
                     }
                 }
-                return actions.isEmpty ? [] : actions
+
+                if !actions.isEmpty {
+                    return actions
+                }
             }
         } catch {
             print("Error detecting multiple actions: \(error)")
         }
 
-        return []
+        // Fallback: manual parsing if LLM fails
+        print("DEBUG: LLM parsing failed, attempting manual split")
+        return manuallyParseMultipleActions(query)
+    }
+
+    /// Extract JSON array from response (handles markdown code blocks, extra text, etc)
+    private func extractJSON(from text: String) -> String {
+        var cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Remove markdown code block markers
+        if cleaned.hasPrefix("```json") {
+            cleaned = String(cleaned.dropFirst(7))
+        } else if cleaned.hasPrefix("```") {
+            cleaned = String(cleaned.dropFirst(3))
+        }
+
+        if cleaned.hasSuffix("```") {
+            cleaned = String(cleaned.dropLast(3))
+        }
+
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Find JSON array
+        if let startIndex = cleaned.firstIndex(of: "["),
+           let endIndex = cleaned.lastIndex(of: "]") {
+            return String(cleaned[startIndex...endIndex])
+        }
+
+        return cleaned
+    }
+
+    /// Fallback: manually parse multiple actions by splitting on separators
+    private func manuallyParseMultipleActions(_ query: String) -> [(actionType: ActionType, query: String)] {
+        let separators = [" and ", " plus ", " also ", " additionally "]
+        var parts: [String] = [query]
+
+        // Split on each separator
+        for separator in separators {
+            var newParts: [String] = []
+            for part in parts {
+                let split = part.components(separatedBy: separator)
+                newParts.append(contentsOf: split)
+            }
+            parts = newParts
+        }
+
+        var actions: [(actionType: ActionType, query: String)] = []
+
+        for part in parts {
+            let trimmedPart = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPart.isEmpty else { continue }
+
+            // Detect action type for this part
+            if let actionType = detectAction(trimmedPart) {
+                print("DEBUG: Manual parse - detected action type: \(actionType), query: \(trimmedPart)")
+                actions.append((actionType: actionType, query: trimmedPart))
+            }
+        }
+
+        // Only return if we found multiple distinct actions
+        return actions.count > 1 ? actions : []
     }
 
     /// Helper to check if string contains any of the keywords
