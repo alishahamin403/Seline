@@ -1471,7 +1471,7 @@ struct ImageViewer: View {
                 HStack {
                     Spacer()
                     Button(action: {
-                        dismiss()
+                        isLockedInSession = false
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 20, weight: .semibold))
@@ -1647,7 +1647,7 @@ struct FormattingMenuView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        dismiss()
+                        isPresented = false
                     }
                     .foregroundColor(
                         colorScheme == .dark ?
