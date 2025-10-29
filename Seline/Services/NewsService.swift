@@ -157,34 +157,14 @@ class NewsService: ObservableObject {
         }
     }
 
-    // Detect new articles and send notifications
+    // Track new articles (notifications disabled for news widget)
     private func detectAndNotifyNewArticles(_ newArticles: [NewsArticle], for category: NewsCategory) async {
         let newArticleIds = Set(newArticles.map { $0.title }) // Use title as unique identifier
-        let previousIds = previousArticleIds[category] ?? Set()
 
-        // Find articles that are new (in current but not in previous)
-        let newTitles = newArticleIds.subtracting(previousIds)
-
-        // Only send notifications if app is in background (not active in foreground)
-        if !isAppActive && !newTitles.isEmpty {
-            print("🔔 Sending \(newTitles.count) news notifications for \(category.displayName)")
-
-            // Send notifications for each new article (limit to 3 to avoid spam)
-            for newTitle in newTitles.prefix(3) {
-                if let newArticle = newArticles.first(where: { $0.title == newTitle }) {
-                    await notificationService.scheduleTopStoryNotification(
-                        title: newArticle.title,
-                        category: category.displayName,
-                        url: newArticle.url
-                    )
-                }
-            }
-        } else if isAppActive && !newTitles.isEmpty {
-            print("🔔 App is active - skipping notifications for \(newTitles.count) new \(category.displayName) articles")
-        }
-
-        // Update previous article IDs
+        // Update previous article IDs for tracking
         previousArticleIds[category] = newArticleIds
+
+        // News notifications are disabled
     }
 
     func fetchTopWorldNews() async {
