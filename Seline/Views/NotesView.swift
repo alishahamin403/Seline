@@ -552,6 +552,11 @@ struct NoteEditView: View {
         }
         .navigationBarHidden(true)
         .toolbarBackground(.hidden, for: .tabBar)
+        .highPriorityGesture(
+            DragGesture()
+                .onChanged { _ in }
+                .onEnded { _ in }
+        )
         .onAppear(perform: onAppearAction)
         .onDisappear(perform: onDisappearAction)
         .sheet(isPresented: $showingFolderPicker) {

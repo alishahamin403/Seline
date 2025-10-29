@@ -272,13 +272,12 @@ struct MainAppView: View {
                 ))
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
-                .gesture(DragGesture())
+                .presentationCornerRadius(0)
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.hidden)
-                    .gesture(DragGesture())
             }
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
@@ -287,7 +286,6 @@ struct MainAppView: View {
                 ))
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
-                .gesture(DragGesture())
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
                 LocationSetupView()
