@@ -333,7 +333,7 @@ struct SuggestionsSectionHeader: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             HStack {
                 Text("Nearby")
                     .font(.system(size: 24, weight: .bold))
@@ -341,37 +341,67 @@ struct SuggestionsSectionHeader: View {
 
                 Spacer()
             }
+            .padding(.horizontal, 20)
 
-            // Two dropdowns side by side
-            HStack(spacing: 12) {
-                // Time dropdown
-                CompactDropdown(
-                    label: "\(selectedTimeMinutes == 120 ? "2 hrs" : "\(selectedTimeMinutes) min")",
-                    options: timeOptions,
-                    selectedOption: selectedTimeMinutes == 120 ? "2 hrs" : "\(selectedTimeMinutes) min",
-                    onSelect: { option in
-                        if let index = timeOptions.firstIndex(of: option) {
-                            selectedTimeMinutes = timeValues[index]
+            // Time filter pills
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Time")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .padding(.horizontal, 20)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(timeOptions.enumerated()), id: \.offset) { index, timeOption in
+                            FilterPillButton(
+                                title: timeOption,
+                                isSelected: selectedTimeMinutes == timeValues[index],
+                                colorScheme: colorScheme,
+                                action: {
+                                    selectedTimeMinutes = timeValues[index]
+                                }
+                            )
                         }
-                    },
-                    colorScheme: colorScheme
-                )
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
 
-                // Category dropdown
-                CompactDropdown(
-                    label: selectedCategory ?? "Category",
-                    options: ["All"] + availableCategories.sorted(),
-                    selectedOption: selectedCategory,
-                    onSelect: { option in
-                        selectedCategory = option == "All" ? nil : option
-                    },
-                    colorScheme: colorScheme
-                )
+            // Category filter pills
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Category")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .padding(.horizontal, 20)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterPillButton(
+                            title: "All",
+                            isSelected: selectedCategory == nil,
+                            colorScheme: colorScheme,
+                            action: {
+                                selectedCategory = nil
+                            }
+                        )
+
+                        ForEach(availableCategories.sorted(), id: \.self) { category in
+                            FilterPillButton(
+                                title: category,
+                                isSelected: selectedCategory == category,
+                                colorScheme: colorScheme,
+                                action: {
+                                    selectedCategory = category
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
             }
         }
-        .padding(.horizontal, 20)
         .padding(.top, 4)
-        .padding(.bottom, 6)
+        .padding(.bottom, 12)
     }
 }
 
