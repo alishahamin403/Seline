@@ -18,6 +18,7 @@ class SearchService: ObservableObject {
     // Conversation state
     @Published var conversationHistory: [ConversationMessage] = []
     @Published var isInConversationMode: Bool = false
+    @Published var conversationTitle: String = "New Conversation"
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
@@ -532,17 +533,24 @@ class SearchService: ObservableObject {
         // Enter conversation mode if not already in it
         if !isInConversationMode {
             isInConversationMode = true
+            updateConversationTitle()
         }
 
         // Add user message to history
         let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
 
+        // Update title after adding first message
+        if conversationHistory.count == 1 {
+            updateConversationTitle()
+        }
+
         // Check if this is an action query (create event, create note, etc.) BEFORE sending to AI
         let queryType = queryRouter.classifyQuery(trimmed)
         if case .action(let actionType) = queryType {
             // Handle action query in conversation
             await handleConversationActionQuery(trimmed, actionType: actionType)
+            saveConversationLocally()
             return
         }
 
@@ -562,6 +570,7 @@ class SearchService: ObservableObject {
 
             let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
             conversationHistory.append(assistantMsg)
+            saveConversationLocally()
         } catch {
             let errorMsg = ConversationMessage(
                 isUser: false,
@@ -569,6 +578,7 @@ class SearchService: ObservableObject {
                 intent: .general
             )
             conversationHistory.append(errorMsg)
+            saveConversationLocally()
         }
 
         isLoadingQuestionResponse = false
@@ -580,12 +590,143 @@ class SearchService: ObservableObject {
         isInConversationMode = false
         isLoadingQuestionResponse = false
         questionResponse = nil
+        conversationTitle = "New Conversation"
     }
 
     /// Start a conversation with an initial question
     func startConversation(with initialQuestion: String) async {
         clearConversation()
         isInConversationMode = true
+        updateConversationTitle()
         await addConversationMessage(initialQuestion)
+    }
+
+    /// Update conversation title based on the first user message
+    private func updateConversationTitle() {
+        if let firstUserMessage = conversationHistory.first(where: { $0.isUser }) {
+            let words = firstUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
+            conversationTitle = String(words.isEmpty ? "New Conversation" : words)
+        } else {
+            conversationTitle = "New Conversation"
+        }
+    }
+
+    /// Save conversation to local storage
+    private func saveConversationLocally() {
+        let defaults = UserDefaults.standard
+        do {
+            let encoded = try JSONEncoder().encode(conversationHistory)
+            defaults.set(encoded, forKey: "lastConversation")
+        } catch {
+            print("Error saving conversation locally: \(error)")
+        }
+    }
+
+    /// Load last conversation from local storage
+    func loadLastConversation() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: "lastConversation") else { return }
+
+        do {
+            conversationHistory = try JSONDecoder().decode([ConversationMessage].self, from: data)
+            if let firstUserMessage = conversationHistory.first(where: { $0.isUser }) {
+                let words = firstUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
+                conversationTitle = String(words.isEmpty ? "New Conversation" : words)
+            }
+        } catch {
+            print("Error loading conversation: \(error)")
+        }
+    }
+
+    /// Save conversation to Supabase
+    func saveConversationToSupabase() async {
+        guard !conversationHistory.isEmpty else { return }
+
+        do {
+            let supabaseManager = SupabaseManager.shared
+            let client = await supabaseManager.getPostgrestClient()
+
+            // Prepare conversation data
+            var historyJson = "[]"
+            if let encoded = try? JSONEncoder().encode(conversationHistory),
+               let jsonString = String(data: encoded, encoding: .utf8) {
+                historyJson = jsonString
+            }
+
+            let conversationData: [String: AnyJSON] = [
+                "title": AnyJSON.string(conversationTitle),
+                "messages": AnyJSON.string(historyJson),
+                "message_count": AnyJSON.number(Double(conversationHistory.count)),
+                "first_message": AnyJSON.string(conversationHistory.first?.text ?? ""),
+                "created_at": AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
+            ]
+
+            // Save to conversations table
+            try await client
+                .from("conversations")
+                .insert(conversationData)
+                .execute()
+
+            print("✓ Conversation saved to Supabase")
+        } catch {
+            print("Error saving conversation to Supabase: \(error)")
+        }
+    }
+
+    /// Load conversations from Supabase
+    func loadConversationsFromSupabase() async -> [[String: Any]] {
+        do {
+            let supabaseManager = SupabaseManager.shared
+            let client = await supabaseManager.getPostgrestClient()
+
+            let response = try await client
+                .from("conversations")
+                .select("*")
+                .order("created_at", ascending: false)
+                .limit(10)
+                .execute()
+
+            let data = response.data
+            if let jsonData = data.data(using: .utf8),
+               let jsonArray = try JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
+                return jsonArray
+            }
+            return []
+        } catch {
+            print("Error loading conversations from Supabase: \(error)")
+            return []
+        }
+    }
+
+    /// Load specific conversation from Supabase by ID
+    func loadConversationFromSupabase(id: String) async {
+        do {
+            let supabaseManager = SupabaseManager.shared
+            let client = await supabaseManager.getPostgrestClient()
+
+            let response = try await client
+                .from("conversations")
+                .select("*")
+                .eq("id", value: id)
+                .single()
+                .execute()
+
+            let data = response.data
+            if let jsonData = data.data(using: .utf8),
+               let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+               let messagesString = json["messages"] as? String,
+               let messagesData = messagesString.data(using: .utf8) {
+
+                if let messages = try? JSONDecoder().decode([ConversationMessage].self, from: messagesData) {
+                    conversationHistory = messages
+                    if let title = json["title"] as? String {
+                        conversationTitle = title
+                    }
+                    isInConversationMode = true
+                }
+            }
+        } catch {
+            print("Error loading conversation from Supabase: \(error)")
+        }
     }
 }
