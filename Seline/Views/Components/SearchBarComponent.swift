@@ -53,26 +53,8 @@ struct SearchBarComponent: View {
                 )
             }
         }
-        .onChange(of: searchService.searchQuery) { newQuery in
-            // Auto-trigger conversation for questions (must be outside conditional)
-            if !newQuery.isEmpty && searchService.isQuestion(newQuery) && !searchService.isInConversationMode {
-                print("DEBUG: Question detected: \(newQuery)")
-                Task {
-                    print("DEBUG: Starting conversation with: \(newQuery)")
-                    await searchService.startConversation(with: newQuery)
-                    print("DEBUG: Conversation started, isInConversationMode = \(searchService.isInConversationMode)")
-                }
-            }
-        }
         .sheet(isPresented: $searchService.isInConversationMode) {
             ConversationSearchView()
-        }
-        .onChange(of: searchService.isInConversationMode) { isInMode in
-            print("DEBUG: isInConversationMode changed to: \(isInMode)")
-            if !isInMode {
-                print("DEBUG: Clearing conversation due to mode change")
-                searchService.clearConversation()
-            }
         }
     }
 }

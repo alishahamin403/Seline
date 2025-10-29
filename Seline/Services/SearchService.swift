@@ -59,15 +59,17 @@ class SearchService: ObservableObject {
             return
         }
 
-        isSearching = true
-
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Skip search processing if this is a question that should use conversation mode
+        // Check if this is a question that should use conversation mode
         if isQuestion(trimmedQuery) {
-            isSearching = false
+            print("DEBUG performSearch: Detected question, starting conversation")
+            // Start conversation instead of normal search
+            await startConversation(with: trimmedQuery)
             return
         }
+
+        isSearching = true
 
         // Classify the query
         currentQueryType = queryRouter.classifyQuery(trimmedQuery)
