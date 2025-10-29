@@ -272,7 +272,6 @@ struct MainAppView: View {
                 ))
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(0)
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
