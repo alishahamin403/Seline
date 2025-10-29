@@ -195,16 +195,13 @@ struct SearchView: View {
 
                     Button(action: {
                         HapticManager.shared.selection()
+                        // IMPORTANT: Add message to history BEFORE opening modal to avoid race condition
+                        let messageToAdd = searchText
                         Task {
-                            isPresented = false
-                            // Close search view first
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                searchService.isInConversationMode = true
-                                Task {
-                                    await searchService.addConversationMessage(searchText)
-                                }
-                            }
+                            await searchService.addConversationMessage(messageToAdd)
                         }
+                        // Then close search view
+                        isPresented = false
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "bubble.left.fill")
