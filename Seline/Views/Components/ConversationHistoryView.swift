@@ -10,8 +10,8 @@ struct ConversationHistoryView: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 12) {
-                Text("Conversation History")
-                    .font(.system(size: 17, weight: .semibold))
+                Text("Conversations")
+                    .font(.system(size: 24, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
