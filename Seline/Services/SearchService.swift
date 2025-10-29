@@ -636,30 +636,80 @@ class SearchService: ObservableObject {
                             conversationHistory.append(errorMsg)
                         }
                     } else {
-                        // Smart update: detect if this is a replacement or addition
+                        // Smart update: add content then have LLM clean up and format the entire note
                         let (content, deltaStr, type) = applySmartNoteUpdate(
                             originalContent: originalContent,
                             suggestedContent: updateData.contentToAdd,
                             query: query
                         )
-                        updatedContent = content
-                        delta = deltaStr
-                        updateType = type
 
-                        note.content = updatedContent
+                        // Now use LLM to clean up and format the entire note nicely
+                        let cleanupPrompt = """
+                        The user is adding information to their note. Please clean up and format the note content nicely.
 
-                        // Update the note and WAIT for Supabase sync to complete
-                        let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(note)
+                        Current note content:
+                        "\(originalContent)"
 
-                        // Add confirmation message with delta (only what changed, after sync completes)
-                        let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
-                        let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
-                        let confirmationMsg = ConversationMessage(
-                            isUser: false,
-                            text: "\(statusText) \(updateType): \"\(updateData.noteTitle)\"\n\n\(deltaPreview)",
-                            intent: .notes
-                        )
-                        conversationHistory.append(confirmationMsg)
+                        New content being added:
+                        "\(deltaStr)"
+
+                        Combined note:
+                        "\(content)"
+
+                        Please reformat and organize this note nicely:
+                        1. Keep all information from both original and new content
+                        2. Organize into logical sections if it makes sense
+                        3. Use bullet points or numbering where appropriate
+                        4. Clean up formatting and remove redundancy
+                        5. Keep the tone consistent with the original
+                        6. Return ONLY the formatted note content, nothing else
+                        """
+
+                        do {
+                            let formattedContent = try await OpenAIService.shared.generateText(
+                                systemPrompt: "You are a note formatting assistant. Clean up and organize note content to make it clear and well-structured.",
+                                userPrompt: cleanupPrompt,
+                                maxTokens: 1000,
+                                temperature: 0.3
+                            )
+
+                            updatedContent = formattedContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                            delta = deltaStr
+                            updateType = type
+
+                            note.content = updatedContent
+
+                            // Update the note and WAIT for Supabase sync to complete
+                            let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(note)
+
+                            // Add confirmation message with delta (only what changed, after sync completes)
+                            let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+                            let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                            let confirmationMsg = ConversationMessage(
+                                isUser: false,
+                                text: "\(statusText) \(updateType): \"\(updateData.noteTitle)\"\n\n\(deltaPreview)",
+                                intent: .notes
+                            )
+                            conversationHistory.append(confirmationMsg)
+                        } catch {
+                            // Fallback: use the content without LLM formatting
+                            updatedContent = content
+                            delta = deltaStr
+                            updateType = type
+
+                            note.content = updatedContent
+
+                            let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(note)
+
+                            let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+                            let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                            let confirmationMsg = ConversationMessage(
+                                isUser: false,
+                                text: "\(statusText) \(updateType): \"\(updateData.noteTitle)\"\n\n\(deltaPreview)",
+                                intent: .notes
+                            )
+                            conversationHistory.append(confirmationMsg)
+                        }
                     }
                 }
             } else {
