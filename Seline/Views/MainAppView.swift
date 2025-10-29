@@ -469,6 +469,38 @@ struct MainAppView: View {
                     loadingQuestionView
                         .padding(.horizontal, 20)
                         .transition(.opacity)
+                } else if !searchText.isEmpty && searchResults.isEmpty && !searchService.isLoadingQuestionResponse {
+                    // No local results - automatically open chat
+                    VStack(spacing: 12) {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8, anchor: .center)
+
+                            Text("Opening AI Chat...")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(12)
+                    .background(
+                        colorScheme == .dark ?
+                            Color(red: 0.15, green: 0.15, blue: 0.15) :
+                            Color(red: 0.95, green: 0.95, blue: 0.95)
+                    )
+                    .cornerRadius(10)
+                    .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+                    .padding(.horizontal, 20)
+                    .transition(.opacity)
+                    .onAppear {
+                        HapticManager.shared.selection()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            searchService.isInConversationMode = true
+                            Task {
+                                await searchService.addConversationMessage(searchText)
+                            }
+                        }
+                    }
                 }
             }
         }
