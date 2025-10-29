@@ -68,12 +68,14 @@ class NewsService: ObservableObject {
         let categories = NewsCategory.allCases
         let fetchTasks = categories.map { category -> Task<Void, Never> in
             Task {
-                // Only fetch if we have no cached data for this category
-                if newsByCategory[category] == nil {
+                // Only fetch if we have no cached data OR if cached data is empty for this category
+                let cachedArticles = self.newsByCategory[category] ?? []
+                if cachedArticles.isEmpty {
                     let cacheKey = "lastNewsFetchDate_\(category.rawValue)"
                     if let lastFetchDate = UserDefaults.standard.object(forKey: cacheKey) as? Date {
                         let hoursSinceLastFetch = Date().timeIntervalSince(lastFetchDate) / 3600
                         if hoursSinceLastFetch < 24.0 { // Use 24-hour cache
+                            print("⏭️  \(category.displayName): Using 24-hour cache (last fetched \(Int(hoursSinceLastFetch)) hours ago)")
                             return // Use cached data
                         }
                     }
@@ -90,8 +92,14 @@ class NewsService: ObservableObject {
                                 self.newsByCategory[category] = finalArticles
                                 print("✅ Initialized \(category.displayName): \(finalArticles.count) articles")
                             }
+                        } else {
+                            print("⚠️  \(category.displayName): No articles with descriptions found")
                         }
+                    } else {
+                        print("❌ \(category.displayName): Failed to fetch articles")
                     }
+                } else {
+                    print("✅ \(category.displayName): Already cached (\(cachedArticles.count) articles)")
                 }
             }
         }
