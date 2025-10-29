@@ -145,11 +145,27 @@ struct CameraActionSheetProcessing: View {
                 }
             }
         } else {
-            // Start processing if we have an image
-            EmptyView()
-                .onAppear {
-                    processImage()
+            // Start processing - show loading indicator while initializing
+            ZStack {
+                Color(UIColor.systemBackground)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+
+                    VStack(spacing: 8) {
+                        Text("Analyzing Schedule...")
+                            .font(.headline)
+                        Text("Extracting times, titles, and attendees")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                    }
                 }
+            }
+            .onAppear {
+                processImage()
+            }
         }
     }
 
