@@ -110,7 +110,7 @@ struct FilterPillButton: View {
 
     private var textColor: Color {
         if isSelected {
-            return colorScheme == .dark ? Color.black : Color.white
+            return Color.white
         } else {
             return colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8)
         }
@@ -118,7 +118,7 @@ struct FilterPillButton: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return colorScheme == .dark ? Color.white : Color.black
+            return Color(red: 0.2, green: 0.2, blue: 0.2)
         } else {
             return colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)
         }
