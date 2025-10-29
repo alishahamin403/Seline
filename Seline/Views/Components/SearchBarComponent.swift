@@ -51,14 +51,14 @@ struct SearchBarComponent: View {
                         isSearching: searchService.isSearching,
                         selectedTab: $selectedTab
                     )
-                    .onChange(of: searchService.searchQuery) { newQuery in
-                        // Auto-trigger conversation for questions
-                        if searchService.isQuestion(newQuery) {
-                            Task {
-                                await searchService.startConversation(with: newQuery)
-                            }
-                        }
-                    }
+                }
+            }
+        }
+        .onChange(of: searchService.searchQuery) { newQuery in
+            // Auto-trigger conversation for questions (must be outside conditional)
+            if !newQuery.isEmpty && searchService.isQuestion(newQuery) && !searchService.isInConversationMode {
+                Task {
+                    await searchService.startConversation(with: newQuery)
                 }
             }
         }
