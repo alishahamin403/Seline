@@ -1696,7 +1696,8 @@ class OpenAIService: ObservableObject {
         emailService: EmailService,
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
-        navigationService: NavigationService? = nil
+        navigationService: NavigationService? = nil,
+        conversationHistory: [ConversationMessage] = []
     ) async throws -> String {
         // Rate limiting
         await enforceRateLimit()
@@ -1723,21 +1724,33 @@ class OpenAIService: ObservableObject {
         For location-based queries: You can filter by country, city, category (folder), distance, or duration.
         For weather queries: Use the provided weather data and forecast.
         Always be helpful and provide specific details when available.
-        """
 
-        let userPrompt = """
         Context about user's data:
         \(context)
-
-        User's question: \(query)
         """
+
+        // Build messages array with conversation history
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+
+        // Add previous conversation messages
+        for message in conversationHistory {
+            messages.append([
+                "role": message.isUser ? "user" : "assistant",
+                "content": message.text
+            ])
+        }
+
+        // Add current query
+        messages.append([
+            "role": "user",
+            "content": query
+        ])
 
         let requestBody: [String: Any] = [
             "model": "gpt-4o-mini",
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userPrompt]
-            ],
+            "messages": messages,
             "temperature": 0.7,
             "max_tokens": 500
         ]

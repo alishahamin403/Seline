@@ -387,7 +387,7 @@ class SearchService: ObservableObject {
         let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
         conversationHistory.append(userMsg)
 
-        // Get AI response
+        // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
         do {
             let response = try await OpenAIService.shared.answerQuestion(
@@ -397,7 +397,8 @@ class SearchService: ObservableObject {
                 emailService: EmailService.shared,
                 weatherService: WeatherService.shared,
                 locationsManager: LocationsManager.shared,
-                navigationService: NavigationService.shared
+                navigationService: NavigationService.shared,
+                conversationHistory: conversationHistory.dropLast() // All messages except the current user message
             )
 
             let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)

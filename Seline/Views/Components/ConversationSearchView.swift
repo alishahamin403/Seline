@@ -10,11 +10,10 @@ struct ConversationSearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Minimalist header - just close button
             HStack {
                 Button(action: {
                     HapticManager.shared.selection()
-                    // Clear conversation state when dismissing
                     searchService.clearConversation()
                     dismiss()
                 }) {
@@ -25,27 +24,10 @@ struct ConversationSearchView: View {
                 .buttonStyle(PlainButtonStyle())
 
                 Spacer()
-
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("AI Assistant")
-                        .font(.system(size: 17, weight: .semibold))
-                }
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                Spacer()
-
-                // Invisible spacer for centering
-                Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .medium))
-                    .opacity(0)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 16)
+            .padding(.vertical, 12)
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-
-            Divider()
 
             // Conversation thread
             ScrollViewReader { proxy in
@@ -80,8 +62,6 @@ struct ConversationSearchView: View {
                 }
             }
 
-            Divider()
-
             // Input area
             VStack(spacing: 12) {
                 HStack(spacing: 12) {
@@ -91,7 +71,15 @@ struct ConversationSearchView: View {
                     )
                     .focused($isInputFocused)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
 
                     Button(action: {
                         if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
