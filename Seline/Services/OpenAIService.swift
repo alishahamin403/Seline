@@ -1756,8 +1756,15 @@ class OpenAIService: ObservableObject {
         ]
 
         let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
-        // Remove markdown formatting (** symbols)
-        return response.replacingOccurrences(of: "**", with: "")
+        // Remove markdown formatting
+        var cleanedResponse = response
+        cleanedResponse = cleanedResponse.replacingOccurrences(of: "##", with: "")  // Remove ## headers
+        cleanedResponse = cleanedResponse.replacingOccurrences(of: "###", with: "") // Remove ### headers
+        cleanedResponse = cleanedResponse.replacingOccurrences(of: "**", with: "")  // Remove bold
+        cleanedResponse = cleanedResponse.replacingOccurrences(of: "__", with: "")  // Remove bold (alt)
+        cleanedResponse = cleanedResponse.replacingOccurrences(of: "*", with: "")   // Remove italic/list
+        cleanedResponse = cleanedResponse.replacingOccurrences(of: "_", with: "")   // Remove italic (alt)
+        return cleanedResponse
     }
 
     @MainActor

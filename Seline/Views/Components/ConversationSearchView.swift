@@ -72,6 +72,16 @@ struct ConversationSearchView: View {
                         }
                     }
                 }
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { _ in
+                            // Dismiss keyboard when user starts scrolling
+                            if isInputFocused {
+                                isInputFocused = false
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            }
+                        }
+                )
             }
 
             // Action confirmation area (shown when pending action exists)
@@ -180,15 +190,15 @@ struct ConversationMessageView: View {
 
                 VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
                     Text(message.text)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(message.isUser ? Color.white : Color.shadcnForeground(colorScheme))
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
                         .textSelection(.enabled)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(message.isUser ? Color.blue : Color.gray.opacity(0.2))
+                        .fill(message.isUser ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray.opacity(0.2))
                 )
 
                 if !message.isUser {
