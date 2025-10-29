@@ -1910,9 +1910,18 @@ class OpenAIService: ObservableObject {
             let queryHasNewsKeywords = newsKeywords.contains { keyword in
                 lowerQuery.contains(keyword)
             }
-            print("🔎 News keyword check: query='\(lowerQuery)' has keywords: \(queryHasNewsKeywords)")
 
-            if queryHasNewsKeywords {
+            // Also check conversation history for recent news queries (for follow-ups like "try again")
+            let conversationHasNewsContext = !conversationHistory.isEmpty &&
+                conversationHistory.suffix(4).contains { message in
+                    let messageText = message.text.lowercased()
+                    return newsKeywords.contains { keyword in messageText.contains(keyword) }
+                }
+
+            let shouldIncludeNews = queryHasNewsKeywords || conversationHasNewsContext
+            print("🔎 News keyword check: query='\(lowerQuery)' has keywords: \(queryHasNewsKeywords), conversation has context: \(conversationHasNewsContext)")
+
+            if shouldIncludeNews {
                 let allNews = newsService.getAllNews()
                 print("🔍 News context: Found \(allNews.count) categories with \(allNews.flatMap { $0.articles }.count) total articles")
                 for (category, articles) in allNews {
