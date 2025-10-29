@@ -23,7 +23,7 @@ struct ConversationSearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with title and close button
+            // Header with title and buttons
             HStack(spacing: 12) {
                 Text(searchService.conversationTitle)
                     .font(.system(size: 16, weight: .semibold))
@@ -37,6 +37,16 @@ struct ConversationSearchView: View {
                     showingHistory = true
                 }) {
                     Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    dismiss()
+                }) {
+                    Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
@@ -180,6 +190,11 @@ struct ConversationSearchView: View {
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .onAppear {
             isInputFocused = true
+        }
+        .onDisappear {
+            // Reset conversation state when exiting
+            searchService.isInConversationMode = false
+            searchService.clearConversation()
         }
         .sheet(isPresented: $showingHistory) {
             ConversationHistoryView()
