@@ -209,8 +209,9 @@ struct AddEventPopupView: View {
                                                 .frame(width: 8, height: 8)
                                             Text(tag.name)
                                         } else {
+                                            // Use the default color from palette (index 0 - muted blue)
                                             Circle()
-                                                .fill(Color.blue)
+                                                .fill(TagColorPalette.colorForIndex(0))
                                                 .frame(width: 8, height: 8)
                                             Text("Personal")
                                         }

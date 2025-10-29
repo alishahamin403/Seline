@@ -205,14 +205,24 @@ struct CameraActionSheet: View {
 
                 // Check if events already exist in the calendar
                 let taskManager = TaskManager.shared
+                print("📸 Checking for duplicate events...")
                 for i in 0..<response.events.count {
                     let event = response.events[i]
-                    response.events[i].alreadyExists = taskManager.doesEventExist(
+                    let exists = taskManager.doesEventExist(
                         title: event.title,
                         date: event.startTime,
                         time: event.startTime,
                         endTime: event.endTime
                     )
+
+                    print("📸 Event: '\(event.title)' - Exists: \(exists) - Date: \(event.startTime) - Time: \(event.startTime)")
+
+                    response.events[i].alreadyExists = exists
+                    // Auto-deselect events that already exist to prevent duplicates
+                    if exists {
+                        response.events[i].isSelected = false
+                        print("📸 Auto-deselecting duplicate event: \(event.title)")
+                    }
                 }
 
                 await MainActor.run {
