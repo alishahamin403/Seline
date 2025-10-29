@@ -688,17 +688,31 @@ class SearchService: ObservableObject {
             let supabaseManager = SupabaseManager.shared
             let client = await supabaseManager.getPostgrestClient()
 
-            let response = try await client
+            struct ConversationRecord: Decodable {
+                let id: String
+                let title: String
+                let created_at: String
+                let message_count: Int
+                let first_message: String?
+            }
+
+            let conversations: [ConversationRecord] = try await client
                 .from("conversations")
                 .select("*")
                 .order("created_at", ascending: false)
                 .limit(10)
                 .execute()
+                .decoded()
 
-            if let jsonArray = try JSONSerialization.jsonObject(with: response) as? [[String: Any]] {
-                return jsonArray
+            return conversations.map { conv in
+                [
+                    "id": conv.id,
+                    "title": conv.title,
+                    "created_at": conv.created_at,
+                    "message_count": conv.message_count,
+                    "first_message": conv.first_message ?? ""
+                ] as [String: Any]
             }
-            return []
         } catch {
             print("Error loading conversations from Supabase: \(error)")
             return []
@@ -711,22 +725,26 @@ class SearchService: ObservableObject {
             let supabaseManager = SupabaseManager.shared
             let client = await supabaseManager.getPostgrestClient()
 
-            let response = try await client
+            struct ConversationRecord: Decodable {
+                let id: String
+                let title: String
+                let messages: String
+            }
+
+            let conversations: [ConversationRecord] = try await client
                 .from("conversations")
                 .select("*")
                 .eq("id", value: id)
-                .single()
                 .execute()
+                .decoded()
 
-            if let json = try JSONSerialization.jsonObject(with: response) as? [String: Any],
-               let messagesString = json["messages"] as? String,
-               let messagesData = messagesString.data(using: .utf8) {
+            guard let conversation = conversations.first else { return }
 
+            // Parse the messages JSON string
+            if let messagesData = conversation.messages.data(using: .utf8) {
                 if let messages = try? JSONDecoder().decode([ConversationMessage].self, from: messagesData) {
                     conversationHistory = messages
-                    if let title = json["title"] as? String {
-                        conversationTitle = title
-                    }
+                    conversationTitle = conversation.title
                     isInConversationMode = true
                 }
             }
