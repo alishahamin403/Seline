@@ -25,6 +25,7 @@ class SearchService: ObservableObject {
     // Note refinement mode - for interactive note creation/updating
     @Published var isRefiningNote: Bool = false
     @Published var currentNoteBeingRefined: Note? = nil
+    @Published var pendingRefinementContent: String? = nil  // Computed content waiting for user confirmation
 
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
@@ -336,9 +337,6 @@ class SearchService: ObservableObject {
                 userInput.lowercased().contains(keyword)
             }
 
-            var finalContent: String
-            var delta: String
-
             if isComputational {
                 // Use LLM to process the computational request
                 let computePrompt = """
@@ -358,32 +356,21 @@ class SearchService: ObservableObject {
                 """
 
                 do {
-                    delta = try await OpenAIService.shared.generateText(
+                    let computedResult = try await OpenAIService.shared.generateText(
                         systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
                         userPrompt: computePrompt,
                         maxTokens: 500,
                         temperature: 0.0
                     )
 
-                    // Add the computed result to the note
-                    var updatedNote = note
-                    finalContent = updatedNote.content.isEmpty ?
-                        delta :
-                        updatedNote.content + "\n\n" + delta
+                    // Store the computed content and ask for confirmation
+                    pendingRefinementContent = computedResult
 
-                    updatedNote.content = finalContent
-                    updatedNote.dateModified = Date()
-
-                    // Save the updated note and WAIT for Supabase sync to complete
-                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
-                    currentNoteBeingRefined = updatedNote
-
-                    // Show confirmation with the computed result
-                    let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
-                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                    // Show what was computed and ask for confirmation
+                    let previewText = computedResult.count > 200 ? String(computedResult.prefix(200)) + "..." : computedResult
                     let confirmationMsg = ConversationMessage(
                         isUser: false,
-                        text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                        text: "I computed this result:\n\n\(previewText)\n\nShould I add this to the note?",
                         intent: .notes
                     )
                     conversationHistory.append(confirmationMsg)
@@ -396,30 +383,62 @@ class SearchService: ObservableObject {
                     conversationHistory.append(errorMsg)
                 }
             } else {
-                // Regular content addition
-                var updatedNote = note
-                let (updatedContent, deltaStr, _) = applySmartNoteUpdate(
-                    originalContent: updatedNote.content,
-                    suggestedContent: userInput,
-                    query: userInput
-                )
+                // Check if user is confirming a pending computation
+                let confirmationKeywords = ["yes", "yep", "yup", "sure", "ok", "okay", "go", "add it", "confirm", "please", "do it"]
+                let isConfirming = pendingRefinementContent != nil && confirmationKeywords.contains { keyword in
+                    userInput.lowercased().contains(keyword)
+                }
 
-                updatedNote.content = updatedContent
-                updatedNote.dateModified = Date()
+                if isConfirming, let pendingContent = pendingRefinementContent {
+                    // User confirmed - add the computed content to the note
+                    var updatedNote = note
+                    let finalContent = updatedNote.content.isEmpty ?
+                        pendingContent :
+                        updatedNote.content + "\n\n" + pendingContent
 
-                // Save the updated note and WAIT for Supabase sync to complete
-                let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
-                currentNoteBeingRefined = updatedNote
+                    updatedNote.content = finalContent
+                    updatedNote.dateModified = Date()
 
-                // Show confirmation with what was added (only after save completes)
-                let deltaPreview = deltaStr.count > 200 ? String(deltaStr.prefix(200)) + "..." : deltaStr
-                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
-                let confirmationMsg = ConversationMessage(
-                    isUser: false,
-                    text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
-                    intent: .notes
-                )
-                conversationHistory.append(confirmationMsg)
+                    // Save and wait for sync
+                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
+                    currentNoteBeingRefined = updatedNote
+                    pendingRefinementContent = nil  // Clear pending
+
+                    // Show confirmation
+                    let previewText = pendingContent.count > 200 ? String(pendingContent.prefix(200)) + "..." : pendingContent
+                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                    let confirmationMsg = ConversationMessage(
+                        isUser: false,
+                        text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(previewText)\n\nAnything else?",
+                        intent: .notes
+                    )
+                    conversationHistory.append(confirmationMsg)
+                } else {
+                    // Regular content addition
+                    var updatedNote = note
+                    let (updatedContent, deltaStr, _) = applySmartNoteUpdate(
+                        originalContent: updatedNote.content,
+                        suggestedContent: userInput,
+                        query: userInput
+                    )
+
+                    updatedNote.content = updatedContent
+                    updatedNote.dateModified = Date()
+
+                    // Save the updated note and WAIT for Supabase sync to complete
+                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
+                    currentNoteBeingRefined = updatedNote
+
+                    // Show confirmation with what was added (only after save completes)
+                    let deltaPreview = deltaStr.count > 200 ? String(deltaStr.prefix(200)) + "..." : deltaStr
+                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                    let confirmationMsg = ConversationMessage(
+                        isUser: false,
+                        text: "\(statusText) Added to \"\(updatedNote.title)\":\n\n\(deltaPreview)\n\nAnything else?",
+                        intent: .notes
+                    )
+                    conversationHistory.append(confirmationMsg)
+                }
             }
         }
     }
@@ -546,27 +565,34 @@ class SearchService: ObservableObject {
                         """
 
                         do {
-                            delta = try await OpenAIService.shared.generateText(
+                            let computedResult = try await OpenAIService.shared.generateText(
                                 systemPrompt: "You are a note processor. Analyze note content and provide computed results based on user requests.",
                                 userPrompt: computePrompt,
                                 maxTokens: 500,
                                 temperature: 0.0
                             )
 
-                            updatedContent = originalContent.isEmpty ?
-                                delta :
-                                originalContent + "\n\n" + delta
-                            updateType = "Computed & Added"
-                        } catch {
-                            // Fallback if computation fails
-                            let (fallbackContent, fallbackDelta, fallbackType) = applySmartNoteUpdate(
-                                originalContent: originalContent,
-                                suggestedContent: updateData.contentToAdd,
-                                query: query
+                            // Store pending update and ask for confirmation instead of immediately saving
+                            pendingRefinementContent = computedResult
+
+                            // Enter refinement mode and ask for confirmation
+                            isRefiningNote = true
+                            currentNoteBeingRefined = note
+
+                            let previewText = computedResult.count > 200 ? String(computedResult.prefix(200)) + "..." : computedResult
+                            let confirmationMsg = ConversationMessage(
+                                isUser: false,
+                                text: "I computed this result:\n\n\(previewText)\n\nShould I add this to \"\(note.title)\"?",
+                                intent: .notes
                             )
-                            updatedContent = fallbackContent
-                            delta = fallbackDelta
-                            updateType = fallbackType
+                            conversationHistory.append(confirmationMsg)
+                        } catch {
+                            let errorMsg = ConversationMessage(
+                                isUser: false,
+                                text: "I couldn't process that calculation. Could you rephrase your request?",
+                                intent: .notes
+                            )
+                            conversationHistory.append(errorMsg)
                         }
                     } else {
                         // Smart update: detect if this is a replacement or addition
@@ -578,22 +604,22 @@ class SearchService: ObservableObject {
                         updatedContent = content
                         delta = deltaStr
                         updateType = type
+
+                        note.content = updatedContent
+
+                        // Update the note and WAIT for Supabase sync to complete
+                        let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(note)
+
+                        // Add confirmation message with delta (only what changed, after sync completes)
+                        let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
+                        let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                        let confirmationMsg = ConversationMessage(
+                            isUser: false,
+                            text: "\(statusText) \(updateType): \"\(updateData.noteTitle)\"\n\n\(deltaPreview)",
+                            intent: .notes
+                        )
+                        conversationHistory.append(confirmationMsg)
                     }
-
-                    note.content = updatedContent
-
-                    // Update the note and WAIT for Supabase sync to complete
-                    let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(note)
-
-                    // Add confirmation message with delta (only what changed, after sync completes)
-                    let deltaPreview = delta.count > 200 ? String(delta.prefix(200)) + "..." : delta
-                    let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
-                    let confirmationMsg = ConversationMessage(
-                        isUser: false,
-                        text: "\(statusText) \(updateType): \"\(updateData.noteTitle)\"\n\n\(deltaPreview)",
-                        intent: .notes
-                    )
-                    conversationHistory.append(confirmationMsg)
                 }
             } else {
                 // If no matching note, ask AI to handle it as a question
