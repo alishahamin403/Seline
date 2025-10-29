@@ -108,36 +108,44 @@ struct FilterPillButton: View {
     let colorScheme: ColorScheme
     let action: () -> Void
 
+    private var textColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.black : Color.white
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8)
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.white : Color.black
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)
+        }
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            return Color.clear
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2)
+        }
+    }
+
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(
-                    isSelected ?
-                        (colorScheme == .dark ? .white : .black) :
-                        (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(textColor)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
                 .background(
-                    Capsule()
-                        .fill(
-                            isSelected ?
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.15) :
-                                    Color.black.opacity(0.15)) :
-                                Color.clear
-                        )
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(backgroundColor)
                 )
                 .overlay(
-                    Capsule()
-                        .stroke(
-                            isSelected ? Color.clear :
-                                (colorScheme == .dark ?
-                                    Color.white.opacity(0.2) :
-                                    Color.black.opacity(0.1)),
-                            lineWidth: 1
-                        )
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(borderColor, lineWidth: 1)
                 )
         }
         .buttonStyle(PlainButtonStyle())

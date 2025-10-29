@@ -91,10 +91,7 @@ struct ActionButtonWithText: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(
                     isDangerous ? Color.red :
-                    isHighlighted ? (colorScheme == .dark ?
-                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                        Color(red: 0.20, green: 0.34, blue: 0.40)
-                    ) :
+                    isHighlighted ? (colorScheme == .dark ? Color.white : Color.black) :
                     (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                 )
         )
