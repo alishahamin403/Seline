@@ -345,6 +345,7 @@ class SearchService: ObservableObject {
         case addContent
         case exitRefinement
         case metaInstruction
+        case confirmUpdate      // User is asking to apply/save/finalize the update
         case ambiguous
     }
 
@@ -352,8 +353,31 @@ class SearchService: ObservableObject {
     private func classifyRefinementMessage(_ userInput: String, noteTitle: String) async -> RefinementMessageType {
         let lowerInput = userInput.lowercased().trimmingCharacters(in: .whitespaces)
 
-        // EARLY DETECTION: Check for common rejection/exit patterns BEFORE using LLM
-        // This catches simple cases like "no", "that's a question", etc. more reliably
+        // EARLY DETECTION: Check for common patterns BEFORE using LLM
+        // This catches simple cases more reliably
+
+        // CONFIRM/APPLY UPDATE: User wants to finalize/apply pending updates
+        let confirmUpdatePatterns = [
+            "can you update",
+            "can you apply",
+            "can you save",
+            "please update",
+            "please apply",
+            "go ahead and update",
+            "just update",
+            "just apply",
+            "update it",
+            "apply it",
+            "save it",
+            "finalize",
+            "let's update",
+            "let's apply"
+        ]
+        for pattern in confirmUpdatePatterns {
+            if lowerInput.contains(pattern) {
+                return .confirmUpdate
+            }
+        }
 
         // Single word rejections
         if lowerInput == "no" || lowerInput == "nope" || lowerInput == "nah" {
@@ -451,13 +475,26 @@ class SearchService: ObservableObject {
     private func shouldExitRefinementBasedOnContext(userMessage: String) -> Bool {
         let lowerMessage = userMessage.lowercased()
 
+        // SPECIAL CASE: "Can you..." followed by note action verbs = COMMAND, not exit
+        // These are confirmations/commands to apply updates, not meta-questions
+        if lowerMessage.contains("can you ") {
+            let noteActionVerbs = ["update", "add", "apply", "modify", "change", "delete", "remove", "save", "edit", "append"]
+            let isNoteActionCommand = noteActionVerbs.contains { verb in
+                lowerMessage.contains("can you " + verb)
+            }
+            if isNoteActionCommand {
+                // This is a command to update the note, not an exit request
+                return false
+            }
+        }
+
         // PATTERN 1: Meta-question patterns indicating system inquiry, not content addition
         // These are questions about how the system works, not note content
         let metaQuestionPatterns = [
             "update properly",    // "Can you update properly"
             "why ",               // "Why didn't it..."
             "how do",             // "How do I..."
-            "can you ",           // "Can you..." (general request for help)
+            "can you ",           // "Can you..." (general request for help - only if not a note action)
             "how come",           // "How come..."
             "what went",          // "What went wrong"
             "not working",        // "It's not working"
@@ -636,6 +673,44 @@ class SearchService: ObservableObject {
                 )
                 conversationHistory.append(errorMsg)
             }
+
+        case .confirmUpdate:
+            // User is asking to finalize/apply/save the note update
+            // This is a request to confirm and exit refinement mode
+            isRefiningNote = false
+            currentNoteBeingRefined = nil
+
+            // If there's pending content to add, add it now
+            if let pendingContent = pendingRefinementContent {
+                var updatedNote = note
+                let finalContent = updatedNote.content.isEmpty ?
+                    pendingContent :
+                    updatedNote.content + "\n\n" + pendingContent
+
+                updatedNote.content = finalContent
+                updatedNote.dateModified = Date()
+
+                // Save and wait for sync
+                let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
+                pendingRefinementContent = nil
+
+                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "\(statusText) Updated \"\(updatedNote.title)\"",
+                    intent: .notes
+                )
+                conversationHistory.append(confirmationMsg)
+            } else {
+                // No pending content, just acknowledge the finalization
+                let confirmationMsg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Note finalized. Is there anything else I can help with?",
+                    intent: .notes
+                )
+                conversationHistory.append(confirmationMsg)
+            }
+            return
 
         case .addContent, .ambiguous:
             // Check if user is confirming a pending addition
