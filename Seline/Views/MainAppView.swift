@@ -96,7 +96,24 @@ struct MainAppView: View {
             $0.title.lowercased().contains(lowercasedSearch)
         }
 
-        for task in matchingTasks.prefix(5) {
+        // Deduplicate recurring tasks - for recurring events with the same title, keep only the first one
+        var addedRecurringTitles = Set<String>()
+        var deduplicatedTasks: [TaskItem] = []
+
+        for task in matchingTasks {
+            if task.isRecurring {
+                // For recurring tasks, only add the first one with this title
+                if !addedRecurringTitles.contains(task.title.lowercased()) {
+                    deduplicatedTasks.append(task)
+                    addedRecurringTitles.insert(task.title.lowercased())
+                }
+            } else {
+                // Non-recurring tasks are always added
+                deduplicatedTasks.append(task)
+            }
+        }
+
+        for task in deduplicatedTasks.prefix(5) {
             results.append(OverlaySearchResult(
                 type: .event,
                 title: task.title,
