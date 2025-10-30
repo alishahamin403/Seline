@@ -12,7 +12,8 @@ struct AllDayEventsSection: View {
     private var allDayTasks: [TaskItem] {
         let filtered = tasks.filter { $0.scheduledTime == nil }
 
-        // Deduplicate tasks with the same title (prevent duplicate recurring events from showing)
+        // Deduplicate tasks with the same title - keep only the first occurrence
+        // This prevents duplicate recurring events from showing on the same date
         var seenTitles = Set<String>()
         var deduplicated: [TaskItem] = []
 

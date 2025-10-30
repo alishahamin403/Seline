@@ -50,6 +50,7 @@ struct TimelineView: View {
         let filtered = tasks.filter { $0.scheduledTime != nil }
 
         // Deduplicate tasks with the same title and time (prevent duplicate recurring events)
+        // Keep only the first occurrence
         var seenEventKeys = Set<String>()
         var deduplicated: [TaskItem] = []
 

@@ -96,30 +96,35 @@ struct MainAppView: View {
             $0.title.lowercased().contains(lowercasedSearch)
         }
 
-        // Deduplicate all duplicate events (same title, date, and time) - keep only the first occurrence
-        var seenEventKeys = Set<String>()
+        // Filter and deduplicate: for recurring events, only show the next upcoming occurrence
+        var seenRecurringTitles = Set<String>()
         var deduplicatedTasks: [TaskItem] = []
+        let today = Calendar.current.startOfDay(for: Date())
 
-        for task in matchingTasks {
-            // Create a unique key based on title + target date + scheduled time
-            let dateKey: String
-            if let targetDate = task.targetDate, let scheduledTime = task.scheduledTime {
-                let calendar = Calendar.current
-                let dateStr = calendar.startOfDay(for: targetDate).timeIntervalSince1970.description
-                let timeStr = calendar.component(.hour, from: scheduledTime).description + ":" + calendar.component(.minute, from: scheduledTime).description
-                dateKey = "\(task.title.lowercased())|\(dateStr)|\(timeStr)"
-            } else if let targetDate = task.targetDate {
-                let dateStr = Calendar.current.startOfDay(for: targetDate).timeIntervalSince1970.description
-                dateKey = "\(task.title.lowercased())|\(dateStr)"
+        for task in matchingTasks.sorted(by: { a, b in
+            // Sort by target date to process in chronological order
+            let dateA = a.targetDate ?? a.createdAt
+            let dateB = b.targetDate ?? b.createdAt
+            return dateA < dateB
+        }) {
+            let titleLower = task.title.lowercased()
+
+            if task.isRecurring {
+                // For recurring events, only add if:
+                // 1. We haven't seen this recurring title before
+                // 2. The event is today or in the future
+                if !seenRecurringTitles.contains(titleLower) {
+                    let taskDate = task.targetDate ?? task.createdAt
+                    let taskStartDate = Calendar.current.startOfDay(for: taskDate)
+
+                    if taskStartDate >= today {
+                        deduplicatedTasks.append(task)
+                        seenRecurringTitles.insert(titleLower)
+                    }
+                }
             } else {
-                // For tasks without target date, use task ID to avoid filtering them out
-                dateKey = task.id
-            }
-
-            // Only add if we haven't seen this event before
-            if !seenEventKeys.contains(dateKey) {
+                // Non-recurring events: always add them
                 deduplicatedTasks.append(task)
-                seenEventKeys.insert(dateKey)
             }
         }
 
