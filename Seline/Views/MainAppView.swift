@@ -1174,11 +1174,8 @@ struct MainAppView: View {
 
     private func questionResponseView(_ response: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(response)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
+            // Render markdown response with proper formatting
+            MarkdownText(markdown: response, colorScheme: colorScheme)
         }
         .padding(12)
         .background(

@@ -86,6 +86,7 @@ class AttributedStringToMarkdown {
             if let font = attrString.attribute(.font, at: position, effectiveRange: nil) as? UIFont {
                 let isBold = font.fontDescriptor.symbolicTraits.contains(.traitBold)
                 let isItalic = font.fontDescriptor.symbolicTraits.contains(.traitItalic)
+                let isUnderlined = attrString.attribute(.underlineStyle, at: position, effectiveRange: nil) != nil
 
                 // For consecutive characters with same formatting, group them
                 var endPos = position + 1
@@ -93,7 +94,8 @@ class AttributedStringToMarkdown {
                     if let nextFont = attrString.attribute(.font, at: endPos, effectiveRange: nil) as? UIFont {
                         let nextBold = nextFont.fontDescriptor.symbolicTraits.contains(.traitBold)
                         let nextItalic = nextFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
-                        if nextBold == isBold && nextItalic == isItalic {
+                        let nextUnderlined = attrString.attribute(.underlineStyle, at: endPos, effectiveRange: nil) != nil
+                        if nextBold == isBold && nextItalic == isItalic && nextUnderlined == isUnderlined {
                             endPos += 1
                         } else {
                             break
@@ -108,16 +110,19 @@ class AttributedStringToMarkdown {
                 let endIndex = text.index(text.startIndex, offsetBy: endPos)
                 let substring = String(text[startIndex..<endIndex])
 
-                if isBold && isItalic {
-                    result += "***" + substring + "***"
-                } else if isBold {
-                    result += "**" + substring + "**"
-                } else if isItalic {
-                    result += "*" + substring + "*"
-                } else {
-                    result += substring
+                // Build markdown with all formatting attributes
+                var formatted = substring
+                if isBold {
+                    formatted = "**" + formatted + "**"
+                }
+                if isItalic {
+                    formatted = "*" + formatted + "*"
+                }
+                if isUnderlined {
+                    formatted = "__" + formatted + "__"
                 }
 
+                result += formatted
                 position = endPos
             } else {
                 result.append(char)
