@@ -538,12 +538,14 @@ class SearchService: ObservableObject {
                 updatedNote.content = updatedContent.trimmingCharacters(in: .whitespaces)
                 updatedNote.dateModified = Date()
 
-                NotesManager.shared.updateNote(updatedNote)
+                // CRITICAL: Wait for sync to complete before showing success
+                let updateSuccess = await NotesManager.shared.updateNoteAndWaitForSync(updatedNote)
                 currentNoteBeingRefined = updatedNote
 
+                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
                 let confirmationMsg = ConversationMessage(
                     isUser: false,
-                    text: "✓ Updated \"\(updatedNote.title)\". The note has been modified as requested. Anything else?",
+                    text: "\(statusText) Updated \"\(updatedNote.title)\". The note has been modified as requested. Anything else?",
                     intent: .notes
                 )
                 conversationHistory.append(confirmationMsg)
