@@ -218,28 +218,97 @@ class SearchService: ObservableObject {
     }
 
     /// Finds a note that matches the user's intent to update
+    /// Uses multi-strategy matching: exact match → keyword match → fuzzy match
     private func findNoteToUpdate(from query: String) -> Note? {
         let notesManager = NotesManager.shared
         let lowerQuery = query.lowercased()
 
-        // Try exact title match first
+        // Strategy 1: Try exact title match first (fastest, highest confidence)
         for note in notesManager.notes {
             if lowerQuery.contains(note.title.lowercased()) {
+                print("🎯 [Note Match] Exact title match: \(note.title)")
                 return note
             }
         }
 
-        // Try partial match
+        // Strategy 2: Try keyword matching (original method)
         for note in notesManager.notes {
             let words = note.title.lowercased().split(separator: " ")
             for word in words {
                 if lowerQuery.contains(String(word)) && word.count > 3 {
+                    print("🎯 [Note Match] Keyword match: \(note.title)")
                     return note
                 }
             }
         }
 
+        // Strategy 3: Try fuzzy matching (handles typos and variations)
+        var bestFuzzyMatch: (note: Note, score: Double)? = nil
+        for note in notesManager.notes {
+            let similarity = calculateStringSimilarity(lowerQuery, note.title.lowercased())
+            // Use 0.7 threshold for fuzzy matching (70% similarity)
+            if similarity > 0.7, similarity > (bestFuzzyMatch?.score ?? 0) {
+                bestFuzzyMatch = (note, similarity)
+            }
+        }
+
+        if let fuzzyMatch = bestFuzzyMatch {
+            print("🎯 [Note Match] Fuzzy match: \(fuzzyMatch.note.title) (similarity: \(String(format: "%.0f", fuzzyMatch.score * 100))%)")
+            return fuzzyMatch.note
+        }
+
         return nil
+    }
+
+    /// Calculate string similarity using Levenshtein distance
+    /// Returns 0-1 where 1 is identical and 0 is completely different
+    private func calculateStringSimilarity(_ str1: String, _ str2: String) -> Double {
+        let distance = levenshteinDistance(str1, str2)
+        let maxLength = max(str1.count, str2.count)
+
+        if maxLength == 0 {
+            return 1.0
+        }
+
+        return 1.0 - (Double(distance) / Double(maxLength))
+    }
+
+    /// Calculate Levenshtein distance between two strings
+    /// This is the minimum number of single-character edits (insertions, deletions, substitutions)
+    /// needed to transform one string into another
+    private func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
+        let s1 = Array(s1)
+        let s2 = Array(s2)
+        let m = s1.count
+        let n = s2.count
+
+        // Create a 2D array for dynamic programming
+        var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
+
+        // Initialize base cases
+        for i in 0...m {
+            dp[i][0] = i
+        }
+        for j in 0...n {
+            dp[0][j] = j
+        }
+
+        // Fill the DP table
+        for i in 1...m {
+            for j in 1...n {
+                if s1[i - 1] == s2[j - 1] {
+                    dp[i][j] = dp[i - 1][j - 1]
+                } else {
+                    dp[i][j] = 1 + min(
+                        dp[i - 1][j],      // deletion
+                        dp[i][j - 1],      // insertion
+                        dp[i - 1][j - 1]   // substitution
+                    )
+                }
+            }
+        }
+
+        return dp[m][n]
     }
 
     // MARK: - Question Query Handling
