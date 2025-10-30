@@ -9,6 +9,7 @@ class AppContextService {
 
     /// Returns formatted string of all user data for LLM context
     /// This is injected into prompts so the LLM can reference any data in the app
+    @MainActor
     func getFullAppContext() -> String {
         var context = ""
 
@@ -55,6 +56,7 @@ class AppContextService {
 
     /// Finds relevant app data related to the query
     /// Helps LLM make connections when answering or taking actions
+    @MainActor
     func getRelevantContext(for query: String) -> String {
         let keywords = extractKeywords(from: query)
         var matches: [String] = []
