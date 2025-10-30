@@ -281,21 +281,71 @@ class SearchService: ObservableObject {
 
     /// Classify a user message during note refinement using semantic understanding
     private func classifyRefinementMessage(_ userInput: String, noteTitle: String) async -> RefinementMessageType {
+        let lowerInput = userInput.lowercased().trimmingCharacters(in: .whitespaces)
+
+        // EARLY DETECTION: Check for common rejection/exit patterns BEFORE using LLM
+        // This catches simple cases like "no", "that's a question", etc. more reliably
+
+        // Single word rejections
+        if lowerInput == "no" || lowerInput == "nope" || lowerInput == "nah" {
+            return .exitRefinement
+        }
+
+        // Explicit rejection of adding content to the note
+        let rejectionPatterns = [
+            "that's a question",
+            "that's the question",
+            "question to",
+            "question for llm",
+            "that's not for the note",
+            "don't add that",
+            "don't add this",
+            "that's not a note",
+            "that's not note content",
+            "ask the llm",
+            "ask the ai",
+            "just asking",
+            "just a question",
+            "not note related",
+            "not about the note"
+        ]
+
+        for pattern in rejectionPatterns {
+            if lowerInput.contains(pattern) {
+                return .exitRefinement
+            }
+        }
+
+        // Check for question marks with short responses - likely rejecting the suggestion
+        if lowerInput.contains("?") && lowerInput.count < 100 {
+            return .exitRefinement
+        }
+
+        // Check for explicit exit keywords before LLM call
+        let exitKeywords = ["done", "that's it", "finish", "all set", "no more", "that's all", "finished", "complete", "nothing else", "nothing more", "never mind", "scratch that"]
+        if exitKeywords.contains(where: { keyword in lowerInput.contains(keyword) }) {
+            return .exitRefinement
+        }
+
         let systemPrompt = """
         You are analyzing a user message during interactive note refinement. The user is adding details to a note titled "\(noteTitle)".
 
         Classify the user's message into ONE of these categories:
-        1. "add_content" - User is providing content/details to add to the note (e.g., "add budget info", "include the deadline")
-        2. "exit_refinement" - User wants to stop editing the note (e.g., "done", "that's it for now", "i'm finished", "no more", "that's all")
+        1. "add_content" - User is providing content/details to add to the note (e.g., "add budget info", "include the deadline", specific data or facts)
+        2. "exit_refinement" - User wants to stop editing the note OR is rejecting the note editing mode (e.g., "done", "that's it for now", "i'm finished", "no more", "that's all", simple "no", or clarifying this is a general question not note content)
         3. "meta_instruction" - User is asking to modify/remove/change existing note content (e.g., "remove that part", "change the title", "delete the first line")
         4. "ambiguous" - The intent is unclear
 
-        CRITICAL RULES:
-        - "That's it for now" = exit_refinement (NOT add_content)
-        - "Done with editing" = exit_refinement (NOT add_content)
-        - Messages that ask to remove/delete/change content = meta_instruction (NOT add_content)
-        - Brief affirmations like "yes", "ok", "sure" in context of exiting = exit_refinement
-        - Actual new information or details = add_content
+        CRITICAL RULES FOR EXIT DETECTION:
+        - "No" or "Nope" = exit_refinement (User rejecting the suggestion to add to note)
+        - "That's the question" or "That's a question" = exit_refinement (User clarifying they're asking a general question, not editing)
+        - "Just asking" = exit_refinement (User clarifying this is conversational, not note editing)
+        - Simple rejections or one-word responses after a suggestion = exit_refinement
+        - "That's it for now" = exit_refinement
+        - "Done with editing" = exit_refinement
+        - Messages asking to remove/delete/change content = meta_instruction
+        - When user clarifies the message is for the LLM or is a general question = exit_refinement
+        - Actual new information or specific details = add_content
 
         Return ONLY: "add_content", "exit_refinement", "meta_instruction", or "ambiguous"
         """
@@ -322,10 +372,7 @@ class SearchService: ObservableObject {
         } catch {
             print("Error classifying refinement message: \(error)")
             // Fallback to simple keyword matching
-            let lowerInput = userInput.lowercased()
-            let exitKeywords = ["done", "that's it", "finish", "all set", "no more", "that's all", "no more", "finished", "complete"]
-            let exitDetected = exitKeywords.contains { keyword in lowerInput.contains(keyword) }
-            return exitDetected ? .exitRefinement : .addContent
+            return .addContent
         }
     }
 
@@ -340,12 +387,63 @@ class SearchService: ObservableObject {
             isRefiningNote = false
             currentNoteBeingRefined = nil
 
-            let exitMsg = ConversationMessage(
-                isUser: false,
-                text: "✓ Note updated! Is there anything else I can help you with?",
-                intent: .notes
-            )
-            conversationHistory.append(exitMsg)
+            // Check if the exit message itself contains a question or is asking for something
+            // e.g., "No that's the question to llm" - the user is trying to ask something
+            let containsQuestion = userInput.contains("?") ||
+                                   userInput.lowercased().contains("question") ||
+                                   userInput.lowercased().contains("ask") ||
+                                   isQuestion(userInput)
+
+            if containsQuestion {
+                // User is exiting refinement AND asking a conversational question
+                // Process their message as a general conversational query
+                // Extract the actual question part (remove the rejection/clarification)
+                var actualQuestion = userInput
+                let rejectionPatterns = ["that's a question", "that's the question", "question to", "question for llm", "just asking", "just a question"]
+
+                // Try to extract just the substantive part
+                for pattern in rejectionPatterns {
+                    if let range = actualQuestion.lowercased().range(of: pattern) {
+                        // Remove the pattern but keep the context before it
+                        let beforePattern = actualQuestion[..<range.lowerBound].trimmingCharacters(in: .whitespaces)
+                        // If there's meaningful content before the pattern, use that as the question
+                        if !beforePattern.isEmpty && beforePattern != "no" {
+                            actualQuestion = beforePattern
+                            break
+                        }
+                    }
+                }
+
+                // If we didn't extract a specific question, acknowledge the exit and offer help
+                if actualQuestion.trimmingCharacters(in: .whitespaces) == userInput.trimmingCharacters(in: .whitespaces) {
+                    let exitMsg = ConversationMessage(
+                        isUser: false,
+                        text: "✓ Exited note editing. What would you like to know?",
+                        intent: .notes
+                    )
+                    conversationHistory.append(exitMsg)
+                } else {
+                    // User had a question - let's process it conversationally
+                    // Add a note that we're exiting refinement, then process the question
+                    let exitMsg = ConversationMessage(
+                        isUser: false,
+                        text: "✓ Got it, exiting note editing. ",
+                        intent: .notes
+                    )
+                    conversationHistory.append(exitMsg)
+
+                    // Now process the actual question conversationally
+                    await startConversation(with: actualQuestion)
+                }
+            } else {
+                // Simple exit, no follow-up question
+                let exitMsg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Note updated! Is there anything else I can help you with?",
+                    intent: .notes
+                )
+                conversationHistory.append(exitMsg)
+            }
             return
 
         case .metaInstruction:
