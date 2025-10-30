@@ -13,6 +13,7 @@
 ### 1. Get Full App Context (for prompts)
 
 ```swift
+// Must be called from main thread (both methods are @MainActor)
 let context = AppContextService.shared.getFullAppContext()
 
 // Use in any prompt:
@@ -28,19 +29,22 @@ Answer based on the data above.
 ### 2. Get Context for Specific Query
 
 ```swift
+// Called from main thread
 let context = AppContextService.shared.getRelevantContext(for: "Q4 planning")
 
 // Returns only matching events/notes/emails/locations related to "Q4 planning"
 // More efficient than full context for targeted queries
 ```
 
+**Note**: Both methods are `@MainActor` because they access TaskManager and EmailService which are main-thread only. Call them from your UI code or wrap in `Task { @MainActor in ... }` if calling from background.
+
 ### 3. Integration Examples
 
-#### In SearchService
+#### In SearchService (async context)
 ```swift
 // When processing a user query, add context:
 let query = "create meeting about Q4 planning"
-let appContext = AppContextService.shared.getRelevantContext(for: query)
+let appContext = await AppContextService.shared.getRelevantContext(for: query)
 
 let enrichedPrompt = """
 User query: \(query)
@@ -52,7 +56,7 @@ What should the system do?
 """
 ```
 
-#### In ActionQueryHandler
+#### In ActionQueryHandler (UI context)
 ```swift
 // When parsing actions, understand the full context:
 let eventData = EventCreationData(
@@ -66,10 +70,10 @@ let context = AppContextService.shared.getFullAppContext()
 // Use this to suggest linking to related notes, emails, etc.
 ```
 
-#### In Conversation Mode
+#### In Conversation Mode (async context)
 ```swift
 // In OpenAIService.answerQuestion():
-let appContext = AppContextService.shared.getFullAppContext()
+let appContext = await AppContextService.shared.getFullAppContext()
 
 let systemPrompt = """
 You are a helpful assistant. The user has provided their app data below.
@@ -137,8 +141,8 @@ User's App Data:
 ```swift
 // User: "Create Q4 planning meeting and remind me about the budget items"
 
-// System gets relevant context:
-let context = AppContextService.shared.getRelevantContext(for: "Q4 planning budget")
+// System gets relevant context (from async/main actor context):
+let context = await AppContextService.shared.getRelevantContext(for: "Q4 planning budget")
 
 // Returns:
 // - Q4 Planning note (with budget details)
@@ -157,7 +161,7 @@ let context = AppContextService.shared.getRelevantContext(for: "Q4 planning budg
 ```swift
 // User: "What's my busiest day next week?"
 
-let fullContext = AppContextService.shared.getFullAppContext()
+let fullContext = await AppContextService.shared.getFullAppContext()
 
 // LLM sees:
 // - 3 meetings on Tuesday
