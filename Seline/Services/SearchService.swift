@@ -1190,6 +1190,13 @@ class SearchService: ObservableObject {
     }
 
     func confirmNoteUpdate() {
+        Task {
+            await confirmNoteUpdateAsync()
+        }
+    }
+
+    /// Async version of confirmNoteUpdate that waits for sync to complete
+    private func confirmNoteUpdateAsync() async {
         guard let updateData = pendingNoteUpdate else { return }
 
         let notesManager = NotesManager.shared
@@ -1203,14 +1210,17 @@ class SearchService: ObservableObject {
             } else {
                 note.content = updateData.contentToAdd
             }
-            // Update the note
-            notesManager.updateNote(note)
+            note.dateModified = Date()
+
+            // CRITICAL: Wait for sync to complete before showing success message
+            let updateSuccess = await notesManager.updateNoteAndWaitForSync(note)
 
             // If in conversation mode, add confirmation message
             if isInConversationMode {
+                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
                 let confirmationMsg = ConversationMessage(
                     isUser: false,
-                    text: "✓ Note updated: \"\(updateData.noteTitle)\"",
+                    text: "\(statusText) Note updated: \"\(updateData.noteTitle)\"",
                     intent: .general
                 )
                 conversationHistory.append(confirmationMsg)
@@ -1221,9 +1231,7 @@ class SearchService: ObservableObject {
         pendingNoteUpdate = nil
 
         // Check if there are more multi-actions to process
-        Task {
-            await processNextMultiAction()
-        }
+        await processNextMultiAction()
     }
 
     func cancelAction() {
@@ -1767,8 +1775,9 @@ class SearchService: ObservableObject {
                                 note.content = contentToAdd
                             }
 
-                            // Update the note
-                            notesManager.updateNote(note)
+                            // CRITICAL: Wait for sync to complete before confirming
+                            note.dateModified = Date()
+                            let _ = await notesManager.updateNoteAndWaitForSync(note)
 
                             // Add confirmation message after the update message
                             let confirmationMsg = ConversationMessage(

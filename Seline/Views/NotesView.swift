@@ -1099,9 +1099,9 @@ struct NoteEditView: View {
                     updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
                 }
 
-                await MainActor.run {
-                    notesManager.updateNote(updatedNote)
-                }
+                // CRITICAL: Wait for sync to complete to ensure changes are persisted
+                updatedNote.dateModified = Date()
+                let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
             }
         } else {
             // Create new note
@@ -1134,9 +1134,9 @@ struct NoteEditView: View {
             updatedNote.folderId = selectedFolderId
             updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
 
-            await MainActor.run {
-                notesManager.updateNote(updatedNote)
-            }
+            // CRITICAL: Wait for sync to complete to ensure changes are persisted
+            updatedNote.dateModified = Date()
+            let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
         }
     }
 
