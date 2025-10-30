@@ -47,17 +47,37 @@ struct TimelineView: View {
 
     // Tasks with scheduled times, sorted by start time for consistent layout
     private var scheduledTasks: [TaskItem] {
-        tasks.filter { $0.scheduledTime != nil }
-            .sorted { task1, task2 in
-                guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
-                    return false
+        let filtered = tasks.filter { $0.scheduledTime != nil }
+
+        // Deduplicate tasks with the same title and time (prevent duplicate recurring events)
+        var seenEventKeys = Set<String>()
+        var deduplicated: [TaskItem] = []
+
+        for task in filtered {
+            if let scheduledTime = task.scheduledTime {
+                let calendar = Calendar.current
+                let timeStr = calendar.component(.hour, from: scheduledTime).description + ":" + calendar.component(.minute, from: scheduledTime).description
+                let eventKey = "\(task.title.lowercased())|\(timeStr)"
+
+                if !seenEventKeys.contains(eventKey) {
+                    deduplicated.append(task)
+                    seenEventKeys.insert(eventKey)
                 }
-                if time1 == time2 {
-                    // If same start time, sort by ID for consistency
-                    return task1.id < task2.id
-                }
-                return time1 < time2
+            } else {
+                deduplicated.append(task)
             }
+        }
+
+        return deduplicated.sorted { task1, task2 in
+            guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
+                return false
+            }
+            if time1 == time2 {
+                // If same start time, sort by ID for consistency
+                return task1.id < task2.id
+            }
+            return time1 < time2
+        }
     }
 
     // Event layout information

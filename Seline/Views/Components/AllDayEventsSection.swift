@@ -10,7 +10,21 @@ struct AllDayEventsSection: View {
     @StateObject private var tagManager = TagManager.shared
 
     private var allDayTasks: [TaskItem] {
-        tasks.filter { $0.scheduledTime == nil }
+        let filtered = tasks.filter { $0.scheduledTime == nil }
+
+        // Deduplicate tasks with the same title (prevent duplicate recurring events from showing)
+        var seenTitles = Set<String>()
+        var deduplicated: [TaskItem] = []
+
+        for task in filtered {
+            let titleKey = task.title.lowercased()
+            if !seenTitles.contains(titleKey) {
+                deduplicated.append(task)
+                seenTitles.insert(titleKey)
+            }
+        }
+
+        return deduplicated
     }
 
     private func getTaskColor(_ task: TaskItem) -> Color {

@@ -96,20 +96,30 @@ struct MainAppView: View {
             $0.title.lowercased().contains(lowercasedSearch)
         }
 
-        // Deduplicate recurring tasks - for recurring events with the same title, keep only the first one
-        var addedRecurringTitles = Set<String>()
+        // Deduplicate all duplicate events (same title, date, and time) - keep only the first occurrence
+        var seenEventKeys = Set<String>()
         var deduplicatedTasks: [TaskItem] = []
 
         for task in matchingTasks {
-            if task.isRecurring {
-                // For recurring tasks, only add the first one with this title
-                if !addedRecurringTitles.contains(task.title.lowercased()) {
-                    deduplicatedTasks.append(task)
-                    addedRecurringTitles.insert(task.title.lowercased())
-                }
+            // Create a unique key based on title + target date + scheduled time
+            let dateKey: String
+            if let targetDate = task.targetDate, let scheduledTime = task.scheduledTime {
+                let calendar = Calendar.current
+                let dateStr = calendar.startOfDay(for: targetDate).timeIntervalSince1970.description
+                let timeStr = calendar.component(.hour, from: scheduledTime).description + ":" + calendar.component(.minute, from: scheduledTime).description
+                dateKey = "\(task.title.lowercased())|\(dateStr)|\(timeStr)"
+            } else if let targetDate = task.targetDate {
+                let dateStr = Calendar.current.startOfDay(for: targetDate).timeIntervalSince1970.description
+                dateKey = "\(task.title.lowercased())|\(dateStr)"
             } else {
-                // Non-recurring tasks are always added
+                // For tasks without target date, use task ID to avoid filtering them out
+                dateKey = task.id
+            }
+
+            // Only add if we haven't seen this event before
+            if !seenEventKeys.contains(dateKey) {
                 deduplicatedTasks.append(task)
+                seenEventKeys.insert(dateKey)
             }
         }
 
