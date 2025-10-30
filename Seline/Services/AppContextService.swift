@@ -12,11 +12,11 @@ class AppContextService {
     func getFullAppContext() -> String {
         var context = ""
 
-        // Events/Tasks
-        let events = TaskManager.shared.allTasks
-        if !events.isEmpty {
+        // Events/Tasks - flatten from WeekDay dict
+        let allEvents = TaskManager.shared.tasks.values.flatMap { $0 }
+        if !allEvents.isEmpty {
             context += "**Events & Tasks:**\n"
-            for event in events.sorted(by: { ($0.scheduledTime ?? $0.targetDate ?? Date()) < ($1.scheduledTime ?? $1.targetDate ?? Date()) }) {
+            for event in allEvents.sorted(by: { ($0.scheduledTime ?? $0.targetDate ?? Date()) < ($1.scheduledTime ?? $1.targetDate ?? Date()) }) {
                 context += formatEvent(event)
             }
         }
@@ -30,11 +30,11 @@ class AppContextService {
             }
         }
 
-        // Emails
-        let emails = EmailService.shared.emails
-        if !emails.isEmpty {
+        // Emails - combine inbox and sent
+        let allEmails = EmailService.shared.inboxEmails + EmailService.shared.sentEmails
+        if !allEmails.isEmpty {
             context += "\n**Recent Emails:**\n"
-            for email in emails.prefix(10) {
+            for email in allEmails.prefix(10) {
                 context += formatEmail(email)
             }
         }
@@ -59,8 +59,9 @@ class AppContextService {
         let keywords = extractKeywords(from: query)
         var matches: [String] = []
 
-        // Find matching events
-        for event in TaskManager.shared.allTasks {
+        // Find matching events - flatten from WeekDay dict
+        let allEvents = TaskManager.shared.tasks.values.flatMap { $0 }
+        for event in allEvents {
             if keywordsMatch(keywords, in: event.title) || (event.description != nil && keywordsMatch(keywords, in: event.description!)) {
                 matches.append(formatEvent(event))
             }
@@ -73,9 +74,10 @@ class AppContextService {
             }
         }
 
-        // Find matching emails
-        for email in EmailService.shared.emails {
-            if keywordsMatch(keywords, in: email.subject) || keywordsMatch(keywords, in: email.summary ?? "") {
+        // Find matching emails - combine inbox and sent
+        let allEmails = EmailService.shared.inboxEmails + EmailService.shared.sentEmails
+        for email in allEmails {
+            if keywordsMatch(keywords, in: email.subject) || keywordsMatch(keywords, in: email.aiSummary ?? email.snippet) {
                 matches.append(formatEmail(email))
             }
         }
@@ -99,9 +101,9 @@ class AppContextService {
     private func formatEvent(_ event: TaskItem) -> String {
         let dateStr = (event.scheduledTime ?? event.targetDate).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "No date"
         let completed = event.isCompleted ? "✓ DONE" : "○ TODO"
-        let recurring = event.isRecurring ? " (recurring: \(event.recurrenceFrequency ?? ""))" : ""
+        let recurringStr = event.isRecurring ? " (recurring: \(event.recurrenceFrequency?.rawValue ?? ""))" : ""
 
-        var formatted = "- [\(completed)] **\(event.title)**\n  📅 \(dateStr)\(recurring)\n"
+        var formatted = "- [\(completed)] **\(event.title)**\n  📅 \(dateStr)\(recurringStr)\n"
 
         if let desc = event.description, !desc.isEmpty {
             formatted += "  📝 \(desc)\n"
@@ -131,8 +133,10 @@ class AppContextService {
     private func formatEmail(_ email: Email) -> String {
         let dateStr = email.timestamp.formatted(date: .abbreviated, time: .shortened)
         let important = email.isImportant ? "⭐ " : ""
+        let senderName = email.sender.name ?? email.sender.email
 
-        let formatted = "- \(important)**\(email.subject)**\n  From: \(email.senderName)\n  📅 \(dateStr)\n  Summary: \(email.summary ?? email.snippet)\n"
+        let summary = email.aiSummary ?? email.snippet
+        let formatted = "- \(important)**\(email.subject)**\n  From: \(senderName)\n  📅 \(dateStr)\n  Summary: \(summary)\n"
 
         return formatted
     }
@@ -143,8 +147,8 @@ class AppContextService {
 
         var formatted = "- **\(displayName)**\n  📍 \(location.address)\n  \(rating)\n"
 
-        if let category = location.category {
-            formatted += "  Category: \(category)\n"
+        if !location.category.isEmpty {
+            formatted += "  Category: \(location.category)\n"
         }
 
         if let notes = location.userNotes, !notes.isEmpty {
