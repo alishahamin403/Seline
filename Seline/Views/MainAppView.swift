@@ -96,35 +96,50 @@ struct MainAppView: View {
             $0.title.lowercased().contains(lowercasedSearch)
         }
 
-        // Filter and deduplicate: for recurring events, only show the next upcoming occurrence
-        var seenRecurringTitles = Set<String>()
+        // Deduplicate: for each unique title, keep only ONE result
+        // For recurring events, show the earliest upcoming date
+        // For non-recurring, show the closest upcoming date
+        var tasksByTitle: [String: [TaskItem]] = [:]
+
+        for task in matchingTasks {
+            let titleLower = task.title.lowercased()
+            if tasksByTitle[titleLower] == nil {
+                tasksByTitle[titleLower] = []
+            }
+            tasksByTitle[titleLower]?.append(task)
+        }
+
         var deduplicatedTasks: [TaskItem] = []
         let today = Calendar.current.startOfDay(for: Date())
 
-        for task in matchingTasks.sorted(by: { a, b in
-            // Sort by target date to process in chronological order
-            let dateA = a.targetDate ?? a.createdAt
-            let dateB = b.targetDate ?? b.createdAt
-            return dateA < dateB
-        }) {
-            let titleLower = task.title.lowercased()
+        for (_, tasks) in tasksByTitle {
+            // For each title, find the best task to show
+            var bestTask: TaskItem?
+            var bestTaskDate: Date?
 
-            if task.isRecurring {
-                // For recurring events, only add if:
-                // 1. We haven't seen this recurring title before
-                // 2. The event is today or in the future
-                if !seenRecurringTitles.contains(titleLower) {
-                    let taskDate = task.targetDate ?? task.createdAt
+            for task in tasks {
+                let taskDate = task.targetDate ?? task.createdAt
+
+                // For recurring tasks, skip if date is in the past
+                if task.isRecurring {
                     let taskStartDate = Calendar.current.startOfDay(for: taskDate)
-
-                    if taskStartDate >= today {
-                        deduplicatedTasks.append(task)
-                        seenRecurringTitles.insert(titleLower)
+                    if taskStartDate < today {
+                        continue
                     }
                 }
-            } else {
-                // Non-recurring events: always add them
-                deduplicatedTasks.append(task)
+
+                // Choose the task with the earliest upcoming date
+                if bestTask == nil {
+                    bestTask = task
+                    bestTaskDate = taskDate
+                } else if let best = bestTaskDate, taskDate < best {
+                    bestTask = task
+                    bestTaskDate = taskDate
+                }
+            }
+
+            if let best = bestTask {
+                deduplicatedTasks.append(best)
             }
         }
 
