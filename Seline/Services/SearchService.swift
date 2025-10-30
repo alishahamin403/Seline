@@ -445,6 +445,85 @@ class SearchService: ObservableObject {
         }
     }
 
+    /// Check if user should exit refinement mode based on conversation context
+    /// Analyzes recent conversation history to detect if the user is asking a meta-question
+    /// or follow-up about a previous action, rather than trying to add content to the note
+    private func shouldExitRefinementBasedOnContext(userMessage: String) -> Bool {
+        let lowerMessage = userMessage.lowercased()
+
+        // PATTERN 1: Meta-question patterns indicating system inquiry, not content addition
+        // These are questions about how the system works, not note content
+        let metaQuestionPatterns = [
+            "update properly",    // "Can you update properly"
+            "why ",               // "Why didn't it..."
+            "how do",             // "How do I..."
+            "can you ",           // "Can you..." (general request for help)
+            "how come",           // "How come..."
+            "what went",          // "What went wrong"
+            "not working",        // "It's not working"
+            "didn't work",        // "Didn't work"
+            "not updated",        // "Not updated"
+            "don't see",          // "I don't see"
+            "where",              // "Where is..."
+            "when should",        // "When should..."
+            "how can i",          // "How can I..."
+        ]
+
+        for pattern in metaQuestionPatterns {
+            if lowerMessage.contains(pattern) {
+                print("🚪 [Context] Detected meta-question pattern: '\(pattern)'")
+                return true
+            }
+        }
+
+        // PATTERN 2: Check if previous message was a system action confirmation
+        // If so, follow-up messages are likely about that action, not new content
+        if !conversationHistory.isEmpty {
+            let previousMessage = conversationHistory.last!.text.lowercased()
+
+            // System action indicators
+            let actionIndicators = ["updated", "created", "added", "modified", "✓"]
+            let isLastMessageAction = actionIndicators.contains { indicator in
+                previousMessage.contains(indicator)
+            }
+
+            // If the last message was a system action and current message is a question
+            if isLastMessageAction && lowerMessage.contains("?") {
+                print("🚪 [Context] Follow-up question after system action")
+                return true
+            }
+
+            // If user seems dissatisfied with previous action
+            let dissatisfactionPatterns = ["not", "still", "problem", "issue", "wrong", "incorrect", "bad"]
+            if isLastMessageAction && dissatisfactionPatterns.contains(where: { pattern in lowerMessage.contains(pattern) }) {
+                print("🚪 [Context] User expressing dissatisfaction with previous action")
+                return true
+            }
+        }
+
+        // PATTERN 3: Direct complaints or clarifications
+        let complaintPatterns = [
+            "i'm confused",
+            "help",
+            "what do you mean",
+            "i don't understand",
+            "explain",
+            "be more careful",
+            "properly",
+            "correctly",
+            "accurate"
+        ]
+
+        for pattern in complaintPatterns {
+            if lowerMessage.contains(pattern) && lowerMessage.count < 50 {
+                print("🚪 [Context] Detected complaint/clarification: '\(pattern)'")
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Handle user input when refining a note - update note content interactively
     private func handleNoteRefinement(_ userInput: String, for note: Note) async {
         // Classify the user's message to understand their intent
@@ -1309,12 +1388,20 @@ class SearchService: ObservableObject {
         // Update title based on conversation context
         updateConversationTitle()
 
-        // REFINEMENT MODE: If user is adding details to a note, update it instead
+        // CONTEXT-AWARE REFINEMENT EXIT: Check if user should exit refinement based on conversation context
         if isRefiningNote, let noteBeingRefined = currentNoteBeingRefined {
-            print("🔄 [SearchService] In refinement mode, handling note refinement")
-            await handleNoteRefinement(trimmed, for: noteBeingRefined)
-            saveConversationLocally()
-            return
+            if shouldExitRefinementBasedOnContext(userMessage: trimmed) {
+                print("🔄 [SearchService] User intent suggests exiting refinement mode based on context")
+                isRefiningNote = false
+                currentNoteBeingRefined = nil
+                // Continue processing as normal conversation instead of note refinement
+            } else {
+                // REFINEMENT MODE: If user is adding details to a note, update it instead
+                print("🔄 [SearchService] In refinement mode, handling note refinement")
+                await handleNoteRefinement(trimmed, for: noteBeingRefined)
+                saveConversationLocally()
+                return
+            }
         }
 
         // DISABLED: Multi-action splitting was causing context loss
