@@ -1395,12 +1395,14 @@ struct NoteEditView: View {
             let cleanedText = try await openAIService.cleanUpNoteText(content)
             await MainActor.run {
                 content = cleanedText
-                // Use MarkdownParser to properly render formatting
+                // Update attributed content WITHOUT markdown parsing to avoid table creation
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(
-                    cleanedText,
-                    fontSize: 14,
-                    textColor: textColor
+                attributedContent = NSAttributedString(
+                    string: cleanedText,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                        .foregroundColor: textColor
+                    ]
                 )
                 isProcessingCleanup = false
                 HapticManager.shared.aiActionComplete()
@@ -1735,80 +1737,147 @@ struct NoteEditView: View {
             return base + """
             Extract ONLY the transaction details from this bank statement. EXCLUDE all header information, account details, promotional messages, legal disclaimers, and notes.
 
-            FORMAT INSTRUCTIONS (CRITICAL):
-            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO --, NO #, NO * formatting
-            - Use simple text formatting only
-            - Never use markdown special characters
+            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
+            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - Use clear sections with line breaks between sections
+            - Double-space between major sections for readability
 
-            Output format:
-            1. Summary section (plain text):
-               Statement Period: [dates]
-               Opening Balance: [amount]
-               Closing Balance: [amount]
+            OUTPUT FORMAT:
 
-            2. Individual Transactions (each on its own line):
-               Date | Description | Amount | Balance (if available)
+            STATEMENT SUMMARY
+            Statement Period: [dates]
+            Opening Balance: [amount]
+            Closing Balance: [amount]
+            Total Transactions: [count]
+
+            TRANSACTIONS
+            [Each transaction on its own line, formatted as:]
+            Date | Description | Amount | Balance
+
+            Example:
+            2024-09-15 | Purchase at AMAZON.COM | -$45.23 | $2,455.77
+            2024-09-16 | Direct Deposit | +$2,000.00 | $4,455.77
 
             CRITICAL INSTRUCTIONS:
             - Extract EVERY transaction individually, one per line
-            - Each transaction line must have: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Each transaction: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Descriptions should be clear and include merchant name where visible
             - Do NOT group transactions by category
-            - Do NOT include headers, footers, or bank marketing messages
-            - Do NOT include account details or card numbers
-            - Do NOT include disclaimers or terms
-            - Do NOT create tables or complex formatting
-            - Simple pipe-delimited format ONLY
-            - Include deposit and withdrawal amounts with their signs (+ or -)
-            - Sort transactions by date (oldest to newest or as appears in statement)
-            - NO MARKDOWN FORMATTING - Plain text only
+            - Include amounts with signs: + for deposits, - for withdrawals
+            - NO table formatting, NO markdown, NO symbols
+            - Sort by date (oldest to newest as appears in statement)
 
-            Start directly with the summary, then list each transaction.
+            Start directly with STATEMENT SUMMARY, then TRANSACTIONS section.
             """
 
         case "invoice":
             return base + """
-            Extract ALL information from this invoice including:
-            - Complete vendor/seller information
-            - Invoice number, date, and due date
-            - Complete bill-to and ship-to addresses
-            - EVERY line item with full description, quantity, unit price, and total price
-            - Subtotal amount
-            - All taxes and tax details
-            - All fees and charges with descriptions
-            - Total amount due
-            - Payment terms and methods
-            - Any notes, terms, or special instructions
+            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
+            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - Use clear section headers with line breaks
+            - Double-space between sections for readability
 
-            Provide complete detailed text of ALL line items, not a summary.
+            OUTPUT FORMAT:
+
+            VENDOR INFORMATION
+            [Vendor/seller name and details]
+
+            INVOICE DETAILS
+            Invoice Number: [number]
+            Date: [date]
+            Due Date: [date]
+
+            BILLING & SHIPPING
+            Bill To: [address details]
+            Ship To: [address details]
+
+            LINE ITEMS
+            [Each line item on its own line]
+            1. [Description] - Qty: [quantity] x [unit price] = [total price]
+            2. [Description] - Qty: [quantity] x [unit price] = [total price]
+
+            TOTALS
+            Subtotal: [amount]
+            Taxes: [amount]
+            Fees: [amount]
+            Total Due: [amount]
+
+            PAYMENT & TERMS
+            Payment Terms: [terms]
+            Payment Methods: [methods]
+            Notes: [any special instructions]
+
+            CRITICAL INSTRUCTIONS:
+            - Extract EVERY line item individually
+            - Be specific with descriptions, quantities, and prices
+            - NO table formatting, NO markdown, NO symbols
+            - Double-space between sections for clarity
             """
 
         case "receipt":
             return base + """
-            Extract ALL information from this receipt including:
-            - Complete merchant information (name, address, phone, website if available)
-            - Transaction date and time
-            - Receipt/transaction number
-            - EVERY item purchased with full description, quantity, and individual price
-            - Subtotal amount
-            - Tax amount and tax details
-            - Total paid
-            - Payment method used
-            - Cashier/register information if available
-            - Any loyalty program or promotional information
-            - Return policy or other notes
+            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
+            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - Use clear section headers with line breaks
+            - Double-space between sections for readability
 
-            Provide complete detailed text of ALL items purchased, not a summary.
+            OUTPUT FORMAT:
+
+            MERCHANT INFORMATION
+            Name: [merchant name]
+            Address: [full address if available]
+            Phone: [phone number if available]
+            Website: [website if available]
+
+            TRANSACTION DETAILS
+            Date: [date]
+            Time: [time if available]
+            Receipt Number: [number]
+            Cashier/Register: [info if available]
+
+            ITEMS PURCHASED
+            [Each item on its own line]
+            1. [Item description] - Qty: [quantity] x [unit price] = [total]
+            2. [Item description] - Qty: [quantity] x [unit price] = [total]
+
+            PAYMENT SUMMARY
+            Subtotal: [amount]
+            Tax: [amount]
+            Total Paid: [amount]
+            Payment Method: [method]
+
+            ADDITIONAL INFORMATION
+            Loyalty/Rewards: [if applicable]
+            Promotions: [if applicable]
+            Return Policy: [if available]
+
+            CRITICAL INSTRUCTIONS:
+            - Extract EVERY item purchased individually
+            - Include descriptions, quantities, and prices for all items
+            - NO table formatting, NO markdown, NO symbols
+            - Double-space between sections for clarity
             """
 
         default:
             return base + """
-            Extract the COMPLETE detailed content and all information from this document. Include:
-            - All text content in a structured format
-            - All sections and subsections
-            - All data, numbers, and values
-            - All important details and information
+            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
+            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - Use clear section headers with line breaks
+            - Double-space between sections for readability
+            - Maintain document structure with proper spacing
 
-            Provide comprehensive extraction of all content, not a summary or highlights only.
+            Extract the COMPLETE detailed content including:
+            - All text content in logical sections
+            - All important data, numbers, and values
+            - All details and information from the document
+            - Proper spacing between sections for readability
+
+            Format with:
+            - Clear section headers
+            - Line breaks between sections
+            - Double spacing between major sections
+            - NO table formatting, NO markdown symbols
+            - Simple, clean plain text format
             """
         }
     }
