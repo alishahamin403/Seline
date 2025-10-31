@@ -104,7 +104,7 @@ class SupabaseManager: ObservableObject {
         // Database RLS on attachments/extracted_data tables provides security
         let configuration = StorageClientConfiguration(
             url: supabaseURL.appendingPathComponent("/storage/v1"),
-            headers: ["apikey": supabaseKey],
+            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(supabaseKey)"],
             logger: nil
         )
 
