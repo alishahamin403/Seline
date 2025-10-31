@@ -1,5 +1,6 @@
 import Foundation
 import PostgREST
+import Storage
 
 class AttachmentService: ObservableObject {
     static let shared = AttachmentService()
@@ -34,9 +35,13 @@ class AttachmentService: ObservableObject {
 
         // Upload to Supabase Storage
         let storage = await SupabaseManager.shared.getStorageClient()
+        print("📤 Uploading file: \(fileName)")
+        print("📤 Storage path: \(storagePath)")
+        print("📤 File size: \(fileData.count) bytes")
+        print("📤 Bucket: \(attachmentStorageBucket)")
         try await storage
             .from(attachmentStorageBucket)
-            .upload(storagePath, data: fileData)
+            .upload(storagePath, data: fileData, options: FileOptions(cacheControl: "3600"))
 
         // Create attachment record in database
         let attachment = try await createAttachmentRecord(
