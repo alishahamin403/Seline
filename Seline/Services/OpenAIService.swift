@@ -1020,50 +1020,48 @@ class OpenAIService: ObservableObject {
         }
 
         let systemPrompt = """
-        You are a helpful assistant that cleans up messy text into well-structured, sensible content.
+        You are an assistant that cleans up and organizes messy text while PRESERVING ALL INFORMATION.
 
-        FORMATTING RULES:
-        - Fix grammar and spelling errors
-        - Use casual, friendly tone
-        - Improve sentence structure and flow
-        - Preserve the original meaning and all key information
-        - Remove unnecessary repetition
-        - Keep the same general length as the original
-        - ALWAYS maintain horizontal line format for structured data (pipe-delimited: Date | Description | Amount)
+        CRITICAL RULES - MUST FOLLOW:
+        ✓ EVERY sentence, fact, number, and piece of information MUST be retained
+        ✓ NEVER delete, omit, or condense any content
+        ✓ NEVER summarize or remove details
+        ✓ EVERY data point, date, amount, and detail must stay in the output
+        ✓ If content appears duplicated, keep all instances (do not remove)
+        ✓ Output should be LONGER or SAME LENGTH as input, never shorter
 
-        STRUCTURED DATA FORMATTING (CRITICAL):
+        ALLOWED IMPROVEMENTS ONLY:
+        - Fix grammar and spelling errors (but keep the content)
+        - Improve sentence flow and readability
+        - Better organize information into logical sections
+        - Reorder information for clarity (oldest first, by category, etc.)
+        - Clean up formatting inconsistencies
+        - Split run-on sentences for clarity
+        - Clarify confusing wording while keeping all details
+
+        STRUCTURED DATA FORMATTING:
         When content contains structured data like transactions, dates, amounts, etc.:
-        - KEEP pipe-delimited horizontal format (|): Date | Description | Amount | Balance
+        - ALWAYS KEEP pipe-delimited horizontal format: Date | Description | Amount | Balance
         - Do NOT convert to markdown tables
-        - Do NOT use vertical table format
-        - Keep everything on a single horizontal line per entry
+        - Do NOT remove any rows or entries
+        - Clean up only the text/formatting within each entry
         - Example: 2024-01-15 | Transfer Deposit | +$500.00 | $2,500.00
-        - Clean up only the text within each line, do not change the structure
+        - Example: 2024-01-16 | Purchase at STORE | -$25.50 | $2,474.50
 
-        TODO LIST FORMATTING:
-        When content contains action items, tasks, or checklists, format as markdown todo lists:
-        - Use format: - [ ] Task description (uncompleted) or - [x] Task description (completed)
-        - Example:
+        INFORMATION ORGANIZATION:
+        - Group related information into sections
+        - Use clear headers to separate different types of information
+        - Keep all details together in logical groups
+        - Maintain original order when grouping makes sense
 
-        - [ ] Buy groceries
-        - [ ] Call mom
-        - [x] Finish project report
-
-        - Auto-detect todo-like content: "need to do", "tasks", "checklist", "todo", "action items", etc.
-        - Any list of actionable items should be formatted as todos
-
-        TEXT FORMATTING:
-        - Use **bold** for emphasis (not ** visible in output)
-        - Use *italic* for subtle emphasis (not * visible in output)
-        - Use bullet points (•) for simple non-actionable lists
-        - Use headings (# ## ###) for sections
-
-        IMPORTANT: Output clean markdown. Never show raw ** or * symbols - they are formatting markers only.
+        CRITICAL: The output must contain EVERY piece of information from the input.
+        Do a final check: count important items in input vs output - they must match.
         """
 
         let userPrompt = """
-        Clean up this text to make it clear and well-written:
+        Clean up and organize this text. Keep EVERY piece of information, fact, number, and detail. Improve grammar, flow, and organization, but do NOT delete or condense anything.
 
+        Text to clean up:
         \(text)
         """
 
@@ -1073,8 +1071,8 @@ class OpenAIService: ObservableObject {
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userPrompt]
             ],
-            "max_tokens": 1000,
-            "temperature": 0.3
+            "max_tokens": 2000,
+            "temperature": 0.2
         ]
 
         return try await makeOpenAIRequest(url: url, requestBody: requestBody)
