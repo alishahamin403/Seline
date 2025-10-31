@@ -480,8 +480,14 @@ struct NoteEditView: View {
     @State private var isProcessingReceipt = false
     @State private var isGeneratingTitle = false
 
+    // File attachment states
+    @State private var attachment: NoteAttachment?
+    @State private var extractedData: ExtractedData?
+    @State private var showingExtractionSheet = false
+    @State private var isProcessingFile = false
+
     var isAnyProcessing: Bool {
-        isProcessingCleanup || isProcessingReceipt || isGeneratingTitle
+        isProcessingCleanup || isProcessingReceipt || isGeneratingTitle || isProcessingFile
     }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
@@ -642,6 +648,18 @@ struct NoteEditView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(isPresented: $showingExtractionSheet) {
+            if let extractedData = extractedData {
+                ExtractionDetailSheet(
+                    extractedData: extractedData,
+                    onSave: { updatedData in
+                        Task {
+                            await saveExtractedData(updatedData)
+                        }
+                    }
+                )
+            }
+        }
     }
 
     // MARK: - View Components
@@ -770,6 +788,31 @@ struct NoteEditView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
+
+            // File attachment chip (if attached)
+            if let attachment = attachment {
+                VStack(alignment: .leading, spacing: 8) {
+                    FileChip(
+                        attachment: attachment,
+                        onTap: {
+                            showingExtractionSheet = true
+                        },
+                        onDelete: {
+                            Task {
+                                try await AttachmentService.shared.deleteAttachment(attachment)
+                                await MainActor.run {
+                                    self.attachment = nil
+                                    self.extractedData = nil
+                                    self.note?.attachmentId = nil
+                                    HapticManager.shared.success()
+                                }
+                            }
+                        }
+                    )
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
 
             // Content - single text editor (table markers are hidden in the editor)
             FormattableTextEditor(
@@ -974,6 +1017,20 @@ struct NoteEditView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
             )
+
+            // File attachment button - for documents (statements, invoices, etc)
+            FilePickerButton { fileURL in
+                handleFileSelected(fileURL)
+            }
+            .frame(width: 40, height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(attachment != nil ? Color.blue : Color.clear, lineWidth: 1)
+            )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1011,6 +1068,22 @@ struct NoteEditView: View {
                 }
                 await MainActor.run {
                     self.imageAttachments = loadedImages
+                }
+            }
+
+            // Load file attachment if it exists
+            if let attachmentId = note.attachmentId {
+                Task {
+                    do {
+                        try await AttachmentService.shared.loadAttachmentsForNote(note.id)
+                        if let attachments = try await AttachmentService.shared.attachments.first {
+                            await MainActor.run {
+                                self.attachment = attachments
+                            }
+                        }
+                    } catch {
+                        print("Error loading attachment: \(error.localizedDescription)")
+                    }
                 }
             }
 
@@ -1432,6 +1505,69 @@ struct NoteEditView: View {
         }
 
         return mutableAttributedString
+    }
+
+    // MARK: - File Attachment Handling
+
+    private func handleFileSelected(_ fileURL: URL) {
+        Task {
+            isProcessingFile = true
+            defer { isProcessingFile = false }
+
+            do {
+                // Get file data
+                let fileData = try Data(contentsOf: fileURL)
+                let fileName = fileURL.lastPathComponent
+                let fileType = fileURL.pathExtension
+
+                guard let currentNote = note else {
+                    print("❌ No note to attach file to")
+                    return
+                }
+
+                // Upload file and create attachment
+                let uploadedAttachment = try await AttachmentService.shared.uploadFileToNote(
+                    fileData,
+                    fileName: fileName,
+                    fileType: fileType,
+                    noteId: currentNote.id
+                )
+
+                // Update local state
+                await MainActor.run {
+                    self.attachment = uploadedAttachment
+                    self.note?.attachmentId = uploadedAttachment.id
+                    HapticManager.shared.success()
+                }
+
+                // Wait a moment for extraction to complete, then load extracted data
+                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+                // Load extracted data
+                if let extracted = try await AttachmentService.shared.loadExtractedData(for: uploadedAttachment.id) {
+                    await MainActor.run {
+                        self.extractedData = extracted
+                        self.showingExtractionSheet = true
+                    }
+                }
+            } catch {
+                print("❌ File upload error: \(error.localizedDescription)")
+                HapticManager.shared.error()
+            }
+        }
+    }
+
+    private func saveExtractedData(_ data: ExtractedData) async {
+        do {
+            try await AttachmentService.shared.updateExtractedData(data)
+            await MainActor.run {
+                self.extractedData = data
+                HapticManager.shared.success()
+            }
+        } catch {
+            print("❌ Error saving extracted data: \(error.localizedDescription)")
+            HapticManager.shared.error()
+        }
     }
 }
 
