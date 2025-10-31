@@ -145,10 +145,22 @@ class AttachmentService: ObservableObject {
         ]
 
         let client = await SupabaseManager.shared.getPostgrestClient()
-        try await client
-            .from("attachments")
-            .insert(attachmentData)
-            .execute()
+
+        do {
+            try await client
+                .from("attachments")
+                .insert(attachmentData)
+                .execute()
+            print("✅ Attachment record created successfully")
+        } catch {
+            print("❌ Failed to create attachment record: \(error)")
+            print("📊 Attempted insert data:")
+            print("   - user_id: \(userId.uuidString)")
+            print("   - note_id: \(noteId.uuidString)")
+            print("   - file_name: \(fileName)")
+            print("   - storage_path: \(storagePath)")
+            throw error
+        }
 
         let attachment = NoteAttachment(
             id: attachmentId,
