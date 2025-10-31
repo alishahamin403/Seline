@@ -120,7 +120,7 @@ struct GenericFilePreviewView: View {
 
                     Text(fileURL.lastPathComponent)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.tertiary)
+                        .foregroundColor(.secondary)
                         .padding(8)
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(4)
