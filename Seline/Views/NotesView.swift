@@ -420,11 +420,15 @@ struct NotesView: View, Searchable {
             content: "Create, edit, and organize your notes. Keep track of important thoughts and ideas.",
             type: .notes,
             identifier: "notes-main",
-            metadata: ["category": "productivity"]
+            metadata: ["category": "productivity"],
+            tags: ["productivity", "notes", "organization"]
         ))
 
         // Add notes content
         for note in notesManager.notes {
+            let tags = extractTagsFromContent(note.content)
+            let relatedNoteIds = detectCrossReferences(in: note, allNotes: notesManager.notes)
+
             items.append(SearchableItem(
                 title: note.title,
                 content: note.content,
@@ -434,11 +438,78 @@ struct NotesView: View, Searchable {
                     "isPinned": note.isPinned ? "true" : "false",
                     "dateModified": note.formattedDateModified,
                     "folder": notesManager.getFolderName(for: note.folderId)
-                ]
+                ],
+                tags: tags,
+                relatedItems: relatedNoteIds
             ))
         }
 
         return items
+    }
+
+    /// Extract tags/categories from note content
+    private func extractTagsFromContent(_ content: String) -> [String] {
+        var tags: [String] = []
+        let lowerContent = content.lowercased()
+
+        // Define category keywords
+        let categoryKeywords: [String: [String]] = [
+            "finance": ["expense", "budget", "cost", "price", "bill", "payment", "invoice", "money", "dollar", "$", "amount", "total"],
+            "health": ["doctor", "medical", "health", "prescription", "hospital", "clinic", "illness", "symptoms", "medicine"],
+            "work": ["meeting", "project", "deadline", "client", "team", "work", "office", "business", "presentation"],
+            "personal": ["family", "friend", "relationship", "personal", "home", "house", "apartment"],
+            "travel": ["trip", "travel", "flight", "hotel", "destination", "vacation", "visit", "location", "address"],
+            "shopping": ["store", "shop", "buy", "purchase", "order", "item", "product", "sale", "discount"],
+            "food": ["recipe", "cook", "meal", "restaurant", "food", "eat", "ingredient", "cuisine", "dish"]
+        ]
+
+        // Check for category keywords
+        for (category, keywords) in categoryKeywords {
+            for keyword in keywords {
+                if lowerContent.contains(keyword) {
+                    if !tags.contains(category) {
+                        tags.append(category)
+                    }
+                    break
+                }
+            }
+        }
+
+        // Extract hashtags if present
+        let hashtagPattern = "#[a-zA-Z0-9_]+"
+        if let regex = try? NSRegularExpression(pattern: hashtagPattern) {
+            let nsString = content as NSString
+            let matches = regex.matches(in: content, range: NSRange(location: 0, length: nsString.length))
+            for match in matches {
+                if let range = Range(match.range, in: content) {
+                    let hashtag = String(content[range]).lowercased().dropFirst() // Remove #
+                    if !tags.contains(String(hashtag)) {
+                        tags.append(String(hashtag))
+                    }
+                }
+            }
+        }
+
+        return tags
+    }
+
+    /// Detect cross-references between notes (when one note mentions another)
+    private func detectCrossReferences(in note: Note, allNotes: [Note]) -> [String] {
+        var relatedIds: [String] = []
+        let lowerContent = note.content.lowercased()
+
+        // Check if this note mentions other note titles
+        for otherNote in allNotes {
+            guard otherNote.id != note.id else { continue }
+            let lowerTitle = otherNote.title.lowercased()
+
+            // Only check if title is meaningful (more than 2 chars)
+            if lowerTitle.count > 2 && lowerContent.contains(lowerTitle) {
+                relatedIds.append("note-\(otherNote.id)")
+            }
+        }
+
+        return relatedIds
     }
 }
 

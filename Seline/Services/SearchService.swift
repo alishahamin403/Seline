@@ -1341,9 +1341,17 @@ class SearchService: ObservableObject {
 
         guard !queryWords.isEmpty else { return [] }
 
+        // Extract related items from the query (if user searches for something, find related items)
+        let relatedItemTitles = extractReferencedItemTitles(from: query)
+
         return cachedContent.compactMap { item in
             let searchText = item.searchText.lowercased()
-            let score = calculateRelevanceScore(searchText: searchText, queryWords: queryWords)
+            let score = calculateRelevanceScore(
+                searchText: searchText,
+                queryWords: queryWords,
+                item: item,
+                relatedItemTitles: relatedItemTitles
+            )
 
             if score > 0 {
                 let matchedText = findMatchedText(in: item, queryWords: queryWords)
@@ -1357,7 +1365,12 @@ class SearchService: ObservableObject {
         }
     }
 
-    private func calculateRelevanceScore(searchText: String, queryWords: [String]) -> Double {
+    private func calculateRelevanceScore(
+        searchText: String,
+        queryWords: [String],
+        item: SearchableItem,
+        relatedItemTitles: [String]
+    ) -> Double {
         var score: Double = 0
         let words = searchText.components(separatedBy: .whitespacesAndNewlines)
 
@@ -1381,7 +1394,40 @@ class SearchService: ObservableObject {
             score *= 1.2
         }
 
+        // NEW: Bonus for tag matches (category/topic relevance)
+        for tag in item.tags {
+            let lowerTag = tag.lowercased()
+            if queryWords.contains(where: { lowerTag.contains($0) || $0.contains(lowerTag) }) {
+                score += 2.5  // Strong boost for tag matches
+            }
+        }
+
+        // NEW: Bonus for related items (cross-references)
+        for relatedTitle in relatedItemTitles {
+            if item.title.lowercased().contains(relatedTitle.lowercased()) ||
+               item.content.lowercased().contains(relatedTitle.lowercased()) {
+                score += 1.5  // Connection bonus
+            }
+        }
+
         return score
+    }
+
+    /// Extract referenced item titles from the query (cross-reference detection)
+    private func extractReferencedItemTitles(from query: String) -> [String] {
+        let lowerQuery = query.lowercased()
+        var referencedTitles: [String] = []
+
+        // Check all cached items to see if their titles are mentioned in the query
+        for item in cachedContent {
+            let lowerTitle = item.title.lowercased()
+            // Only add if the title is meaningful (longer than 2 chars) and mentioned in query
+            if lowerTitle.count > 2 && lowerQuery.contains(lowerTitle) {
+                referencedTitles.append(item.title)
+            }
+        }
+
+        return referencedTitles
     }
 
     private func findMatchedText(in item: SearchableItem, queryWords: [String]) -> String {
