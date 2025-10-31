@@ -485,8 +485,6 @@ struct NoteEditView: View {
     @State private var extractedData: ExtractedData?
     @State private var showingExtractionSheet = false
     @State private var isProcessingFile = false
-    @State private var fileExtractionProgress: Double = 0.0
-    @State private var progressTimer: Timer?
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingReceipt || isGeneratingTitle || isProcessingFile
@@ -525,35 +523,19 @@ struct NoteEditView: View {
 
                 // Processing indicator - fixed above bottom buttons
                 if isProcessingReceipt || isProcessingFile {
-                    VStack(spacing: 8) {
-                        HStack {
-                            ShadcnSpinner(size: .small)
-                            if isProcessingFile {
-                                Text("Analyzing file...")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-
-                                Spacer()
-
-                                Text("\(Int(fileExtractionProgress))%")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                            } else {
-                                Text("Analyzing receipt...")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                            }
-                        }
-
-                        // Progress bar for file extraction
+                    HStack {
+                        ShadcnSpinner(size: .small)
                         if isProcessingFile {
-                            ProgressView(value: fileExtractionProgress / 100.0)
-                                .tint(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
-                                .frame(height: 4)
+                            Text("Analyzing file...")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                        } else {
+                            Text("Analyzing receipt...")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.bottom, 4)
                     .background(colorScheme == .dark ? Color.black : Color.white)
                     .zIndex(1)
                 }
@@ -1542,28 +1524,9 @@ struct NoteEditView: View {
     private func handleFileSelected(_ fileURL: URL) {
         Task {
             isProcessingFile = true
-            fileExtractionProgress = 0.0
-
-            // Start progress timer for simulated progress
-            progressTimer?.invalidate()
-            progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                if fileExtractionProgress < 90 {
-                    // Gradually increase progress, slowing down as it approaches 90%
-                    let increment = (90 - fileExtractionProgress) * 0.02
-                    fileExtractionProgress += max(0.5, increment)
-                }
-            }
 
             defer {
                 isProcessingFile = false
-                fileExtractionProgress = 100.0
-                progressTimer?.invalidate()
-                progressTimer = nil
-
-                // Keep showing 100% for a brief moment before hiding
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.fileExtractionProgress = 0.0
-                }
             }
 
             do {
@@ -1625,11 +1588,32 @@ struct NoteEditView: View {
                     HapticManager.shared.success()
                 }
 
-                // Wait a moment for extraction to complete, then load extracted data
-                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                // Poll for extracted data with retries (extraction happens asynchronously)
+                var extracted: ExtractedData? = nil
+                var retryCount = 0
+                let maxRetries = 30 // Max 30 retries
+                var waitInterval: UInt64 = 500_000_000 // Start with 0.5 seconds
 
-                // Load extracted data
-                if let extracted = try await AttachmentService.shared.loadExtractedData(for: uploadedAttachment.id) {
+                while extracted == nil && retryCount < maxRetries {
+                    retryCount += 1
+                    try await Task.sleep(nanoseconds: waitInterval)
+
+                    // Try to load extracted data
+                    extracted = try await AttachmentService.shared.loadExtractedData(for: uploadedAttachment.id)
+
+                    if extracted != nil {
+                        print("✅ Extracted data loaded after \(retryCount) attempt(s)")
+                        break
+                    }
+
+                    // Increase wait interval gradually (up to 2 seconds)
+                    if waitInterval < 2_000_000_000 {
+                        waitInterval = min(waitInterval + 200_000_000, 2_000_000_000)
+                    }
+                }
+
+                // Update UI with extracted data
+                if let extracted = extracted {
                     await MainActor.run {
                         self.extractedData = extracted
                         // Add extracted text to note body
@@ -1654,6 +1638,8 @@ struct NoteEditView: View {
                         }
                         self.showingExtractionSheet = true
                     }
+                } else {
+                    print("⚠️ Extraction data not available after all retries")
                 }
             } catch {
                 print("❌ File upload error: \(error.localizedDescription)")
