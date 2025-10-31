@@ -1030,6 +1030,8 @@ struct NoteEditView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(attachment != nil ? Color.blue : Color.clear, lineWidth: 1)
             )
+            .disabled(note == nil)
+            .opacity(note == nil ? 0.5 : 1.0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1514,9 +1516,21 @@ struct NoteEditView: View {
             defer { isProcessingFile = false }
 
             do {
+                // Check if note exists (must save note first before attaching files)
+                guard let currentNote = note else {
+                    print("❌ Please save the note first before adding attachments")
+                    await MainActor.run {
+                        HapticManager.shared.error()
+                    }
+                    return
+                }
+
                 // Start accessing the security-scoped resource
                 guard fileURL.startAccessingSecurityScopedResource() else {
                     print("❌ Cannot access file - permission denied")
+                    await MainActor.run {
+                        HapticManager.shared.error()
+                    }
                     return
                 }
 
@@ -1526,11 +1540,6 @@ struct NoteEditView: View {
                 let fileData = try Data(contentsOf: fileURL)
                 let fileName = fileURL.lastPathComponent
                 let fileType = fileURL.pathExtension
-
-                guard let currentNote = note else {
-                    print("❌ No note to attach file to")
-                    return
-                }
 
                 // Upload file and create attachment
                 let uploadedAttachment = try await AttachmentService.shared.uploadFileToNote(
