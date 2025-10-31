@@ -30,19 +30,18 @@ class AttachmentService: ObservableObject {
             throw NSError(domain: "AttachmentService", code: 2, userInfo: [NSLocalizedDescriptionKey: "File size exceeds 5MB limit"])
         }
 
-        // Sanitize filename for storage (remove special characters, replace spaces)
-        let sanitizedFileName = fileName
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "", options: .regularExpression)
-
-        // Generate unique storage path with sanitized filename
+        // Generate simple filename (same approach as image uploads)
         let timestamp = Int(Date().timeIntervalSince1970)
-        let storagePath = "\(userId.uuidString)/\(noteId.uuidString)_\(timestamp)_\(sanitizedFileName)"
+        let fileExtension = (fileName as NSString).pathExtension
+        let simpleFileName = "\(noteId.uuidString)_\(timestamp).\(fileExtension)"
 
-        // Upload to Supabase Storage
+        // Generate storage path
+        let storagePath = "\(userId.uuidString)/\(simpleFileName)"
+
+        // Upload to Supabase Storage (using same approach as image uploads with upsert: true)
         let storage = await SupabaseManager.shared.getStorageClient()
         print("📤 Uploading file: \(fileName)")
-        print("📤 Sanitized filename: \(sanitizedFileName)")
+        print("📤 Simple filename: \(simpleFileName)")
         print("📤 Storage path: \(storagePath)")
         print("📤 File size: \(fileData.count) bytes")
         print("📤 Bucket: \(attachmentStorageBucket)")
@@ -50,7 +49,14 @@ class AttachmentService: ObservableObject {
         do {
             try await storage
                 .from(attachmentStorageBucket)
-                .upload(storagePath, data: fileData, options: FileOptions(cacheControl: "3600"))
+                .upload(
+                    storagePath,
+                    data: fileData,
+                    options: FileOptions(
+                        cacheControl: "3600",
+                        upsert: true
+                    )
+                )
             print("✅ File uploaded successfully to Supabase Storage")
         } catch {
             print("❌ Upload to storage failed: \(error)")
