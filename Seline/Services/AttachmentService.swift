@@ -320,11 +320,22 @@ class AttachmentService: ObservableObject {
         // Remove italic markers (*)
         cleaned = cleaned.replacingOccurrences(of: "(?<!\\*)\\*(?!\\*)", with: "", options: .regularExpression)
 
-        // Remove heading markers (#)
-        cleaned = cleaned.replacingOccurrences(of: "^#+\\s*", with: "", options: [.regularExpression, .anchorsMatchLines])
+        // Remove heading markers (#) at start of lines
+        cleaned = cleaned.split(separator: "\n").map { line in
+            var trimmedLine = String(line)
+            // Remove # at the beginning
+            while trimmedLine.hasPrefix("#") {
+                trimmedLine = String(trimmedLine.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+            return trimmedLine
+        }.joined(separator: "\n")
 
-        // Remove horizontal rule markers (--)
-        cleaned = cleaned.replacingOccurrences(of: "^-{2,}$", with: "", options: [.regularExpression, .anchorsMatchLines])
+        // Remove horizontal rule markers (multiple dashes on their own line)
+        cleaned = cleaned.split(separator: "\n").filter { line in
+            let trimmed = String(line).trimmingCharacters(in: .whitespaces)
+            // Filter out lines that are just dashes (like --- or -----)
+            return !trimmed.allSatisfy { $0 == "-" } || trimmed.isEmpty
+        }.joined(separator: "\n")
 
         // Remove multiple spaces/cleanups
         cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
