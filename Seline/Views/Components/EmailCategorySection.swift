@@ -91,10 +91,10 @@ struct EmailCategorySection: View {
 
     private var countBadge: some View {
         Text("\(section.emailCount)")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 12, weight: .semibold))
             .foregroundColor(colorScheme == .dark ? .white : .black)
-            .frame(minWidth: 18, minHeight: 18)
-            .padding(.horizontal, 5)
+            .frame(minWidth: 24, minHeight: 24)
+            .padding(.horizontal, 6)
             .background(Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)))
     }
 

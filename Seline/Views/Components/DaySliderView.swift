@@ -41,13 +41,13 @@ struct DaySliderView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     ForEach(dateRange, id: \.self) { date in
                         dayButton(for: date)
                             .id(date)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 18)
                 .padding(.vertical, 2)
             }
             .onAppear {
@@ -79,7 +79,7 @@ struct DaySliderView: View {
         }) {
             VStack(spacing: 2) {
                 Text(dayName(date))
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(
                         isSelected(date) ? Color.white :
                         isToday(date) ? accentColor :
@@ -87,14 +87,14 @@ struct DaySliderView: View {
                     )
 
                 Text(dayNumber(date))
-                    .font(.system(size: 15, weight: isSelected(date) ? .semibold : .regular))
+                    .font(.system(size: 13, weight: isSelected(date) ? .semibold : .regular))
                     .foregroundColor(
                         isSelected(date) ? Color.white :
                         isToday(date) ? accentColor :
                         (colorScheme == .dark ? Color.white : Color.black)
                     )
             }
-            .frame(width: 50, height: 48)
+            .frame(width: 44, height: 44)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(isSelected(date) ? accentColor : Color.clear)

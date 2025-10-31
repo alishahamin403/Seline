@@ -44,17 +44,17 @@ struct AllDayEventsSection: View {
 
     var body: some View {
         if !allDayTasks.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 9) {
                         ForEach(allDayTasks) { task in
                             allDayEventCard(task: task)
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 18)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
             .background(Color.clear)
         }
     }
@@ -67,7 +67,7 @@ struct AllDayEventsSection: View {
             let taskColor = getTaskColor(task)
             let circleColor: Color = colorScheme == .dark ? Color.white : Color.black
 
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 // Completion checkbox
                 Button(action: {
                     HapticManager.shared.selection()
@@ -75,7 +75,7 @@ struct AllDayEventsSection: View {
                 }) {
                     let isCompleted = task.isCompletedOn(date: date)
                     Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(circleColor)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -83,7 +83,7 @@ struct AllDayEventsSection: View {
                 // Task title
                 let isCompleted = task.isCompletedOn(date: date)
                 Text(task.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(
                         colorScheme == .dark ? Color.white : Color.black
                     )
@@ -105,10 +105,10 @@ struct AllDayEventsSection: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 7)
                     .fill(
                         taskColor.opacity(colorScheme == .dark ? 0.2 : 0.15)
                     )

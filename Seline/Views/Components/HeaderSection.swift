@@ -18,7 +18,7 @@ struct HeaderSection: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                TextField("Search or ask for actions...", text: $searchText)
+                TextField("Search notes, emails, events...", text: $searchText)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .focused($isSearchFocused)
@@ -48,15 +48,16 @@ struct HeaderSection: View {
             )
             .cornerRadius(10)
 
-            // New conversation button
+            // AI-powered complex search button
             Button(action: {
                 onNewConversation?()
             }) {
-                Image(systemName: "plus.bubble.fill")
+                Image(systemName: "sparkles")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
             .buttonStyle(PlainButtonStyle())
+            .help("Ask AI for complex search")
 
             // Settings icon
             Button(action: {

@@ -81,7 +81,7 @@ struct TimelineEventBlock: View {
 
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // Completion status indicator
             Button(action: {
                 HapticManager.shared.selection()
@@ -90,14 +90,14 @@ struct TimelineEventBlock: View {
                 }
             }) {
                 Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundColor(circleColor)
             }
             .buttonStyle(PlainButtonStyle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(textColor)
                     .strikethrough(isCompleted, color: textColor.opacity(0.5))
                     .lineLimit(2)
@@ -109,23 +109,23 @@ struct TimelineEventBlock: View {
             // Email indicator if attached
             if task.hasEmailAttachment {
                 Image(systemName: "envelope.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundColor(circleColor.opacity(0.7))
             }
 
             // Recurring indicator
             if task.isRecurring {
                 Image(systemName: "repeat")
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundColor(circleColor.opacity(0.7))
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: displayHeight)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 7)
                 .fill(backgroundColor)
         )
         .clipped() // Prevent content from overflowing
