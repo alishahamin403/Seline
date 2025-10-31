@@ -796,7 +796,17 @@ struct NoteEditView: View {
                     FileChip(
                         attachment: attachment,
                         onTap: {
-                            showingExtractionSheet = true
+                            // Load extracted data when tapping attachment
+                            Task {
+                                if let extracted = try await AttachmentService.shared.loadExtractedData(for: attachment.id) {
+                                    await MainActor.run {
+                                        self.extractedData = extracted
+                                        self.showingExtractionSheet = true
+                                    }
+                                } else {
+                                    print("⚠️ No extracted data found for attachment")
+                                }
+                            }
                         },
                         onDelete: {
                             Task {
