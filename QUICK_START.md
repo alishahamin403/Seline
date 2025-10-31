@@ -15,14 +15,17 @@ Go to Supabase Dashboard → SQL Editor
 
 Copy and paste from `FILE_ATTACHMENT_IMPLEMENTATION.md` → "Database Schema" section
 
-### Step 2: Deploy Edge Function (5 min)
+### Step 2: Set Anthropic API Key (1 min)
+Option A - Add to shell profile:
 ```bash
-# Terminal in your project root
-supabase functions deploy extract-file-content
-
-# Set your Anthropic API key
-supabase secrets set ANTHROPIC_API_KEY="sk-ant-..."
+echo 'export ANTHROPIC_API_KEY="sk-ant-YOUR_KEY_HERE"' >> ~/.zshrc
+source ~/.zshrc
 ```
+
+Option B - Add to Xcode scheme:
+- Product → Scheme → Edit Scheme
+- Select Run → Pre-actions
+- Add shell script: `export ANTHROPIC_API_KEY="sk-ant-YOUR_KEY_HERE"`
 
 ### Step 3: Create SwiftUI Components
 Reference: `FILE_ATTACHMENT_UX_FLOW.md` → "Mobile-First Design"

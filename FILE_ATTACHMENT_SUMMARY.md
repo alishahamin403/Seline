@@ -41,8 +41,8 @@ This is a complete architectural foundation for uploading files to notes with in
 **Provides:**
 - File upload/download to Supabase Storage
 - Attachment record CRUD operations
+- Direct Claude API integration for extraction
 - Extracted data loading and updating
-- Edge Function triggering
 - Local caching of extracted data
 - 5MB size validation
 
@@ -57,24 +57,23 @@ downloadFile()              // Preview
 
 **Status:** Ready to use
 
-### 4. Edge Function (Complete)
-**Location:** `supabase/functions/extract-file-content/index.ts`
+### 4. Claude API Integration (Complete)
+**Location:** `Seline/Services/AttachmentService.swift` → `callClaudeForExtraction()` method
 
 **Workflow:**
-1. Receives file metadata
-2. Downloads file from storage
-3. Converts to Claude-compatible format
-4. Calls Claude API for extraction
-5. Stores extracted data in database
-6. Updates attachment with document type
+1. After file upload, converts to Claude-compatible format
+2. Calls Claude API directly via URLSession
+3. Parses JSON response from Claude
+4. Stores extracted data in database
+5. Updates attachment with document type
 
 **Supports:**
-- PDFs, images (via vision)
+- PDFs, images (via vision API)
 - CSVs, text files (raw text)
 - Auto-detection of document type
 - Type-specific extraction prompts
 
-**Status:** Ready to deploy (`supabase functions deploy extract-file-content`)
+**Status:** Ready to use (just set `ANTHROPIC_API_KEY` environment variable)
 
 ### 5. Updated Note Models
 **Location:** `Seline/Models/NoteModels.swift`
@@ -114,13 +113,19 @@ In Supabase Dashboard:
 
 **Time:** ~5 minutes
 
-#### 3. Deploy Edge Function
+#### 3. Set API Key (1 minute)
+Option A - Shell profile:
 ```bash
-supabase functions deploy extract-file-content
-supabase secrets set ANTHROPIC_API_KEY="sk-ant-..."
+echo 'export ANTHROPIC_API_KEY="sk-ant-YOUR_KEY"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-**Time:** ~5 minutes
+Option B - Xcode scheme:
+- Product → Scheme → Edit Scheme
+- Run → Pre-actions
+- Add: `export ANTHROPIC_API_KEY="sk-ant-YOUR_KEY"`
+
+**Time:** ~1 minute
 
 ### Short-term (Recommended)
 
