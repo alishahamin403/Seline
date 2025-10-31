@@ -1028,22 +1028,16 @@ class OpenAIService: ObservableObject {
         - Preserve the original meaning and all key information
         - Remove unnecessary repetition
         - Keep the same general length as the original
+        - ALWAYS maintain horizontal line format for structured data (pipe-delimited: Date | Description | Amount)
 
-        TABLE FORMATTING (CRITICAL):
-        When content contains structured data, ALWAYS format as a proper markdown table:
-        - Use tables for: comparisons, schedules, lists with multiple attributes, pros/cons, feature lists, item specifications, categorized data
-        - Table format: Use pipe symbols (|) to separate columns and hyphens (---) for header separator
-        - Example table format:
-
-        | Column 1 | Column 2 | Column 3 |
-        |----------|----------|----------|
-        | Data 1   | Data 2   | Data 3   |
-        | Data 4   | Data 5   | Data 6   |
-
-        - Recognize when information naturally fits a table structure (e.g., "Product A costs $10, Product B costs $20" → table with Product and Price columns)
-        - For schedules, use Day/Time/Activity columns
-        - For comparisons, use Feature/Option A/Option B columns
-        - For lists with attributes, use Item/Description/Details columns
+        STRUCTURED DATA FORMATTING (CRITICAL):
+        When content contains structured data like transactions, dates, amounts, etc.:
+        - KEEP pipe-delimited horizontal format (|): Date | Description | Amount | Balance
+        - Do NOT convert to markdown tables
+        - Do NOT use vertical table format
+        - Keep everything on a single horizontal line per entry
+        - Example: 2024-01-15 | Transfer Deposit | +$500.00 | $2,500.00
+        - Clean up only the text within each line, do not change the structure
 
         TODO LIST FORMATTING:
         When content contains action items, tasks, or checklists, format as markdown todo lists:

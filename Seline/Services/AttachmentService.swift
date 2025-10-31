@@ -366,16 +366,30 @@ class AttachmentService: ObservableObject {
         switch documentType {
         case "bank_statement":
             return base + """
-            Extract ALL information from this bank statement including:
-            - Complete header information (account holder, account number masked, statement period dates)
-            - Full opening and closing balances
-            - Complete list of ALL transactions with dates, descriptions, amounts, and running balances
-            - Total deposits and withdrawals
-            - All fees and charges with details
-            - Interest earned details
-            - Any notes or messages from the bank
+            Extract ONLY the transaction details from this bank statement. EXCLUDE all header information, account details, promotional messages, legal disclaimers, and notes.
 
-            Provide the FULL detailed text of all transactions, not a summary. Include every transaction listed in the statement.
+            Format the output as:
+            1. Summary section (one line each):
+               - Statement Period: [dates]
+               - Opening Balance: [amount]
+               - Closing Balance: [amount]
+
+            2. Individual Transactions (each on its own line):
+               Date | Description | Amount | Balance (if available)
+
+            CRITICAL INSTRUCTIONS:
+            - Extract EVERY transaction individually, one per line
+            - Each transaction line must have: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Do NOT group transactions by category
+            - Do NOT include headers, footers, or bank marketing messages
+            - Do NOT include account details or card numbers
+            - Do NOT include disclaimers or terms
+            - Do NOT create tables or complex formatting
+            - Simple pipe-delimited format ONLY
+            - Include deposit and withdrawal amounts with their signs (+ or -)
+            - Sort transactions by date (oldest to newest or as appears in statement)
+
+            Start directly with the summary, then list each transaction.
             """
 
         case "invoice":
