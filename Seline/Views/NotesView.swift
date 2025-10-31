@@ -1,5 +1,6 @@
 import SwiftUI
 import LocalAuthentication
+import UniformTypeIdentifiers
 
 struct NotesView: View, Searchable {
     @StateObject private var notesManager = NotesManager.shared
@@ -468,8 +469,8 @@ struct NoteEditView: View {
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
     @State private var showingImagePicker = false
     @State private var showingCameraPicker = false
-    @State private var showingImageOptions = false
-    @State private var showingReceiptOptions = false
+    @State private var showingAttachmentOptions = false
+    @State private var showingFileImporter = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
     @State private var imageAttachments: [UIImage] = []
@@ -630,24 +631,37 @@ struct NoteEditView: View {
                     }
             }
         }
-        .confirmationDialog("Add Image", isPresented: $showingImageOptions, titleVisibility: .visible) {
-            Button("Camera") {
+        .confirmationDialog("Add Attachment", isPresented: $showingAttachmentOptions, titleVisibility: .visible) {
+            Button("Picture") {
                 showingCameraPicker = true
             }
-            Button("Gallery") {
-                showingImagePicker = true
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .confirmationDialog("Add Receipt", isPresented: $showingReceiptOptions, titleVisibility: .visible) {
-            Button("Camera") {
+            Button("Receipt") {
                 showingReceiptCameraPicker = true
             }
-            Button("Gallery") {
-                showingReceiptImagePicker = true
+            Button("File") {
+                showingFileImporter = true
             }
             Button("Cancel", role: .cancel) {}
         }
+        .fileImporter(
+            isPresented: $showingFileImporter,
+            allowedContentTypes: [
+                .pdf,
+                .image,
+                .plainText,
+                .commaSeparatedText,
+                UTType(filenameExtension: "csv") ?? .plainText,
+                UTType(filenameExtension: "xlsx") ?? .spreadsheet
+            ],
+            onCompletion: { result in
+                switch result {
+                case .success(let url):
+                    handleFileSelected(url)
+                case .failure(let error):
+                    print("❌ File picker error: \(error.localizedDescription)")
+                }
+            }
+        )
         .sheet(isPresented: $showingExtractionSheet) {
             if let extractedData = extractedData {
                 ExtractionDetailSheet(
@@ -954,25 +968,45 @@ struct NoteEditView: View {
             )
             .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            // Todo list button - creates interactive todo list
+            // Spacer
             Spacer()
 
-            // Attachments button - shows count if any
+            // Single attachment button - opens menu with picture/receipt/file options
             Button(action: {
                 HapticManager.shared.buttonTap()
-                if !imageAttachments.isEmpty {
-                    showingAttachmentsSheet = true
-                }
+                showingAttachmentOptions = true
             }) {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 40, height: 36)
+                Image(systemName: "paperclip")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+            .disabled(note == nil)
+            .opacity(note == nil ? 0.5 : 1.0)
 
-                    // Badge showing attachment count
+            // View attachments button - only shows if there are images or files
+            if !imageAttachments.isEmpty || attachment != nil {
+                Button(action: {
+                    HapticManager.shared.buttonTap()
                     if !imageAttachments.isEmpty {
-                        Text("\(imageAttachments.count)")
+                        showingAttachmentsSheet = true
+                    } else if attachment != nil {
+                        showingExtractionSheet = true
+                    }
+                }) {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "eye")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .frame(width: 40, height: 36)
+
+                        // Badge showing total attachment count
+                        let totalCount = imageAttachments.count + (attachment != nil ? 1 : 0)
+                        Text("\(totalCount)")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .frame(width: 16, height: 16)
@@ -980,58 +1014,11 @@ struct NoteEditView: View {
                             .offset(x: 8, y: -4)
                     }
                 }
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                )
             }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-            .opacity(imageAttachments.isEmpty ? 0.5 : 1.0)
-
-            // Gallery button - quick image attach without AI
-            Button(action: {
-                HapticManager.shared.imageAttachment()
-                showingImageOptions = true
-            }) {
-                Image(systemName: "photo")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-
-            // Receipt button with AI processing options
-            Button(action: {
-                HapticManager.shared.imageAttachment()
-                showingReceiptOptions = true
-            }) {
-                Image(systemName: "doc.text.image")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-
-            // File attachment button - for documents (statements, invoices, etc)
-            FilePickerButton { fileURL in
-                handleFileSelected(fileURL)
-            }
-            .frame(width: 40, height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(attachment != nil ? Color.blue : Color.clear, lineWidth: 1)
-            )
-            .disabled(note == nil)
-            .opacity(note == nil ? 0.5 : 1.0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
