@@ -1,6 +1,7 @@
 import SwiftUI
 import LocalAuthentication
 import UniformTypeIdentifiers
+import PDFKit
 
 struct NotesView: View, Searchable {
     @StateObject private var notesManager = NotesManager.shared
@@ -1560,34 +1561,6 @@ struct NoteEditView: View {
             }
 
             do {
-                // If note doesn't exist yet, create and save it first
-                var currentNote = note
-                if currentNote == nil {
-                    let contentToSave = convertAttributedContentToText()
-                    let noteTitle = title.isEmpty ? "Untitled" : title
-
-                    // Create new note
-                    currentNote = Note(title: noteTitle, content: contentToSave, folderId: selectedFolderId)
-                    if var newNote = currentNote {
-                        newNote.isLocked = noteIsLocked
-                        await MainActor.run {
-                            notesManager.addNote(newNote)
-                        }
-
-                        // Wait for note to sync to Supabase before attaching file
-                        // This ensures the note exists in the database for foreign key constraint
-                        try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
-                    }
-                }
-
-                guard let noteToAttachTo = currentNote else {
-                    print("❌ Failed to create or find note for attachment")
-                    await MainActor.run {
-                        HapticManager.shared.error()
-                    }
-                    return
-                }
-
                 // Start accessing the security-scoped resource
                 guard fileURL.startAccessingSecurityScopedResource() else {
                     print("❌ Cannot access file - permission denied")
@@ -1602,84 +1575,241 @@ struct NoteEditView: View {
                 // Get file data
                 let fileData = try Data(contentsOf: fileURL)
                 let fileName = fileURL.lastPathComponent
-                let fileType = fileURL.pathExtension
 
-                // Upload file and create attachment
-                let uploadedAttachment = try await AttachmentService.shared.uploadFileToNote(
-                    fileData,
-                    fileName: fileName,
-                    fileType: fileType,
-                    noteId: noteToAttachTo.id
+                print("📄 Processing file: \(fileName)")
+                print("📄 File size: \(fileData.count) bytes")
+
+                // Extract text from file
+                let fileContent = extractTextFromFile(fileData, fileName: fileName)
+                print("✅ Extracted \(fileContent.count) characters from file")
+
+                // Detect document type
+                let documentType = detectDocumentType(fileName)
+
+                // Build extraction prompt
+                let prompt = buildExtractionPrompt(fileName: fileName, documentType: documentType)
+
+                // Call OpenAI to process the text
+                print("🤖 Processing with OpenAI...")
+                let openAIService = OpenAIService.shared
+                let processedText = try await openAIService.extractDetailedDocumentContent(
+                    fileContent,
+                    withPrompt: prompt,
+                    fileName: fileName
                 )
 
-                // Update local state
+                print("✅ OpenAI processing complete")
+
+                // Clean markdown symbols
+                let cleanedText = cleanMarkdownSymbols(processedText)
+
+                // Add to note body
                 await MainActor.run {
-                    self.attachment = uploadedAttachment
+                    if self.content.isEmpty {
+                        self.content = cleanedText
+                    } else {
+                        self.content = self.content + "\n\n" + cleanedText
+                    }
+
+                    // Update attributed content
+                    let newAttrString = NSMutableAttributedString(attributedString: self.attributedContent)
+                    let textToAdd = NSAttributedString(
+                        string: (self.attributedContent.length > 0 ? "\n\n" : "") + cleanedText,
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                            .foregroundColor: self.colorScheme == .dark ? UIColor.white : UIColor.black
+                        ]
+                    )
+                    newAttrString.append(textToAdd)
+                    self.attributedContent = newAttrString
+
+                    print("✅ File content added to note")
                     HapticManager.shared.success()
                 }
 
-                // Poll for extracted data with retries (extraction happens asynchronously)
-                var extracted: ExtractedData? = nil
-                var retryCount = 0
-                let maxRetries = 60 // Max 60 retries for large file extractions
-                var waitInterval: UInt64 = 1_000_000_000 // Start with 1 second
-
-                while extracted == nil && retryCount < maxRetries {
-                    retryCount += 1
-                    try await Task.sleep(nanoseconds: waitInterval)
-
-                    // Try to load extracted data
-                    extracted = try await AttachmentService.shared.loadExtractedData(for: uploadedAttachment.id)
-
-                    if extracted != nil {
-                        print("✅ Extracted data loaded after \(retryCount) attempt(s) - Total wait: ~\(retryCount)s")
-                        break
-                    }
-
-                    // Show progress every 10 retries
-                    if retryCount % 10 == 0 {
-                        print("⏳ Still waiting for extraction... attempt \(retryCount)/\(maxRetries)")
-                    }
-
-                    // Increase wait interval gradually (up to 3 seconds)
-                    if waitInterval < 3_000_000_000 {
-                        waitInterval = min(waitInterval + 200_000_000, 3_000_000_000)
-                    }
-                }
-
-                // Update UI with extracted data
-                if let extracted = extracted {
-                    await MainActor.run {
-                        self.extractedData = extracted
-                        // Add extracted text to note body
-                        if let rawText = extracted.rawText, !rawText.isEmpty {
-                            // Add the extracted text to the note content
-                            if self.content.isEmpty {
-                                self.content = rawText
-                            } else {
-                                self.content = self.content + "\n\n" + rawText
-                            }
-                            // Update attributed content
-                            let newAttrString = NSMutableAttributedString(attributedString: self.attributedContent)
-                            let textToAdd = NSAttributedString(
-                                string: (self.attributedContent.length > 0 ? "\n\n" : "") + rawText,
-                                attributes: [
-                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                                    .foregroundColor: self.colorScheme == .dark ? UIColor.white : UIColor.black
-                                ]
-                            )
-                            newAttrString.append(textToAdd)
-                            self.attributedContent = newAttrString
-                        }
-                        self.showingExtractionSheet = true
-                    }
-                } else {
-                    print("⚠️ Extraction data not available after all retries")
-                }
             } catch {
-                print("❌ File upload error: \(error.localizedDescription)")
-                HapticManager.shared.error()
+                print("❌ File processing error: \(error.localizedDescription)")
+                await MainActor.run {
+                    HapticManager.shared.error()
+                }
             }
+        }
+    }
+
+    /// Extract text from file (moved from AttachmentService)
+    private func extractTextFromFile(_ fileData: Data, fileName: String) -> String {
+        let fileExtension = (fileName as NSString).pathExtension.lowercased()
+
+        switch fileExtension {
+        case "txt", "csv", "json", "xml", "log":
+            if let textContent = String(data: fileData, encoding: .utf8) {
+                return textContent
+            }
+            if let textContent = String(data: fileData, encoding: .isoLatin1) {
+                return textContent
+            }
+            return "[File could not be converted to text.]"
+
+        case "pdf":
+            if let pdfDocument = PDFDocument(data: fileData) {
+                var extractedText = ""
+                let pageCount = pdfDocument.pageCount
+
+                for pageIndex in 0..<pageCount {
+                    if let page = pdfDocument.page(at: pageIndex) {
+                        if let pageText = page.string {
+                            extractedText += "--- Page \(pageIndex + 1) ---\n"
+                            extractedText += pageText
+                            extractedText += "\n\n"
+                        }
+                    }
+                }
+
+                if !extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return extractedText
+                }
+            }
+            return "[PDF file found but contains no extractable text.]"
+
+        default:
+            if let textContent = String(data: fileData, encoding: .utf8) {
+                let cleaned = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty && cleaned.count > 20 {
+                    return cleaned
+                }
+            }
+            return "[File type not supported for text extraction.]"
+        }
+    }
+
+    /// Clean markdown symbols (moved from AttachmentService)
+    private func cleanMarkdownSymbols(_ text: String) -> String {
+        var cleaned = text
+
+        // Remove bold markers (**)
+        cleaned = cleaned.replacingOccurrences(of: "\\*\\*", with: "", options: .regularExpression)
+
+        // Remove italic markers (*)
+        cleaned = cleaned.replacingOccurrences(of: "(?<!\\*)\\*(?!\\*)", with: "", options: .regularExpression)
+
+        // Remove heading markers (#) at start of lines
+        cleaned = cleaned.split(separator: "\n").map { line in
+            var trimmedLine = String(line)
+            while trimmedLine.hasPrefix("#") {
+                trimmedLine = String(trimmedLine.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+            return trimmedLine
+        }.joined(separator: "\n")
+
+        // Remove horizontal rule markers (multiple dashes on their own line)
+        cleaned = cleaned.split(separator: "\n").filter { line in
+            let trimmed = String(line).trimmingCharacters(in: .whitespaces)
+            return !trimmed.allSatisfy { $0 == "-" } || trimmed.isEmpty
+        }.joined(separator: "\n")
+
+        // Remove multiple spaces/cleanups
+        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Detect document type (moved from AttachmentService)
+    private func detectDocumentType(_ fileName: String) -> String {
+        let lower = fileName.lowercased()
+        if lower.contains("bank") || lower.contains("statement") || lower.contains("account") {
+            return "bank_statement"
+        } else if lower.contains("invoice") || lower.contains("bill") {
+            return "invoice"
+        } else if lower.contains("receipt") || lower.contains("order") {
+            return "receipt"
+        }
+        return "document"
+    }
+
+    /// Build extraction prompt (moved from AttachmentService)
+    private func buildExtractionPrompt(fileName: String, documentType: String) -> String {
+        let base = "Extract the complete detailed content from the following \(documentType) file named \(fileName). Provide comprehensive text that captures all information, not just a summary.\n\n"
+
+        switch documentType {
+        case "bank_statement":
+            return base + """
+            Extract ONLY the transaction details from this bank statement. EXCLUDE all header information, account details, promotional messages, legal disclaimers, and notes.
+
+            FORMAT INSTRUCTIONS (CRITICAL):
+            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO --, NO #, NO * formatting
+            - Use simple text formatting only
+            - Never use markdown special characters
+
+            Output format:
+            1. Summary section (plain text):
+               Statement Period: [dates]
+               Opening Balance: [amount]
+               Closing Balance: [amount]
+
+            2. Individual Transactions (each on its own line):
+               Date | Description | Amount | Balance (if available)
+
+            CRITICAL INSTRUCTIONS:
+            - Extract EVERY transaction individually, one per line
+            - Each transaction line must have: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Do NOT group transactions by category
+            - Do NOT include headers, footers, or bank marketing messages
+            - Do NOT include account details or card numbers
+            - Do NOT include disclaimers or terms
+            - Do NOT create tables or complex formatting
+            - Simple pipe-delimited format ONLY
+            - Include deposit and withdrawal amounts with their signs (+ or -)
+            - Sort transactions by date (oldest to newest or as appears in statement)
+            - NO MARKDOWN FORMATTING - Plain text only
+
+            Start directly with the summary, then list each transaction.
+            """
+
+        case "invoice":
+            return base + """
+            Extract ALL information from this invoice including:
+            - Complete vendor/seller information
+            - Invoice number, date, and due date
+            - Complete bill-to and ship-to addresses
+            - EVERY line item with full description, quantity, unit price, and total price
+            - Subtotal amount
+            - All taxes and tax details
+            - All fees and charges with descriptions
+            - Total amount due
+            - Payment terms and methods
+            - Any notes, terms, or special instructions
+
+            Provide complete detailed text of ALL line items, not a summary.
+            """
+
+        case "receipt":
+            return base + """
+            Extract ALL information from this receipt including:
+            - Complete merchant information (name, address, phone, website if available)
+            - Transaction date and time
+            - Receipt/transaction number
+            - EVERY item purchased with full description, quantity, and individual price
+            - Subtotal amount
+            - Tax amount and tax details
+            - Total paid
+            - Payment method used
+            - Cashier/register information if available
+            - Any loyalty program or promotional information
+            - Return policy or other notes
+
+            Provide complete detailed text of ALL items purchased, not a summary.
+            """
+
+        default:
+            return base + """
+            Extract the COMPLETE detailed content and all information from this document. Include:
+            - All text content in a structured format
+            - All sections and subsections
+            - All data, numbers, and values
+            - All important details and information
+
+            Provide comprehensive extraction of all content, not a summary or highlights only.
+            """
         }
     }
 
