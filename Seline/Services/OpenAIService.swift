@@ -1019,6 +1019,18 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
+        // Support up to 36000 characters (triple the standard limit)
+        let maxContentLength = 36000
+        let processedText: String
+
+        if text.count > maxContentLength {
+            // Truncate with a note to the user
+            let truncated = String(text.prefix(maxContentLength))
+            processedText = truncated + "\n\n[... text truncated due to length, remaining content not shown ...]"
+        } else {
+            processedText = text
+        }
+
         let systemPrompt = """
         You are an assistant that cleans up and organizes messy text while PRESERVING ALL INFORMATION.
 
@@ -1062,7 +1074,7 @@ class OpenAIService: ObservableObject {
         Clean up and organize this text. Keep EVERY piece of information, fact, number, and detail. Improve grammar, flow, and organization, but do NOT delete or condense anything.
 
         Text to clean up:
-        \(text)
+        \(processedText)
         """
 
         let requestBody: [String: Any] = [
@@ -1071,7 +1083,7 @@ class OpenAIService: ObservableObject {
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userPrompt]
             ],
-            "max_tokens": 2000,
+            "max_tokens": 5000,
             "temperature": 0.2
         ]
 
