@@ -288,11 +288,16 @@ class AttachmentService: ObservableObject {
             let client = await SupabaseManager.shared.getPostgrestClient()
 
             print("💾 Saving extracted data to database...")
-            try await client
-                .from("extracted_data")
-                .insert(extractedDataRecord)
-                .execute()
-            print("✅ Extracted data saved successfully")
+            do {
+                try await client
+                    .from("extracted_data")
+                    .insert(extractedDataRecord)
+                    .execute()
+                print("✅ Extracted data saved successfully")
+            } catch {
+                print("❌ EXTRACTED_DATA INSERT FAILED: \(error)")
+                throw error
+            }
 
             // Update attachment with document type
             let updateData: [String: PostgREST.AnyJSON] = [
@@ -301,11 +306,17 @@ class AttachmentService: ObservableObject {
             ]
 
             print("🔄 Updating attachment record...")
-            try await client
-                .from("attachments")
-                .update(updateData)
-                .eq("id", value: attachment.id.uuidString)
-                .execute()
+            do {
+                try await client
+                    .from("attachments")
+                    .update(updateData)
+                    .eq("id", value: attachment.id.uuidString)
+                    .execute()
+                print("✅ Attachment updated successfully")
+            } catch {
+                print("❌ ATTACHMENTS UPDATE FAILED: \(error)")
+                // Don't throw - attachment is already created, update failure isn't critical
+            }
 
             print("✅ Successfully extracted data from \(fileName) as \(documentType)")
 
