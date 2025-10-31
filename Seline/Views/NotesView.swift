@@ -1514,7 +1514,6 @@ struct NoteEditView: View {
                         newNote.isLocked = noteIsLocked
                         await MainActor.run {
                             notesManager.addNote(newNote)
-                            self.note = newNote
                         }
 
                         // Wait for note to sync to Supabase before attaching file
