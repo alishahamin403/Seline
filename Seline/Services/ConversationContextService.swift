@@ -1,8 +1,9 @@
 import Foundation
+import Combine
 
 /// Tracks conversation context including recent searches, topics, and user intent
 /// to improve search results and provide better contextual understanding
-class ConversationContextService {
+class ConversationContextService: ObservableObject {
     static let shared = ConversationContextService()
 
     private init() {}
