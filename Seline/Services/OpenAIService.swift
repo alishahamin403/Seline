@@ -1019,8 +1019,8 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
-        // Support up to 36000 characters (triple the standard limit)
-        let maxContentLength = 36000
+        // Support up to 24000 characters (more realistic for cleanup)
+        let maxContentLength = 24000
         let processedText: String
 
         if text.count > maxContentLength {
@@ -1083,11 +1083,12 @@ class OpenAIService: ObservableObject {
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userPrompt]
             ],
-            "max_tokens": 5000,
+            "max_tokens": 3000,
             "temperature": 0.2
         ]
 
-        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+        // Use extended timeout for cleanup (120 seconds / 2 minutes)
+        return try await makeOpenAIRequest(url: url, requestBody: requestBody, timeoutInterval: 120)
     }
 
     func convertToBulletPoints(_ text: String) async throws -> String {
@@ -1203,11 +1204,12 @@ class OpenAIService: ObservableObject {
     }
 
     // Helper function to make OpenAI API requests
-    private func makeOpenAIRequest(url: URL, requestBody: [String: Any]) async throws -> String {
+    private func makeOpenAIRequest(url: URL, requestBody: [String: Any], timeoutInterval: TimeInterval = 60) async throws -> String {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = timeoutInterval
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
