@@ -469,7 +469,6 @@ struct NoteEditView: View {
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
     @State private var showingImagePicker = false
     @State private var showingCameraPicker = false
-    @State private var showingAttachmentOptions = false
     @State private var showingFileImporter = false
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
@@ -630,18 +629,6 @@ struct NoteEditView: View {
                         }
                     }
             }
-        }
-        .confirmationDialog("Add Attachment", isPresented: $showingAttachmentOptions, titleVisibility: .visible) {
-            Button("Picture") {
-                showingCameraPicker = true
-            }
-            Button("Receipt") {
-                showingReceiptCameraPicker = true
-            }
-            Button("File") {
-                showingFileImporter = true
-            }
-            Button("Cancel", role: .cancel) {}
         }
         .fileImporter(
             isPresented: $showingFileImporter,
@@ -971,11 +958,25 @@ struct NoteEditView: View {
             // Spacer
             Spacer()
 
-            // Single attachment button - opens menu with picture/receipt/file options
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                showingAttachmentOptions = true
-            }) {
+            // Attachment menu button
+            Menu {
+                Button("Picture from Gallery") {
+                    showingImagePicker = true
+                }
+
+                Menu("Receipt") {
+                    Button("Camera") {
+                        showingReceiptCameraPicker = true
+                    }
+                    Button("Gallery") {
+                        showingReceiptImagePicker = true
+                    }
+                }
+
+                Button("File") {
+                    showingFileImporter = true
+                }
+            } label: {
                 Image(systemName: "paperclip")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
@@ -985,8 +986,6 @@ struct NoteEditView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
             )
-            .disabled(note == nil)
-            .opacity(note == nil ? 0.5 : 1.0)
 
             // View attachments button - only shows if there are images or files
             if !imageAttachments.isEmpty || attachment != nil {
