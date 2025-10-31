@@ -14,6 +14,7 @@ struct Note: Identifiable, Codable, Hashable {
     var folderId: UUID?
     var isLocked: Bool
     var imageUrls: [String] // Store image URLs from Supabase Storage
+    var attachmentId: UUID? // Single file attachment per note (for documents like bank statements, invoices)
 
     // Temporary compatibility - will be removed after migration
     var imageAttachments: [Data] {
@@ -254,6 +255,7 @@ class NotesManager: ObservableObject {
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
+            "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray)
         ]
 
@@ -374,6 +376,7 @@ class NotesManager: ObservableObject {
             "date_modified": .string(formatter.string(from: note.dateModified)),
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
+            "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
             "image_attachments": .array(imageUrlsArray)
         ]
 
@@ -1532,6 +1535,9 @@ class NotesManager: ObservableObject {
         if let folderIdString = data.folder_id {
             note.folderId = UUID(uuidString: folderIdString)
         }
+        if let attachmentIdString = data.attachment_id {
+            note.attachmentId = UUID(uuidString: attachmentIdString)
+        }
         // Store image URLs directly - no download!
         note.imageUrls = data.image_attachments ?? []
 
@@ -2090,10 +2096,11 @@ struct NoteSupabaseData: Codable {
     let date_modified: String
     let is_pinned: Bool
     let folder_id: String?
+    let attachment_id: String? // Single file attachment
     let image_attachments: [String]? // Array of image URLs from JSONB
 
     enum CodingKeys: String, CodingKey {
-        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, image_attachments
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments
     }
 
     init(from decoder: Decoder) throws {
@@ -2107,6 +2114,7 @@ struct NoteSupabaseData: Codable {
         date_modified = try container.decode(String.self, forKey: .date_modified)
         is_pinned = try container.decode(Bool.self, forKey: .is_pinned)
         folder_id = try container.decodeIfPresent(String.self, forKey: .folder_id)
+        attachment_id = try container.decodeIfPresent(String.self, forKey: .attachment_id)
 
         // Handle both string (old format) and array (new format) for image_attachments
         if let attachmentsArray = try? container.decodeIfPresent([String].self, forKey: .image_attachments) {
