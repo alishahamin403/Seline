@@ -15,6 +15,11 @@ class OpenAIService: ObservableObject {
     private let minimumRequestInterval: TimeInterval = 2.0 // 2 seconds between requests
 
     // Cache properties for response optimization
+    // Embedding cache: store embeddings to avoid repeated API calls
+    private var embeddingCache: [String: [Float]] = [:]
+    private let embeddingModel = "text-embedding-3-small" // Faster, cheaper model
+    private let embeddingsBaseURL = "https://api.openai.com/v1/embeddings"
+
     private init() {}
 
     enum SummaryError: Error, LocalizedError {
@@ -2146,6 +2151,123 @@ class OpenAIService: ObservableObject {
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }
+
+    // MARK: - Semantic Similarity & Embeddings
+
+    /// Get embedding vector for text using OpenAI API
+    /// Caches results to avoid repeated API calls
+    func getEmbedding(for text: String) async throws -> [Float] {
+        let normalizedText = text.lowercased().trimmingCharacters(in: .whitespaces)
+
+        // Check cache first
+        if let cached = embeddingCache[normalizedText] {
+            return cached
+        }
+
+        guard let url = URL(string: embeddingsBaseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let requestBody: [String: Any] = [
+            "input": normalizedText,
+            "model": embeddingModel
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            throw SummaryError.apiError("Failed to serialize embedding request")
+        }
+
+        request.httpBody = jsonData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SummaryError.networkError(NSError(domain: "OpenAI", code: -1))
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw SummaryError.apiError("Embedding API error: \(httpResponse.statusCode) - \(errorMessage)")
+        }
+
+        let decoder = JSONDecoder()
+        let embeddingResponse = try decoder.decode(EmbeddingResponse.self, from: data)
+
+        guard let embedding = embeddingResponse.data.first?.embedding else {
+            throw SummaryError.decodingError
+        }
+
+        // Cache the result
+        embeddingCache[normalizedText] = embedding
+
+        return embedding
+    }
+
+    /// Calculate cosine similarity between two embedding vectors
+    /// Returns a value between 0 and 1, where 1 is identical meaning
+    private func cosineSimilarity(_ vector1: [Float], _ vector2: [Float]) -> Float {
+        guard vector1.count == vector2.count, !vector1.isEmpty else {
+            return 0.0
+        }
+
+        var dotProduct: Float = 0.0
+        var magnitude1: Float = 0.0
+        var magnitude2: Float = 0.0
+
+        for i in 0..<vector1.count {
+            dotProduct += vector1[i] * vector2[i]
+            magnitude1 += vector1[i] * vector1[i]
+            magnitude2 += vector2[i] * vector2[i]
+        }
+
+        magnitude1 = sqrt(magnitude1)
+        magnitude2 = sqrt(magnitude2)
+
+        guard magnitude1 > 0, magnitude2 > 0 else {
+            return 0.0
+        }
+
+        return dotProduct / (magnitude1 * magnitude2)
+    }
+
+    /// Calculate semantic similarity score between a query and content
+    /// Returns a score between 0 and 10 for consistent ranking with other scoring methods
+    func getSemanticSimilarityScore(query: String, content: String) async throws -> Double {
+        let queryEmbedding = try await getEmbedding(for: query)
+        let contentEmbedding = try await getEmbedding(for: content)
+
+        let similarity = cosineSimilarity(queryEmbedding, contentEmbedding)
+
+        // Scale to 0-10 range to match other scoring methods
+        // Values above 0.5 cosine similarity are considered meaningful matches
+        return Double(similarity) * 10.0
+    }
+
+    /// Batch get semantic similarity scores for multiple items
+    /// More efficient than calling getSemanticSimilarityScore multiple times
+    func getSemanticSimilarityScores(
+        query: String,
+        contents: [(id: String, text: String)]
+    ) async throws -> [String: Double] {
+        var results: [String: Double] = [:]
+
+        // Get query embedding once
+        let queryEmbedding = try await getEmbedding(for: query)
+
+        // Get all content embeddings in parallel where possible
+        for (id, text) in contents {
+            let contentEmbedding = try await getEmbedding(for: text)
+            let similarity = cosineSimilarity(queryEmbedding, contentEmbedding)
+            results[id] = Double(similarity) * 10.0
+        }
+
+        return results
+    }
 }
 
 // MARK: - Response Models (for future use if needed)
@@ -2159,6 +2281,17 @@ struct OpenAIChoice: Codable {
 
 struct OpenAIMessage: Codable {
     let content: String
+}
+
+// MARK: - Embedding Response Models
+struct EmbeddingResponse: Codable {
+    let data: [EmbeddingData]
+    let model: String
+}
+
+struct EmbeddingData: Codable {
+    let embedding: [Float]
+    let index: Int
 }
 
 // MARK: - String Extension for Pattern Matching

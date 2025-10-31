@@ -1344,25 +1344,68 @@ class SearchService: ObservableObject {
         // Extract related items from the query (if user searches for something, find related items)
         let relatedItemTitles = extractReferencedItemTitles(from: query)
 
-        return cachedContent.compactMap { item in
+        var results: [SearchResult] = []
+
+        // Get semantic similarity scores for all items
+        let semanticScores = await getSemanticSimilarityScores(query: query, for: cachedContent)
+
+        for item in cachedContent {
             let searchText = item.searchText.lowercased()
-            let score = calculateRelevanceScore(
+            let keywordScore = calculateRelevanceScore(
                 searchText: searchText,
                 queryWords: queryWords,
                 item: item,
                 relatedItemTitles: relatedItemTitles
             )
 
-            if score > 0 {
+            // Get semantic score for this item
+            let semanticScore = semanticScores[item.identifier] ?? 0.0
+
+            // Combine keyword matching and semantic similarity
+            // Weight: 70% keyword-based, 30% semantic similarity
+            // This allows weird sentences to still match through semantic understanding
+            let combinedScore = (keywordScore * 0.7) + (semanticScore * 0.3)
+
+            if combinedScore > 0 {
                 let matchedText = findMatchedText(in: item, queryWords: queryWords)
-                return SearchResult(
+                results.append(SearchResult(
                     item: item,
-                    relevanceScore: score,
+                    relevanceScore: combinedScore,
                     matchedText: matchedText
-                )
+                ))
             }
-            return nil
         }
+
+        // Sort by combined score
+        return results.sorted { $0.relevanceScore > $1.relevanceScore }
+    }
+
+    /// Get semantic similarity scores for all items in parallel
+    private func getSemanticSimilarityScores(
+        query: String,
+        for items: [SearchableItem]
+    ) async -> [String: Double] {
+        var scores: [String: Double] = [:]
+
+        // Process items in batches to avoid overwhelming the API
+        let batchSize = 5
+        for i in stride(from: 0, to: items.count, by: batchSize) {
+            let batch = Array(items[i..<min(i + batchSize, items.count)])
+            let batchItems = batch.map { ($0.identifier, $0.searchText) }
+
+            do {
+                let batchScores = try await OpenAIService.shared.getSemanticSimilarityScores(
+                    query: query,
+                    contents: batchItems
+                )
+                scores.merge(batchScores) { _, new in new }
+            } catch {
+                print("⚠️ Error getting semantic scores: \(error)")
+                // Fallback: return zero scores, keyword matching will still work
+            }
+        }
+
+        return scores
     }
 
     private func calculateRelevanceScore(
