@@ -833,6 +833,7 @@ struct NoteEditView: View {
     private var imageAttachmentsView: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 16) {
+                // Image attachments
                 ForEach(imageAttachments.indices, id: \.self) { index in
                     VStack(alignment: .leading, spacing: 8) {
                         // Image
@@ -849,7 +850,7 @@ struct NoteEditView: View {
                         // Delete button
                         Button(action: {
                             imageAttachments.remove(at: index)
-                            if imageAttachments.isEmpty {
+                            if imageAttachments.isEmpty && attachment == nil {
                                 showingAttachmentsSheet = false
                             }
                         }) {
@@ -867,6 +868,39 @@ struct NoteEditView: View {
                                     .fill(Color.red.opacity(0.1))
                             )
                         }
+                    }
+                }
+
+                // File attachment
+                if let attachment = attachment {
+                    VStack(alignment: .leading, spacing: 8) {
+                        // File chip as tappable item
+                        FileChip(
+                            attachment: attachment,
+                            onTap: {
+                                Task {
+                                    if let extracted = try await AttachmentService.shared.loadExtractedData(for: attachment.id) {
+                                        await MainActor.run {
+                                            self.extractedData = extracted
+                                            self.showingExtractionSheet = true
+                                        }
+                                    }
+                                }
+                            },
+                            onDelete: {
+                                Task {
+                                    try await AttachmentService.shared.deleteAttachment(attachment)
+                                    await MainActor.run {
+                                        self.attachment = nil
+                                        self.extractedData = nil
+                                        if imageAttachments.isEmpty {
+                                            showingAttachmentsSheet = false
+                                        }
+                                        HapticManager.shared.success()
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -1552,6 +1586,26 @@ struct NoteEditView: View {
                 if let extracted = try await AttachmentService.shared.loadExtractedData(for: uploadedAttachment.id) {
                     await MainActor.run {
                         self.extractedData = extracted
+                        // Add extracted text to note body
+                        if let rawText = extracted.rawText, !rawText.isEmpty {
+                            // Add the extracted text to the note content
+                            if self.content.isEmpty {
+                                self.content = rawText
+                            } else {
+                                self.content = self.content + "\n\n" + rawText
+                            }
+                            // Update attributed content
+                            let newAttrString = NSMutableAttributedString(attributedString: self.attributedContent)
+                            let textToAdd = NSAttributedString(
+                                string: (self.attributedContent.length > 0 ? "\n\n" : "") + rawText,
+                                attributes: [
+                                    .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                                    .foregroundColor: self.colorScheme == .dark ? UIColor.white : UIColor.black
+                                ]
+                            )
+                            newAttrString.append(textToAdd)
+                            self.attributedContent = newAttrString
+                        }
                         self.showingExtractionSheet = true
                     }
                 }
