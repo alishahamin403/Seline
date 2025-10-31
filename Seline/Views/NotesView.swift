@@ -790,40 +790,6 @@ struct NoteEditView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
-            // File attachment chip (if attached)
-            if let attachment = attachment {
-                VStack(alignment: .leading, spacing: 8) {
-                    FileChip(
-                        attachment: attachment,
-                        onTap: {
-                            // Load extracted data when tapping attachment
-                            Task {
-                                if let extracted = try await AttachmentService.shared.loadExtractedData(for: attachment.id) {
-                                    await MainActor.run {
-                                        self.extractedData = extracted
-                                        self.showingExtractionSheet = true
-                                    }
-                                } else {
-                                    print("⚠️ No extracted data found for attachment")
-                                }
-                            }
-                        },
-                        onDelete: {
-                            Task {
-                                try await AttachmentService.shared.deleteAttachment(attachment)
-                                await MainActor.run {
-                                    self.attachment = nil
-                                    self.extractedData = nil
-                                    HapticManager.shared.success()
-                                }
-                            }
-                        }
-                    )
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-            }
-
             // Content - single text editor (table markers are hidden in the editor)
             FormattableTextEditor(
                 attributedText: $attributedContent,
@@ -1001,10 +967,19 @@ struct NoteEditView: View {
             if !imageAttachments.isEmpty || attachment != nil {
                 Button(action: {
                     HapticManager.shared.buttonTap()
+                    // Show image attachments sheet if available, it can display both images and file info
                     if !imageAttachments.isEmpty {
                         showingAttachmentsSheet = true
                     } else if attachment != nil {
-                        showingExtractionSheet = true
+                        // Load file extraction data and show sheet
+                        Task {
+                            if let extracted = try await AttachmentService.shared.loadExtractedData(for: attachment!.id) {
+                                await MainActor.run {
+                                    self.extractedData = extracted
+                                    self.showingExtractionSheet = true
+                                }
+                            }
+                        }
                     }
                 }) {
                     ZStack(alignment: .topTrailing) {
