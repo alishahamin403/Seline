@@ -211,6 +211,8 @@ class AttachmentService: ObservableObject {
             return
         }
 
+        var fileContent = ""  // Declare outside do block for error handling
+
         do {
             print("📨 Starting extraction from \(fileName)...")
             print("📄 File: \(fileName) | Size: \(fileData.count) bytes")
@@ -220,7 +222,7 @@ class AttachmentService: ObservableObject {
 
             // Convert file data to text for extraction
             print("🔍 Extracting text from file...")
-            let fileContent = extractTextFromFileData(fileData, fileName: fileName)
+            fileContent = extractTextFromFileData(fileData, fileName: fileName)
 
             // Call OpenAI to extract detailed content
             print("🤖 Sending to OpenAI for detailed extraction... (this may take a while for large files)")
