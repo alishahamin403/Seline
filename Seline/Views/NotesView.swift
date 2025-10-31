@@ -1734,40 +1734,54 @@ struct NoteEditView: View {
 
         switch documentType {
         case "bank_statement":
-            return base + """
-            Extract ONLY the transaction details from this bank statement. EXCLUDE all header information, account details, promotional messages, legal disclaimers, and notes.
+            return """
+            Extract ONLY essential transaction and balance information from this bank statement. Your output should be MINIMAL and FOCUSED - only transactions and summary, nothing else.
 
-            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
-            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
-            - Use clear sections with line breaks between sections
-            - Double-space between major sections for readability
+            WHAT TO EXTRACT (ONLY):
+            ✓ Statement period dates
+            ✓ Opening balance
+            ✓ Closing balance
+            ✓ Every individual transaction
 
-            OUTPUT FORMAT:
+            WHAT TO COMPLETELY IGNORE (EXCLUDE EVERYTHING ELSE):
+            ✗ Account numbers, card numbers, any numbers identifying the account
+            ✗ Customer name, address, phone, email
+            ✗ Bank routing numbers, SWIFT codes, any bank identifiers
+            ✗ Promotional messages, marketing content, advertising
+            ✗ Terms and conditions, legal disclaimers, fine print
+            ✗ Account features, rewards programs, insurance info
+            ✗ Fees summary sections, APR details
+            ✗ "For your information", explanatory notes, headers
+            ✗ Contact information, customer service numbers
+            ✗ Any introductory or closing sections
+
+            OUTPUT FORMAT (STRICT):
 
             STATEMENT SUMMARY
-            Statement Period: [dates]
+            Period: [start date to end date]
             Opening Balance: [amount]
             Closing Balance: [amount]
-            Total Transactions: [count]
 
             TRANSACTIONS
-            [Each transaction on its own line, formatted as:]
             Date | Description | Amount | Balance
 
-            Example:
-            2024-09-15 | Purchase at AMAZON.COM | -$45.23 | $2,455.77
+            Example only:
+            2024-09-15 | AMAZON.COM | -$45.23 | $2,455.77
             2024-09-16 | Direct Deposit | +$2,000.00 | $4,455.77
 
-            CRITICAL INSTRUCTIONS:
-            - Extract EVERY transaction individually, one per line
-            - Each transaction: DATE | DESCRIPTION | AMOUNT | BALANCE
-            - Descriptions should be clear and include merchant name where visible
-            - Do NOT group transactions by category
-            - Include amounts with signs: + for deposits, - for withdrawals
-            - NO table formatting, NO markdown, NO symbols
-            - Sort by date (oldest to newest as appears in statement)
+            CRITICAL INSTRUCTIONS - NON-NEGOTIABLE:
+            - EXTRACT EVERY transaction, one per line only
+            - Format: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Amount signs: + for deposits/credits, - for withdrawals/charges
+            - NO markdown, NO **, NO #, NO * symbols - PLAIN TEXT ONLY
+            - Sort chronologically (oldest first)
+            - Keep descriptions SHORT and CLEAR (merchant/source name only)
+            - Do NOT include transaction fees or sub-items separately
+            - Do NOT include running balances unless explicitly on statement
+            - Output ONLY the two sections above - nothing else
+            - NO introductory text, NO explanations, NO extra sections
 
-            Start directly with STATEMENT SUMMARY, then TRANSACTIONS section.
+            This is a financial document - focus ONLY on numbers and transactions.
             """
 
         case "invoice":
