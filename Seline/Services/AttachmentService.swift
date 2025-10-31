@@ -11,6 +11,7 @@ class AttachmentService: ObservableObject {
     private let attachmentStorageBucket = "note-attachments"
     private let maxFileSizeBytes = 5 * 1024 * 1024 // 5MB total per note
     private let authManager = AuthenticationManager.shared
+    private let openAIService = OpenAIService.shared
 
     private init() {}
 
@@ -196,7 +197,7 @@ class AttachmentService: ObservableObject {
         print("✅ Updated extracted data for attachment: \(data.attachmentId.uuidString)")
     }
 
-    // MARK: - Claude API Integration
+    // MARK: - File Extraction via OpenAI
 
     private func extractFileContent(attachment: NoteAttachment, fileData: Data, fileName: String) async {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
@@ -207,15 +208,11 @@ class AttachmentService: ObservableObject {
         do {
             print("📨 Extracting content from \(fileName)...")
 
-            // Convert file to Claude-compatible format
-            let fileContent = try convertFileToClaudeFormat(fileData, fileName: fileName)
             let documentType = detectDocumentType(fileName)
+            let prompt = buildExtractionPrompt(fileName: fileName, documentType: documentType)
 
-            // Call Claude API
-            let extractedData = try await callClaudeForExtraction(
-                fileContent: fileContent,
-                documentType: documentType
-            )
+            // Call OpenAI to extract
+            let responseText = try await openAIService.summarizeEmail(subject: fileName, body: prompt)
 
             // Store extracted data in database
             let extractedId = UUID()
@@ -227,9 +224,9 @@ class AttachmentService: ObservableObject {
                 "user_id": .string(userId.uuidString),
                 "attachment_id": .string(attachment.id.uuidString),
                 "document_type": .string(documentType),
-                "extracted_fields": try convertToAnyJSON(extractedData.fields),
-                "raw_text": .string(extractedData.rawText),
-                "confidence": .double(extractedData.confidence),
+                "extracted_fields": try convertToAnyJSON(["summary": responseText]),
+                "raw_text": .string(responseText),
+                "confidence": .double(0.9),
                 "is_edited": .bool(false),
                 "created_at": .string(formatter.string(from: now)),
                 "updated_at": .string(formatter.string(from: now))
@@ -260,35 +257,6 @@ class AttachmentService: ObservableObject {
         }
     }
 
-    private func convertFileToClaudeFormat(_ data: Data, fileName: String) throws -> (type: String, data: String, mediaType: String?) {
-        let ext = (fileName as NSString).pathExtension.lowercased()
-
-        if ["pdf", "jpg", "jpeg", "png", "gif"].contains(ext) {
-            // Convert to base64 for image/PDF
-            let base64 = data.base64EncodedString()
-            return (type: "image", data: base64, mediaType: getMediaType(ext))
-        } else if ["csv", "txt"].contains(ext) {
-            // Text files
-            guard let text = String(data: data, encoding: .utf8) else {
-                throw NSError(domain: "AttachmentService", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not decode text file"])
-            }
-            return (type: "text", data: text, mediaType: nil)
-        } else {
-            throw NSError(domain: "AttachmentService", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unsupported file type: \(ext)"])
-        }
-    }
-
-    private func getMediaType(_ ext: String) -> String {
-        let types: [String: String] = [
-            "pdf": "application/pdf",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "png": "image/png",
-            "gif": "image/gif"
-        ]
-        return types[ext] ?? "application/octet-stream"
-    }
-
     private func detectDocumentType(_ fileName: String) -> String {
         let lower = fileName.lowercased()
         if lower.contains("bank") || lower.contains("statement") || lower.contains("account") {
@@ -301,162 +269,27 @@ class AttachmentService: ObservableObject {
         return "document"
     }
 
-    private func callClaudeForExtraction(
-        fileContent: (type: String, data: String, mediaType: String?),
-        documentType: String
-    ) async throws -> (fields: [String: AnyCodable], rawText: String, confidence: Double) {
-        let apiKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]
-        guard let apiKey = apiKey, !apiKey.isEmpty else {
-            throw NSError(domain: "AttachmentService", code: 5, userInfo: [NSLocalizedDescriptionKey: "Missing ANTHROPIC_API_KEY environment variable"])
-        }
-
-        let prompt = getExtractionPrompt(documentType)
-
-        // Build message content
-        var messageContent: [[String: Any]] = []
-
-        if fileContent.type == "image", let mediaType = fileContent.mediaType {
-            messageContent.append([
-                "type": "image",
-                "source": [
-                    "type": "base64",
-                    "media_type": mediaType,
-                    "data": fileContent.data
-                ]
-            ])
-        } else {
-            messageContent.append([
-                "type": "text",
-                "text": fileContent.data
-            ])
-        }
-
-        messageContent.append([
-            "type": "text",
-            "text": prompt
-        ])
-
-        // Call Claude API
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-
-        let payload: [String: Any] = [
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 2000,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": messageContent
-                ]
-            ]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "AttachmentService", code: 6, userInfo: [NSLocalizedDescriptionKey: "Claude API error: \(errorText)"])
-        }
-
-        // Parse response
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let contentArray = json["content"] as? [[String: Any]],
-              let firstContent = contentArray.first,
-              let responseText = firstContent["text"] as? String else {
-            throw NSError(domain: "AttachmentService", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to parse Claude response"])
-        }
-
-        // Extract JSON from response
-        let jsonPattern = "\\{[\\s\\S]*\\}"
-        let regex = try NSRegularExpression(pattern: jsonPattern)
-        let range = NSRange(responseText.startIndex..<responseText.endIndex, in: responseText)
-        guard let match = regex.firstMatch(in: responseText, range: range),
-              let jsonRange = Range(match.range, in: responseText) else {
-            throw NSError(domain: "AttachmentService", code: 8, userInfo: [NSLocalizedDescriptionKey: "No JSON found in Claude response"])
-        }
-
-        let jsonString = String(responseText[jsonRange])
-        guard let jsonData = jsonString.data(using: .utf8),
-              let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            throw NSError(domain: "AttachmentService", code: 9, userInfo: [NSLocalizedDescriptionKey: "Failed to parse extracted JSON"])
-        }
-
-        // Convert to our model
-        let fields = (parsed["fields"] as? [String: Any]) ?? [:]
-        let rawText = (parsed["rawText"] as? String) ?? ""
-        let confidence = (parsed["confidence"] as? Double) ?? 0.8
-
-        // Convert fields to AnyCodable
-        var anyCodableFields: [String: AnyCodable] = [:]
-        for (key, value) in fields {
-            anyCodableFields[key] = AnyCodable(value: value)
-        }
-
-        return (fields: anyCodableFields, rawText: rawText, confidence: confidence)
-    }
-
-    private func getExtractionPrompt(_ documentType: String) -> String {
-        let base = """
-        Extract structured information from the provided \(documentType).
-        Return ONLY a valid JSON object with this structure:
-        {
-          "fields": { /* extracted key-value pairs */ },
-          "rawText": "Full raw text from the document",
-          "confidence": 0.95
-        }
-        """
+    private func buildExtractionPrompt(fileName: String, documentType: String) -> String {
+        let base = "Extract key information from the following \(documentType) file named \(fileName).\n"
 
         switch documentType {
         case "bank_statement":
             return base + """
-
-            Bank Statement specific fields:
-            - accountNumber (masked as ****XXXX)
-            - statementPeriodStart (ISO date string)
-            - statementPeriodEnd (ISO date string)
-            - openingBalance (number)
-            - closingBalance (number)
-            - totalDeposits (number)
-            - totalWithdrawals (number)
-            - transactionCount (number)
-            - interestEarned (number)
-            - feesCharged (number)
+            Extract: account number (masked), statement period, opening/closing balance, total deposits/withdrawals, interest earned, fees, and number of transactions.
             """
 
         case "invoice":
             return base + """
-
-            Invoice specific fields:
-            - vendorName
-            - invoiceNumber
-            - invoiceDate (ISO date string)
-            - dueDate (ISO date string)
-            - subtotal (number)
-            - taxAmount (number)
-            - totalAmount (number)
-            - paymentTerms
+            Extract: vendor name, invoice number, invoice date, due date, line items with quantities and prices, subtotal, tax amount, and total amount.
             """
 
         case "receipt":
             return base + """
-
-            Receipt specific fields:
-            - merchantName
-            - transactionDate (ISO date string)
-            - transactionTime
-            - subtotal (number)
-            - tax (number)
-            - totalPaid (number)
-            - paymentMethod
+            Extract: merchant name, transaction date and time, items purchased with quantities and prices, subtotal, tax, total paid, and payment method.
             """
 
         default:
-            return base
+            return base + "Extract the most important details and key information."
         }
     }
 
