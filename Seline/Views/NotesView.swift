@@ -1514,7 +1514,12 @@ struct NoteEditView: View {
                         newNote.isLocked = noteIsLocked
                         await MainActor.run {
                             notesManager.addNote(newNote)
+                            self.note = newNote
                         }
+
+                        // Wait for note to sync to Supabase before attaching file
+                        // This ensures the RLS policy can find the note
+                        try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
                     }
                 }
 
