@@ -11,8 +11,9 @@ struct SearchableItem: Identifiable, Hashable {
     let metadata: [String: String]
     let tags: [String]  // Topics/categories for better connections
     let relatedItems: [String]  // IDs of related items (notes mentioning each other, etc.)
+    let date: Date?  // When item was created/modified for temporal filtering
 
-    init(title: String, content: String, type: TabSelection, identifier: String, metadata: [String: String] = [:], tags: [String] = [], relatedItems: [String] = []) {
+    init(title: String, content: String, type: TabSelection, identifier: String, metadata: [String: String] = [:], tags: [String] = [], relatedItems: [String] = [], date: Date? = nil) {
         self.title = title
         self.content = content
         self.type = type
@@ -20,6 +21,7 @@ struct SearchableItem: Identifiable, Hashable {
         self.metadata = metadata
         self.tags = tags
         self.relatedItems = relatedItems
+        self.date = date ?? Date()
     }
 
     var searchText: String {

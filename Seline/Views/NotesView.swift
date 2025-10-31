@@ -421,7 +421,8 @@ struct NotesView: View, Searchable {
             type: .notes,
             identifier: "notes-main",
             metadata: ["category": "productivity"],
-            tags: ["productivity", "notes", "organization"]
+            tags: ["productivity", "notes", "organization"],
+            date: Date()
         ))
 
         // Add notes content
@@ -440,7 +441,8 @@ struct NotesView: View, Searchable {
                     "folder": notesManager.getFolderName(for: note.folderId)
                 ],
                 tags: tags,
-                relatedItems: relatedNoteIds
+                relatedItems: relatedNoteIds,
+                date: note.dateModified
             ))
         }
 

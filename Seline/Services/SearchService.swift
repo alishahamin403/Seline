@@ -1344,12 +1344,25 @@ class SearchService: ObservableObject {
         // Extract related items from the query (if user searches for something, find related items)
         let relatedItemTitles = extractReferencedItemTitles(from: query)
 
+        // Extract temporal range if mentioned in query
+        let temporalRange = TemporalUnderstandingService.shared.extractTemporalRange(from: query)
+
+        // Extract topics from this search for conversation context
+        let extractedTopics = ConversationContextService.shared.extractTopicsFromQuery(query)
+
         var results: [SearchResult] = []
 
         // Get semantic similarity scores for all items
         let semanticScores = await getSemanticSimilarityScores(query: query, for: cachedContent)
 
         for item in cachedContent {
+            // TEMPORAL FILTERING: Skip items outside the requested date range
+            if let dateRange = temporalRange, let itemDate = item.date {
+                if itemDate < dateRange.startDate || itemDate > dateRange.endDate {
+                    continue  // Skip this item, it's outside the time range
+                }
+            }
+
             let searchText = item.searchText.lowercased()
             let keywordScore = calculateRelevanceScore(
                 searchText: searchText,
@@ -1361,10 +1374,12 @@ class SearchService: ObservableObject {
             // Get semantic score for this item
             let semanticScore = semanticScores[item.identifier] ?? 0.0
 
-            // Combine keyword matching and semantic similarity
-            // Weight: 70% keyword-based, 30% semantic similarity
-            // This allows weird sentences to still match through semantic understanding
-            let combinedScore = (keywordScore * 0.7) + (semanticScore * 0.3)
+            // CONVERSATION CONTEXT BOOST: Boost items related to current topic
+            let contextBoost = ConversationContextService.shared.getContextBoost(for: item.tags)
+
+            // Combine all scoring factors:
+            // 70% keyword-based, 30% semantic similarity, + context boost
+            var combinedScore = (keywordScore * 0.7) + (semanticScore * 0.3) + contextBoost
 
             if combinedScore > 0 {
                 let matchedText = findMatchedText(in: item, queryWords: queryWords)
@@ -1375,6 +1390,13 @@ class SearchService: ObservableObject {
                 ))
             }
         }
+
+        // Track this search in conversation context (for follow-up understanding)
+        ConversationContextService.shared.trackSearch(
+            query: query,
+            topics: extractedTopics,
+            resultCount: results.count
+        )
 
         // Sort by combined score
         return results.sorted { $0.relevanceScore > $1.relevanceScore }
