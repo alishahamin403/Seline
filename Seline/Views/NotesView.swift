@@ -521,13 +521,19 @@ struct NoteEditView: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
 
-                // Receipt processing indicator - fixed above bottom buttons
-                if isProcessingReceipt {
+                // Processing indicator - fixed above bottom buttons
+                if isProcessingReceipt || isProcessingFile {
                     HStack {
                         ShadcnSpinner(size: .small)
-                        Text("Analyzing receipt...")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                        if isProcessingFile {
+                            Text("Analyzing file...")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                        } else {
+                            Text("Analyzing receipt...")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                        }
                     }
                     .padding(.bottom, 4)
                     .background(colorScheme == .dark ? Color.black : Color.white)

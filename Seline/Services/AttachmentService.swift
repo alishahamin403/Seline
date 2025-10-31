@@ -265,6 +265,16 @@ class AttachmentService: ObservableObject {
 
             print("✅ Successfully extracted data from \(fileName) as \(documentType)")
 
+        } catch let error as NSError {
+            // Provide specific error messages for common issues
+            if error.code == NSURLErrorTimedOut {
+                print("⏱️ Extraction timeout: Request took too long to process. This is normal for very large files.")
+                print("💡 Tip: The file was still uploaded successfully. You can try again in a moment.")
+            } else if error.domain == NSURLErrorDomain {
+                print("⚠️ Network error during extraction: \(error.localizedDescription)")
+            } else {
+                print("❌ Failed to extract file: \(error.localizedDescription)")
+            }
         } catch {
             print("❌ Failed to extract file: \(error.localizedDescription)")
         }
