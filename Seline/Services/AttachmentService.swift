@@ -35,34 +35,24 @@ class AttachmentService: ObservableObject {
         let fileExtension = (fileName as NSString).pathExtension
         let simpleFileName = "\(noteId.uuidString)_\(timestamp).\(fileExtension)"
 
-        // Generate storage path
-        let storagePath = "\(userId.uuidString)/\(simpleFileName)"
-
-        // Upload to Supabase Storage (using same approach as image uploads with upsert: true)
-        let storage = await SupabaseManager.shared.getStorageClient()
         print("📤 Uploading file: \(fileName)")
         print("📤 Simple filename: \(simpleFileName)")
-        print("📤 Storage path: \(storagePath)")
         print("📤 File size: \(fileData.count) bytes")
         print("📤 Bucket: \(attachmentStorageBucket)")
 
-        do {
-            try await storage
-                .from(attachmentStorageBucket)
-                .upload(
-                    storagePath,
-                    data: fileData,
-                    options: FileOptions(
-                        cacheControl: "3600",
-                        upsert: true
-                    )
-                )
-            print("✅ File uploaded successfully to Supabase Storage")
-        } catch {
-            print("❌ Upload to storage failed: \(error)")
-            print("📊 Error details: \(String(describing: error))")
-            throw error
-        }
+        // Upload using SupabaseManager (same auth and verification as image uploads)
+        let publicURL = try await SupabaseManager.shared.uploadFile(
+            fileData,
+            fileName: simpleFileName,
+            userId: userId,
+            bucket: attachmentStorageBucket
+        )
+
+        print("✅ File uploaded successfully to Supabase Storage")
+        print("📤 Storage URL: \(publicURL)")
+
+        // Extract path from public URL (format: https://.../{bucket}/{userId}/{fileName})
+        let storagePath = "\(userId.uuidString)/\(simpleFileName)"
 
         // Create attachment record in database
         let attachment = try await createAttachmentRecord(
@@ -84,11 +74,20 @@ class AttachmentService: ObservableObject {
 
     /// Download file from Supabase Storage
     func downloadFile(from storagePath: String) async throws -> Data {
+        // Use the same storage client configuration as image downloads
         let storage = await SupabaseManager.shared.getStorageClient()
-        let data = try await storage
-            .from(attachmentStorageBucket)
-            .download(path: storagePath)
-        return data
+        print("📥 Downloading from path: \(storagePath)")
+
+        do {
+            let data = try await storage
+                .from(attachmentStorageBucket)
+                .download(path: storagePath)
+            print("✅ Downloaded \(data.count) bytes")
+            return data
+        } catch {
+            print("❌ Download failed: \(error)")
+            throw error
+        }
     }
 
     /// Delete attachment and associated extracted data

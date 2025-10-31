@@ -149,6 +149,41 @@ class SupabaseManager: ObservableObject {
         return publicURL.absoluteString
     }
 
+    // Upload file to Supabase Storage (uses same approach as images)
+    func uploadFile(_ fileData: Data, fileName: String, userId: UUID, bucket: String = "note-attachments") async throws -> String {
+        // Verify user is authenticated
+        guard let currentUser = authClient.currentUser else {
+            throw NSError(domain: "SupabaseManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        // Verify the userId matches the current user
+        guard currentUser.id == userId else {
+            throw NSError(domain: "SupabaseManager", code: 403, userInfo: [NSLocalizedDescriptionKey: "User ID mismatch"])
+        }
+
+        let storage = await getStorageClient()
+        let path = "\(userId.uuidString)/\(fileName)"
+
+        // Upload with same approach as images for consistency
+        try await storage
+            .from(bucket)
+            .upload(
+                path,
+                data: fileData,
+                options: FileOptions(
+                    cacheControl: "public, max-age=3600",
+                    upsert: true
+                )
+            )
+
+        // Return the public URL
+        let publicURL = try await storage
+            .from(bucket)
+            .getPublicURL(path: path)
+
+        return publicURL.absoluteString
+    }
+
     // MARK: - User Location Preferences
 
     func saveLocationPreferences(_ preferences: UserLocationPreferences) async throws {
