@@ -803,7 +803,6 @@ struct NoteEditView: View {
                                 await MainActor.run {
                                     self.attachment = nil
                                     self.extractedData = nil
-                                    self.note?.attachmentId = nil
                                     HapticManager.shared.success()
                                 }
                             }
@@ -1536,7 +1535,6 @@ struct NoteEditView: View {
                 // Update local state
                 await MainActor.run {
                     self.attachment = uploadedAttachment
-                    self.note?.attachmentId = uploadedAttachment.id
                     HapticManager.shared.success()
                 }
 
