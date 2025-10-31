@@ -233,6 +233,9 @@ class AttachmentService: ObservableObject {
             )
             print("✅ OpenAI extraction complete")
 
+            // Clean markdown symbols from extracted text
+            let cleanedText = cleanMarkdownSymbols(responseText)
+
             // Store extracted data in database
             let extractedId = UUID()
             let now = Date()
@@ -243,8 +246,8 @@ class AttachmentService: ObservableObject {
                 "user_id": .string(userId.uuidString),
                 "attachment_id": .string(attachment.id.uuidString),
                 "document_type": .string(documentType),
-                "extracted_fields": try convertToAnyJSON(["summary": responseText]),
-                "raw_text": .string(responseText),
+                "extracted_fields": try convertToAnyJSON(["summary": cleanedText]),
+                "raw_text": .string(cleanedText),
                 "confidence": .double(0.9),
                 "is_edited": .bool(false),
                 "created_at": .string(formatter.string(from: now)),
@@ -305,6 +308,28 @@ class AttachmentService: ObservableObject {
             return "receipt"
         }
         return "document"
+    }
+
+    /// Remove markdown formatting symbols from extracted text
+    private func cleanMarkdownSymbols(_ text: String) -> String {
+        var cleaned = text
+
+        // Remove bold markers (**)
+        cleaned = cleaned.replacingOccurrences(of: "\\*\\*", with: "", options: .regularExpression)
+
+        // Remove italic markers (*)
+        cleaned = cleaned.replacingOccurrences(of: "(?<!\\*)\\*(?!\\*)", with: "", options: .regularExpression)
+
+        // Remove heading markers (#)
+        cleaned = cleaned.replacingOccurrences(of: "^#+\\s*", with: "", options: [.regularExpression, .anchorsMatchLines])
+
+        // Remove horizontal rule markers (--)
+        cleaned = cleaned.replacingOccurrences(of: "^-{2,}$", with: "", options: [.regularExpression, .anchorsMatchLines])
+
+        // Remove multiple spaces/cleanups
+        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Extracts text content from file data based on file type
@@ -383,11 +408,16 @@ class AttachmentService: ObservableObject {
             return base + """
             Extract ONLY the transaction details from this bank statement. EXCLUDE all header information, account details, promotional messages, legal disclaimers, and notes.
 
-            Format the output as:
-            1. Summary section (one line each):
-               - Statement Period: [dates]
-               - Opening Balance: [amount]
-               - Closing Balance: [amount]
+            FORMAT INSTRUCTIONS (CRITICAL):
+            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO --, NO #, NO * formatting
+            - Use simple text formatting only
+            - Never use markdown special characters
+
+            Output format:
+            1. Summary section (plain text):
+               Statement Period: [dates]
+               Opening Balance: [amount]
+               Closing Balance: [amount]
 
             2. Individual Transactions (each on its own line):
                Date | Description | Amount | Balance (if available)
@@ -403,6 +433,7 @@ class AttachmentService: ObservableObject {
             - Simple pipe-delimited format ONLY
             - Include deposit and withdrawal amounts with their signs (+ or -)
             - Sort transactions by date (oldest to newest or as appears in statement)
+            - NO MARKDOWN FORMATTING - Plain text only
 
             Start directly with the summary, then list each transaction.
             """

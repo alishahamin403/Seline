@@ -484,6 +484,8 @@ struct NoteEditView: View {
     @State private var attachment: NoteAttachment?
     @State private var extractedData: ExtractedData?
     @State private var showingExtractionSheet = false
+    @State private var showingFilePreview = false
+    @State private var filePreviewURL: URL?
     @State private var isProcessingFile = false
 
     var isAnyProcessing: Bool {
@@ -665,6 +667,11 @@ struct NoteEditView: View {
                         }
                     }
                 )
+            }
+        }
+        .sheet(isPresented: $showingFilePreview) {
+            if let fileURL = filePreviewURL {
+                FilePreviewSheet(fileURL: fileURL)
             }
         }
     }
@@ -1007,16 +1014,33 @@ struct NoteEditView: View {
             if !imageAttachments.isEmpty || attachment != nil {
                 Button(action: {
                     HapticManager.shared.buttonTap()
-                    // Show image attachments sheet if available, it can display both images and file info
+                    // Show image attachments sheet if available
                     if !imageAttachments.isEmpty {
                         showingAttachmentsSheet = true
-                    } else if attachment != nil {
-                        // Load file extraction data and show sheet
+                    } else if let attachment = attachment {
+                        // Download and show file preview
                         Task {
-                            if let extracted = try await AttachmentService.shared.loadExtractedData(for: attachment!.id) {
+                            do {
+                                // Download the file from storage
+                                let fileData = try await SupabaseManager.shared.getStorageClient()
+                                    .from("note-attachments")
+                                    .download(path: attachment.storagePath)
+
+                                // Save to temporary file for preview
+                                let tmpDirectory = FileManager.default.temporaryDirectory
+                                let fileExtension = (attachment.fileName as NSString).pathExtension
+                                let tmpFile = tmpDirectory.appendingPathComponent(attachment.fileName)
+
+                                try fileData.write(to: tmpFile)
+
                                 await MainActor.run {
-                                    self.extractedData = extracted
-                                    self.showingExtractionSheet = true
+                                    self.filePreviewURL = tmpFile
+                                    self.showingFilePreview = true
+                                }
+                            } catch {
+                                print("❌ Failed to download file for preview: \(error)")
+                                await MainActor.run {
+                                    HapticManager.shared.error()
                                 }
                             }
                         }
