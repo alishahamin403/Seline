@@ -36,7 +36,7 @@ class AttachmentService: ObservableObject {
         let storage = await SupabaseManager.shared.getStorageClient()
         try await storage
             .from(attachmentStorageBucket)
-            .upload(storagePath, data: fileData, options: FileOptions(cacheControl: "3600"))
+            .upload(storagePath, data: fileData)
 
         // Create attachment record in database
         let attachment = try await createAttachmentRecord(

@@ -38,7 +38,7 @@ struct NoteAttachment: Identifiable, Codable, Hashable {
     }
 }
 
-struct ExtractedData: Identifiable, Codable, Hashable {
+struct ExtractedData: Identifiable, Codable {
     var id: UUID
     var attachmentId: UUID
     var documentType: String // bank_statement, invoice, receipt
