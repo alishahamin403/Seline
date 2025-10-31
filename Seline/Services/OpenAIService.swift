@@ -295,6 +295,97 @@ class OpenAIService: ObservableObject {
         return finalBullets.joined(separator: ". ")
     }
 
+    /// Extracts detailed content from a document file with comprehensive detail preservation.
+    /// This method is designed for extracting full content from PDFs, documents, etc.
+    /// Unlike summarizeEmail which creates a 4-point summary, this extracts complete detailed text.
+    ///
+    /// - Parameters:
+    ///   - fileContent: The text content extracted from the file
+    ///   - prompt: The detailed extraction prompt specifying what to extract
+    ///   - fileName: The original file name for context
+    /// - Returns: A comprehensive detailed extraction of the document content
+    func extractDetailedDocumentContent(_ fileContent: String, withPrompt prompt: String, fileName: String = "") async throws -> String {
+        // Rate limiting - ensure minimum interval between requests
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        // For detailed extraction, use larger token limit to preserve complete content
+        // Max 12000 characters = ~3000 tokens for comprehensive extraction
+        let maxContentLength = 12000
+        let truncatedContent = fileContent.count > maxContentLength ? String(fileContent.prefix(maxContentLength)) + "\n[... content truncated due to length ...]" : fileContent
+
+        // Build the extraction request with the detailed prompt
+        let systemPrompt = """
+        You are a detailed document extraction system. Your task is to extract COMPLETE, detailed information from documents.
+
+        CRITICAL RULES:
+        - Provide COMPREHENSIVE extraction, not a summary
+        - Include ALL details, numbers, dates, amounts, items, and information
+        - Preserve the structure and hierarchy of the information
+        - Do NOT summarize or condense - extract everything
+        - Format the output clearly with proper organization
+        """
+
+        let userMessage = """
+        \(prompt)
+
+        Document Content:
+        \(truncatedContent)
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userMessage]
+            ],
+            "max_tokens": 4000,  // Larger token limit for comprehensive extraction
+            "temperature": 0.3   // Lower temperature for more consistent, factual extraction
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SummaryError.networkError(NSError(domain: "HTTPError", code: 0))
+        }
+
+        if httpResponse.statusCode != 200 {
+            if let errorData = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = errorData["error"] as? [String: Any],
+               let message = error["message"] as? String {
+
+                if httpResponse.statusCode == 429 || message.contains("Rate limit") {
+                    let retryAfter = extractRetryAfterFromMessage(message)
+                    throw SummaryError.rateLimitExceeded(retryAfter: retryAfter)
+                }
+
+                throw SummaryError.apiError(message)
+            } else {
+                throw SummaryError.apiError("HTTP \(httpResponse.statusCode)")
+            }
+        }
+
+        guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = jsonResponse["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            throw SummaryError.decodingError
+        }
+
+        // Return the extracted content as-is (no aggressive formatting)
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Rate Limiting Helpers
 
     private func enforceRateLimit() async {

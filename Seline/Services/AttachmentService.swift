@@ -216,8 +216,15 @@ class AttachmentService: ObservableObject {
             let documentType = detectDocumentType(fileName)
             let prompt = buildExtractionPrompt(fileName: fileName, documentType: documentType)
 
-            // Call OpenAI to extract
-            let responseText = try await openAIService.summarizeEmail(subject: fileName, body: prompt)
+            // Convert file data to text for extraction
+            let fileContent = extractTextFromFileData(fileData, fileName: fileName)
+
+            // Call OpenAI to extract detailed content
+            let responseText = try await openAIService.extractDetailedDocumentContent(
+                fileContent,
+                withPrompt: prompt,
+                fileName: fileName
+            )
 
             // Store extracted data in database
             let extractedId = UUID()
@@ -274,27 +281,130 @@ class AttachmentService: ObservableObject {
         return "document"
     }
 
+    /// Extracts text content from file data based on file type
+    /// Handles plain text, CSV, and provides fallback for binary formats
+    private func extractTextFromFileData(_ fileData: Data, fileName: String) -> String {
+        let fileExtension = (fileName as NSString).pathExtension.lowercased()
+
+        // For text-based files, try direct conversion
+        switch fileExtension {
+        case "txt", "csv", "json", "xml", "log":
+            // Try to convert directly to string
+            if let textContent = String(data: fileData, encoding: .utf8) {
+                return textContent
+            }
+            // Fallback to other encodings
+            if let textContent = String(data: fileData, encoding: .isoLatin1) {
+                return textContent
+            }
+            return "[File could not be converted to text. Base64 encoded: \(fileData.base64EncodedString())]"
+
+        case "pdf":
+            // For PDFs, provide a prompt hint about PDF extraction
+            // The base64 encoded PDF will be analyzed by OpenAI
+            return """
+            [PDF Document Data - File Size: \(fileData.count) bytes]
+            File Name: \(fileName)
+
+            Note: This is a PDF file. The extraction system should analyze the PDF content using document intelligence.
+            Please extract all text and structured data from this PDF document.
+
+            Base64 PDF Data: \(fileData.base64EncodedString().prefix(2000))...
+            """
+
+        case "xlsx", "xls":
+            // For Excel files, try UTF-8 conversion as fallback
+            if let textContent = String(data: fileData, encoding: .utf8) {
+                return textContent
+            }
+            return """
+            [Excel Spreadsheet Data - File Size: \(fileData.count) bytes]
+            File Name: \(fileName)
+
+            Note: This is an Excel file. Please extract all data from the spreadsheet including:
+            - All sheet names
+            - All cell values and formulas
+            - Table structures and formatting information
+
+            Base64 File Data: \(fileData.base64EncodedString().prefix(2000))...
+            """
+
+        default:
+            // For other file types, provide base64 encoded data with context
+            return """
+            [Binary File Data - Type: \(fileExtension), Size: \(fileData.count) bytes]
+            File Name: \(fileName)
+
+            Please analyze and extract all readable content and structured information from this file.
+
+            Base64 Encoded Data: \(fileData.base64EncodedString().prefix(2000))...
+            """
+        }
+    }
+
     private func buildExtractionPrompt(fileName: String, documentType: String) -> String {
-        let base = "Extract key information from the following \(documentType) file named \(fileName).\n"
+        let base = "Extract the complete detailed content from the following \(documentType) file named \(fileName). Provide comprehensive text that captures all information, not just a summary.\n\n"
 
         switch documentType {
         case "bank_statement":
             return base + """
-            Extract: account number (masked), statement period, opening/closing balance, total deposits/withdrawals, interest earned, fees, and number of transactions.
+            Extract ALL information from this bank statement including:
+            - Complete header information (account holder, account number masked, statement period dates)
+            - Full opening and closing balances
+            - Complete list of ALL transactions with dates, descriptions, amounts, and running balances
+            - Total deposits and withdrawals
+            - All fees and charges with details
+            - Interest earned details
+            - Any notes or messages from the bank
+
+            Provide the FULL detailed text of all transactions, not a summary. Include every transaction listed in the statement.
             """
 
         case "invoice":
             return base + """
-            Extract: vendor name, invoice number, invoice date, due date, line items with quantities and prices, subtotal, tax amount, and total amount.
+            Extract ALL information from this invoice including:
+            - Complete vendor/seller information
+            - Invoice number, date, and due date
+            - Complete bill-to and ship-to addresses
+            - EVERY line item with full description, quantity, unit price, and total price
+            - Subtotal amount
+            - All taxes and tax details
+            - All fees and charges with descriptions
+            - Total amount due
+            - Payment terms and methods
+            - Any notes, terms, or special instructions
+
+            Provide complete detailed text of ALL line items, not a summary.
             """
 
         case "receipt":
             return base + """
-            Extract: merchant name, transaction date and time, items purchased with quantities and prices, subtotal, tax, total paid, and payment method.
+            Extract ALL information from this receipt including:
+            - Complete merchant information (name, address, phone, website if available)
+            - Transaction date and time
+            - Receipt/transaction number
+            - EVERY item purchased with full description, quantity, and individual price
+            - Subtotal amount
+            - Tax amount and tax details
+            - Total paid
+            - Payment method used
+            - Cashier/register information if available
+            - Any loyalty program or promotional information
+            - Return policy or other notes
+
+            Provide complete detailed text of ALL items purchased, not a summary.
             """
 
         default:
-            return base + "Extract the most important details and key information."
+            return base + """
+            Extract the COMPLETE detailed content and all information from this document. Include:
+            - All text content in a structured format
+            - All sections and subsections
+            - All data, numbers, and values
+            - All important details and information
+
+            Provide comprehensive extraction of all content, not a summary or highlights only.
+            """
         }
     }
 
