@@ -1,6 +1,7 @@
 import Foundation
 import PostgREST
 import Storage
+import PDFKit
 
 class AttachmentService: ObservableObject {
     static let shared = AttachmentService()
@@ -282,7 +283,7 @@ class AttachmentService: ObservableObject {
     }
 
     /// Extracts text content from file data based on file type
-    /// Handles plain text, CSV, and provides fallback for binary formats
+    /// Handles PDF text extraction using PDFKit, CSV, plain text, and provides fallback for binary formats
     private func extractTextFromFileData(_ fileData: Data, fileName: String) -> String {
         let fileExtension = (fileName as NSString).pathExtension.lowercased()
 
@@ -297,48 +298,55 @@ class AttachmentService: ObservableObject {
             if let textContent = String(data: fileData, encoding: .isoLatin1) {
                 return textContent
             }
-            return "[File could not be converted to text. Base64 encoded: \(fileData.base64EncodedString())]"
+            return "[File could not be converted to text.]"
 
         case "pdf":
-            // For PDFs, provide a prompt hint about PDF extraction
-            // The base64 encoded PDF will be analyzed by OpenAI
-            return """
-            [PDF Document Data - File Size: \(fileData.count) bytes]
-            File Name: \(fileName)
+            // Extract text from PDF using PDFKit
+            if let pdfDocument = PDFDocument(data: fileData) {
+                var extractedText = ""
+                let pageCount = pdfDocument.pageCount
 
-            Note: This is a PDF file. The extraction system should analyze the PDF content using document intelligence.
-            Please extract all text and structured data from this PDF document.
+                for pageIndex in 0..<pageCount {
+                    if let page = pdfDocument.page(at: pageIndex) {
+                        if let pageText = page.string {
+                            extractedText += "--- Page \(pageIndex + 1) ---\n"
+                            extractedText += pageText
+                            extractedText += "\n\n"
+                        }
+                    }
+                }
 
-            Base64 PDF Data: \(fileData.base64EncodedString().prefix(2000))...
-            """
+                if !extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    print("✅ Extracted \(extractedText.count) characters from PDF")
+                    return extractedText
+                } else {
+                    return "[PDF file found but contains no extractable text. File size: \(fileData.count) bytes]"
+                }
+            } else {
+                return "[Error: Could not parse PDF file. File may be corrupted or encrypted.]"
+            }
 
         case "xlsx", "xls":
             // For Excel files, try UTF-8 conversion as fallback
             if let textContent = String(data: fileData, encoding: .utf8) {
-                return textContent
+                // Extract readable parts from the UTF-8 conversion
+                let cleanedContent = textContent.replacingOccurrences(of: "\u{0}", with: "")
+                if !cleanedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return cleanedContent
+                }
             }
-            return """
-            [Excel Spreadsheet Data - File Size: \(fileData.count) bytes]
-            File Name: \(fileName)
-
-            Note: This is an Excel file. Please extract all data from the spreadsheet including:
-            - All sheet names
-            - All cell values and formulas
-            - Table structures and formatting information
-
-            Base64 File Data: \(fileData.base64EncodedString().prefix(2000))...
-            """
+            return "[Excel file detected but text extraction not available. Please export to CSV or use a converter.]"
 
         default:
-            // For other file types, provide base64 encoded data with context
-            return """
-            [Binary File Data - Type: \(fileExtension), Size: \(fileData.count) bytes]
-            File Name: \(fileName)
+            // For other file types, try UTF-8 conversion first
+            if let textContent = String(data: fileData, encoding: .utf8) {
+                let cleaned = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty && cleaned.count > 20 {
+                    return cleaned
+                }
+            }
 
-            Please analyze and extract all readable content and structured information from this file.
-
-            Base64 Encoded Data: \(fileData.base64EncodedString().prefix(2000))...
-            """
+            return "[Binary file (.\(fileExtension)) - automatic text extraction not available. File size: \(fileData.count) bytes]"
         }
     }
 
