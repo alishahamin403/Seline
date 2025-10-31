@@ -1514,6 +1514,14 @@ struct NoteEditView: View {
             defer { isProcessingFile = false }
 
             do {
+                // Start accessing the security-scoped resource
+                guard fileURL.startAccessingSecurityScopedResource() else {
+                    print("❌ Cannot access file - permission denied")
+                    return
+                }
+
+                defer { fileURL.stopAccessingSecurityScopedResource() }
+
                 // Get file data
                 let fileData = try Data(contentsOf: fileURL)
                 let fileName = fileURL.lastPathComponent
