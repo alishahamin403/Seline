@@ -1517,8 +1517,8 @@ struct NoteEditView: View {
                         }
 
                         // Wait for note to sync to Supabase before attaching file
-                        // This ensures the RLS policy can find the note
-                        try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                        // This ensures the note exists in the database for foreign key constraint
+                        try await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
                     }
                 }
 
