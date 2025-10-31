@@ -1502,9 +1502,24 @@ struct NoteEditView: View {
             defer { isProcessingFile = false }
 
             do {
-                // Check if note exists (must save note first before attaching files)
-                guard let currentNote = note else {
-                    print("❌ Please save the note first before adding attachments")
+                // If note doesn't exist yet, create and save it first
+                var currentNote = note
+                if currentNote == nil {
+                    let contentToSave = convertAttributedContentToText()
+                    let noteTitle = title.isEmpty ? "Untitled" : title
+
+                    // Create new note
+                    currentNote = Note(title: noteTitle, content: contentToSave, folderId: selectedFolderId)
+                    if var newNote = currentNote {
+                        newNote.isLocked = noteIsLocked
+                        await MainActor.run {
+                            notesManager.addNote(newNote)
+                        }
+                    }
+                }
+
+                guard let noteToAttachTo = currentNote else {
+                    print("❌ Failed to create or find note for attachment")
                     await MainActor.run {
                         HapticManager.shared.error()
                     }
@@ -1532,7 +1547,7 @@ struct NoteEditView: View {
                     fileData,
                     fileName: fileName,
                     fileType: fileType,
-                    noteId: currentNote.id
+                    noteId: noteToAttachTo.id
                 )
 
                 // Update local state
