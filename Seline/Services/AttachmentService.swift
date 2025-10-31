@@ -30,13 +30,19 @@ class AttachmentService: ObservableObject {
             throw NSError(domain: "AttachmentService", code: 2, userInfo: [NSLocalizedDescriptionKey: "File size exceeds 5MB limit"])
         }
 
-        // Generate unique storage path
+        // Sanitize filename for storage (remove special characters, replace spaces)
+        let sanitizedFileName = fileName
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "", options: .regularExpression)
+
+        // Generate unique storage path with sanitized filename
         let timestamp = Int(Date().timeIntervalSince1970)
-        let storagePath = "\(userId.uuidString)/\(noteId.uuidString)_\(timestamp)_\(fileName)"
+        let storagePath = "\(userId.uuidString)/\(noteId.uuidString)_\(timestamp)_\(sanitizedFileName)"
 
         // Upload to Supabase Storage
         let storage = await SupabaseManager.shared.getStorageClient()
         print("📤 Uploading file: \(fileName)")
+        print("📤 Sanitized filename: \(sanitizedFileName)")
         print("📤 Storage path: \(storagePath)")
         print("📤 File size: \(fileData.count) bytes")
         print("📤 Bucket: \(attachmentStorageBucket)")
@@ -48,6 +54,7 @@ class AttachmentService: ObservableObject {
             print("✅ File uploaded successfully to Supabase Storage")
         } catch {
             print("❌ Upload to storage failed: \(error)")
+            print("📊 Error details: \(String(describing: error))")
             throw error
         }
 
