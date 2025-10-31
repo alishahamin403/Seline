@@ -830,7 +830,7 @@ struct NoteEditView: View {
                         let newlineString = NSAttributedString(
                             string: "\n\n",
                             attributes: [
-                                .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
                                 .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
                             ]
                         )
@@ -1021,17 +1021,21 @@ struct NoteEditView: View {
                         // Download and show file preview
                         Task {
                             do {
-                                // Download the file from storage
-                                let fileData = try await SupabaseManager.shared.getStorageClient()
-                                    .from("note-attachments")
-                                    .download(path: attachment.storagePath)
+                                print("📥 Downloading file for preview: \(attachment.fileName)")
+                                print("📥 Storage path: \(attachment.storagePath)")
+
+                                // Download the file from storage using AttachmentService
+                                let fileData = try await AttachmentService.shared.downloadFile(from: attachment.storagePath)
+
+                                print("✅ Downloaded \(fileData.count) bytes")
 
                                 // Save to temporary file for preview
                                 let tmpDirectory = FileManager.default.temporaryDirectory
-                                let fileExtension = (attachment.fileName as NSString).pathExtension
                                 let tmpFile = tmpDirectory.appendingPathComponent(attachment.fileName)
 
                                 try fileData.write(to: tmpFile)
+
+                                print("✅ File saved to temp location: \(tmpFile.path)")
 
                                 await MainActor.run {
                                     self.filePreviewURL = tmpFile
@@ -1039,6 +1043,8 @@ struct NoteEditView: View {
                                 }
                             } catch {
                                 print("❌ Failed to download file for preview: \(error)")
+                                print("📊 Storage path that failed: \(attachment.storagePath)")
+                                print("📊 File name: \(attachment.fileName)")
                                 await MainActor.run {
                                     HapticManager.shared.error()
                                 }
@@ -1363,7 +1369,7 @@ struct NoteEditView: View {
                 return NSAttributedString(
                     string: plainContent,
                     attributes: [
-                        .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                        .font: UIFont.systemFont(ofSize: 14, weight: .regular),
                         .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
                     ]
                 )
@@ -1373,7 +1379,7 @@ struct NoteEditView: View {
         // New format: Markdown with table/todo markers (markers are hidden by RichTextEditor)
         // Parse the markdown to restore formatting like bold, italic, headings, etc.
         let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-        return MarkdownParser.shared.parseMarkdown(content, fontSize: 15, textColor: textColor)
+        return MarkdownParser.shared.parseMarkdown(content, fontSize: 14, textColor: textColor)
     }
 
     // MARK: - AI-Powered Text Editing
@@ -1392,7 +1398,7 @@ struct NoteEditView: View {
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
                 attributedContent = MarkdownParser.shared.parseMarkdown(
                     cleanedText,
-                    fontSize: 15,
+                    fontSize: 14,
                     textColor: textColor
                 )
                 isProcessingCleanup = false
@@ -1467,7 +1473,7 @@ struct NoteEditView: View {
 
         // Default attributes
         let defaultAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+            .font: UIFont.systemFont(ofSize: 14, weight: .regular),
             .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
         ]
 
@@ -1658,7 +1664,7 @@ struct NoteEditView: View {
                             let textToAdd = NSAttributedString(
                                 string: (self.attributedContent.length > 0 ? "\n\n" : "") + rawText,
                                 attributes: [
-                                    .font: UIFont.systemFont(ofSize: 15, weight: .regular),
+                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
                                     .foregroundColor: self.colorScheme == .dark ? UIColor.white : UIColor.black
                                 ]
                             )

@@ -40,9 +40,16 @@ class AttachmentService: ObservableObject {
         print("📤 Storage path: \(storagePath)")
         print("📤 File size: \(fileData.count) bytes")
         print("📤 Bucket: \(attachmentStorageBucket)")
-        try await storage
-            .from(attachmentStorageBucket)
-            .upload(storagePath, data: fileData, options: FileOptions(cacheControl: "3600"))
+
+        do {
+            try await storage
+                .from(attachmentStorageBucket)
+                .upload(storagePath, data: fileData, options: FileOptions(cacheControl: "3600"))
+            print("✅ File uploaded successfully to Supabase Storage")
+        } catch {
+            print("❌ Upload to storage failed: \(error)")
+            throw error
+        }
 
         // Create attachment record in database
         let attachment = try await createAttachmentRecord(
