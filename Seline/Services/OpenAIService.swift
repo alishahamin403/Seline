@@ -353,7 +353,8 @@ class OpenAIService: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Increase timeout for large file extractions (default is 60 seconds)
-        request.timeoutInterval = 180 // 3 minutes for detailed extraction
+        // Very large PDFs can take 5+ minutes to process
+        request.timeoutInterval = 300 // 5 minutes for detailed extraction of large files
 
         let (data, response) = try await URLSession.shared.data(for: request)
 

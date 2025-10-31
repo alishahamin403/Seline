@@ -212,20 +212,24 @@ class AttachmentService: ObservableObject {
         }
 
         do {
-            print("📨 Extracting content from \(fileName)...")
+            print("📨 Starting extraction from \(fileName)...")
+            print("📄 File: \(fileName) | Size: \(fileData.count) bytes")
 
             let documentType = detectDocumentType(fileName)
             let prompt = buildExtractionPrompt(fileName: fileName, documentType: documentType)
 
             // Convert file data to text for extraction
+            print("🔍 Extracting text from file...")
             let fileContent = extractTextFromFileData(fileData, fileName: fileName)
 
             // Call OpenAI to extract detailed content
+            print("🤖 Sending to OpenAI for detailed extraction... (this may take a while for large files)")
             let responseText = try await openAIService.extractDetailedDocumentContent(
                 fileContent,
                 withPrompt: prompt,
                 fileName: fileName
             )
+            print("✅ OpenAI extraction complete")
 
             // Store extracted data in database
             let extractedId = UUID()
@@ -246,10 +250,13 @@ class AttachmentService: ObservableObject {
             ]
 
             let client = await SupabaseManager.shared.getPostgrestClient()
+
+            print("💾 Saving extracted data to database...")
             try await client
                 .from("extracted_data")
                 .insert(extractedDataRecord)
                 .execute()
+            print("✅ Extracted data saved successfully")
 
             // Update attachment with document type
             let updateData: [String: PostgREST.AnyJSON] = [
@@ -257,6 +264,7 @@ class AttachmentService: ObservableObject {
                 "updated_at": .string(formatter.string(from: Date()))
             ]
 
+            print("🔄 Updating attachment record...")
             try await client
                 .from("attachments")
                 .update(updateData)
@@ -268,15 +276,20 @@ class AttachmentService: ObservableObject {
         } catch let error as NSError {
             // Provide specific error messages for common issues
             if error.code == NSURLErrorTimedOut {
-                print("⏱️ Extraction timeout: Request took too long to process. This is normal for very large files.")
-                print("💡 Tip: The file was still uploaded successfully. You can try again in a moment.")
+                print("⏱️ Extraction timeout: OpenAI request took too long to process.")
+                print("📊 File size: \(fileData.count) bytes | Extracted text: ~\(fileContent.count) characters")
+                print("💡 This is expected for very large files. The file was uploaded successfully.")
             } else if error.domain == NSURLErrorDomain {
                 print("⚠️ Network error during extraction: \(error.localizedDescription)")
+                print("📊 File: \(fileName) | Error code: \(error.code)")
+            } else if error.domain == "OpenAIService.SummaryError" {
+                print("❌ OpenAI API error: \(error.localizedDescription)")
             } else {
-                print("❌ Failed to extract file: \(error.localizedDescription)")
+                print("❌ Failed to extract file \(fileName): \(error.localizedDescription)")
+                print("📊 Error domain: \(error.domain) | Code: \(error.code)")
             }
         } catch {
-            print("❌ Failed to extract file: \(error.localizedDescription)")
+            print("❌ Unexpected error extracting file: \(error.localizedDescription)")
         }
     }
 

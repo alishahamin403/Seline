@@ -1591,8 +1591,8 @@ struct NoteEditView: View {
                 // Poll for extracted data with retries (extraction happens asynchronously)
                 var extracted: ExtractedData? = nil
                 var retryCount = 0
-                let maxRetries = 30 // Max 30 retries
-                var waitInterval: UInt64 = 500_000_000 // Start with 0.5 seconds
+                let maxRetries = 60 // Max 60 retries for large file extractions
+                var waitInterval: UInt64 = 1_000_000_000 // Start with 1 second
 
                 while extracted == nil && retryCount < maxRetries {
                     retryCount += 1
@@ -1602,13 +1602,18 @@ struct NoteEditView: View {
                     extracted = try await AttachmentService.shared.loadExtractedData(for: uploadedAttachment.id)
 
                     if extracted != nil {
-                        print("✅ Extracted data loaded after \(retryCount) attempt(s)")
+                        print("✅ Extracted data loaded after \(retryCount) attempt(s) - Total wait: ~\(retryCount)s")
                         break
                     }
 
-                    // Increase wait interval gradually (up to 2 seconds)
-                    if waitInterval < 2_000_000_000 {
-                        waitInterval = min(waitInterval + 200_000_000, 2_000_000_000)
+                    // Show progress every 10 retries
+                    if retryCount % 10 == 0 {
+                        print("⏳ Still waiting for extraction... attempt \(retryCount)/\(maxRetries)")
+                    }
+
+                    // Increase wait interval gradually (up to 3 seconds)
+                    if waitInterval < 3_000_000_000 {
+                        waitInterval = min(waitInterval + 200_000_000, 3_000_000_000)
                     }
                 }
 
