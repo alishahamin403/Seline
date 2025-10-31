@@ -485,6 +485,8 @@ struct NoteEditView: View {
     @State private var extractedData: ExtractedData?
     @State private var showingExtractionSheet = false
     @State private var isProcessingFile = false
+    @State private var fileExtractionProgress: Double = 0.0
+    @State private var progressTimer: Timer?
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingReceipt || isGeneratingTitle || isProcessingFile
@@ -523,19 +525,35 @@ struct NoteEditView: View {
 
                 // Processing indicator - fixed above bottom buttons
                 if isProcessingReceipt || isProcessingFile {
-                    HStack {
-                        ShadcnSpinner(size: .small)
+                    VStack(spacing: 8) {
+                        HStack {
+                            ShadcnSpinner(size: .small)
+                            if isProcessingFile {
+                                Text("Analyzing file...")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+
+                                Spacer()
+
+                                Text("\(Int(fileExtractionProgress))%")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            } else {
+                                Text("Analyzing receipt...")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            }
+                        }
+
+                        // Progress bar for file extraction
                         if isProcessingFile {
-                            Text("Analyzing file...")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                        } else {
-                            Text("Analyzing receipt...")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            ProgressView(value: fileExtractionProgress / 100.0)
+                                .tint(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                .frame(height: 4)
                         }
                     }
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .background(colorScheme == .dark ? Color.black : Color.white)
                     .zIndex(1)
                 }
@@ -1524,7 +1542,29 @@ struct NoteEditView: View {
     private func handleFileSelected(_ fileURL: URL) {
         Task {
             isProcessingFile = true
-            defer { isProcessingFile = false }
+            fileExtractionProgress = 0.0
+
+            // Start progress timer for simulated progress
+            progressTimer?.invalidate()
+            progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                if fileExtractionProgress < 90 {
+                    // Gradually increase progress, slowing down as it approaches 90%
+                    let increment = (90 - fileExtractionProgress) * 0.02
+                    fileExtractionProgress += max(0.5, increment)
+                }
+            }
+
+            defer {
+                isProcessingFile = false
+                fileExtractionProgress = 100.0
+                progressTimer?.invalidate()
+                progressTimer = nil
+
+                // Keep showing 100% for a brief moment before hiding
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.fileExtractionProgress = 0.0
+                }
+            }
 
             do {
                 // If note doesn't exist yet, create and save it first
