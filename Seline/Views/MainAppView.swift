@@ -964,33 +964,10 @@ struct MainAppView: View {
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
                 .onSubmit {
-                    // Process the search query when user taps search button
+                    // Perform search when user taps search button
                     if !searchText.isEmpty {
-                        let queryType = QueryRouter.shared.classifyQuery(searchText)
-                        switch queryType {
-                        case .action(let actionType):
-                            switch actionType {
-                            case .createEvent:
-                                let actionHandler = ActionQueryHandler.shared
-                                Task {
-                                    searchService.pendingEventCreation = await actionHandler.parseEventCreation(
-                                        from: searchText,
-                                        weatherService: weatherService,
-                                        locationsManager: locationsManager,
-                                        navigationService: navigationService
-                                    )
-                                }
-                            case .createNote:
-                                let actionHandler = ActionQueryHandler.shared
-                                Task {
-                                    searchService.pendingNoteCreation = await actionHandler.parseNoteCreation(from: searchText)
-                                }
-                            default:
-                                break
-                            }
-                        default:
-                            // For questions and searches, keep the normal behavior
-                            break
+                        Task {
+                            await searchService.performSearch(query: searchText)
                         }
                     }
                 }
