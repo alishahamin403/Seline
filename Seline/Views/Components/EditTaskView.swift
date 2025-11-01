@@ -50,342 +50,15 @@ struct EditTaskView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                // Title Input
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Event Title")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-
-                    TextField("Enter event title", text: $title)
-                        .font(.system(size: 14))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
-                        )
-                }
-
-                // Description Input
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Description (Optional)")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-
-                    TextField("Add additional details...", text: $description, axis: .vertical)
-                        .font(.system(size: 13))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .lineLimit(2...4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
-                        )
-                }
-
-                // Tag Selector
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Tag (Optional)")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-
-                    Button(action: {
-                        showingTagOptions.toggle()
-                    }) {
-                        HStack {
-                            if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
-                                Circle()
-                                    .fill(tag.color)
-                                    .frame(width: 8, height: 8)
-                                Text(tag.name)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                            } else {
-                                Circle()
-                                    .fill(Color.gray)
-                                    .frame(width: 8, height: 8)
-                                Text("Personal (Default)")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 11))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
-                        )
-                    }
-                    .sheet(isPresented: $showingTagOptions) {
-                        TagSelectionSheet(
-                            selectedTagId: $selectedTagId,
-                            colorScheme: colorScheme
-                        )
-                        .presentationDetents([.height(350)])
-                    }
-                }
-
-                // Date Picker
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Date")
-                        .font(.shadcnTextSm)
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                    HStack {
-                        DatePicker("", selection: $selectedDate, displayedComponents: .date)
-                            .datePickerStyle(CompactDatePickerStyle())
-                            .labelsHidden()
-
-                        Spacer()
-                    }
-                }
-
-                // Time Toggle and Picker
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Toggle("Include Time", isOn: $hasTime)
-                            .font(.shadcnTextSm)
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                        Spacer()
-                    }
-
-                    if hasTime {
-                        HStack(spacing: 12) {
-                            // Start Time
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Start")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                TimePickerField(
-                                    time: $selectedTime,
-                                    onTimeChange: { newStartTime in
-                                        selectedEndTime = newStartTime.addingTimeInterval(3600)
-                                    },
-                                    colorScheme: colorScheme
-                                )
-                            }
-
-                            // End Time
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("End")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                TimePickerField(
-                                    time: $selectedEndTime,
-                                    colorScheme: colorScheme
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Recurring Toggle and Settings
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Toggle("Recurring Event", isOn: $isRecurring)
-                            .font(.shadcnTextSm)
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                        Spacer()
-                    }
-
-                    if isRecurring {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Repeat")
-                                .font(.shadcnTextSm)
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                            // Show frequency as read-only if task was already recurring
-                            if task.isRecurring {
-                                HStack {
-                                    Text(recurrenceFrequency.rawValue.capitalized)
-                                        .font(.shadcnTextBase)
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                    Spacer()
-
-                                    Text("Cannot change frequency")
-                                        .font(.shadcnTextXs)
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.1), lineWidth: 1)
-                                )
-                            } else {
-                                // Allow frequency selection for new recurring tasks
-                                Button(action: {
-                                    showingRecurrenceOptions.toggle()
-                                }) {
-                                    HStack {
-                                        Text(recurrenceFrequency.rawValue.capitalized)
-                                            .font(.shadcnTextBase)
-                                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                                        Spacer()
-
-                                        Image(systemName: "chevron.down")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(colorScheme == .dark ? Color.black : Color.white)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                                    )
-                                }
-                                .sheet(isPresented: $showingRecurrenceOptions) {
-                                    RecurringOptionsSheet(
-                                        selectedFrequency: $recurrenceFrequency,
-                                        colorScheme: colorScheme
-                                    )
-                                    .presentationDetents([.height(300)])
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Reminder Picker
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Reminder")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-
-                    Button(action: {
-                        showingReminderOptions.toggle()
-                    }) {
-                        HStack {
-                            Image(systemName: selectedReminder.icon)
-                                .font(.system(size: 13))
-                                .foregroundColor(selectedReminder == .none ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
-
-                            Text(selectedReminder.displayName)
-                                .font(.system(size: 13))
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                            Spacer()
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 11))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
-                        )
-                    }
-                    .sheet(isPresented: $showingReminderOptions) {
-                        ReminderOptionsSheet(
-                            selectedReminder: $selectedReminder,
-                            colorScheme: colorScheme
-                        )
-                        .presentationDetents([.height(320)])
-                    }
-                }
-
+                titleInputSection
+                descriptionInputSection
+                tagSelectorSection
+                datePickerSection
+                timeToggleSection
+                recurringToggleSection
+                reminderPickerSection
                 Spacer()
-
-                // Action Buttons
-                HStack(spacing: 12) {
-                    Button("Cancel") {
-                        onCancel()
-                    }
-                    .font(.shadcnTextBase)
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.gray.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                    )
-
-                    Button("Save") {
-                        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
-                        let timeToSave = hasTime ? selectedTime : nil
-                        let endTimeToSave = hasTime ? selectedEndTime : nil
-                        let reminderToSave = selectedReminder == .none ? nil : selectedReminder
-
-                        var updatedTask = TaskItem(
-                            title: trimmedTitle,
-                            weekday: task.weekday,
-                            description: descriptionToSave,
-                            scheduledTime: timeToSave,
-                            endTime: endTimeToSave,
-                            targetDate: selectedDate,
-                            reminderTime: reminderToSave,
-                            isRecurring: isRecurring,
-                            recurrenceFrequency: isRecurring ? recurrenceFrequency : nil,
-                            parentRecurringTaskId: task.parentRecurringTaskId
-                        )
-                        updatedTask.id = task.id
-                        updatedTask.isCompleted = task.isCompleted
-                        updatedTask.completedDate = task.completedDate
-                        updatedTask.createdAt = task.createdAt
-                        updatedTask.tagId = selectedTagId
-
-                        onSave(updatedTask)
-                    }
-                    .font(.shadcnTextBase)
-                    .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(isValidInput ?
-                                (colorScheme == .dark ?
-                                    Color.white :
-                                    Color.black) :
-                                Color.gray)
-                    )
-                    .disabled(!isValidInput)
-                }
+                actionButtonsSection
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
@@ -396,6 +69,347 @@ struct EditTaskView: View {
         .navigationTitle("Edit Event")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
+    }
+
+    // MARK: - Form Sections
+
+    private var titleInputSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Event Title")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+
+            TextField("Enter event title", text: $title)
+                .font(.system(size: 14))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                )
+        }
+    }
+
+    private var descriptionInputSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Description (Optional)")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+
+            TextField("Add additional details...", text: $description, axis: .vertical)
+                .font(.system(size: 13))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .lineLimit(2...4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                )
+        }
+    }
+
+    private var tagSelectorSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Tag (Optional)")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+
+            Button(action: {
+                showingTagOptions.toggle()
+            }) {
+                HStack {
+                    if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+                        Circle()
+                            .fill(tag.color)
+                            .frame(width: 8, height: 8)
+                        Text(tag.name)
+                            .font(.system(size: 13))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    } else {
+                        Circle()
+                            .fill(Color.gray)
+                            .frame(width: 8, height: 8)
+                        Text("Personal (Default)")
+                            .font(.system(size: 13))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                )
+            }
+            .sheet(isPresented: $showingTagOptions) {
+                TagSelectionSheet(
+                    selectedTagId: $selectedTagId,
+                    colorScheme: colorScheme
+                )
+                .presentationDetents([.height(350)])
+            }
+        }
+    }
+
+    private var datePickerSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Date")
+                .font(.shadcnTextSm)
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+            HStack {
+                DatePicker("", selection: $selectedDate, displayedComponents: .date)
+                    .datePickerStyle(CompactDatePickerStyle())
+                    .labelsHidden()
+
+                Spacer()
+            }
+        }
+    }
+
+    private var timeToggleSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle("Include Time", isOn: $hasTime)
+                    .font(.shadcnTextSm)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                Spacer()
+            }
+
+            if hasTime {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Start")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        TimePickerField(
+                            time: $selectedTime,
+                            onTimeChange: { newStartTime in
+                                selectedEndTime = newStartTime.addingTimeInterval(3600)
+                            },
+                            colorScheme: colorScheme
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("End")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        TimePickerField(
+                            time: $selectedEndTime,
+                            colorScheme: colorScheme
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var recurringToggleSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle("Recurring Event", isOn: $isRecurring)
+                    .font(.shadcnTextSm)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                Spacer()
+            }
+
+            if isRecurring {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Repeat")
+                        .font(.shadcnTextSm)
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                    if task.isRecurring {
+                        HStack {
+                            Text(recurrenceFrequency.rawValue.capitalized)
+                                .font(.shadcnTextBase)
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                            Spacer()
+
+                            Text("Cannot change frequency")
+                                .font(.shadcnTextXs)
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.1), lineWidth: 1)
+                        )
+                    } else {
+                        Button(action: {
+                            showingRecurrenceOptions.toggle()
+                        }) {
+                            HStack {
+                                Text(recurrenceFrequency.rawValue.capitalized)
+                                    .font(.shadcnTextBase)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .sheet(isPresented: $showingRecurrenceOptions) {
+                            RecurringOptionsSheet(
+                                selectedFrequency: $recurrenceFrequency,
+                                colorScheme: colorScheme
+                            )
+                            .presentationDetents([.height(300)])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var reminderPickerSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Reminder")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+
+            Button(action: {
+                showingReminderOptions.toggle()
+            }) {
+                HStack {
+                    Image(systemName: selectedReminder.icon)
+                        .font(.system(size: 13))
+                        .foregroundColor(selectedReminder == .none ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
+
+                    Text(selectedReminder.displayName)
+                        .font(.system(size: 13))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                )
+            }
+            .sheet(isPresented: $showingReminderOptions) {
+                ReminderOptionsSheet(
+                    selectedReminder: $selectedReminder,
+                    colorScheme: colorScheme
+                )
+                .presentationDetents([.height(320)])
+            }
+        }
+    }
+
+    private var actionButtonsSection: some View {
+        HStack(spacing: 12) {
+            Button("Cancel") {
+                onCancel()
+            }
+            .font(.shadcnTextBase)
+            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+            )
+
+            Button("Save") {
+                let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
+                let timeToSave = hasTime ? selectedTime : nil
+                let endTimeToSave = hasTime ? selectedEndTime : nil
+                let reminderToSave = selectedReminder == .none ? nil : selectedReminder
+
+                var updatedTask = TaskItem(
+                    title: trimmedTitle,
+                    weekday: task.weekday,
+                    description: descriptionToSave,
+                    scheduledTime: timeToSave,
+                    endTime: endTimeToSave,
+                    targetDate: selectedDate,
+                    reminderTime: reminderToSave,
+                    isRecurring: isRecurring,
+                    recurrenceFrequency: isRecurring ? recurrenceFrequency : nil,
+                    parentRecurringTaskId: task.parentRecurringTaskId
+                )
+                updatedTask.id = task.id
+                updatedTask.isCompleted = task.isCompleted
+                updatedTask.completedDate = task.completedDate
+                updatedTask.createdAt = task.createdAt
+                updatedTask.tagId = selectedTagId
+
+                onSave(updatedTask)
+            }
+            .font(.shadcnTextBase)
+            .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isValidInput ?
+                        (colorScheme == .dark ?
+                            Color.white :
+                            Color.black) :
+                        Color.gray)
+            )
+            .disabled(!isValidInput)
+        }
     }
 }
 
