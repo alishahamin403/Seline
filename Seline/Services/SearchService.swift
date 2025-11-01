@@ -22,6 +22,12 @@ class SearchService: ObservableObject {
     @Published var savedConversations: [SavedConversation] = []
     private var currentlyLoadedConversationId: UUID? = nil
 
+    // NEW: Conversational action system
+    @Published var currentInteractiveAction: InteractiveAction?
+    @Published var actionPrompt: String? = nil
+    @Published var isWaitingForActionResponse: Bool = false
+    @Published var actionSuggestions: [NoteSuggestion] = []
+
     // Note refinement mode - for interactive note creation/updating
     @Published var isRefiningNote: Bool = false
     @Published var currentNoteBeingRefined: Note? = nil
@@ -37,6 +43,8 @@ class SearchService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let queryRouter = QueryRouter.shared
     private let actionQueryHandler = ActionQueryHandler.shared
+    private let conversationActionHandler = ConversationActionHandler.shared
+    private let infoExtractor = InformationExtractor.shared
 
     private init() {
         // Load saved conversations from local storage
@@ -94,7 +102,9 @@ class SearchService: ObservableObject {
         // Handle based on query type
         switch currentQueryType {
         case .action(let actionType):
-            await handleActionQuery(trimmedQuery, actionType: actionType)
+            // Use new conversational action system
+            isInConversationMode = true
+            await startConversationalAction(userMessage: trimmedQuery, actionType: actionType)
         case .search:
             let results = await searchContent(query: trimmedQuery.lowercased())
             searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
@@ -1689,6 +1699,164 @@ class SearchService: ObservableObject {
         isInConversationMode = true
         updateConversationTitle()
         await addConversationMessage(initialQuestion)
+    }
+
+    // MARK: - Conversational Action System
+
+    /// Start a new conversational action from a user's initial message
+    func startConversationalAction(
+        userMessage: String,
+        actionType: ActionType
+    ) async {
+        // Initialize new interactive action
+        let conversationContext = ConversationActionContext(
+            conversationHistory: conversationHistory,
+            recentTopics: [],
+            lastNoteCreated: nil,
+            lastEventCreated: nil
+        )
+
+        var action = await conversationActionHandler.startAction(
+            from: userMessage,
+            actionType: actionType,
+            conversationContext: conversationContext
+        )
+
+        // Store the action
+        currentInteractiveAction = action
+
+        // Add user message to conversation
+        await addConversationMessage(userMessage)
+
+        // Get next prompt
+        actionPrompt = await conversationActionHandler.getNextPrompt(
+            for: action,
+            conversationContext: conversationContext
+        )
+        isWaitingForActionResponse = true
+    }
+
+    /// Process a user's response to an action prompt
+    func continueConversationalAction(userMessage: String) async {
+        guard var action = currentInteractiveAction else { return }
+
+        // Add user message to conversation
+        await addConversationMessage(userMessage)
+
+        // Build conversation context
+        let conversationContext = ConversationActionContext(
+            conversationHistory: conversationHistory,
+            recentTopics: [],
+            lastNoteCreated: nil,
+            lastEventCreated: nil
+        )
+
+        // Process the response
+        action = await conversationActionHandler.processUserResponse(
+            userMessage,
+            to: action,
+            currentStep: actionPrompt ?? "",
+            conversationContext: conversationContext
+        )
+
+        currentInteractiveAction = action
+
+        // Check if ready to save
+        if conversationActionHandler.isReadyToSave(action) {
+            await executeConversationalAction(action)
+            return
+        }
+
+        // Get next prompt
+        actionPrompt = await conversationActionHandler.getNextPrompt(
+            for: action,
+            conversationContext: conversationContext
+        )
+
+        // Add assistant response
+        if let prompt = actionPrompt {
+            await addConversationMessage(prompt, isUser: false)
+        }
+    }
+
+    /// Execute the built action (save to database)
+    private func executeConversationalAction(_ action: InteractiveAction) async {
+        switch action.type {
+        case .createEvent:
+            if let eventData = conversationActionHandler.compileEventData(from: action) {
+                pendingEventCreation = eventData
+                confirmEventCreation()
+                let msg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Event '\(eventData.title)' created!",
+                    intent: .calendar
+                )
+                conversationHistory.append(msg)
+            }
+
+        case .updateEvent:
+            if let eventData = conversationActionHandler.compileEventData(from: action) {
+                pendingEventCreation = eventData
+                confirmEventCreation()
+                let msg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Event updated!",
+                    intent: .calendar
+                )
+                conversationHistory.append(msg)
+            }
+
+        case .deleteEvent:
+            if let deletionData = conversationActionHandler.compileDeletionData(from: action) {
+                // Handle deletion
+                let msg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Event deleted!",
+                    intent: .calendar
+                )
+                conversationHistory.append(msg)
+            }
+
+        case .createNote:
+            if let noteData = conversationActionHandler.compileNoteData(from: action) {
+                pendingNoteCreation = noteData
+                confirmNoteCreation()
+                let msg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Note '\(noteData.title)' created!",
+                    intent: .notes
+                )
+                conversationHistory.append(msg)
+            }
+
+        case .updateNote:
+            if let updateData = conversationActionHandler.compileNoteUpdateData(from: action) {
+                pendingNoteUpdate = updateData
+                confirmNoteUpdate()
+                let msg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Note updated!",
+                    intent: .notes
+                )
+                conversationHistory.append(msg)
+            }
+
+        case .deleteNote:
+            if let deletionData = conversationActionHandler.compileDeletionData(from: action) {
+                // Handle deletion
+                let msg = ConversationMessage(
+                    isUser: false,
+                    text: "✓ Note deleted!",
+                    intent: .notes
+                )
+                conversationHistory.append(msg)
+            }
+        }
+
+        // Clear current action
+        currentInteractiveAction = nil
+        actionPrompt = nil
+        isWaitingForActionResponse = false
     }
 
     /// Update conversation title based on conversation context
