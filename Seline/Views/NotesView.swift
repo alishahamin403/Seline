@@ -1329,19 +1329,28 @@ struct NoteEditView: View {
                 let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
             }
         } else {
-            // Create new note
+            // Create new note - MUST save to database first, then upload images
             Task {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
 
-                // Upload all images for new note
-                if !imageAttachments.isEmpty {
-                    let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
-                    newNote.imageUrls = imageUrls
-                }
-
+                // 1. Add note to database first (without images)
                 await MainActor.run {
                     notesManager.addNote(newNote)
+                }
+
+                // 2. Wait for note to sync to Supabase
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second wait for sync
+
+                // 3. NOW upload images (RLS policy requires note to exist first)
+                if !imageAttachments.isEmpty {
+                    let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
+
+                    // 4. Update note with image URLs
+                    var updatedNote = newNote
+                    updatedNote.imageUrls = imageUrls
+                    updatedNote.dateModified = Date()
+                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
                 }
             }
         }
@@ -1575,8 +1584,11 @@ struct NoteEditView: View {
                     isProcessingReceipt = false
                     saveToUndoHistory()
 
-                    // Auto-save the note with the receipt image
-                    saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
+                    // Auto-save the note with the receipt image ONLY if it's an existing note
+                    // For new notes, just update the state and let user click save
+                    if self.note != nil {
+                        saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
+                    }
                 }
             } catch {
                 await MainActor.run {
