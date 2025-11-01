@@ -27,6 +27,8 @@ struct SelineApp: App {
                 .environmentObject(notificationService)
                 .environmentObject(deepLinkHandler)
                 .onOpenURL { url in
+                    print("🚀 SelineApp: .onOpenURL triggered with URL: \(url.absoluteString)")
+                    print("🚀 SelineApp: Passing to deepLinkHandler")
                     deepLinkHandler.handleURL(url)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
