@@ -151,6 +151,7 @@ struct SelineWidgetEntryView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+            .ignoresSafeArea()
 
             if widgetFamily == .systemSmall {
                 // Small widget - ETA focused
@@ -160,7 +161,6 @@ struct SelineWidgetEntryView: View {
                 mediumWidgetView
             }
         }
-        .cornerRadius(16)
     }
 
     var smallWidgetView: some View {
@@ -294,9 +294,24 @@ struct SelineWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SelineWidgetProvider()) { entry in
             SelineWidgetEntryView(entry: entry)
+                .widgetBackground(Color.clear)
         }
         .configurationDisplayName("Seline")
         .description("Quick access to your Seline information")
         .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+// Extension to support both iOS 16 and 17+
+extension View {
+    @ViewBuilder
+    func widgetBackground(_ color: Color) -> some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            self.containerBackground(for: .widget) {
+                color
+            }
+        } else {
+            self.background(color)
+        }
     }
 }
