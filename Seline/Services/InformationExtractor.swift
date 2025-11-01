@@ -43,8 +43,11 @@ class InformationExtractor {
         context: ConversationActionContext,
         action: inout InteractiveAction
     ) async {
+        let today = ISO8601DateFormatter().string(from: Date()).split(separator: "T")[0]
         let prompt = """
         Extract event information from this user message. Consider the conversation history for context.
+        TODAY'S DATE: \(today)
+        Use this to convert relative dates like "tomorrow", "next Monday", "tom", etc to ISO8601 format.
 
         Conversation history:
         \(context.historyText)
@@ -53,7 +56,7 @@ class InformationExtractor {
 
         Extract the following fields if present:
         - title: Event title/name
-        - date: Date in ISO8601 format (YYYY-MM-DD), or null if not mentioned
+        - date: Date in ISO8601 format (YYYY-MM-DD), or null if not mentioned. Convert relative dates like "tomorrow", "tom", "next Monday" etc using today's date.
         - startTime: Start time in HH:mm format (24-hour), or null
         - endTime: End time in HH:mm format, or null
         - isAllDay: true/false

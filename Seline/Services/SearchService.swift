@@ -598,12 +598,6 @@ class SearchService: ObservableObject {
             isInConversationMode = true
         }
 
-        // Add user message to history
-        addMessageToHistory(trimmed, isUser: true, intent: .general)
-
-        // Update title based on conversation context
-        updateConversationTitle()
-
         // Check if this is a single action query (create event, create note, etc.)
         var queryType = queryRouter.classifyQuery(trimmed)
 
@@ -620,15 +614,21 @@ class SearchService: ObservableObject {
         if case .action(let actionType) = queryType {
             // Handle action query with new conversational system
             if currentInteractiveAction != nil {
-                // Continue existing action
+                // Continue existing action - message will be added in continueConversationalAction
                 await continueConversationalAction(userMessage: trimmed)
             } else {
-                // Start new action
+                // Start new action - message will be added in startConversationalAction
                 await startConversationalAction(userMessage: trimmed, actionType: actionType)
             }
             saveConversationLocally()
             return
         }
+
+        // Not an action - add user message to history for normal conversation
+        addMessageToHistory(trimmed, isUser: true, intent: .general)
+
+        // Update title based on conversation context
+        updateConversationTitle()
 
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
