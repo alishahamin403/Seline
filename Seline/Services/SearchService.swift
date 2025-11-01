@@ -138,8 +138,8 @@ class SearchService: ObservableObject {
             )
             conversationHistory.append(separatorMsg)
 
-            // Process the next action
-            await handleConversationActionQuery(nextAction.query, actionType: nextAction.actionType)
+            // Process the next action with new conversational system
+            await startConversationalAction(userMessage: nextAction.query, actionType: nextAction.actionType)
             saveConversationLocally()
         } else {
             // All actions completed
@@ -604,27 +604,7 @@ class SearchService: ObservableObject {
         // Update title based on conversation context
         updateConversationTitle()
 
-        // CONTEXT-AWARE REFINEMENT EXIT: Check if user should exit refinement based on conversation context
-        if isRefiningNote, let noteBeingRefined = currentNoteBeingRefined {
-            if shouldExitRefinementBasedOnContext(userMessage: trimmed) {
-                print("🔄 [SearchService] User intent suggests exiting refinement mode based on context")
-                isRefiningNote = false
-                currentNoteBeingRefined = nil
-                // Continue processing as normal conversation instead of note refinement
-            } else {
-                // REFINEMENT MODE: If user is adding details to a note, update it instead
-                print("🔄 [SearchService] In refinement mode, handling note refinement")
-                await handleNoteRefinement(trimmed, for: noteBeingRefined)
-                saveConversationLocally()
-                return
-            }
-        }
-
-        // DISABLED: Multi-action splitting was causing context loss
-        // Instead, pass full query to action handlers so they can understand complex requests
-        print("ℹ️ [SearchService] Checking for single action with full context...")
-
-        // Check if this is a single action query (create event, create note, etc.) BEFORE sending to AI
+        // Check if this is a single action query (create event, create note, etc.)
         var queryType = queryRouter.classifyQuery(trimmed)
 
         // If keyword matching didn't detect action, try semantic classification
@@ -638,8 +618,14 @@ class SearchService: ObservableObject {
         }
 
         if case .action(let actionType) = queryType {
-            // Handle action query in conversation
-            await handleConversationActionQuery(trimmed, actionType: actionType)
+            // Handle action query with new conversational system
+            if currentInteractiveAction != nil {
+                // Continue existing action
+                await continueConversationalAction(userMessage: trimmed)
+            } else {
+                // Start new action
+                await startConversationalAction(userMessage: trimmed, actionType: actionType)
+            }
             saveConversationLocally()
             return
         }
