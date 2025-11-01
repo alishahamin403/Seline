@@ -2572,6 +2572,8 @@ class TagManager: ObservableObject {
     @Published var tags: [Tag] = []
     private let userDefaults = UserDefaults.standard
     private let tagsKey = "UserCreatedTags"
+    private let supabaseManager = SupabaseManager.shared
+    private let authManager = AuthenticationManager.shared
 
     private init() {
         loadTags()
@@ -2590,17 +2592,103 @@ class TagManager: ObservableObject {
 
         tags.append(newTag)
         saveTags()
+
+        // Sync to Supabase
+        Task {
+            await saveTagToSupabase(newTag)
+        }
+
         return newTag
     }
 
     func deleteTag(_ tag: Tag) {
         tags.removeAll { $0.id == tag.id }
-        saveTasks()
+        saveTags()
+
+        // Sync deletion to Supabase
+        Task {
+            await deleteTagFromSupabase(tag)
+        }
     }
 
     func getTag(by id: String?) -> Tag? {
         guard let id = id else { return nil }
         return tags.first { $0.id == id }
+    }
+
+    // MARK: - Supabase Sync
+
+    func loadTagsFromSupabase() async {
+        guard let userId = authManager.currentUser?.id else {
+            print("⚠️ User not authenticated - skipping Supabase tag load")
+            return
+        }
+
+        do {
+            let tagsData: [TagSupabaseModel] = try await supabaseManager.client
+                .from("tags")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+                .value
+
+            let loadedTags = tagsData.map { Tag(id: $0.id, name: $0.name, colorIndex: $0.color_index) }
+
+            await MainActor.run {
+                self.tags = loadedTags
+                self.saveTags()
+                print("✅ Loaded \(loadedTags.count) tags from Supabase")
+            }
+        } catch {
+            print("❌ Error loading tags from Supabase: \(error.localizedDescription)")
+            // Fall back to local storage
+            print("📂 Falling back to local storage tags")
+        }
+    }
+
+    private func saveTagToSupabase(_ tag: Tag) async {
+        guard let userId = authManager.currentUser?.id else {
+            print("⚠️ User not authenticated - skipping Supabase tag save")
+            return
+        }
+
+        do {
+            let tagModel = TagSupabaseModel(
+                id: tag.id,
+                user_id: userId.uuidString,
+                name: tag.name,
+                color_index: tag.colorIndex
+            )
+
+            _ = try await supabaseManager.client
+                .from("tags")
+                .insert(tagModel)
+                .execute()
+
+            print("✅ Saved tag '\(tag.name)' to Supabase")
+        } catch {
+            print("❌ Error saving tag to Supabase: \(error.localizedDescription)")
+        }
+    }
+
+    private func deleteTagFromSupabase(_ tag: Tag) async {
+        guard let userId = authManager.currentUser?.id else {
+            print("⚠️ User not authenticated - skipping Supabase tag delete")
+            return
+        }
+
+        do {
+            _ = try await supabaseManager.client
+                .from("tags")
+                .delete()
+                .eq("id", value: tag.id)
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+
+            print("✅ Deleted tag '\(tag.name)' from Supabase")
+        } catch {
+            print("❌ Error deleting tag from Supabase: \(error.localizedDescription)")
+        }
     }
 
     private func saveTags() {
@@ -2619,10 +2707,15 @@ class TagManager: ObservableObject {
         print("📂 Loading \(loadedTags.count) tags from local storage")
         self.tags = loadedTags
     }
+}
 
-    private func saveTasks() {
-        saveTags()
-    }
+// MARK: - Supabase Tag Model
+
+struct TagSupabaseModel: Codable {
+    let id: String
+    let user_id: String
+    let name: String
+    let color_index: Int
 }
 
 // MARK: - Calendar Photo Import Models

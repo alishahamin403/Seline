@@ -50,6 +50,7 @@ class AuthenticationManager: ObservableObject {
             // Sync tasks and notes from Supabase
             await TaskManager.shared.syncTasksOnLogin()
             await NotesManager.shared.syncNotesOnLogin()
+            await TagManager.shared.loadTagsFromSupabase()
 
         } catch {
             // No valid session found, user needs to sign in
@@ -114,6 +115,7 @@ class AuthenticationManager: ObservableObject {
                 await TaskManager.shared.syncTasksOnLogin()
                 await NotesManager.shared.syncNotesOnLogin()
                 await LocationsManager.shared.syncPlacesOnLogin()
+                await TagManager.shared.loadTagsFromSupabase()
             }
 
             // Check if first-time setup is needed
