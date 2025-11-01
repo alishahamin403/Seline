@@ -112,18 +112,24 @@ struct SelineWidgetProvider: TimelineProvider {
         }
 
         // Get current location and calculate ETAs
-        let locationManager = CLLocationManager()
         if let lastLocation = loadLastUserLocation() {
+            print("🟢 Widget: Loaded user location: \(lastLocation.latitude), \(lastLocation.longitude)")
+
             // Calculate ETAs using the saved location
             if let lat1 = location1Lat, let lon1 = location1Lon {
-                location1ETA = calculateETASync(from: lastLocation, toLat: lat1, toLon: lon1)
+                print("🟢 Widget: Calculating ETA for location1: \(lat1), \(lon1)")
+                location1ETA = calculateETADistance(from: lastLocation, toLat: lat1, toLon: lon1)
             }
             if let lat2 = location2Lat, let lon2 = location2Lon {
-                location2ETA = calculateETASync(from: lastLocation, toLat: lat2, toLon: lon2)
+                print("🟢 Widget: Calculating ETA for location2: \(lat2), \(lon2)")
+                location2ETA = calculateETADistance(from: lastLocation, toLat: lat2, toLon: lon2)
             }
             if let lat3 = location3Lat, let lon3 = location3Lon {
-                location3ETA = calculateETASync(from: lastLocation, toLat: lat3, toLon: lon3)
+                print("🟢 Widget: Calculating ETA for location3: \(lat3), \(lon3)")
+                location3ETA = calculateETADistance(from: lastLocation, toLat: lat3, toLon: lon3)
             }
+        } else {
+            print("🔴 Widget: Could not load user location from UserDefaults")
         }
 
         // Create entry with location data and calculated ETAs
@@ -171,80 +177,28 @@ struct SelineWidgetProvider: TimelineProvider {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
-    // Calculate ETA synchronously using Google Routes API
-    private func calculateETASync(from origin: CLLocationCoordinate2D, toLat: Double, toLon: Double) -> String? {
-        let apiKey = "AIzaSyDL864Gd2OuJBIuL9380kQFbb0jJAJilQ8"
-        let routesBaseURL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    // Calculate ETA using distance-based estimation
+    // Assumes average driving speed of 35 km/h (conservative for urban areas with traffic)
+    private func calculateETADistance(from origin: CLLocationCoordinate2D, toLat: Double, toLon: Double) -> String? {
+        let destinationCoordinate = CLLocationCoordinate2D(latitude: toLat, longitude: toLon)
 
-        guard let url = URL(string: routesBaseURL) else {
-            return nil
-        }
+        // Calculate distance using Haversine formula (approximate)
+        let distance = calculateDistance(from: origin, to: destinationCoordinate)
 
-        let requestBody: [String: Any] = [
-            "origin": [
-                "location": [
-                    "latLng": [
-                        "latitude": origin.latitude,
-                        "longitude": origin.longitude
-                    ]
-                ]
-            ],
-            "destination": [
-                "location": [
-                    "latLng": [
-                        "latitude": toLat,
-                        "longitude": toLon
-                    ]
-                ]
-            ],
-            "travelMode": "DRIVE",
-            "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
-            "routeModifiers": [
-                "avoidTolls": true,
-                "avoidHighways": false,
-                "avoidFerries": false
-            ],
-            "computeAlternativeRoutes": false,
-            "languageCode": "en-US",
-            "units": "METRIC"
-        ]
+        // Estimate time assuming average speed of 35 km/h
+        let speedKmPerHour = 35.0
+        let timeInHours = distance / speedKmPerHour
+        let timeInSeconds = Int(timeInHours * 3600)
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
-            return nil
-        }
+        return formatETA(timeInSeconds)
+    }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
-        request.setValue("routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline", forHTTPHeaderField: "X-Goog-FieldMask")
-        request.httpBody = jsonData
-        request.timeoutInterval = 5 // 5 second timeout
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var resultETA: String? = nil
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            defer { semaphore.signal() }
-
-            guard let data = data else {
-                return
-            }
-
-            if let jsonResponse = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let routes = jsonResponse["routes"] as? [[String: Any]],
-               let firstRoute = routes.first,
-               let duration = firstRoute["duration"] as? String {
-                let cleanDuration = duration.replacingOccurrences(of: "s", with: "")
-                if let seconds = Int(cleanDuration) {
-                    resultETA = formatETA(seconds)
-                }
-            }
-        }.resume()
-
-        // Wait for the request with a timeout
-        let result = semaphore.wait(timeout: .now() + 5.0)
-        return resultETA
+    // Calculate distance between two coordinates (in kilometers)
+    private func calculateDistance(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
+        let from = CLLocation(latitude: from.latitude, longitude: from.longitude)
+        let to = CLLocation(latitude: to.latitude, longitude: to.longitude)
+        let distanceMeters = from.distance(from: to)
+        return distanceMeters / 1000.0 // Convert to km
     }
 
     // Format duration in seconds to a short string
