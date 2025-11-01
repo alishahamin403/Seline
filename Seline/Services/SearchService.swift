@@ -584,6 +584,12 @@ class SearchService: ObservableObject {
         return false
     }
 
+    /// Simple helper: Add message to history without reprocessing
+    private func addMessageToHistory(_ text: String, isUser: Bool, intent: QueryIntent = .general) {
+        let msg = ConversationMessage(isUser: isUser, text: text, intent: intent)
+        conversationHistory.append(msg)
+    }
+
     /// Add a message to the conversation and process it
     func addConversationMessage(_ userMessage: String) async {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -597,8 +603,7 @@ class SearchService: ObservableObject {
         }
 
         // Add user message to history
-        let userMsg = ConversationMessage(isUser: true, text: trimmed, intent: .general)
-        conversationHistory.append(userMsg)
+        addMessageToHistory(trimmed, isUser: true, intent: .general)
         print("✅ [SearchService] User message added to history. Total messages: \(conversationHistory.count)")
 
         // Update title based on conversation context
@@ -706,6 +711,10 @@ class SearchService: ObservableObject {
         userMessage: String,
         actionType: ActionType
     ) async {
+        // Add user message directly to history without reprocessing
+        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        addMessageToHistory(trimmed, isUser: true)
+
         // Initialize new interactive action
         let conversationContext = ConversationActionContext(
             conversationHistory: conversationHistory,
@@ -723,9 +732,6 @@ class SearchService: ObservableObject {
         // Store the action
         currentInteractiveAction = action
 
-        // Add user message to conversation
-        await addConversationMessage(userMessage)
-
         // Get next prompt
         actionPrompt = await conversationActionHandler.getNextPrompt(
             for: action,
@@ -738,8 +744,9 @@ class SearchService: ObservableObject {
     func continueConversationalAction(userMessage: String) async {
         guard var action = currentInteractiveAction else { return }
 
-        // Add user message to conversation
-        await addConversationMessage(userMessage)
+        // Add user message directly to history without reprocessing
+        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        addMessageToHistory(trimmed, isUser: true)
 
         // Build conversation context
         let conversationContext = ConversationActionContext(
