@@ -242,9 +242,9 @@ class SearchService: ObservableObject {
 
         // Store context for follow-up actions (e.g., "move the event to today")
         lastCreatedEventTitle = eventData.title
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        lastCreatedEventDate = dateFormatter.string(from: targetDate)
+        let displayDateFormatter = DateFormatter()
+        displayDateFormatter.dateStyle = .medium
+        lastCreatedEventDate = displayDateFormatter.string(from: targetDate)
 
         // Clear pending data
         pendingEventCreation = nil
