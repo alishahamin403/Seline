@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainAppView: View {
     @EnvironmentObject var authManager: AuthenticationManager
+    @EnvironmentObject var deepLinkHandler: DeepLinkHandler
     @StateObject private var emailService = EmailService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var notesManager = NotesManager.shared
@@ -287,6 +288,20 @@ struct MainAppView: View {
             }
             .onChange(of: searchService.isInConversationMode) { newValue in
                 showConversationModal = newValue
+            }
+            .onChange(of: deepLinkHandler.shouldShowNoteCreation) { newValue in
+                if newValue {
+                    print("🔗 Deep link: Opening note creation")
+                    showingNewNoteSheet = true
+                    deepLinkHandler.shouldShowNoteCreation = false
+                }
+            }
+            .onChange(of: deepLinkHandler.shouldShowEventCreation) { newValue in
+                if newValue {
+                    print("🔗 Deep link: Opening event creation")
+                    showingAddEventPopup = true
+                    deepLinkHandler.shouldShowEventCreation = false
+                }
             }
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()

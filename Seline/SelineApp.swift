@@ -10,6 +10,7 @@ struct SelineApp: App {
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var deepLinkHandler = DeepLinkHandler.shared
 
     init() {
         configureSupabase()
@@ -24,6 +25,10 @@ struct SelineApp: App {
             RootView()
                 .environmentObject(authManager)
                 .environmentObject(notificationService)
+                .environmentObject(deepLinkHandler)
+                .onOpenURL { url in
+                    deepLinkHandler.handleURL(url)
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     // Handle app becoming active
                     Task {

@@ -160,6 +160,11 @@ struct SelineWidgetProvider: TimelineProvider {
 struct SelineWidgetEntryView: View {
     var entry: SelineWidgetProvider.Entry
     @Environment(\.widgetFamily) var widgetFamily
+    @Environment(\.colorScheme) var colorScheme
+
+    var textColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
 
     var body: some View {
         if widgetFamily == .systemSmall {
@@ -179,16 +184,16 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: entry.location1Icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 24)
-                            .foregroundColor(.gray)
+                            .foregroundColor(textColor)
 
                         if let eta = entry.location1ETA {
                             Text(eta)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(textColor)
                         } else {
                             Text("--")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(textColor)
                                 .opacity(0.5)
                         }
 
@@ -203,16 +208,16 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: entry.location2Icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 24)
-                            .foregroundColor(.gray)
+                            .foregroundColor(textColor)
 
                         if let eta = entry.location2ETA {
                             Text(eta)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(textColor)
                         } else {
                             Text("--")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(textColor)
                                 .opacity(0.5)
                         }
 
@@ -227,16 +232,16 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: entry.location3Icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 24)
-                            .foregroundColor(.gray)
+                            .foregroundColor(textColor)
 
                         if let eta = entry.location3ETA {
                             Text(eta)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(textColor)
                         } else {
                             Text("--")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(textColor)
                                 .opacity(0.5)
                         }
 
@@ -246,28 +251,25 @@ struct SelineWidgetEntryView: View {
                 .buttonStyle(.plain)
             }
 
-            Divider()
-                .opacity(0.3)
-
             // Action buttons
             HStack(spacing: 12) {
                 // Note button
                 Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
-                    Image(systemName: "note.text.badge.plus")
-                        .font(.system(size: 20, weight: .semibold))
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 18, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .foregroundColor(.gray)
+                        .foregroundColor(textColor)
                 }
                 .buttonStyle(.plain)
 
                 // Event button
                 Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 20, weight: .semibold))
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .foregroundColor(.gray)
+                        .foregroundColor(textColor)
                 }
                 .buttonStyle(.plain)
             }
