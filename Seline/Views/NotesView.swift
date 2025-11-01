@@ -1035,7 +1035,7 @@ struct NoteEditView: View {
     private var lockedStateView: some View {
         VStack {
             Spacer()
-            VStack(spacing: 16) {
+            VStack(spacing: 24) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 48, weight: .light))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
@@ -1044,22 +1044,41 @@ struct NoteEditView: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
-                Button(action: {
-                    authenticateWithFaceID()
-                }) {
-                    Text("Unlock with Face ID")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 25)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                        )
+                VStack(spacing: 12) {
+                    Button(action: {
+                        authenticateWithBiometricOrPasscode()
+                    }) {
+                        Text("Unlock with Face ID or Passcode")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .fill(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                            )
+                    }
+
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        Text("Cancel")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                            )
+                    }
                 }
+                .padding(.horizontal, 24)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
             Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var bottomActionButtons: some View {
@@ -1242,10 +1261,10 @@ struct NoteEditView: View {
             noteIsLocked = note.isLocked
             selectedFolderId = note.folderId
 
-            // If note is locked, require Face ID to unlock
+            // If note is locked, require Face ID or Passcode to unlock
             if note.isLocked {
                 isLockedInSession = true
-                authenticateWithFaceID()
+                authenticateWithBiometricOrPasscode()
             }
         } else if let folderId = initialFolderId {
             // Set initial folder for new note
@@ -1393,27 +1412,30 @@ struct NoteEditView: View {
         noteIsLocked.toggle()
     }
 
-    private func authenticateWithFaceID() {
+    private func authenticateWithBiometricOrPasscode() {
         let context = LAContext()
         var error: NSError?
 
-        // Check if biometric authentication is available
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            let reason = "Unlock your note with Face ID or Touch ID"
+        // Check if device owner authentication is available (biometric or passcode)
+        if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+            let reason = "Unlock your note"
 
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, authenticationError in
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, authenticationError in
                 DispatchQueue.main.async {
                     if success {
                         isLockedInSession = false
                     } else {
-                        // Authentication failed, show alert or dismiss
-                        showingFaceIDPrompt = true
-                        dismiss()
+                        // Authentication failed
+                        if let authError = authenticationError {
+                            print("Authentication error: \(authError.localizedDescription)")
+                        }
+                        // Don't auto-dismiss, let user try again
                     }
                 }
             }
         } else {
-            // Biometric authentication not available, show alert
+            // No authentication available at all
+            print("Device authentication not available")
             showingFaceIDPrompt = true
         }
     }
