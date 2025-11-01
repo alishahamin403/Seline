@@ -235,20 +235,6 @@ class SearchService: ObservableObject {
             tagId: nil
         )
 
-        // If in conversation mode, add confirmation message
-        if isInConversationMode {
-            let formattedDate = dateFormatter.string(from: targetDate)
-            let timeFormatter = DateFormatter()
-            timeFormatter.timeStyle = .short
-            let timeText = scheduledTime.map { timeFormatter.string(from: $0) } ?? "all day"
-            let confirmationMsg = ConversationMessage(
-                isUser: false,
-                text: "✓ Event created: \"\(eventData.title)\" on \(formattedDate) at \(timeText)",
-                intent: .general
-            )
-            conversationHistory.append(confirmationMsg)
-        }
-
         // Clear pending data
         pendingEventCreation = nil
 
@@ -264,16 +250,6 @@ class SearchService: ObservableObject {
         let notesManager = NotesManager.shared
         let note = Note(title: noteData.title, content: noteData.content)
         notesManager.addNote(note)
-
-        // If in conversation mode, add confirmation message
-        if isInConversationMode {
-            let confirmationMsg = ConversationMessage(
-                isUser: false,
-                text: "✓ Note created: \"\(noteData.title)\"",
-                intent: .general
-            )
-            conversationHistory.append(confirmationMsg)
-        }
 
         // Clear pending data
         pendingNoteCreation = nil
@@ -309,17 +285,6 @@ class SearchService: ObservableObject {
 
             // CRITICAL: Wait for sync to complete before showing success message
             let updateSuccess = await notesManager.updateNoteAndWaitForSync(note)
-
-            // If in conversation mode, add confirmation message
-            if isInConversationMode {
-                let statusText = updateSuccess ? "✓" : "⚠️ (Save in progress)"
-                let confirmationMsg = ConversationMessage(
-                    isUser: false,
-                    text: "\(statusText) Note updated: \"\(updateData.noteTitle)\"",
-                    intent: .general
-                )
-                conversationHistory.append(confirmationMsg)
-            }
         }
 
         // Clear pending data
