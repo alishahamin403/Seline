@@ -1339,8 +1339,8 @@ struct NoteEditView: View {
                     notesManager.addNote(newNote)
                 }
 
-                // 2. Wait for note to sync to Supabase
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second wait for sync
+                // 2. Wait for note to sync to Supabase (increased wait time for reliability)
+                try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 second wait for sync
 
                 // 3. NOW upload images (RLS policy requires note to exist first)
                 if !imageAttachments.isEmpty {
@@ -1631,8 +1631,8 @@ struct NoteEditView: View {
                     notesManager.addNote(newNote)
                 }
 
-                // 2. Wait for note to sync to Supabase
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second wait for sync
+                // 2. Wait for note to sync to Supabase (increased wait time for reliability)
+                try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 second wait for sync
 
                 // 3. NOW upload images (RLS policy requires note to exist first)
                 if !imageAttachments.isEmpty {
