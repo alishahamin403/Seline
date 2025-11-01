@@ -247,9 +247,14 @@ struct ConversationSearchView: View {
             isInputFocused = true
         }
         .onDisappear {
-            // Generate final title based on full conversation before clearing
+            // Generate final title and save conversation before clearing
             Task {
                 await searchService.generateFinalConversationTitle()
+
+                // Save conversation to Supabase and local history
+                await searchService.saveConversationToSupabase()
+                searchService.saveConversationToHistory()
+
                 // Then clear the conversation state
                 DispatchQueue.main.async {
                     searchService.isInConversationMode = false
