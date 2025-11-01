@@ -8,6 +8,26 @@
 import WidgetKit
 import SwiftUI
 
+// Helper function to format time until event
+func getTimeUntilString(from date: Date) -> String {
+    let calendar = Calendar.current
+    let now = Date()
+
+    guard date > now else { return "Now" }
+
+    let components = calendar.dateComponents([.hour, .minute, .day], from: now, to: date)
+
+    if let day = components.day, day > 0 {
+        return "in \(day)d"
+    } else if let hour = components.hour, hour > 0 {
+        return "in \(hour)h"
+    } else if let minute = components.minute, minute > 0 {
+        return "in \(minute)m"
+    } else {
+        return "Soon"
+    }
+}
+
 struct SelineWidgetEntry: TimelineEntry {
     let date: Date
     let upcomingEvent: UpcomingEvent?
@@ -42,26 +62,74 @@ struct SelineWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SelineWidgetEntry>) -> Void) {
-        var entries: [SelineWidgetEntry] = []
-        let currentDate = Date()
+        // Fetch upcoming events from Supabase
+        Task {
+            let upcomingEvent = await fetchUpcomingEvent()
 
-        // Mock upcoming event - in a real app, this would fetch from Supabase
-        let nextEventDate = Calendar.current.date(byAdding: .hour, value: 1, to: currentDate)!
-        let mockEvent = UpcomingEvent(
-            title: "Team Meeting",
-            startTime: nextEventDate,
-            timeUntilStart: "in 1h"
-        )
+            var entries: [SelineWidgetEntry] = []
+            let currentDate = Date()
 
-        // Generate timeline for 5 hours
-        for hourOffset in 0 ..< 5 {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
-            let entry = SelineWidgetEntry(date: entryDate, upcomingEvent: mockEvent)
-            entries.append(entry)
+            // Generate timeline for 5 hours
+            for hourOffset in 0 ..< 5 {
+                let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
+                let entry = SelineWidgetEntry(date: entryDate, upcomingEvent: upcomingEvent)
+                entries.append(entry)
+            }
+
+            let timeline = Timeline(entries: entries, policy: .atEnd)
+            completion(timeline)
         }
+    }
 
-        let timeline = Timeline(entries: entries, policy: .atEnd)
-        completion(timeline)
+    private func fetchUpcomingEvent() async -> UpcomingEvent? {
+        do {
+            // Get the publishable key from keychain or use default
+            let supabaseURL = "https://xkqmqeyftdqswlczilhk.supabase.co"
+            let supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrcW1xZXlmdGRxc3dsY3ppbGhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjk3Nzc3NTUsImV4cCI6MjA0NTM1Mzc1NX0.d9bCwpqPQdJpxQa8-1AObQPSJ2pKNKN3UPF0BzJXHlc"
+
+            var urlComponents = URLComponents(string: "\(supabaseURL)/rest/v1/tasks")!
+            let now = ISO8601DateFormatter().string(from: Date())
+
+            // Query: Select upcoming tasks (not completed, with scheduled_time in future)
+            urlComponents.queryItems = [
+                URLQueryItem(name: "select", value: "id,title,scheduled_time"),
+                URLQueryItem(name: "is_completed", value: "eq.false"),
+                URLQueryItem(name: "scheduled_time", value: "gte.\(now)"),
+                URLQueryItem(name: "order", value: "scheduled_time.asc"),
+                URLQueryItem(name: "limit", value: "1")
+            ]
+
+            var request = URLRequest(url: urlComponents.url!)
+            request.setValue(supabaseKey, forHTTPHeaderField: "apikey")
+            request.setValue("Bearer \(supabaseKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                return nil
+            }
+
+            // Parse response
+            if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let firstEvent = json.first,
+               let title = firstEvent["title"] as? String,
+               let scheduledTimeString = firstEvent["scheduled_time"] as? String,
+               let scheduledTime = ISO8601DateFormatter().date(from: scheduledTimeString) {
+
+                let timeUntil = getTimeUntilString(from: scheduledTime)
+                return UpcomingEvent(
+                    title: title,
+                    startTime: scheduledTime,
+                    timeUntilStart: timeUntil
+                )
+            }
+
+            return nil
+        } catch {
+            print("Widget: Error fetching upcoming event: \(error)")
+            return nil
+        }
     }
 }
 
