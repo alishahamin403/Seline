@@ -173,17 +173,19 @@ struct ConversationHistoryView: View {
             .background(selectedConversationIds.contains(conversation.id) ? Color.gray.opacity(0.1) : Color.clear)
         }
         .buttonStyle(PlainButtonStyle())
-        .contextMenu(ContextMenu(menuItems: {
-            Button(role: .destructive, action: {
-                HapticManager.shared.selection()
-                searchService.deleteConversation(withId: conversation.id)
-            }) {
-                HStack {
-                    Image(systemName: "trash")
-                    Text("Delete")
+        .contextMenu {
+            if !isEditMode {
+                Button(role: .destructive, action: {
+                    HapticManager.shared.selection()
+                    searchService.deleteConversation(withId: conversation.id)
+                }) {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete")
+                    }
                 }
             }
-        }), shouldShowMenu: !isEditMode)
+        }
     }
 }
 
