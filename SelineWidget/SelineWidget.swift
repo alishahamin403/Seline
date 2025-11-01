@@ -62,12 +62,13 @@ struct SelineWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SelineWidgetEntry>) -> Void) {
-        // Fetch upcoming events from Supabase
+        let currentDate = Date()
+
+        // Try to fetch upcoming events from Supabase
         Task {
             let upcomingEvent = await fetchUpcomingEvent()
 
             var entries: [SelineWidgetEntry] = []
-            let currentDate = Date()
 
             // Generate timeline for 5 hours
             for hourOffset in 0 ..< 5 {
@@ -77,7 +78,9 @@ struct SelineWidgetProvider: TimelineProvider {
             }
 
             let timeline = Timeline(entries: entries, policy: .atEnd)
-            completion(timeline)
+            DispatchQueue.main.async {
+                completion(timeline)
+            }
         }
     }
 
@@ -190,9 +193,13 @@ struct SelineWidgetEntryView: View {
                         .foregroundColor(.blue)
                 }
             } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No upcoming events")
-                        .font(.system(size: 12, weight: .regular))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No events")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Text("Add a scheduled task")
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundColor(.gray)
                 }
             }
