@@ -249,6 +249,17 @@ class NavigationService: ObservableObject {
         await MainActor.run {
             isLoading = false
             lastUpdated = Date()
+
+            // Save ETAs to shared UserDefaults for widget access
+            if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                userDefaults.set(self.location1ETA, forKey: "widgetLocation1ETA")
+                userDefaults.set(self.location2ETA, forKey: "widgetLocation2ETA")
+                userDefaults.set(self.location3ETA, forKey: "widgetLocation3ETA")
+                userDefaults.synchronize()
+                print("✅ NavigationService: Saved ETAs to shared UserDefaults - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---")")
+            } else {
+                print("❌ NavigationService: Could not access shared UserDefaults group.seline")
+            }
         }
     }
 

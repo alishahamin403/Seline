@@ -7,7 +7,6 @@
 
 import WidgetKit
 import SwiftUI
-import CoreLocation
 
 // MARK: - User Location Preferences (mirrored from main app)
 struct UserLocationPreferences: Codable, Equatable {
@@ -111,26 +110,14 @@ struct SelineWidgetProvider: TimelineProvider {
             location3Lon = prefs.location3Longitude
         }
 
-        // Get current location and calculate ETAs
-        if let lastLocation = loadLastUserLocation() {
-            print("🟢 Widget: Loaded user location: \(lastLocation.latitude), \(lastLocation.longitude)")
+        // Load pre-calculated ETAs from the app's NavigationService
+        let userDefaults = UserDefaults(suiteName: "group.seline")
 
-            // Calculate ETAs using the saved location
-            if let lat1 = location1Lat, let lon1 = location1Lon {
-                print("🟢 Widget: Calculating ETA for location1: \(lat1), \(lon1)")
-                location1ETA = calculateETADistance(from: lastLocation, toLat: lat1, toLon: lon1)
-            }
-            if let lat2 = location2Lat, let lon2 = location2Lon {
-                print("🟢 Widget: Calculating ETA for location2: \(lat2), \(lon2)")
-                location2ETA = calculateETADistance(from: lastLocation, toLat: lat2, toLon: lon2)
-            }
-            if let lat3 = location3Lat, let lon3 = location3Lon {
-                print("🟢 Widget: Calculating ETA for location3: \(lat3), \(lon3)")
-                location3ETA = calculateETADistance(from: lastLocation, toLat: lat3, toLon: lon3)
-            }
-        } else {
-            print("🔴 Widget: Could not load user location from UserDefaults")
-        }
+        location1ETA = userDefaults?.string(forKey: "widgetLocation1ETA")
+        location2ETA = userDefaults?.string(forKey: "widgetLocation2ETA")
+        location3ETA = userDefaults?.string(forKey: "widgetLocation3ETA")
+
+        print("🟢 Widget: Loaded ETAs from shared UserDefaults - L1: \(location1ETA ?? "---"), L2: \(location2ETA ?? "---"), L3: \(location3ETA ?? "---")")
 
         // Create entry with location data and calculated ETAs
         let entry = SelineWidgetEntry(
@@ -166,56 +153,6 @@ struct SelineWidgetProvider: TimelineProvider {
         return try? decoder.decode(UserLocationPreferences.self, from: data)
     }
 
-    // Helper to load last known user location from UserDefaults
-    private func loadLastUserLocation() -> CLLocationCoordinate2D? {
-        let userDefaults = UserDefaults(suiteName: "group.seline")
-        guard let lat = userDefaults?.double(forKey: "lastUserLocationLatitude"),
-              let lon = userDefaults?.double(forKey: "lastUserLocationLongitude"),
-              lat != 0 && lon != 0 else {
-            return nil
-        }
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
-
-    // Calculate ETA using distance-based estimation
-    // Assumes average driving speed of 35 km/h (conservative for urban areas with traffic)
-    private func calculateETADistance(from origin: CLLocationCoordinate2D, toLat: Double, toLon: Double) -> String? {
-        let destinationCoordinate = CLLocationCoordinate2D(latitude: toLat, longitude: toLon)
-
-        // Calculate distance using Haversine formula (approximate)
-        let distance = calculateDistance(from: origin, to: destinationCoordinate)
-
-        // Estimate time assuming average speed of 35 km/h
-        let speedKmPerHour = 35.0
-        let timeInHours = distance / speedKmPerHour
-        let timeInSeconds = Int(timeInHours * 3600)
-
-        return formatETA(timeInSeconds)
-    }
-
-    // Calculate distance between two coordinates (in kilometers)
-    private func calculateDistance(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
-        let from = CLLocation(latitude: from.latitude, longitude: from.longitude)
-        let to = CLLocation(latitude: to.latitude, longitude: to.longitude)
-        let distanceMeters = from.distance(from: to)
-        return distanceMeters / 1000.0 // Convert to km
-    }
-
-    // Format duration in seconds to a short string
-    private func formatETA(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-
-        if hours > 0 {
-            if remainingMinutes > 0 {
-                return "\(hours)h \(remainingMinutes)m"
-            }
-            return "\(hours)h"
-        }
-
-        return "\(minutes) min"
-    }
 
 }
 
