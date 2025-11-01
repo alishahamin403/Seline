@@ -1623,7 +1623,6 @@ struct NoteEditView: View {
 
                 await MainActor.run {
                     notesManager.addNote(newNote)
-                    self.note = newNote
                 }
             }
         }

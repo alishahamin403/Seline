@@ -144,8 +144,10 @@ class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = isAlertReminder ? "Event Reminder" : "Event Starting"
-        content.body = title.isEmpty ? body : "\(title) - \(body)"
+        // Show event name as title
+        content.title = title.isEmpty ? (isAlertReminder ? "Event Reminder" : "Event Starting") : title
+        // Show reminder details in body
+        content.body = body
         content.sound = .default
         content.categoryIdentifier = "task_reminder"
         content.userInfo = ["type": "task_reminder", "taskId": taskId, "isAlertReminder": isAlertReminder]
