@@ -156,6 +156,10 @@ extension LocationService: CLLocationManagerDelegate {
                             if let userDefaults = UserDefaults(suiteName: "group.seline") {
                                 userDefaults.set(location.coordinate.latitude, forKey: "lastUserLocationLatitude")
                                 userDefaults.set(location.coordinate.longitude, forKey: "lastUserLocationLongitude")
+                                userDefaults.synchronize()
+                                print("✅ LocationService: Saved to shared UserDefaults - Lat: \(location.coordinate.latitude), Lon: \(location.coordinate.longitude)")
+                            } else {
+                                print("❌ LocationService: Could not access shared UserDefaults group.seline")
                             }
 
                             // Reverse geocode to get location name
