@@ -165,15 +165,13 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: entry.location1Icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 24)
+                            .foregroundColor(.gray)
 
                         Text(entry.location1ETA ?? "---")
                             .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.gray)
 
                         Spacer()
-
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .opacity(0.6)
                     }
                 }
                 .buttonStyle(.plain)
@@ -184,15 +182,13 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: entry.location2Icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 24)
+                            .foregroundColor(.gray)
 
                         Text(entry.location2ETA ?? "---")
                             .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.gray)
 
                         Spacer()
-
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .opacity(0.6)
                     }
                 }
                 .buttonStyle(.plain)
@@ -203,15 +199,13 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: entry.location3Icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 24)
+                            .foregroundColor(.gray)
 
                         Text(entry.location3ETA ?? "---")
                             .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.gray)
 
                         Spacer()
-
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .opacity(0.6)
                     }
                 }
                 .buttonStyle(.plain)
@@ -228,6 +222,7 @@ struct SelineWidgetEntryView: View {
                         .font(.system(size: 20, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
+                        .foregroundColor(.gray)
                 }
                 .buttonStyle(.plain)
 
@@ -237,6 +232,7 @@ struct SelineWidgetEntryView: View {
                         .font(.system(size: 20, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
+                        .foregroundColor(.gray)
                 }
                 .buttonStyle(.plain)
             }
