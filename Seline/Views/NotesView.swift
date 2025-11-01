@@ -49,16 +49,52 @@ struct NotesView: View, Searchable {
         return notes
     }
 
-    // Notes updated in the last 7 days
+    // Notes updated in the last 7 days (excluding receipts)
     var recentNotes: [Note] {
         let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        return allUnpinnedNotes.filter { $0.dateModified >= oneWeekAgo }
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+
+        return allUnpinnedNotes.filter { note in
+            // Include if updated in last 7 days AND not in Receipts folder
+            guard note.dateModified >= oneWeekAgo else { return false }
+
+            // Check if note is in Receipts folder (or a subfolder of Receipts)
+            if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
+                var currentFolderId: UUID? = folderId
+                while let currentId = currentFolderId {
+                    if currentId == receiptsFolderId {
+                        return false // This is a receipt, exclude it
+                    }
+                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+                }
+            }
+
+            return true
+        }
     }
 
-    // Group older notes by month
+    // Group older notes by month (excluding receipts)
     var notesByMonth: [(month: String, notes: [Note])] {
         let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let olderNotes = allUnpinnedNotes.filter { $0.dateModified < oneWeekAgo }
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+
+        let olderNotes = allUnpinnedNotes.filter { note in
+            // Include if older than 7 days AND not in Receipts folder
+            guard note.dateModified < oneWeekAgo else { return false }
+
+            // Check if note is in Receipts folder (or a subfolder of Receipts)
+            if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
+                var currentFolderId: UUID? = folderId
+                while let currentId = currentFolderId {
+                    if currentId == receiptsFolderId {
+                        return false // This is a receipt, exclude it
+                    }
+                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+                }
+            }
+
+            return true
+        }
 
         // Group by month and year
         let grouped = Dictionary(grouping: olderNotes) { note -> String in
