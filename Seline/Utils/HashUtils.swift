@@ -9,7 +9,7 @@ struct HashUtils {
         for byte in string.utf8 {
             hash = ((hash << 5) &+ hash) &+ UInt64(byte)
         }
-        // Convert to Int by taking absolute value of bit pattern
-        return Int(bitPattern: hash)
+        // Convert to Int safely by truncating to fit in range
+        return Int(bitPattern: UInt(truncatingIfNeeded: hash))
     }
 }
