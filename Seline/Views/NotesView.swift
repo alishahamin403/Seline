@@ -1513,15 +1513,9 @@ struct NoteEditView: View {
             let cleanedText = try await openAIService.cleanUpNoteText(content)
             await MainActor.run {
                 content = cleanedText
-                // Update attributed content WITHOUT markdown parsing to avoid table creation
+                // Parse markdown formatting (bold, italic, headings, etc)
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = NSAttributedString(
-                    string: cleanedText,
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                        .foregroundColor: textColor
-                    ]
-                )
+                attributedContent = MarkdownParser.shared.parseMarkdown(cleanedText, fontSize: 14, textColor: textColor)
                 isProcessingCleanup = false
                 HapticManager.shared.aiActionComplete()
                 saveToUndoHistory()
