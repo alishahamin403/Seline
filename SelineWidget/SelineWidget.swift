@@ -254,24 +254,26 @@ struct SelineWidgetEntryView: View {
             // Action buttons
             HStack(spacing: 12) {
                 // Note button
-                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
+                VStack {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 18, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .foregroundColor(textColor)
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/createNote"))
 
                 // Event button
-                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
+                VStack {
                     Image(systemName: "calendar")
                         .font(.system(size: 18, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .foregroundColor(textColor)
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/createEvent"))
             }
         }
         .padding(12)
@@ -364,34 +366,32 @@ struct SelineWidgetEntryView: View {
             // Buttons
             HStack(spacing: 12) {
                 // Note button
-                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 12))
-                        Text("New Note")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(6)
+                VStack(spacing: 6) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12))
+                    Text("New Note")
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/createNote"))
 
                 // Event button
-                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 12))
-                        Text("New Event")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(6)
+                VStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12))
+                    Text("New Event")
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/createEvent"))
             }
         }
         .padding(14)
