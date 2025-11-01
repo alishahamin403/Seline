@@ -12,7 +12,6 @@ struct CalendarPopupView: View {
 
     @State private var selectedDate = Date()
     @State private var tasksForDate: [TaskItem] = []
-    @State private var showingAddTaskSheet = false
     @State private var selectedTaskForEditing: TaskItem?
     @State private var showingViewTaskSheet = false
     @State private var showingEditTaskSheet = false
@@ -41,16 +40,6 @@ struct CalendarPopupView: View {
                         .foregroundColor(Color.shadcnForeground(colorScheme))
 
                     Spacer()
-
-                    if canAddTaskToSelectedDate {
-                        Button(action: {
-                            showingAddTaskSheet = true
-                        }) {
-                            Image(systemName: "plus.circle")
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .font(.system(size: 18, weight: .medium))
-                        }
-                    }
 
                     Text(formattedSelectedDate)
                         .font(.shadcnTextSm)
@@ -278,30 +267,6 @@ struct CalendarPopupView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingAddTaskSheet) {
-            AddEventPopupView(
-                isPresented: $showingAddTaskSheet,
-                onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
-                    guard let weekday = weekdayFromDate(date) else { return }
-
-                    taskManager.addTask(
-                        title: title,
-                        to: weekday,
-                        description: description,
-                        scheduledTime: time,
-                        endTime: endTime,
-                        targetDate: date,
-                        reminderTime: reminder,
-                        isRecurring: recurring,
-                        recurrenceFrequency: frequency,
-                        tagId: tagId
-                    )
-
-                    updateTasksForDate(for: selectedDate)
-                },
-                initialDate: selectedDate
-            )
-        }
         .onChange(of: showingViewTaskSheet) { isShowing in
             // Clear task when view sheet is dismissed (unless transitioning to edit)
             if !isShowing && !isTransitioningToEdit {
@@ -366,9 +331,6 @@ struct CalendarPopupView: View {
         }
     }
 
-    private var canAddTaskToSelectedDate: Bool {
-        Calendar.current.compare(selectedDate, to: Date(), toGranularity: .day) != .orderedAscending
-    }
 
 }
 
