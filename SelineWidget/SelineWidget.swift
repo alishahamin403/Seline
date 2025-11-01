@@ -119,12 +119,13 @@ struct SelineWidgetProvider: TimelineProvider {
 
         print("🟢 Widget: Loaded ETAs from shared UserDefaults - L1: \(location1ETA ?? "---"), L2: \(location2ETA ?? "---"), L3: \(location3ETA ?? "---")")
 
-        // Create entry with location data and calculated ETAs
+        // Create entry with location data
+        // Note: ETAs are loaded from shared UserDefaults but will show as nil if not available
         let entry = SelineWidgetEntry(
             date: currentDate,
-            location1ETA: location1ETA ?? "---",
-            location2ETA: location2ETA ?? "---",
-            location3ETA: location3ETA ?? "---",
+            location1ETA: location1ETA,
+            location2ETA: location2ETA,
+            location3ETA: location3ETA,
             location1Icon: location1Icon,
             location2Icon: location2Icon,
             location3Icon: location3Icon,
@@ -180,9 +181,16 @@ struct SelineWidgetEntryView: View {
                             .frame(width: 24)
                             .foregroundColor(.gray)
 
-                        Text(entry.location1ETA ?? "---")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.gray)
+                        if let eta = entry.location1ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .opacity(0.5)
+                        }
 
                         Spacer()
                     }
@@ -197,9 +205,16 @@ struct SelineWidgetEntryView: View {
                             .frame(width: 24)
                             .foregroundColor(.gray)
 
-                        Text(entry.location2ETA ?? "---")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.gray)
+                        if let eta = entry.location2ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .opacity(0.5)
+                        }
 
                         Spacer()
                     }
@@ -214,9 +229,16 @@ struct SelineWidgetEntryView: View {
                             .frame(width: 24)
                             .foregroundColor(.gray)
 
-                        Text(entry.location3ETA ?? "---")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.gray)
+                        if let eta = entry.location3ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .opacity(0.5)
+                        }
 
                         Spacer()
                     }
