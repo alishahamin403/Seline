@@ -1491,9 +1491,6 @@ struct NoteEditView: View {
     }
 
     private func processReceiptImage(_ image: UIImage) {
-        // Add image to attachments
-        imageAttachments.append(image)
-
         // Process with AI
         Task {
             isProcessingReceipt = true
@@ -1515,6 +1512,13 @@ struct NoteEditView: View {
                 }
 
                 await MainActor.run {
+                    // Add the receipt image to attachments so it shows in the eye icon
+                    imageAttachments.append(image)
+                    print("✅ Receipt image added to attachments (total: \(imageAttachments.count))")
+
+                    // Provide haptic feedback that image was captured
+                    HapticManager.shared.success()
+
                     // Set title if empty or update it
                     if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         title = receiptTitle
