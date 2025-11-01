@@ -21,7 +21,7 @@ class InformationExtractor {
         case .createEvent:
             await extractEventInfo(userMessage, context: conversationContext, action: &updatedAction)
         case .updateEvent:
-            await extractEventInfo(userMessage, context: conversationContext, action: &updatedAction)
+            await extractUpdateEventInfo(userMessage, context: conversationContext, action: &updatedAction)
         case .deleteEvent:
             await extractDeleteInfo(userMessage, context: conversationContext, action: &updatedAction)
 
@@ -126,6 +126,76 @@ class InformationExtractor {
             }
         } catch {
             print("Error extracting event info: \(error)")
+        }
+    }
+
+    // MARK: - Update Event Extraction
+
+    private func extractUpdateEventInfo(
+        _ message: String,
+        context: ConversationActionContext,
+        action: inout InteractiveAction
+    ) async {
+        let today = ISO8601DateFormatter().string(from: Date()).split(separator: "T")[0]
+        let lastEventContext = context.lastEventCreated.map { "LAST CREATED EVENT TO UPDATE: \($0)" } ?? ""
+
+        let prompt = """
+        The user wants to UPDATE an existing event. Extract what needs to be changed.
+        TODAY'S DATE: \(today)
+        \(lastEventContext)
+
+        Conversation history:
+        \(context.historyText)
+
+        User message: "\(message)"
+
+        Extract:
+        - title: The event title to update (if not specified, use the last created event or the event mentioned in the message)
+        - newDate: New date in ISO8601 format (YYYY-MM-DD) if changing date. Convert relative dates like "today", "tomorrow", "tom" using today's date.
+        - newStartTime: New start time in HH:mm format if changing time
+        - newDescription: Any new description or notes
+
+        Return ONLY JSON: {"title":"event name","newDate":"2025-11-01 or null","newStartTime":"14:00 or null","newDescription":"reason or null"}
+        """
+
+        do {
+            let response = try await OpenAIService.shared.generateText(
+                systemPrompt: "You are an update event extractor. Return ONLY valid JSON.",
+                userPrompt: prompt,
+                maxTokens: 300,
+                temperature: 0.0
+            )
+
+            if let jsonData = response.data(using: .utf8),
+               let extracted = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+
+                // Update event title
+                if let title = extracted["title"] as? String, !title.isEmpty {
+                    action.extractedInfo.eventTitle = title
+                    action.extractionState.confirmField("eventTitle")
+                }
+
+                // Update new date
+                if let dateStr = extracted["newDate"] as? String, !dateStr.isEmpty {
+                    if let date = parseDate(dateStr) {
+                        action.extractedInfo.eventDate = date
+                        action.extractionState.confirmField("eventDate")
+                    }
+                }
+
+                // Update new time
+                if let timeStr = extracted["newStartTime"] as? String, !timeStr.isEmpty {
+                    action.extractedInfo.eventStartTime = timeStr
+                    action.extractionState.confirmField("eventStartTime")
+                }
+
+                // Update description
+                if let desc = extracted["newDescription"] as? String, !desc.isEmpty {
+                    action.extractedInfo.eventDescription = desc
+                }
+            }
+        } catch {
+            print("Error extracting update event info: \(error)")
         }
     }
 
