@@ -1110,9 +1110,6 @@ struct MainAppView: View {
             // Weather widget - only fetch when on home tab
             WeatherWidget(isVisible: selectedTab == .home)
 
-            // News carousel
-            NewsCarouselView()
-
             // Events card
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
 
@@ -1133,7 +1130,7 @@ struct MainAppView: View {
                     .frame(width: (geometry.size.width - 8) * 0.4)
             }
         }
-        .frame(height: 140)
+        .frame(height: 220)
         .padding(.horizontal, 12)
     }
 
