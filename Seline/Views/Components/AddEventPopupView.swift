@@ -405,6 +405,44 @@ struct TagSelectionSheet: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                // Create New Tag Section
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        TextField("Create new tag...", text: $newTagName)
+                            .font(.system(size: 14))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            )
+
+                        Button(action: {
+                            if !newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                if let newTag = tagManager.createTag(name: newTagName) {
+                                    selectedTagId = newTag.id
+                                    newTagName = ""
+                                    dismiss()
+                                }
+                            }
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.5) : Color.blue)
+                        }
+                        .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+                .background(colorScheme == .dark ? Color.black : Color.white)
+                .border(Color.gray.opacity(0.2), width: 1)
+
                 // Personal (default) option
                 Button(action: {
                     selectedTagId = nil
@@ -412,24 +450,24 @@ struct TagSelectionSheet: View {
                 }) {
                     HStack {
                         Circle()
-                            .fill(Color.blue)
+                            .fill(Color.gray)
                             .frame(width: 12, height: 12)
 
                         Text("Personal (Default)")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                         Spacer()
 
                         if selectedTagId == nil {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.blue)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                    .background(selectedTagId == nil ? Color.shadcnMuted(colorScheme).opacity(0.1) : Color.clear)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(selectedTagId == nil ? Color.gray.opacity(0.1) : Color.clear)
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -449,19 +487,19 @@ struct TagSelectionSheet: View {
                                         .frame(width: 12, height: 12)
 
                                     Text(tag.name)
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                     Spacer()
 
                                     if selectedTagId == tag.id {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 16, weight: .semibold))
+                                            .font(.system(size: 14, weight: .semibold))
                                             .foregroundColor(tag.color)
                                     }
                                 }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 16)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
                                 .background(selectedTagId == tag.id ? tag.color.opacity(0.1) : Color.clear)
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -484,7 +522,7 @@ struct TagSelectionSheet: View {
                     Button("Done") {
                         dismiss()
                     }
-                    .foregroundColor(Color.blue)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             }
         }

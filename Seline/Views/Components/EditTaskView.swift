@@ -49,55 +49,55 @@ struct EditTaskView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 // Title Input
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Event Title")
-                        .font(.shadcnTextSm)
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
                     TextField("Enter event title", text: $title)
-                        .font(.shadcnTextBase)
+                        .font(.system(size: 14))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
                         )
                 }
 
                 // Description Input
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Description (Optional)")
-                        .font(.shadcnTextSm)
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
                     TextField("Add additional details...", text: $description, axis: .vertical)
-                        .font(.shadcnTextBase)
+                        .font(.system(size: 13))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .lineLimit(3...6)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .lineLimit(2...4)
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
                         )
                 }
 
                 // Tag Selector
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Tag (Optional)")
-                        .font(.shadcnTextSm)
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
                     Button(action: {
                         showingTagOptions.toggle()
@@ -106,32 +106,34 @@ struct EditTaskView: View {
                             if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
                                 Circle()
                                     .fill(tag.color)
-                                    .frame(width: 10, height: 10)
+                                    .frame(width: 8, height: 8)
                                 Text(tag.name)
+                                    .font(.system(size: 13))
                                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             } else {
                                 Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 10, height: 10)
+                                    .fill(Color.gray)
+                                    .frame(width: 8, height: 8)
                                 Text("Personal (Default)")
+                                    .font(.system(size: 13))
                                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             }
 
                             Spacer()
 
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 12))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                .font(.system(size: 11))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
                         )
                     }
                     .sheet(isPresented: $showingTagOptions) {
@@ -139,7 +141,7 @@ struct EditTaskView: View {
                             selectedTagId: $selectedTagId,
                             colorScheme: colorScheme
                         )
-                        .presentationDetents([.height(300)])
+                        .presentationDetents([.height(350)])
                     }
                 }
 
@@ -279,38 +281,38 @@ struct EditTaskView: View {
                 }
 
                 // Reminder Picker
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Reminder")
-                        .font(.shadcnTextSm)
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
                     Button(action: {
                         showingReminderOptions.toggle()
                     }) {
                         HStack {
                             Image(systemName: selectedReminder.icon)
-                                .font(.system(size: 16))
-                                .foregroundColor(selectedReminder == .none ? (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)) : Color.blue)
+                                .font(.system(size: 13))
+                                .foregroundColor(selectedReminder == .none ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
 
                             Text(selectedReminder.displayName)
-                                .font(.shadcnTextBase)
+                                .font(.system(size: 13))
                                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
 
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 12))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                .font(.system(size: 11))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
                         )
                     }
                     .sheet(isPresented: $showingReminderOptions) {
@@ -318,7 +320,7 @@ struct EditTaskView: View {
                             selectedReminder: $selectedReminder,
                             colorScheme: colorScheme
                         )
-                        .presentationDetents([.height(350)])
+                        .presentationDetents([.height(320)])
                     }
                 }
 
