@@ -412,42 +412,39 @@ struct MainAppView: View {
                     showingEditTask = false
                 }
             }
-            .overlay {
-                if showingAddEventPopup {
-                    AddEventPopupView(
-                        isPresented: $showingAddEventPopup,
-                        onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
-                            let calendar = Calendar.current
-                            let weekdayIndex = calendar.component(.weekday, from: date)
+            .sheet(isPresented: $showingAddEventPopup) {
+                AddEventPopupView(
+                    isPresented: $showingAddEventPopup,
+                    onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                        let calendar = Calendar.current
+                        let weekdayIndex = calendar.component(.weekday, from: date)
 
-                            let weekday: WeekDay
-                            switch weekdayIndex {
-                            case 1: weekday = .sunday
-                            case 2: weekday = .monday
-                            case 3: weekday = .tuesday
-                            case 4: weekday = .wednesday
-                            case 5: weekday = .thursday
-                            case 6: weekday = .friday
-                            case 7: weekday = .saturday
-                            default: weekday = .monday
-                            }
-
-                            taskManager.addTask(
-                                title: title,
-                                to: weekday,
-                                description: description,
-                                scheduledTime: time,
-                                endTime: endTime,
-                                targetDate: date,
-                                reminderTime: reminder,
-                                isRecurring: recurring,
-                                recurrenceFrequency: frequency,
-                                tagId: tagId
-                            )
+                        let weekday: WeekDay
+                        switch weekdayIndex {
+                        case 1: weekday = .sunday
+                        case 2: weekday = .monday
+                        case 3: weekday = .tuesday
+                        case 4: weekday = .wednesday
+                        case 5: weekday = .thursday
+                        case 6: weekday = .friday
+                        case 7: weekday = .saturday
+                        default: weekday = .monday
                         }
-                    )
-                    .transition(.opacity)
-                }
+
+                        taskManager.addTask(
+                            title: title,
+                            to: weekday,
+                            description: description,
+                            scheduledTime: time,
+                            endTime: endTime,
+                            targetDate: date,
+                            reminderTime: reminder,
+                            isRecurring: recurring,
+                            recurrenceFrequency: frequency,
+                            tagId: tagId
+                        )
+                    }
+                )
             }
     }
 
