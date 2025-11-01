@@ -609,15 +609,133 @@ struct NoteEditView: View {
     }
 
     var body: some View {
-        mainContentView
-            .navigationBarHidden(true)
-            .toolbarBackground(.hidden, for: .tabBar)
-            .toolbar(.hidden, for: .tabBar)
-            .interactiveDismissDisabled()
-            .onAppear(perform: onAppearAction)
-            .onDisappear(perform: onDisappearAction)
-            .baseSheets
-            .authSheet
+        ZStack {
+            mainContentView
+        }
+        .navigationBarHidden(true)
+        .toolbarBackground(.hidden, for: .tabBar)
+        .toolbar(.hidden, for: .tabBar)
+        .interactiveDismissDisabled()
+        .onAppear(perform: onAppearAction)
+        .onDisappear(perform: onDisappearAction)
+        .sheet(isPresented: $showingFolderPicker) {
+            FolderPickerView(
+                selectedFolderId: $selectedFolderId,
+                isPresented: $showingFolderPicker
+            )
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            if let noteToShare = note {
+                ShareSheet(activityItems: ["\(noteToShare.title)\n\n\(noteToShare.content)"])
+            } else {
+                ShareSheet(activityItems: ["\(title)\n\n\(content)"])
+            }
+        }
+        .sheet(isPresented: $showingImagePicker) {
+            ImagePicker(selectedImages: Binding(
+                get: { imageAttachments },
+                set: { newImages in
+                    for image in newImages {
+                        if imageAttachments.count < 10 {
+                            imageAttachments.append(image)
+                        }
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingCameraPicker) {
+            CameraPicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        imageAttachments.append(image)
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingReceiptImagePicker) {
+            ImagePicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        processReceiptImage(image)
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingReceiptCameraPicker) {
+            CameraPicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        processReceiptImage(image)
+                    }
+                }
+            ))
+        }
+        .fullScreenCover(isPresented: $showingImageViewer) {
+            if selectedImageIndex < imageAttachments.count {
+                ImageViewer(image: imageAttachments[selectedImageIndex], isPresented: $showingImageViewer)
+            }
+        }
+        .sheet(isPresented: $showingAttachmentsSheet) {
+            NavigationView {
+                imageAttachmentsView
+                    .navigationTitle("Attachments (\(imageAttachments.count))")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") {
+                                showingAttachmentsSheet = false
+                            }
+                        }
+                    }
+            }
+        }
+        .fileImporter(
+            isPresented: $showingFileImporter,
+            allowedContentTypes: [
+                .pdf,
+                .image,
+                .plainText,
+                .commaSeparatedText,
+                UTType(filenameExtension: "csv") ?? .plainText,
+                UTType(filenameExtension: "xlsx") ?? .spreadsheet
+            ],
+            onCompletion: { result in
+                switch result {
+                case .success(let url):
+                    handleFileSelected(url)
+                case .failure(let error):
+                    print("❌ File picker error: \(error.localizedDescription)")
+                }
+            }
+        )
+        .sheet(isPresented: $showingExtractionSheet) {
+            if let extractedData = extractedData {
+                ExtractionDetailSheet(
+                    extractedData: extractedData,
+                    onSave: { updatedData in
+                        Task {
+                            await saveExtractedData(updatedData)
+                        }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showingFilePreview) {
+            if let fileURL = filePreviewURL {
+                FilePreviewSheet(fileURL: fileURL)
+            }
+        }
+        .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
+            Button("Cancel", role: .cancel) { }
+            Button("Try Again") {
+                authenticateWithBiometricOrPasscode()
+            }
+        } message: {
+            Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
+        }
     }
 
     private var mainContentView: some View {
@@ -672,135 +790,6 @@ struct NoteEditView: View {
         }
     }
 
-    private var baseSheets: some View {
-        Group {
-            EmptyView()
-                .sheet(isPresented: $showingFolderPicker) {
-                    FolderPickerView(
-                        selectedFolderId: $selectedFolderId,
-                        isPresented: $showingFolderPicker
-                    )
-                }
-                .sheet(isPresented: $showingShareSheet) {
-                    if let noteToShare = note {
-                        ShareSheet(activityItems: ["\(noteToShare.title)\n\n\(noteToShare.content)"])
-                    } else {
-                        ShareSheet(activityItems: ["\(title)\n\n\(content)"])
-                    }
-                }
-                .sheet(isPresented: $showingImagePicker) {
-                    ImagePicker(selectedImages: Binding(
-                        get: { imageAttachments },
-                        set: { newImages in
-                            for image in newImages {
-                                if imageAttachments.count < 10 {
-                                    imageAttachments.append(image)
-                                }
-                            }
-                        }
-                    ))
-                }
-                .sheet(isPresented: $showingCameraPicker) {
-                    CameraPicker(selectedImage: Binding(
-                        get: { nil },
-                        set: { newImage in
-                            if let image = newImage {
-                                imageAttachments.append(image)
-                            }
-                        }
-                    ))
-                }
-                .sheet(isPresented: $showingReceiptImagePicker) {
-                    ImagePicker(selectedImage: Binding(
-                        get: { nil },
-                        set: { newImage in
-                            if let image = newImage {
-                                processReceiptImage(image)
-                            }
-                        }
-                    ))
-                }
-                .sheet(isPresented: $showingReceiptCameraPicker) {
-                    CameraPicker(selectedImage: Binding(
-                        get: { nil },
-                        set: { newImage in
-                            if let image = newImage {
-                                processReceiptImage(image)
-                            }
-                        }
-                    ))
-                }
-                .fullScreenCover(isPresented: $showingImageViewer) {
-                    if selectedImageIndex < imageAttachments.count {
-                        ImageViewer(image: imageAttachments[selectedImageIndex], isPresented: $showingImageViewer)
-                    }
-                }
-                .sheet(isPresented: $showingAttachmentsSheet) {
-                    NavigationView {
-                        imageAttachmentsView
-                            .navigationTitle("Attachments (\(imageAttachments.count))")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar {
-                                ToolbarItem(placement: .navigationBarTrailing) {
-                                    Button("Done") {
-                                        showingAttachmentsSheet = false
-                                    }
-                                }
-                            }
-                    }
-                }
-                .fileImporter(
-                    isPresented: $showingFileImporter,
-                    allowedContentTypes: [
-                        .pdf,
-                        .image,
-                        .plainText,
-                        .commaSeparatedText,
-                        UTType(filenameExtension: "csv") ?? .plainText,
-                        UTType(filenameExtension: "xlsx") ?? .spreadsheet
-                    ],
-                    onCompletion: { result in
-                        switch result {
-                        case .success(let url):
-                            handleFileSelected(url)
-                        case .failure(let error):
-                            print("❌ File picker error: \(error.localizedDescription)")
-                        }
-                    }
-                )
-                .sheet(isPresented: $showingExtractionSheet) {
-                    if let extractedData = extractedData {
-                        ExtractionDetailSheet(
-                            extractedData: extractedData,
-                            onSave: { updatedData in
-                                Task {
-                                    await saveExtractedData(updatedData)
-                                }
-                            }
-                        )
-                    }
-                }
-                .sheet(isPresented: $showingFilePreview) {
-                    if let fileURL = filePreviewURL {
-                        FilePreviewSheet(fileURL: fileURL)
-                    }
-                }
-        }
-    }
-
-    private var authSheet: some View {
-        Group {
-            EmptyView()
-                .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
-                    Button("Cancel", role: .cancel) { }
-                    Button("Try Again") {
-                        authenticateWithBiometricOrPasscode()
-                    }
-                } message: {
-                    Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
-                }
-        }
-    }
 
     // MARK: - View Components
 
