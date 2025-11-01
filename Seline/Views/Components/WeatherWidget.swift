@@ -176,6 +176,9 @@ struct WeatherWidget: View {
                 }
                 // Update ETAs when becoming visible
                 updateETAs()
+
+                // Save ETAs to widget so it displays current values
+                navigationService.saveETAsToWidget()
             } else {
                 // When becoming invisible, stop location updates
                 locationService.stopLocationUpdates()
@@ -352,6 +355,9 @@ struct WeatherWidget: View {
                         location2: preferences.location2Coordinate,
                         location3: preferences.location3Coordinate
                     )
+
+                    // Save ETAs to widget after calculation completes
+                    navigationService.saveETAsToWidget()
                 }
             }
             return
@@ -368,6 +374,9 @@ struct WeatherWidget: View {
                 location2: preferences.location2Coordinate,
                 location3: preferences.location3Coordinate
             )
+
+            // Save ETAs to widget after calculation completes
+            navigationService.saveETAsToWidget()
         }
     }
 

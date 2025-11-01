@@ -42,6 +42,21 @@ class NavigationService: ObservableObject {
         }
     }
 
+    // MARK: - Save ETAs to Widget
+
+    /// Save current ETA values to shared UserDefaults for widget access
+    func saveETAsToWidget() {
+        if let userDefaults = UserDefaults(suiteName: "group.seline") {
+            userDefaults.set(self.location1ETA, forKey: "widgetLocation1ETA")
+            userDefaults.set(self.location2ETA, forKey: "widgetLocation2ETA")
+            userDefaults.set(self.location3ETA, forKey: "widgetLocation3ETA")
+            userDefaults.synchronize()
+            print("✅ NavigationService: Saved current ETAs to widget - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---")")
+        } else {
+            print("❌ NavigationService: Could not access shared UserDefaults group.seline")
+        }
+    }
+
     // MARK: - Calculate ETA
 
     /// Calculate driving ETA from current location to a destination
