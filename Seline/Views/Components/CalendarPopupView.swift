@@ -13,15 +13,10 @@ struct CalendarPopupView: View {
     @State private var selectedDate = Date()
     @State private var tasksForDate: [TaskItem] = []
     @State private var showingAddTaskSheet = false
-    @State private var newTaskTitle = ""
-    @State private var selectedTime = Date()
-    @State private var isRecurring = false
-    @State private var selectedFrequency = RecurrenceFrequency.weekly
     @State private var selectedTaskForEditing: TaskItem?
     @State private var showingViewTaskSheet = false
     @State private var showingEditTaskSheet = false
     @State private var isTransitioningToEdit = false
-    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         NavigationView {
@@ -284,167 +279,28 @@ struct CalendarPopupView: View {
             }
         }
         .sheet(isPresented: $showingAddTaskSheet) {
-            NavigationView {
-                VStack(spacing: 24) {
-                    // Header
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Image(systemName: "plus.circle")
-                                .foregroundColor(Color.shadcnPrimary)
-                                .font(.system(size: 20, weight: .medium))
+            AddEventPopupView(
+                isPresented: $showingAddTaskSheet,
+                onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                    guard let weekday = weekdayFromDate(date) else { return }
 
-                            Text("Add New Task")
-                                .font(.shadcnTextLgSemibold)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                    taskManager.addTask(
+                        title: title,
+                        to: weekday,
+                        description: description,
+                        scheduledTime: time,
+                        endTime: endTime,
+                        targetDate: date,
+                        reminderTime: reminder,
+                        isRecurring: recurring,
+                        recurrenceFrequency: frequency,
+                        tagId: tagId
+                    )
 
-                            Spacer()
-                        }
-
-                        Text("Adding to \(formattedSelectedDate)")
-                            .font(.shadcnTextSm)
-                            .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-
-                    // Form content
-                    VStack(spacing: 20) {
-                        // Task title input
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Task")
-                                .font(.shadcnTextSmMedium)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                            TextField("Enter task title...", text: $newTaskTitle)
-                                .font(.shadcnTextBase)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                                        .fill(
-                                            colorScheme == .dark ?
-                                                Color.black.opacity(0.3) : Color.gray.opacity(0.1)
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                                                .stroke(
-                                                    colorScheme == .dark ?
-                                                        Color.white.opacity(0.1) : Color.black.opacity(0.1),
-                                                    lineWidth: 1
-                                                )
-                                        )
-                                )
-                                .focused($isTextFieldFocused)
-                        }
-
-                        // Time selection
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Time")
-                                .font(.shadcnTextSmMedium)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                            HStack {
-                                DatePicker("Select time", selection: $selectedTime, displayedComponents: [.hourAndMinute])
-                                    .labelsHidden()
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                                    .fill(
-                                        colorScheme == .dark ?
-                                            Color.black.opacity(0.3) : Color.gray.opacity(0.1)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                                            .stroke(
-                                                colorScheme == .dark ?
-                                                    Color.white.opacity(0.1) : Color.black.opacity(0.1),
-                                                lineWidth: 1
-                                            )
-                                    )
-                            )
-                        }
-
-                        // Recurring options
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("Recurring")
-                                    .font(.shadcnTextSmMedium)
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                                Spacer()
-
-                                Toggle("", isOn: $isRecurring)
-                                    .tint(Color.shadcnPrimary)
-                            }
-
-                            if isRecurring {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Frequency")
-                                        .font(.shadcnTextXs)
-                                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-
-                                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
-                                        ForEach(RecurrenceFrequency.allCases, id: \.self) { frequency in
-                                            FrequencyOptionButton(
-                                                frequency: frequency,
-                                                isSelected: selectedFrequency == frequency,
-                                                onTap: {
-                                                    selectedFrequency = frequency
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-
-                    Spacer()
-
-                    // Add button
-                    Button(action: addTask) {
-                        Text("Add Task")
-                            .font(.shadcnTextBaseMedium)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                                    .fill(newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.5) : Color.shadcnPrimary)
-                            )
-                    }
-                    .disabled(newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
-                .background(
-                    colorScheme == .dark ?
-                        Color.gmailDarkBackground : Color.white
-                )
-                .navigationTitle("New Task")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Cancel") {
-                            showingAddTaskSheet = false
-                        }
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
-                    }
-                }
-            }
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    isTextFieldFocused = true
-                }
-            }
+                    updateTasksForDate(for: selectedDate)
+                },
+                initialDate: selectedDate
+            )
         }
         .onChange(of: showingViewTaskSheet) { isShowing in
             // Clear task when view sheet is dismissed (unless transitioning to edit)
@@ -514,33 +370,6 @@ struct CalendarPopupView: View {
         Calendar.current.compare(selectedDate, to: Date(), toGranularity: .day) != .orderedAscending
     }
 
-    private func addTask() {
-        let trimmedTitle = newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty,
-              let weekday = weekdayFromDate(selectedDate) else { return }
-
-        // Add the task with recurring parameters
-        taskManager.addTask(
-            title: trimmedTitle,
-            to: weekday,
-            scheduledTime: selectedTime,
-            targetDate: selectedDate,
-            reminderTime: nil,
-            isRecurring: isRecurring,
-            recurrenceFrequency: isRecurring ? selectedFrequency : nil
-        )
-
-        // Reset form
-        newTaskTitle = ""
-        selectedTime = Date()
-        isRecurring = false
-        selectedFrequency = .weekly
-        isTextFieldFocused = false
-        showingAddTaskSheet = false
-
-        // Refresh tasks for the selected date
-        updateTasksForDate(for: selectedDate)
-    }
 }
 
 struct TaskRowCalendar: View {

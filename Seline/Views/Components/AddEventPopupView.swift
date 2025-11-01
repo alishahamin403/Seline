@@ -55,6 +55,259 @@ struct AddEventPopupView: View {
         return formatter.string(from: date)
     }
 
+    // MARK: - Title Input Section
+    private var titleInputSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Event name", text: $title)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+                .padding(.bottom, 8)
+                .overlay(
+                    VStack(spacing: 0) {
+                        Spacer()
+                        Divider()
+                            .opacity(isTitleFocused ? 1 : 0.3)
+                    }
+                )
+                .focused($isTitleFocused)
+
+            TextField("Add details (optional)", text: $description, axis: .vertical)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundColor(Color.shadcnMuted(colorScheme))
+                .lineLimit(2...4)
+        }
+    }
+
+    // MARK: - Date Picker Section
+    private var datePickerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                DatePicker("", selection: $selectedDate, displayedComponents: .date)
+                    .datePickerStyle(CompactDatePickerStyle())
+                    .labelsHidden()
+
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Time Toggle Section
+    private var timeToggleSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(isOn: $hasTime) {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("Specific time")
+                        .font(.system(size: 15, weight: .regular))
+                }
+            }
+            .tint(colorScheme == .dark ? Color.white : Color.black)
+
+            if hasTime {
+                VStack(spacing: 10) {
+                    // From time
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("From")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(formatTimeWithAMPM(selectedTime))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                            }
+                        }
+                        DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(WheelDatePickerStyle())
+                            .labelsHidden()
+                            .frame(height: 80)
+                            .onChange(of: selectedTime) { newStartTime in
+                                selectedEndTime = newStartTime.addingTimeInterval(3600)
+                            }
+                    }
+
+                    // To time
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("To")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(formatTimeWithAMPM(selectedEndTime))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                            }
+                        }
+                        DatePicker("", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(WheelDatePickerStyle())
+                            .labelsHidden()
+                            .frame(height: 80)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    // MARK: - Tag Selector Section
+    private var tagSelectorSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { showingTagOptions.toggle() }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "tag")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                    HStack(spacing: 8) {
+                        if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+                            Circle()
+                                .fill(tag.color)
+                                .frame(width: 8, height: 8)
+                            Text(tag.name)
+                        } else {
+                            Circle()
+                                .fill(TagColorPalette.colorForIndex(0))
+                                .frame(width: 8, height: 8)
+                            Text("Personal")
+                        }
+                    }
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                }
+                .contentShape(Rectangle())
+                .padding(.vertical, 8)
+            }
+            .sheet(isPresented: $showingTagOptions) {
+                TagSelectionSheet(
+                    selectedTagId: $selectedTagId,
+                    colorScheme: colorScheme
+                )
+                .presentationDetents([.height(300)])
+            }
+        }
+    }
+
+    // MARK: - Recurring & Reminder Section
+    private var recurringAndReminderSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(isOn: $isRecurring) {
+                HStack(spacing: 8) {
+                    Image(systemName: "repeat")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("Repeat event")
+                        .font(.system(size: 15, weight: .regular))
+                }
+            }
+            .tint(colorScheme == .dark ? Color.white : Color.black)
+
+            if isRecurring {
+                Button(action: { showingRecurrenceOptions.toggle() }) {
+                    HStack {
+                        Text("Every")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                        Text(recurrenceFrequency.rawValue.capitalized)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.shadcnMuted(colorScheme))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            Button(action: { showingReminderOptions.toggle() }) {
+                HStack(spacing: 10) {
+                    Image(systemName: selectedReminder.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(selectedReminder == .none ? Color.shadcnMuted(colorScheme) : Color.shadcnForeground(colorScheme))
+
+                    Text(selectedReminder.displayName)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                }
+                .contentShape(Rectangle())
+            }
+        }
+    }
+
+    // MARK: - Action Buttons Section
+    private var actionButtonsSection: some View {
+        HStack(spacing: 12) {
+            Button(action: { isPresented = false }) {
+                Text("Cancel")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+            }
+
+            Button(action: {
+                let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
+                let timeToSave = hasTime ? selectedTime : nil
+                let endTimeToSave = hasTime ? selectedEndTime : nil
+                let reminderToSave = selectedReminder == .none ? nil : selectedReminder
+
+                onSave(
+                    trimmedTitle,
+                    descriptionToSave,
+                    selectedDate,
+                    timeToSave,
+                    endTimeToSave,
+                    reminderToSave,
+                    isRecurring,
+                    isRecurring ? recurrenceFrequency : nil,
+                    selectedTagId
+                )
+                isPresented = false
+            }) {
+                Text("Create")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isValidInput ?
+                                (colorScheme == .dark ?
+                                    Color.white :
+                                    Color.black) :
+                                Color.gray.opacity(0.4))
+                    )
+            }
+            .disabled(!isValidInput)
+        }
+    }
+
     var body: some View {
         ZStack {
             // Dimmed background
@@ -87,269 +340,50 @@ struct AddEventPopupView: View {
                             )
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
 
                 ScrollView {
-                    VStack(spacing: 28) {
-                        // Title Input - Minimal style
-                        VStack(alignment: .leading, spacing: 10) {
-                            TextField("Event name", text: $title)
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                                .padding(.bottom, 8)
-                                .overlay(
-                                    VStack(spacing: 0) {
-                                        Spacer()
-                                        Divider()
-                                            .opacity(isTitleFocused ? 1 : 0.3)
-                                    }
-                                )
-                                .focused($isTitleFocused)
-
-                            TextField("Add details (optional)", text: $description, axis: .vertical)
-                                .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(Color.shadcnMuted(colorScheme))
-                                .lineLimit(2...4)
-                        }
+                    VStack(spacing: 14) {
+                        titleInputSection
 
                         Divider()
                             .opacity(0.2)
 
-                        // Date & Time - Compact
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                                DatePicker("", selection: $selectedDate, displayedComponents: .date)
-                                    .datePickerStyle(CompactDatePickerStyle())
-                                    .labelsHidden()
-
-                                Spacer()
-                            }
-
-                            VStack(alignment: .leading, spacing: 12) {
-                                Toggle(isOn: $hasTime) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "clock")
-                                            .font(.system(size: 14, weight: .medium))
-                                        Text("Specific time")
-                                            .font(.system(size: 15, weight: .regular))
-                                    }
-                                }
-                                .tint(colorScheme == .dark ? Color.white : Color.black)
-
-                                if hasTime {
-                                    VStack(spacing: 12) {
-                                        // From time
-                                        VStack(spacing: 8) {
-                                            HStack {
-                                                Text("From")
-                                                    .font(.system(size: 13, weight: .medium))
-                                                    .foregroundColor(Color.shadcnMuted(colorScheme))
-                                                Spacer()
-                                                VStack(alignment: .trailing, spacing: 2) {
-                                                    Text(formatTimeWithAMPM(selectedTime))
-                                                        .font(.system(size: 15, weight: .semibold))
-                                                        .foregroundColor(Color.shadcnForeground(colorScheme))
-                                                }
-                                            }
-                                            DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
-                                                .datePickerStyle(WheelDatePickerStyle())
-                                                .labelsHidden()
-                                                .frame(height: 100)
-                                                .onChange(of: selectedTime) { newStartTime in
-                                                    selectedEndTime = newStartTime.addingTimeInterval(3600)
-                                                }
-                                        }
-
-                                        // To time
-                                        VStack(spacing: 8) {
-                                            HStack {
-                                                Text("To")
-                                                    .font(.system(size: 13, weight: .medium))
-                                                    .foregroundColor(Color.shadcnMuted(colorScheme))
-                                                Spacer()
-                                                VStack(alignment: .trailing, spacing: 2) {
-                                                    Text(formatTimeWithAMPM(selectedEndTime))
-                                                        .font(.system(size: 15, weight: .semibold))
-                                                        .foregroundColor(Color.shadcnForeground(colorScheme))
-                                                }
-                                            }
-                                            DatePicker("", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
-                                                .datePickerStyle(WheelDatePickerStyle())
-                                                .labelsHidden()
-                                                .frame(height: 100)
-                                        }
-                                    }
-                                    .padding(.top, 8)
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
-                                }
-                            }
-                        }
+                        datePickerSection
 
                         Divider()
                             .opacity(0.2)
 
-                        // Tag Selector - Minimal
-                        VStack(alignment: .leading, spacing: 12) {
-                            Button(action: { showingTagOptions.toggle() }) {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "tag")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        timeToggleSection
 
-                                    HStack(spacing: 8) {
-                                        if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
-                                            Circle()
-                                                .fill(tag.color)
-                                                .frame(width: 8, height: 8)
-                                            Text(tag.name)
-                                        } else {
-                                            // Use the default color from palette (index 0 - muted blue)
-                                            Circle()
-                                                .fill(TagColorPalette.colorForIndex(0))
-                                                .frame(width: 8, height: 8)
-                                            Text("Personal")
-                                        }
-                                    }
-                                    .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                        Divider()
+                            .opacity(0.2)
 
-                                    Spacer()
+                        tagSelectorSection
 
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(Color.shadcnMuted(colorScheme))
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .sheet(isPresented: $showingTagOptions) {
-                                TagSelectionSheet(
-                                    selectedTagId: $selectedTagId,
-                                    colorScheme: colorScheme
-                                )
-                                .presentationDetents([.height(300)])
-                            }
-                        }
+                        Divider()
+                            .opacity(0.2)
 
-                        // Options - Toggles only
-                        VStack(alignment: .leading, spacing: 14) {
-                            Toggle(isOn: $isRecurring) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "repeat")
-                                        .font(.system(size: 14, weight: .medium))
-                                    Text("Repeat event")
-                                        .font(.system(size: 15, weight: .regular))
-                                }
-                            }
-                            .tint(colorScheme == .dark ? Color.white : Color.black)
-
-                            if isRecurring {
-                                Button(action: { showingRecurrenceOptions.toggle() }) {
-                                    HStack {
-                                        Text("Every")
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                                        Text(recurrenceFrequency.rawValue.capitalized)
-                                            .font(.system(size: 15, weight: .semibold))
-                                            .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                                        Spacer()
-
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(Color.shadcnMuted(colorScheme))
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .contentShape(Rectangle())
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-
-                            Button(action: { showingReminderOptions.toggle() }) {
-                                HStack(spacing: 10) {
-                                    Image(systemName: selectedReminder.icon)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(selectedReminder == .none ? Color.shadcnMuted(colorScheme) : Color.shadcnForeground(colorScheme))
-
-                                    Text(selectedReminder.displayName)
-                                        .font(.system(size: 15, weight: .regular))
-                                        .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(Color.shadcnMuted(colorScheme))
-                                }
-                                .contentShape(Rectangle())
-                            }
-                        }
+                        recurringAndReminderSection
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                 }
 
-                // Action Buttons - Minimal
-                HStack(spacing: 16) {
-                    Button(action: { isPresented = false }) {
-                        Text("Cancel")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color.shadcnMuted(colorScheme))
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                    }
+                Divider()
+                    .opacity(0.2)
 
-                    Button(action: {
-                        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
-                        let timeToSave = hasTime ? selectedTime : nil
-                        let endTimeToSave = hasTime ? selectedEndTime : nil
-                        let reminderToSave = selectedReminder == .none ? nil : selectedReminder
-
-                        onSave(
-                            trimmedTitle,
-                            descriptionToSave,
-                            selectedDate,
-                            timeToSave,
-                            endTimeToSave,
-                            reminderToSave,
-                            isRecurring,
-                            isRecurring ? recurrenceFrequency : nil,
-                            selectedTagId
-                        )
-                        isPresented = false
-                    }) {
-                        Text("Create")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(isValidInput ?
-                                        (colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black) :
-                                        Color.gray.opacity(0.4))
-                            )
-                    }
-                    .disabled(!isValidInput)
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 18)
-                .background(
-                    Rectangle()
-                        .fill(colorScheme == .dark ? Color.black.opacity(0.4) : Color.white.opacity(0.8))
-                        .blur(radius: 10)
-                )
+                // Action Buttons
+                actionButtonsSection
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .background(
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.4) : Color.white.opacity(0.8))
+                            .blur(radius: 10)
+                    )
             }
             .frame(maxWidth: min(UIScreen.main.bounds.width - 32, 480))
             .frame(height: min(UIScreen.main.bounds.height * 0.85, 700))
@@ -367,7 +401,7 @@ struct AddEventPopupView: View {
                         .fill(.ultraThinMaterial)
                 }
             )
-            .cornerRadius(24)
+            .cornerRadius(20)
             .shadow(color: Color.black.opacity(0.3), radius: 30, x: 0, y: 10)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: hasTime)
@@ -433,7 +467,7 @@ struct TagSelectionSheet: View {
                         }) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 18))
-                                .foregroundColor(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.5) : Color.blue)
+                                .foregroundColor(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.5) : (colorScheme == .dark ? Color.white : Color.black))
                         }
                         .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
