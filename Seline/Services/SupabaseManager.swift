@@ -100,11 +100,24 @@ class SupabaseManager: ObservableObject {
     }
 
     func getStorageClient() async -> SupabaseStorageClient {
-        // Always use anon key for storage - the bucket policies allow all uploads
-        // Database RLS on attachments/extracted_data tables provides security
+        // Use authenticated user's token for storage uploads
+        // RLS policies require auth.uid() to match the folder structure
+        let token: String
+        if authClient.currentUser != nil {
+            do {
+                let session = try await authClient.session
+                token = session.accessToken
+            } catch {
+                print("Failed to get session token, using anon key: \(error)")
+                token = supabaseKey
+            }
+        } else {
+            token = supabaseKey
+        }
+
         let configuration = StorageClientConfiguration(
             url: supabaseURL.appendingPathComponent("/storage/v1"),
-            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(supabaseKey)"],
+            headers: ["apikey": supabaseKey, "Authorization": "Bearer \(token)"],
             logger: nil
         )
 
