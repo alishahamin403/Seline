@@ -1574,11 +1574,56 @@ struct NoteEditView: View {
 
                     isProcessingReceipt = false
                     saveToUndoHistory()
+
+                    // Auto-save the note with the receipt image
+                    saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
                 }
             } catch {
                 await MainActor.run {
                     isProcessingReceipt = false
                     print("Error analyzing receipt: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private func saveReceiptNoteWithImage(title: String, content: String) {
+        if let existingNote = note {
+            // Updating an existing note
+            Task {
+                var updatedNote = existingNote
+                updatedNote.title = title
+                updatedNote.content = content
+                updatedNote.isLocked = noteIsLocked
+                updatedNote.folderId = selectedFolderId
+
+                // Upload new receipt images (compare count to find new ones)
+                if imageAttachments.count > existingNote.imageUrls.count {
+                    let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
+                    let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
+                    updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
+                    print("✅ Receipt images uploaded and saved to Supabase")
+                }
+
+                updatedNote.dateModified = Date()
+                let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+            }
+        } else {
+            // Create new receipt note
+            Task {
+                var newNote = Note(title: title, content: content, folderId: selectedFolderId)
+                newNote.isLocked = noteIsLocked
+
+                // Upload all receipt images for new note
+                if !imageAttachments.isEmpty {
+                    let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
+                    newNote.imageUrls = imageUrls
+                    print("✅ Receipt images uploaded to Supabase for new note")
+                }
+
+                await MainActor.run {
+                    notesManager.addNote(newNote)
+                    self.note = newNote
                 }
             }
         }
