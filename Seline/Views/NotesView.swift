@@ -686,12 +686,14 @@ struct NoteEditView: View {
             }
         }
         .sheet(isPresented: $showingImagePicker) {
-            ImagePicker(selectedImage: Binding(
-                get: { nil },
-                set: { newImage in
-                    if let image = newImage {
-                        // Just attach image without AI processing
-                        imageAttachments.append(image)
+            ImagePicker(selectedImages: Binding(
+                get: { imageAttachments },
+                set: { newImages in
+                    // Append all selected images (up to 10 at a time)
+                    for image in newImages {
+                        if imageAttachments.count < 10 {
+                            imageAttachments.append(image)
+                        }
                     }
                 }
             ))
