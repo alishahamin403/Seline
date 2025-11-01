@@ -86,8 +86,7 @@ class InformationExtractor {
                 }
 
                 if let dateStr = extracted["date"] as? String, !dateStr.isEmpty {
-                    let formatter = ISO8601DateFormatter()
-                    if let date = formatter.date(from: dateStr) {
+                    if let date = parseDate(dateStr) {
                         action.extractedInfo.eventDate = date
                         action.extractionState.confirmField("eventDate")
                     }
@@ -223,7 +222,36 @@ class InformationExtractor {
         }
     }
 
-    // MARK: - Title Generation (Fallback)
+        // MARK: - Date Parsing Helper
+
+    /// Parse dates in multiple formats (YYYY-MM-DD or full ISO8601)
+    private func parseDate(_ dateStr: String) -> Date? {
+        // Try full ISO8601 format first (2025-11-01T12:00:00Z or 2025-11-01T12:00:00)
+        let iso8601Formatter = ISO8601DateFormatter()
+        if let date = iso8601Formatter.date(from: dateStr) {
+            return date
+        }
+
+        // Try date-only format (YYYY-MM-DD)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        if let date = dateFormatter.date(from: dateStr) {
+            return date
+        }
+
+        // Try other common formats
+        let formats = ["MM/dd/yyyy", "dd/MM/yyyy", "MM-dd-yyyy", "dd-MM-yyyy"]
+        for format in formats {
+            dateFormatter.dateFormat = format
+            if let date = dateFormatter.date(from: dateStr) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+// MARK: - Title Generation (Fallback)
 
     /// Generate a title if extraction failed, using LLM
     func generateTitleFromContext(
