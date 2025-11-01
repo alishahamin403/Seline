@@ -49,7 +49,7 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- URL Schemes for OAuth callbacks -->
+    <!-- URL Schemes for OAuth callbacks and deep linking -->
     <key>CFBundleURLTypes</key>
     <array>
         <!-- Google OAuth URL Scheme -->
@@ -69,6 +69,15 @@
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>com.seline.app</string>
+            </array>
+        </dict>
+        <!-- Seline Deep Link URL Scheme -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>SelineDeepLink</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>seline</string>
             </array>
         </dict>
     </array>

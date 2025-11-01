@@ -14,6 +14,9 @@ class DeepLinkHandler: NSObject, ObservableObject {
     /// Handle URL deep links from the app (e.g., from widget buttons)
     func handleURL(_ url: URL) {
         print("🔗 Deep link received: \(url.absoluteString)")
+        print("🔗 URL scheme: \(url.scheme ?? "nil")")
+        print("🔗 URL path: \(url.path)")
+        print("🔗 URL pathComponents: \(url.pathComponents)")
 
         guard url.scheme == "seline" else {
             print("⚠️ Invalid URL scheme: \(url.scheme ?? "nil")")
@@ -21,21 +24,26 @@ class DeepLinkHandler: NSObject, ObservableObject {
         }
 
         // Parse the URL: seline://action/createNote or seline://action/createEvent
-        let components = url.pathComponents
+        let pathComponents = url.pathComponents
+        print("🔗 Parsed pathComponents: \(pathComponents)")
 
-        if components.count >= 2 && components[1] == "action" {
-            let action = components[safe: 2] ?? ""
+        // pathComponents is ["", "action", "createNote"] for seline://action/createNote
+        if pathComponents.count >= 3 && pathComponents[1] == "action" {
+            let action = pathComponents[2]
+            print("🔗 Detected action: \(action)")
 
             switch action {
             case "createNote":
-                print("📝 Opening note creation")
+                print("📝 Opening note creation sheet")
                 DispatchQueue.main.async {
+                    print("📝 Setting shouldShowNoteCreation = true")
                     self.shouldShowNoteCreation = true
                 }
 
             case "createEvent":
-                print("📅 Opening event creation")
+                print("📅 Opening event creation popup")
                 DispatchQueue.main.async {
+                    print("📅 Setting shouldShowEventCreation = true")
                     self.shouldShowEventCreation = true
                 }
 
@@ -43,7 +51,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 print("⚠️ Unknown action: \(action)")
             }
         } else {
-            print("⚠️ Invalid URL format: \(url.absoluteString)")
+            print("⚠️ Invalid URL format. pathComponents: \(pathComponents)")
         }
     }
 

@@ -290,17 +290,23 @@ struct MainAppView: View {
                 showConversationModal = newValue
             }
             .onChange(of: deepLinkHandler.shouldShowNoteCreation) { newValue in
+                print("📝 MainAppView: shouldShowNoteCreation changed to \(newValue)")
                 if newValue {
-                    print("🔗 Deep link: Opening note creation")
+                    print("📝 MainAppView: Opening note creation sheet")
                     showingNewNoteSheet = true
-                    deepLinkHandler.shouldShowNoteCreation = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        deepLinkHandler.shouldShowNoteCreation = false
+                    }
                 }
             }
             .onChange(of: deepLinkHandler.shouldShowEventCreation) { newValue in
+                print("📅 MainAppView: shouldShowEventCreation changed to \(newValue)")
                 if newValue {
-                    print("🔗 Deep link: Opening event creation")
+                    print("📅 MainAppView: Opening event creation popup")
                     showingAddEventPopup = true
-                    deepLinkHandler.shouldShowEventCreation = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        deepLinkHandler.shouldShowEventCreation = false
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showConversationModal) {
