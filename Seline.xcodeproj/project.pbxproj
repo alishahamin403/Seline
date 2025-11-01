@@ -21,6 +21,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+	C01249F02EB657AD007B653B /* Exceptions for "SelineWidget" folder in "SelineWidgetExtension" target */ = {
+		isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+		membershipExceptions = (
+			Info.plist,
+		);
+		target = C01249E82EB657AC007B653B /* SelineWidgetExtension */;
+	};
 		C0C43C582E5A5FD60081F5D0 /* Exceptions for "Seline" folder in "Seline" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -31,6 +38,14 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+	C01249EF2EB657AD007B653B /* SelineWidget */ = {
+		isa = PBXFileSystemSynchronizedRootGroup;
+		exceptions = (
+			C01249F02EB657AD007B653B /* Exceptions for "SelineWidget" folder in "SelineWidgetExtension" target */,
+		);
+		path = SelineWidget;
+		sourceTree = "<group>";
+	};
 		C0C43C412E5A5FD60081F5D0 /* Seline */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
