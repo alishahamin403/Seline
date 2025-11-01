@@ -254,24 +254,20 @@ struct SelineWidgetEntryView: View {
             // Action buttons
             HStack(spacing: 12) {
                 // Note button
-                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .foregroundColor(textColor)
-                }
-                .buttonStyle(.plain)
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .foregroundColor(textColor)
+                    .widgetURL(URL(string: "seline://action/createNote"))
 
                 // Event button
-                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .foregroundColor(textColor)
-                }
-                .buttonStyle(.plain)
+                Image(systemName: "calendar")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .foregroundColor(textColor)
+                    .widgetURL(URL(string: "seline://action/createEvent"))
             }
         }
         .padding(12)
@@ -354,33 +350,31 @@ struct SelineWidgetEntryView: View {
 
             // Buttons
             HStack(spacing: 12) {
-                Button(action: {}) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "note.text.badge.plus")
-                            .font(.system(size: 12))
-                        Text("New Note")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(6)
+                // Note button
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12))
+                    Text("New Note")
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(6)
+                .widgetURL(URL(string: "seline://action/createNote"))
 
-                Button(action: {}) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "calendar.badge.plus")
-                            .font(.system(size: 12))
-                        Text("New Event")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(6)
+                // Event button
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12))
+                    Text("New Event")
+                        .font(.system(size: 12, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.blue.opacity(0.1))
+                .cornerRadius(6)
+                .widgetURL(URL(string: "seline://action/createEvent"))
             }
         }
         .padding(14)
