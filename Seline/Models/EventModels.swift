@@ -2619,13 +2619,14 @@ class TagManager: ObservableObject {
     // MARK: - Supabase Sync
 
     func loadTagsFromSupabase() async {
-        guard let userId = authManager.currentUser?.id else {
+        guard let userId = supabaseManager.authClient.currentUser?.id else {
             print("⚠️ User not authenticated - skipping Supabase tag load")
             return
         }
 
         do {
-            let tagsData: [TagSupabaseModel] = try await supabaseManager.client
+            let postgrestClient = await supabaseManager.getPostgrestClient()
+            let tagsData: [TagSupabaseModel] = try await postgrestClient
                 .from("tags")
                 .select()
                 .eq("user_id", value: userId.uuidString)
@@ -2647,12 +2648,13 @@ class TagManager: ObservableObject {
     }
 
     private func saveTagToSupabase(_ tag: Tag) async {
-        guard let userId = authManager.currentUser?.id else {
+        guard let userId = supabaseManager.authClient.currentUser?.id else {
             print("⚠️ User not authenticated - skipping Supabase tag save")
             return
         }
 
         do {
+            let postgrestClient = await supabaseManager.getPostgrestClient()
             let tagModel = TagSupabaseModel(
                 id: tag.id,
                 user_id: userId.uuidString,
@@ -2660,7 +2662,7 @@ class TagManager: ObservableObject {
                 color_index: tag.colorIndex
             )
 
-            _ = try await supabaseManager.client
+            _ = try await postgrestClient
                 .from("tags")
                 .insert(tagModel)
                 .execute()
@@ -2672,13 +2674,14 @@ class TagManager: ObservableObject {
     }
 
     private func deleteTagFromSupabase(_ tag: Tag) async {
-        guard let userId = authManager.currentUser?.id else {
+        guard let userId = supabaseManager.authClient.currentUser?.id else {
             print("⚠️ User not authenticated - skipping Supabase tag delete")
             return
         }
 
         do {
-            _ = try await supabaseManager.client
+            let postgrestClient = await supabaseManager.getPostgrestClient()
+            _ = try await postgrestClient
                 .from("tags")
                 .delete()
                 .eq("id", value: tag.id)
