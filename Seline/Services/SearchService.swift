@@ -728,10 +728,18 @@ class SearchService: ObservableObject {
         currentInteractiveAction = action
 
         // Get next prompt
-        actionPrompt = await conversationActionHandler.getNextPrompt(
+        let prompt = await conversationActionHandler.getNextPrompt(
             for: action,
             conversationContext: conversationContext
         )
+
+        // Add the initial prompt to conversation history so user can see it
+        if !prompt.isEmpty {
+            let promptMsg = ConversationMessage(isUser: false, text: prompt, intent: .general)
+            conversationHistory.append(promptMsg)
+        }
+
+        actionPrompt = prompt
         isWaitingForActionResponse = true
     }
 
