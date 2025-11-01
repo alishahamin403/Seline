@@ -741,17 +741,9 @@ struct MainAppView: View {
         ]
 
         // Generate deterministic color based on sender email using stable hash
-        let hash = deterministicHash(email.sender.email)
+        let hash = HashUtils.deterministicHash(email.sender.email)
         let colorIndex = abs(hash) % colors.count
         return colors[colorIndex]
-    }
-
-    private func deterministicHash(_ string: String) -> Int {
-        var hash: UInt64 = 5381
-        for byte in string.utf8 {
-            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
-        }
-        return Int(hash)
     }
 
     private var emailDetailContent: some View {
