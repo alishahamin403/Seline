@@ -246,47 +246,50 @@ struct ConversationSearchView: View {
                 }
             }
 
-            // Input area
-            VStack(spacing: 12) {
-                HStack(spacing: 12) {
-                    TextField(
-                        "Ask a follow-up question...",
-                        text: $messageText
-                    )
-                    .font(.system(size: 13, weight: .regular))
-                    .focused($isInputFocused)
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(colorScheme == .dark ? Color.black : Color.white)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
+            // Input area - only show appropriate input based on context
+            if !searchService.isWaitingForActionResponse {
+                // Show conversation input only when NOT waiting for action response
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        TextField(
+                            "Ask a follow-up question...",
+                            text: $messageText
+                        )
+                        .font(.system(size: 13, weight: .regular))
+                        .focused($isInputFocused)
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(colorScheme == .dark ? Color.black : Color.white)
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
 
-                    Button(action: {
-                        if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            HapticManager.shared.selection()
-                            let query = messageText
-                            messageText = ""
-                            Task {
-                                await searchService.addConversationMessage(query)
+                        Button(action: {
+                            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                HapticManager.shared.selection()
+                                let query = messageText
+                                messageText = ""
+                                Task {
+                                    await searchService.addConversationMessage(query)
+                                }
                             }
+                        }) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                         }
-                    }) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
             }
-            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .onAppear {
