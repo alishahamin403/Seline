@@ -14,11 +14,27 @@
 		C032D1C22E61491A003191E0 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = C032D1C12E61491A003191E0 /* Storage */; };
 		C0A6538F2E5CF43E00B37962 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = C0A6538E2E5CF43E00B37962 /* GoogleSignIn */; };
 		C0A653912E5CF43E00B37962 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0A653902E5CF43E00B37962 /* GoogleSignInSwift */; };
+	C0C43C5F2E5A6FD90081F5D0 /* SelineWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0C43C5D2E5A6FD90081F5D0 /* SelineWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		C0C43C3F2E5A5FD60081F5D0 /* Seline.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Seline.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0C43C5D2E5A6FD90081F5D0 /* SelineWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SelineWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+	C0C43C5E2E5A6FD90081F5D0 /* Embed Foundation Extensions */ = {
+		isa = PBXCopyFilesBuildPhase;
+		buildActionMask = 2147483647;
+		dstPath = "";
+		dstSubfolderSpec = 13;
+		files = (
+			C0C43C5F2E5A6FD90081F5D0 /* SelineWidgetExtension.appex in Embed Foundation Extensions */,
+		);
+		name = "Embed Foundation Extensions";
+		runOnlyForDeploymentPostprocessing = 0;
+	};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 	C01249F02EB657AD007B653B /* Exceptions for "SelineWidget" folder in "SelineWidgetExtension" target */ = {
@@ -86,6 +102,7 @@
 			isa = PBXGroup;
 			children = (
 				C0C43C3F2E5A5FD60081F5D0 /* Seline.app */,
+				C0C43C5D2E5A6FD90081F5D0 /* SelineWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -100,6 +117,7 @@
 				C0C43C3B2E5A5FD60081F5D0 /* Sources */,
 				C0C43C3C2E5A5FD60081F5D0 /* Frameworks */,
 				C0C43C3D2E5A5FD60081F5D0 /* Resources */,
+				C0C43C5E2E5A6FD90081F5D0 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
