@@ -214,6 +214,13 @@ class SupabaseManager: ObservableObject {
             .update(preferencesData)
             .eq("id", value: userId.uuidString)
             .execute()
+
+        // Also save to shared UserDefaults for widget access
+        if let userDefaults = UserDefaults(suiteName: "group.seline") {
+            if let encodedData = try? JSONEncoder().encode(preferences) {
+                userDefaults.set(encodedData, forKey: "UserLocationPreferences")
+            }
+        }
     }
 
     func loadLocationPreferences() async throws -> UserLocationPreferences {
@@ -233,6 +240,15 @@ class SupabaseManager: ObservableObject {
             throw NSError(domain: "SupabaseManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "User profile not found"])
         }
 
-        return profileData.toLocationPreferences()
+        let preferences = profileData.toLocationPreferences()
+
+        // Also save to shared UserDefaults for widget access
+        if let userDefaults = UserDefaults(suiteName: "group.seline") {
+            if let encodedData = try? JSONEncoder().encode(preferences) {
+                userDefaults.set(encodedData, forKey: "UserLocationPreferences")
+            }
+        }
+
+        return preferences
     }
 }
