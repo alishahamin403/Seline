@@ -1334,19 +1334,19 @@ struct NoteEditView: View {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
 
-                // 1. Add note to database first (without images)
-                await MainActor.run {
-                    notesManager.addNote(newNote)
+                // 1. Add note to database and WAIT for sync
+                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+
+                if !syncSuccess {
+                    print("❌ Failed to sync note to Supabase before uploading images")
+                    return
                 }
 
-                // 2. Wait for note to sync to Supabase (increased wait time for reliability)
-                try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 second wait for sync
-
-                // 3. NOW upload images (RLS policy requires note to exist first)
+                // 2. NOW upload images (RLS policy requires note to exist first)
                 if !imageAttachments.isEmpty {
                     let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
 
-                    // 4. Update note with image URLs
+                    // 3. Update note with image URLs
                     var updatedNote = newNote
                     updatedNote.imageUrls = imageUrls
                     updatedNote.dateModified = Date()
@@ -1626,19 +1626,19 @@ struct NoteEditView: View {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
 
-                // 1. Add note to database first (without images)
-                await MainActor.run {
-                    notesManager.addNote(newNote)
+                // 1. Add note to database and WAIT for sync
+                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+
+                if !syncSuccess {
+                    print("❌ Failed to sync receipt note to Supabase before uploading images")
+                    return
                 }
 
-                // 2. Wait for note to sync to Supabase (increased wait time for reliability)
-                try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 second wait for sync
-
-                // 3. NOW upload images (RLS policy requires note to exist first)
+                // 2. NOW upload images (RLS policy requires note to exist first)
                 if !imageAttachments.isEmpty {
                     let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
 
-                    // 4. Update note with image URLs
+                    // 3. Update note with image URLs
                     var updatedNote = newNote
                     updatedNote.imageUrls = imageUrls
                     updatedNote.dateModified = Date()

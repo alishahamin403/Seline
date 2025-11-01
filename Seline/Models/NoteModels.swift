@@ -213,7 +213,19 @@ class NotesManager: ObservableObject {
         }
     }
 
-    private func saveNoteToSupabaseWithRetry(_ note: Note, maxRetries: Int, currentAttempt: Int = 1) async {
+    /// Async version that waits for Supabase sync to complete
+    /// Use this when the note creation must be persisted before continuing (e.g., before uploading images)
+    func addNoteAndWaitForSync(_ note: Note) async -> Bool {
+        notes.append(note)
+        saveNotes()
+
+        // Wait for Supabase save to complete with retry logic
+        let result = await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
+        return result.success
+    }
+
+    /// Helper to make saveNoteToSupabaseWithRetry return a result
+    private func saveNoteToSupabaseWithRetry(_ note: Note, maxRetries: Int, currentAttempt: Int = 1) async -> (success: Bool, error: String?) {
         let result = await saveNoteToSupabaseAndTrackResult(note)
 
         if !result.success && currentAttempt < maxRetries {
@@ -221,11 +233,14 @@ class NotesManager: ObservableObject {
             let delaySeconds = pow(2.0, Double(currentAttempt))
             print("⏳ Retrying note save in \(delaySeconds)s (attempt \(currentAttempt + 1)/\(maxRetries))")
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
-            await saveNoteToSupabaseWithRetry(note, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
+            return await saveNoteToSupabaseWithRetry(note, maxRetries: maxRetries, currentAttempt: currentAttempt + 1)
         } else if !result.success {
             print("❌ Failed to save note after \(maxRetries) attempts: \(result.error ?? "Unknown error")")
+            return result
         }
+        return result
     }
+
 
     private func saveNoteToSupabaseAndTrackResult(_ note: Note) async -> (success: Bool, error: String?) {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
