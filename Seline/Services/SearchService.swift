@@ -38,6 +38,11 @@ class SearchService: ObservableObject {
     @Published var currentMultiActionIndex: Int = 0
     private var originalMultiActionQuery: String = ""  // Track original query for context
 
+    // Track recently created items for context in follow-up actions
+    private var lastCreatedEventTitle: String? = nil
+    private var lastCreatedEventDate: String? = nil
+    private var lastCreatedNoteTitle: String? = nil
+
     private var searchableProviders: [TabSelection: Searchable] = [:]
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
@@ -235,6 +240,12 @@ class SearchService: ObservableObject {
             tagId: nil
         )
 
+        // Store context for follow-up actions (e.g., "move the event to today")
+        lastCreatedEventTitle = eventData.title
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        lastCreatedEventDate = dateFormatter.string(from: targetDate)
+
         // Clear pending data
         pendingEventCreation = nil
 
@@ -250,6 +261,9 @@ class SearchService: ObservableObject {
         let notesManager = NotesManager.shared
         let note = Note(title: noteData.title, content: noteData.content)
         notesManager.addNote(note)
+
+        // Store context for follow-up actions
+        lastCreatedNoteTitle = noteData.title
 
         // Clear pending data
         pendingNoteCreation = nil
@@ -679,8 +693,8 @@ class SearchService: ObservableObject {
         let conversationContext = ConversationActionContext(
             conversationHistory: conversationHistory,
             recentTopics: [],
-            lastNoteCreated: nil,
-            lastEventCreated: nil
+            lastNoteCreated: lastCreatedNoteTitle,
+            lastEventCreated: lastCreatedEventTitle
         )
 
         var action = await conversationActionHandler.startAction(
@@ -720,8 +734,8 @@ class SearchService: ObservableObject {
         let conversationContext = ConversationActionContext(
             conversationHistory: conversationHistory,
             recentTopics: [],
-            lastNoteCreated: nil,
-            lastEventCreated: nil
+            lastNoteCreated: lastCreatedNoteTitle,
+            lastEventCreated: lastCreatedEventTitle
         )
 
         // Process the response
