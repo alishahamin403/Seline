@@ -1,26 +1,6 @@
 import Foundation
 
-// MARK: - Interactive Action (Main State Container)
-
-/// Represents an action being built through multi-turn conversation
-struct InteractiveAction: Equatable {
-    let id: UUID
-    let type: ActionType
-    var extractedInfo: ExtractedActionInfo
-    var extractionState: ExtractionState
-    var clarifyingQuestions: [ClarifyingQuestion] = []
-    var suggestions: [ActionSuggestion] = []
-    var conversationTurns: Int = 0
-
-    init(type: ActionType) {
-        self.id = UUID()
-        self.type = type
-        self.extractedInfo = ExtractedActionInfo(actionType: type)
-        self.extractionState = ExtractionState(actionType: type)
-    }
-}
-
-// MARK: - Action Type Enum
+// MARK: - Action Type (moved from QueryRouter to avoid duplication)
 
 enum ActionType: String, Codable {
     case createEvent
@@ -39,6 +19,26 @@ enum ActionType: String, Codable {
         case .updateNote: return "Update Note"
         case .deleteNote: return "Delete Note"
         }
+    }
+}
+
+// MARK: - Interactive Action (Main State Container)
+
+/// Represents an action being built through multi-turn conversation
+struct InteractiveAction: Equatable {
+    let id: UUID
+    let type: ActionType
+    var extractedInfo: ExtractedActionInfo
+    var extractionState: ExtractionState
+    var clarifyingQuestions: [ClarifyingQuestion] = []
+    var suggestions: [ActionSuggestion] = []
+    var conversationTurns: Int = 0
+
+    init(type: ActionType) {
+        self.id = UUID()
+        self.type = type
+        self.extractedInfo = ExtractedActionInfo(actionType: type)
+        self.extractionState = ExtractionState(actionType: type)
     }
 }
 

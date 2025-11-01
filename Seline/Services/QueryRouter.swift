@@ -6,22 +6,12 @@ enum QueryType {
     case question
 }
 
-enum ActionType {
-    case createEvent
-    case updateEvent
-    case deleteEvent
-    case createNote
-    case updateNote
-    case deleteNote
-    case unknown
-}
-
 /// Router for classifying user queries with keyword heuristics + semantic LLM analysis
 class QueryRouter {
     static let shared = QueryRouter()
 
     // Cache for recent intent classifications to avoid redundant API calls
-    private var intentCache: [String: ActionType] = [:]
+    private var intentCache: [String: ActionType?] = [:]
     private let cacheTimeout: TimeInterval = 3600 // 1 hour
 
     // MARK: - Keywords for action detection
@@ -80,11 +70,12 @@ class QueryRouter {
 
         // Check cache first
         if let cachedResult = intentCache[cacheKey] {
-            return cachedResult != .unknown ? cachedResult : nil
+            return cachedResult
         }
 
         // Try keyword matching first (fast path)
         if let keywordBasedAction = detectActionByKeywords(query) {
+            intentCache[cacheKey] = keywordBasedAction
             return keywordBasedAction
         }
 
@@ -149,8 +140,8 @@ class QueryRouter {
         let cacheKey = query.lowercased()
 
         // Check cache first
-        if let cachedResult = intentCache[cacheKey] {
-            return cachedResult != .unknown ? cachedResult : nil
+        if intentCache[cacheKey] != nil {
+            return intentCache[cacheKey] ?? nil
         }
 
         let systemPrompt = """
@@ -178,12 +169,12 @@ class QueryRouter {
             )
 
             let classified = response.lowercased().trimmingCharacters(in: CharacterSet.whitespaces)
-            let result: ActionType = parseSemanticClassification(classified)
+            let result: ActionType? = parseSemanticClassification(classified)
 
             // Cache the result
             intentCache[cacheKey] = result
 
-            return result != .unknown ? result : nil
+            return result
         } catch {
             print("Error classifying intent semantically: \(error)")
             return nil
@@ -191,7 +182,7 @@ class QueryRouter {
     }
 
     /// Parse semantic classification string to ActionType
-    private func parseSemanticClassification(_ classification: String) -> ActionType {
+    private func parseSemanticClassification(_ classification: String) -> ActionType? {
         if classification.contains("create_note") {
             return .createNote
         } else if classification.contains("create_event") {
@@ -205,7 +196,7 @@ class QueryRouter {
         } else if classification.contains("delete_event") {
             return .deleteEvent
         }
-        return .unknown
+        return nil
     }
 
     /// Detect multiple actions in a single query using LLM
@@ -251,8 +242,7 @@ class QueryRouter {
                 var actions: [(actionType: ActionType, query: String)] = []
                 for actionDict in jsonArray {
                     if let typeStr = actionDict["type"], let actionQuery = actionDict["query"] {
-                        let actionType = parseSemanticClassification(typeStr)
-                        if actionType != .unknown {
+                        if let actionType = parseSemanticClassification(typeStr) {
                             print("DEBUG: Detected action - type: \(actionType), query: \(actionQuery)")
                             actions.append((actionType: actionType, query: actionQuery))
                         }
