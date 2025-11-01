@@ -179,89 +179,99 @@ struct SelineWidgetEntryView: View {
             // 3 Location ETAs
             VStack(alignment: .leading, spacing: 8) {
                 // Location 1
-                HStack(spacing: 8) {
-                    Image(systemName: entry.location1Icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 24)
-                        .foregroundColor(textColor)
+                Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                    HStack(spacing: 8) {
+                        Image(systemName: entry.location1Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 24)
+                            .foregroundColor(textColor)
 
-                    if let eta = entry.location1ETA {
-                        Text(eta)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(textColor)
-                    } else {
-                        Text("--")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(textColor)
-                            .opacity(0.5)
+                        if let eta = entry.location1ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                                .opacity(0.5)
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
                 }
-                .widgetURL(googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude))
+                .buttonStyle(.plain)
 
                 // Location 2
-                HStack(spacing: 8) {
-                    Image(systemName: entry.location2Icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 24)
-                        .foregroundColor(textColor)
+                Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                    HStack(spacing: 8) {
+                        Image(systemName: entry.location2Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 24)
+                            .foregroundColor(textColor)
 
-                    if let eta = entry.location2ETA {
-                        Text(eta)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(textColor)
-                    } else {
-                        Text("--")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(textColor)
-                            .opacity(0.5)
+                        if let eta = entry.location2ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                                .opacity(0.5)
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
                 }
-                .widgetURL(googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude))
+                .buttonStyle(.plain)
 
                 // Location 3
-                HStack(spacing: 8) {
-                    Image(systemName: entry.location3Icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 24)
-                        .foregroundColor(textColor)
+                Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                    HStack(spacing: 8) {
+                        Image(systemName: entry.location3Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 24)
+                            .foregroundColor(textColor)
 
-                    if let eta = entry.location3ETA {
-                        Text(eta)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(textColor)
-                    } else {
-                        Text("--")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(textColor)
-                            .opacity(0.5)
+                        if let eta = entry.location3ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                                .opacity(0.5)
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
                 }
-                .widgetURL(googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude))
+                .buttonStyle(.plain)
             }
 
             // Action buttons
             HStack(spacing: 12) {
                 // Note button
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .foregroundColor(textColor)
-                    .widgetURL(URL(string: "seline://action/createNote"))
+                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .foregroundColor(textColor)
+                }
+                .buttonStyle(.plain)
 
                 // Event button
-                Image(systemName: "calendar")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .foregroundColor(textColor)
-                    .widgetURL(URL(string: "seline://action/createEvent"))
+                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .foregroundColor(textColor)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(12)
@@ -282,65 +292,71 @@ struct SelineWidgetEntryView: View {
             // 3 Location ETAs
             VStack(alignment: .leading, spacing: 10) {
                 // Location 1
-                HStack(spacing: 12) {
-                    Image(systemName: entry.location1Icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 28)
+                Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: entry.location1Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 28)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Location 1")
-                            .font(.system(size: 11, weight: .regular))
-                            .opacity(0.7)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Location 1")
+                                .font(.system(size: 11, weight: .regular))
+                                .opacity(0.7)
 
-                        Text(entry.location1ETA ?? "---")
-                            .font(.system(size: 15, weight: .regular))
+                            Text(entry.location1ETA ?? "---")
+                                .font(.system(size: 15, weight: .regular))
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
                 }
-                .widgetURL(googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude))
+                .buttonStyle(.plain)
 
                 Divider().opacity(0.2)
 
                 // Location 2
-                HStack(spacing: 12) {
-                    Image(systemName: entry.location2Icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 28)
+                Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: entry.location2Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 28)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Location 2")
-                            .font(.system(size: 11, weight: .regular))
-                            .opacity(0.7)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Location 2")
+                                .font(.system(size: 11, weight: .regular))
+                                .opacity(0.7)
 
-                        Text(entry.location2ETA ?? "---")
-                            .font(.system(size: 15, weight: .regular))
+                            Text(entry.location2ETA ?? "---")
+                                .font(.system(size: 15, weight: .regular))
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
                 }
-                .widgetURL(googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude))
+                .buttonStyle(.plain)
 
                 Divider().opacity(0.2)
 
                 // Location 3
-                HStack(spacing: 12) {
-                    Image(systemName: entry.location3Icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 28)
+                Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: entry.location3Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 28)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Location 3")
-                            .font(.system(size: 11, weight: .regular))
-                            .opacity(0.7)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Location 3")
+                                .font(.system(size: 11, weight: .regular))
+                                .opacity(0.7)
 
-                        Text(entry.location3ETA ?? "---")
-                            .font(.system(size: 15, weight: .regular))
+                            Text(entry.location3ETA ?? "---")
+                                .font(.system(size: 15, weight: .regular))
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
                 }
-                .widgetURL(googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude))
+                .buttonStyle(.plain)
             }
 
             Spacer()
@@ -348,30 +364,34 @@ struct SelineWidgetEntryView: View {
             // Buttons
             HStack(spacing: 12) {
                 // Note button
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12))
-                    Text("New Note")
-                        .font(.system(size: 12, weight: .semibold))
+                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 12))
+                        Text("New Note")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(6)
-                .widgetURL(URL(string: "seline://action/createNote"))
+                .buttonStyle(.plain)
 
                 // Event button
-                HStack(spacing: 6) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 12))
-                    Text("New Event")
-                        .font(.system(size: 12, weight: .semibold))
+                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 12))
+                        Text("New Event")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(6)
-                .widgetURL(URL(string: "seline://action/createEvent"))
+                .buttonStyle(.plain)
             }
         }
         .padding(14)
