@@ -88,7 +88,6 @@ class SearchService: ObservableObject {
         // ALL questions should go to conversation, not search results
         if isQuestion(trimmedQuery) {
             // Start conversation instead of normal search
-            print("🟦 [SearchService] Question detected, starting conversation: \(trimmedQuery)")
             await startConversation(with: trimmedQuery)
             return
         }
@@ -110,7 +109,6 @@ class SearchService: ObservableObject {
         case .question:
             // This should rarely happen now since questions are caught above
             // But if it does, send to conversation
-            print("🟦 [SearchService] Question type detected via router, starting conversation: \(trimmedQuery)")
             await startConversation(with: trimmedQuery)
             isSearching = false
             return
@@ -595,8 +593,6 @@ class SearchService: ObservableObject {
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        print("🔵 [SearchService] addConversationMessage called with: \(trimmed)")
-
         // Enter conversation mode if not already in it
         if !isInConversationMode {
             isInConversationMode = true
@@ -604,7 +600,6 @@ class SearchService: ObservableObject {
 
         // Add user message to history
         addMessageToHistory(trimmed, isUser: true, intent: .general)
-        print("✅ [SearchService] User message added to history. Total messages: \(conversationHistory.count)")
 
         // Update title based on conversation context
         updateConversationTitle()
