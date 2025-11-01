@@ -100,62 +100,6 @@ struct ConversationSearchView: View {
                 )
             }
 
-            // NEW: Conversational action prompt area
-            if searchService.isWaitingForActionResponse, let actionPrompt = searchService.actionPrompt {
-                VStack(spacing: 12) {
-                    Text(actionPrompt)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-                        .cornerRadius(8)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-
-                    // Input for action response
-                    HStack(spacing: 12) {
-                        TextField(
-                            "Your response...",
-                            text: $messageText
-                        )
-                        .font(.system(size: 13, weight: .regular))
-                        .focused($isInputFocused)
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(colorScheme == .dark ? Color.black : Color.white)
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.blue.opacity(0.5), lineWidth: 1)
-                        )
-
-                        Button(action: {
-                            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                HapticManager.shared.selection()
-                                let response = messageText
-                                messageText = ""
-                                Task {
-                                    await searchService.continueConversationalAction(userMessage: response)
-                                }
-                            }
-                        }) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 24, weight: .medium))
-                                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color.blue)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
-                }
-                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-            }
-
             // Action confirmation area (shown when pending action exists)
             if searchService.pendingEventCreation != nil {
                 VStack(spacing: 0) {
@@ -246,50 +190,57 @@ struct ConversationSearchView: View {
                 }
             }
 
-            // Input area - only show appropriate input based on context
-            if !searchService.isWaitingForActionResponse {
-                // Show conversation input only when NOT waiting for action response
-                VStack(spacing: 12) {
-                    HStack(spacing: 12) {
-                        TextField(
-                            "Ask a follow-up question...",
-                            text: $messageText
-                        )
-                        .font(.system(size: 13, weight: .regular))
-                        .focused($isInputFocused)
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(colorScheme == .dark ? Color.black : Color.white)
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                        )
+            // Input area - show appropriate input based on context
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    TextField(
+                        searchService.isWaitingForActionResponse ? "Your response..." : "Ask a follow-up question...",
+                        text: $messageText
+                    )
+                    .font(.system(size: 13, weight: .regular))
+                    .focused($isInputFocused)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(searchService.isWaitingForActionResponse ? Color.blue.opacity(0.5) : Color.gray.opacity(0.3), lineWidth: 1)
+                    )
 
-                        Button(action: {
-                            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                HapticManager.shared.selection()
+                    Button(action: {
+                        if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            HapticManager.shared.selection()
+                            if searchService.isWaitingForActionResponse {
+                                // Send action response
+                                let response = messageText
+                                messageText = ""
+                                Task {
+                                    await searchService.continueConversationalAction(userMessage: response)
+                                }
+                            } else {
+                                // Send conversation message
                                 let query = messageText
                                 messageText = ""
                                 Task {
                                     await searchService.addConversationMessage(query)
                                 }
                             }
-                        }) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 24, weight: .medium))
-                                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
+                    }) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (searchService.isWaitingForActionResponse ? Color.blue : (colorScheme == .dark ? Color.white : Color.black)))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
                 }
-                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .onAppear {
