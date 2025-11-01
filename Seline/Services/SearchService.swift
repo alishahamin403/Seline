@@ -42,7 +42,6 @@ class SearchService: ObservableObject {
     private var cachedContent: [SearchableItem] = []
     private var cancellables = Set<AnyCancellable>()
     private let queryRouter = QueryRouter.shared
-    private let actionQueryHandler = ActionQueryHandler.shared
     private let conversationActionHandler = ConversationActionHandler.shared
     private let infoExtractor = InformationExtractor.shared
 
