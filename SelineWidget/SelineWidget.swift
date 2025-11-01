@@ -10,15 +10,34 @@ import SwiftUI
 
 struct SelineWidgetEntry: TimelineEntry {
     let date: Date
+    let upcomingEvent: UpcomingEvent?
+}
+
+struct UpcomingEvent {
+    let title: String
+    let startTime: Date
+    let timeUntilStart: String
 }
 
 struct SelineWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> SelineWidgetEntry {
-        SelineWidgetEntry(date: Date())
+        let nextEventDate = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
+        let event = UpcomingEvent(
+            title: "Team Meeting",
+            startTime: nextEventDate,
+            timeUntilStart: "in 1h"
+        )
+        return SelineWidgetEntry(date: Date(), upcomingEvent: event)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SelineWidgetEntry) -> Void) {
-        let entry = SelineWidgetEntry(date: Date())
+        let nextEventDate = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
+        let event = UpcomingEvent(
+            title: "Team Meeting",
+            startTime: nextEventDate,
+            timeUntilStart: "in 1h"
+        )
+        let entry = SelineWidgetEntry(date: Date(), upcomingEvent: event)
         completion(entry)
     }
 
@@ -26,10 +45,18 @@ struct SelineWidgetProvider: TimelineProvider {
         var entries: [SelineWidgetEntry] = []
         let currentDate = Date()
 
+        // Mock upcoming event - in a real app, this would fetch from Supabase
+        let nextEventDate = Calendar.current.date(byAdding: .hour, value: 1, to: currentDate)!
+        let mockEvent = UpcomingEvent(
+            title: "Team Meeting",
+            startTime: nextEventDate,
+            timeUntilStart: "in 1h"
+        )
+
         // Generate timeline for 5 hours
         for hourOffset in 0 ..< 5 {
             let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
-            let entry = SelineWidgetEntry(date: entryDate)
+            let entry = SelineWidgetEntry(date: entryDate, upcomingEvent: mockEvent)
             entries.append(entry)
         }
 
@@ -40,6 +67,7 @@ struct SelineWidgetProvider: TimelineProvider {
 
 struct SelineWidgetEntryView: View {
     var entry: SelineWidgetProvider.Entry
+    @Environment(\.widgetFamily) var widgetFamily
 
     var body: some View {
         ZStack {
@@ -53,60 +81,135 @@ struct SelineWidgetEntryView: View {
                 endPoint: .bottomTrailing
             )
 
-            VStack(alignment: .leading, spacing: 12) {
-                // Header
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Seline")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.white)
+            if widgetFamily == .systemSmall {
+                // Small widget - ETA focused
+                smallWidgetView
+            } else {
+                // Medium and larger widgets
+                mediumWidgetView
+            }
+        }
+        .cornerRadius(16)
+    }
 
-                        Text("Placeholder Widget")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "calendar")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue)
-                }
+    var smallWidgetView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header
+            HStack {
+                Text("Seline")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
 
                 Spacer()
 
-                // Content Area
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Details coming soon")
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.blue)
+            }
+
+            Spacer()
+
+            // ETA Section
+            if let event = entry.upcomingEvent {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(event.title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
+                        .lineLimit(1)
 
-                    Text("Tap to customize widget content")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(.gray)
+                    Text(event.timeUntilStart)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.blue)
                 }
-
-                Spacer()
-
-                // Footer
-                HStack {
-                    Button(action: {}) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.blue)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Text(entry.date, style: .time)
-                        .font(.system(size: 11, weight: .light))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No upcoming events")
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundColor(.gray)
                 }
             }
-            .padding(16)
+
+            Spacer()
+
+            // Time display
+            Text(entry.date, style: .time)
+                .font(.system(size: 10, weight: .light))
+                .foregroundColor(.gray)
         }
-        .cornerRadius(16)
+        .padding(12)
+    }
+
+    var mediumWidgetView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Seline")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+
+                    Text("Upcoming Event")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.gray)
+                }
+
+                Spacer()
+
+                Image(systemName: "calendar")
+                    .font(.system(size: 24))
+                    .foregroundColor(.blue)
+            }
+
+            Spacer()
+
+            // ETA Section
+            if let event = entry.upcomingEvent {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(event.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.badge.exclamationmark.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.blue)
+
+                        Text(event.timeUntilStart)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(.blue)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No upcoming events")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Text("You're all caught up!")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(.gray)
+                }
+            }
+
+            Spacer()
+
+            // Footer
+            HStack {
+                Button(action: {}) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text(entry.date, style: .time)
+                    .font(.system(size: 11, weight: .light))
+                    .foregroundColor(.gray)
+            }
+        }
+        .padding(16)
     }
 }
 
