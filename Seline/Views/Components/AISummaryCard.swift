@@ -14,13 +14,6 @@ struct AISummaryCard: View {
     let onGenerateSummary: (Email, Bool) async -> Result<String, Error>
     @Environment(\.colorScheme) var colorScheme
 
-    private var isLoading: Bool {
-        if case .loading = summaryState {
-            return true
-        }
-        return false
-    }
-
     private var summaryBullets: [String] {
         switch summaryState {
         case .loaded(let summary):
@@ -41,29 +34,6 @@ struct AISummaryCard: View {
                 Text("AI Summary")
                     .font(FontManager.geist(size: .body, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                // Refresh button
-                Button(action: {
-                    Task {
-                        await generateSummary(forceRegenerate: true)
-                    }
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                        .rotationEffect(isLoading ? .degrees(360) : .degrees(0))
-                        .animation(
-                            isLoading ?
-                                Animation.linear(duration: 1.0).repeatForever(autoreverses: false) :
-                                .default,
-                            value: isLoading
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(isLoading)
-                .opacity(isLoading ? 0.5 : 1.0)
 
                 Spacer()
             }
