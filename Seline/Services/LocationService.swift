@@ -152,6 +152,12 @@ extension LocationService: CLLocationManagerDelegate {
                             self.isLoading = false
                             self.errorMessage = nil
 
+                            // Save location to shared UserDefaults for widget access
+                            if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                                userDefaults.set(location.coordinate.latitude, forKey: "lastUserLocationLatitude")
+                                userDefaults.set(location.coordinate.longitude, forKey: "lastUserLocationLongitude")
+                            }
+
                             // Reverse geocode to get location name
                             self.reverseGeocode(location: location)
 

@@ -7,6 +7,7 @@
 
 import WidgetKit
 import SwiftUI
+import CoreLocation
 
 // MARK: - User Location Preferences (mirrored from main app)
 struct UserLocationPreferences: Codable, Equatable {
@@ -93,6 +94,9 @@ struct SelineWidgetProvider: TimelineProvider {
         var location2Lon: Double? = nil
         var location3Lat: Double? = nil
         var location3Lon: Double? = nil
+        var location1ETA: String? = nil
+        var location2ETA: String? = nil
+        var location3ETA: String? = nil
 
         // Try to decode UserLocationPreferences from UserDefaults
         if let prefs = loadUserLocationPreferences() {
@@ -107,12 +111,27 @@ struct SelineWidgetProvider: TimelineProvider {
             location3Lon = prefs.location3Longitude
         }
 
-        // Create entry with location data
+        // Get current location and calculate ETAs
+        let locationManager = CLLocationManager()
+        if let lastLocation = loadLastUserLocation() {
+            // Calculate ETAs using the saved location
+            if let lat1 = location1Lat, let lon1 = location1Lon {
+                location1ETA = calculateETASync(from: lastLocation, toLat: lat1, toLon: lon1)
+            }
+            if let lat2 = location2Lat, let lon2 = location2Lon {
+                location2ETA = calculateETASync(from: lastLocation, toLat: lat2, toLon: lon2)
+            }
+            if let lat3 = location3Lat, let lon3 = location3Lon {
+                location3ETA = calculateETASync(from: lastLocation, toLat: lat3, toLon: lon3)
+            }
+        }
+
+        // Create entry with location data and calculated ETAs
         let entry = SelineWidgetEntry(
             date: currentDate,
-            location1ETA: "12 min",
-            location2ETA: "25 min",
-            location3ETA: "8 min",
+            location1ETA: location1ETA ?? "---",
+            location2ETA: location2ETA ?? "---",
+            location3ETA: location3ETA ?? "---",
             location1Icon: location1Icon,
             location2Icon: location2Icon,
             location3Icon: location3Icon,
@@ -124,10 +143,10 @@ struct SelineWidgetProvider: TimelineProvider {
             location3Longitude: location3Lon
         )
 
-        // Generate one entry that updates every hour
+        // Generate one entry that updates every 10 minutes for more frequent ETA updates
         entries.append(entry)
 
-        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 3600)))
+        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 600)))
         completion(timeline)
     }
 
@@ -139,6 +158,109 @@ struct SelineWidgetProvider: TimelineProvider {
         }
         let decoder = JSONDecoder()
         return try? decoder.decode(UserLocationPreferences.self, from: data)
+    }
+
+    // Helper to load last known user location from UserDefaults
+    private func loadLastUserLocation() -> CLLocationCoordinate2D? {
+        let userDefaults = UserDefaults(suiteName: "group.seline")
+        guard let lat = userDefaults?.double(forKey: "lastUserLocationLatitude"),
+              let lon = userDefaults?.double(forKey: "lastUserLocationLongitude"),
+              lat != 0 && lon != 0 else {
+            return nil
+        }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    // Calculate ETA synchronously using Google Routes API
+    private func calculateETASync(from origin: CLLocationCoordinate2D, toLat: Double, toLon: Double) -> String? {
+        let apiKey = "AIzaSyDL864Gd2OuJBIuL9380kQFbb0jJAJilQ8"
+        let routesBaseURL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+
+        guard let url = URL(string: routesBaseURL) else {
+            return nil
+        }
+
+        let requestBody: [String: Any] = [
+            "origin": [
+                "location": [
+                    "latLng": [
+                        "latitude": origin.latitude,
+                        "longitude": origin.longitude
+                    ]
+                ]
+            ],
+            "destination": [
+                "location": [
+                    "latLng": [
+                        "latitude": toLat,
+                        "longitude": toLon
+                    ]
+                ]
+            ],
+            "travelMode": "DRIVE",
+            "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
+            "routeModifiers": [
+                "avoidTolls": true,
+                "avoidHighways": false,
+                "avoidFerries": false
+            ],
+            "computeAlternativeRoutes": false,
+            "languageCode": "en-US",
+            "units": "METRIC"
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
+        request.setValue("routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline", forHTTPHeaderField: "X-Goog-FieldMask")
+        request.httpBody = jsonData
+        request.timeoutInterval = 5 // 5 second timeout
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultETA: String? = nil
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+
+            guard let data = data else {
+                return
+            }
+
+            if let jsonResponse = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let routes = jsonResponse["routes"] as? [[String: Any]],
+               let firstRoute = routes.first,
+               let duration = firstRoute["duration"] as? String {
+                let cleanDuration = duration.replacingOccurrences(of: "s", with: "")
+                if let seconds = Int(cleanDuration) {
+                    resultETA = formatETA(seconds)
+                }
+            }
+        }.resume()
+
+        // Wait for the request with a timeout
+        let result = semaphore.wait(timeout: .now() + 5.0)
+        return resultETA
+    }
+
+    // Format duration in seconds to a short string
+    private func formatETA(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+
+        if hours > 0 {
+            if remainingMinutes > 0 {
+                return "\(hours)h \(remainingMinutes)m"
+            }
+            return "\(hours)h"
+        }
+
+        return "\(minutes) min"
     }
 
 }
