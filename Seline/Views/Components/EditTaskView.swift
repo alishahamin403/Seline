@@ -602,6 +602,7 @@ struct TimePickerSheet: View {
     @State private var selectedHour: Int = 12
     @State private var selectedMinute: Int = 0
     @State private var selectedPeriod: String = "AM"
+    @State private var isInitialized = false
 
     private let hours = Array(1...12)
     private let minutes = Array(stride(from: 0, to: 60, by: 5))
@@ -619,10 +620,12 @@ struct TimePickerSheet: View {
                         Picker("Hour", selection: $selectedHour) {
                             ForEach(hours, id: \.self) { hour in
                                 Text(String(format: "%d", hour))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .tag(hour)
                             }
                         }
                         .pickerStyle(.wheel)
+                        .frame(maxHeight: 150)
                     }
 
                     VStack(alignment: .center, spacing: 8) {
@@ -633,10 +636,12 @@ struct TimePickerSheet: View {
                         Picker("Minute", selection: $selectedMinute) {
                             ForEach(minutes, id: \.self) { minute in
                                 Text(String(format: "%02d", minute))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .tag(minute)
                             }
                         }
                         .pickerStyle(.wheel)
+                        .frame(maxHeight: 150)
                     }
 
                     VStack(alignment: .center, spacing: 8) {
@@ -647,10 +652,12 @@ struct TimePickerSheet: View {
                         Picker("Period", selection: $selectedPeriod) {
                             ForEach(periods, id: \.self) { period in
                                 Text(period)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .tag(period)
                             }
                         }
                         .pickerStyle(.wheel)
+                        .frame(maxHeight: 150)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -699,24 +706,37 @@ struct TimePickerSheet: View {
             }
         }
         .onAppear {
-            let components = Calendar.current.dateComponents([.hour, .minute], from: time)
-            let hour24 = components.hour ?? 0
-            selectedMinute = (components.minute ?? 0) / 5 * 5
-
-            // Convert 24-hour format to 12-hour format
-            if hour24 == 0 {
-                selectedHour = 12
-                selectedPeriod = "AM"
-            } else if hour24 < 12 {
-                selectedHour = hour24
-                selectedPeriod = "AM"
-            } else if hour24 == 12 {
-                selectedHour = 12
-                selectedPeriod = "PM"
-            } else {
-                selectedHour = hour24 - 12
-                selectedPeriod = "PM"
+            if !isInitialized {
+                initializeTimeValues()
+                isInitialized = true
             }
+        }
+    }
+
+    private func initializeTimeValues() {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: time)
+        let hour24 = components.hour ?? 0
+        let minute = components.minute ?? 0
+
+        // Round minute to nearest 5
+        selectedMinute = (minute + 2) / 5 * 5
+        if selectedMinute >= 60 {
+            selectedMinute = 55
+        }
+
+        // Convert 24-hour format to 12-hour format
+        if hour24 == 0 {
+            selectedHour = 12
+            selectedPeriod = "AM"
+        } else if hour24 < 12 {
+            selectedHour = hour24
+            selectedPeriod = "AM"
+        } else if hour24 == 12 {
+            selectedHour = 12
+            selectedPeriod = "PM"
+        } else {
+            selectedHour = hour24 - 12
+            selectedPeriod = "PM"
         }
     }
 }
