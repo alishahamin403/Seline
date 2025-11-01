@@ -740,10 +740,18 @@ struct MainAppView: View {
             Color(red: 0.2039, green: 0.6588, blue: 0.3255),  // Google Green #34A853
         ]
 
-        // Generate deterministic color based on sender email
-        let hash = email.sender.email.hashValue
+        // Generate deterministic color based on sender email using stable hash
+        let hash = deterministicHash(email.sender.email)
         let colorIndex = abs(hash) % colors.count
         return colors[colorIndex]
+    }
+
+    private func deterministicHash(_ string: String) -> Int {
+        var hash: UInt64 = 5381
+        for byte in string.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        }
+        return Int(hash)
     }
 
     private var emailDetailContent: some View {
@@ -766,17 +774,9 @@ struct MainAppView: View {
                                 .fill(emailAvatarColor(for: email))
                                 .frame(width: 32, height: 32)
                                 .overlay(
-                                    Group {
-                                        if let icon = emailIcon(for: email) {
-                                            Image(systemName: icon)
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundColor(.white)
-                                        } else {
-                                            Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                                .font(.system(size: 13, weight: .semibold))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
+                                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.white)
                                 )
 
                             VStack(alignment: .leading, spacing: 2) {

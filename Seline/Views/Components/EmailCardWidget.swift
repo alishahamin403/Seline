@@ -197,10 +197,18 @@ struct EmailCardWidget: View {
             Color(red: 0.2039, green: 0.6588, blue: 0.3255),  // Google Green #34A853
         ]
 
-        // Generate deterministic color based on sender email
-        let hash = email.sender.email.hashValue
+        // Generate deterministic color based on sender email using stable hash
+        let hash = deterministicHash(email.sender.email)
         let colorIndex = abs(hash) % colors.count
         return colors[colorIndex]
+    }
+
+    private func deterministicHash(_ string: String) -> Int {
+        var hash: UInt64 = 5381
+        for byte in string.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        }
+        return Int(hash)
     }
 
     var body: some View {
@@ -227,22 +235,14 @@ struct EmailCardWidget: View {
                                 selectedEmail = email
                             }) {
                                 HStack(spacing: 8) {
-                                    // Avatar circle with colored background and icon
+                                    // Avatar circle with colored background and initials
                                     Circle()
                                         .fill(emailAvatarColor(for: email))
                                         .frame(width: 20, height: 20)
                                         .overlay(
-                                            Group {
-                                                if let icon = emailIcon(for: email) {
-                                                    Image(systemName: icon)
-                                                        .font(.system(size: 8, weight: .semibold))
-                                                        .foregroundColor(.white)
-                                                } else {
-                                                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                                        .font(FontManager.geist(size: .small, weight: .semibold))
-                                                        .foregroundColor(.white)
-                                                }
-                                            }
+                                            Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                                .font(FontManager.geist(size: .small, weight: .semibold))
+                                                .foregroundColor(.white)
                                         )
 
                                     // Only sender name
