@@ -184,37 +184,71 @@ struct AddEventPopupView: View {
             }
 
             if hasTime {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("From")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                        Spacer()
-                        Text(formatTimeWithAMPM(selectedTime))
-                            .font(.system(size: 13))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    }
-                    DatePicker("", selection: $selectedTime, displayedComponents: .hourAndMinute)
-                        .datePickerStyle(WheelDatePickerStyle())
-                        .labelsHidden()
-                        .frame(height: 80)
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Start")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        Button(action: { /* show time picker */ }) {
+                            HStack {
+                                Text(formatTimeWithAMPM(selectedTime))
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                                Spacer()
+
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
                         .onChange(of: selectedTime) { newStartTime in
                             selectedEndTime = newStartTime.addingTimeInterval(3600)
                         }
-
-                    HStack {
-                        Text("To")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                        Spacer()
-                        Text(formatTimeWithAMPM(selectedEndTime))
-                            .font(.system(size: 13))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
-                    DatePicker("", selection: $selectedEndTime, displayedComponents: .hourAndMinute)
-                        .datePickerStyle(WheelDatePickerStyle())
-                        .labelsHidden()
-                        .frame(height: 80)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("End")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        Button(action: { /* show time picker */ }) {
+                            HStack {
+                                Text(formatTimeWithAMPM(selectedEndTime))
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                                Spacer()
+
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -268,11 +302,19 @@ struct AddEventPopupView: View {
     // MARK: - Reminder Picker Section
     private var reminderPickerSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Reminder (Optional)")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+            HStack {
+                Text("Reminder (Optional)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
-            Button(action: { showingReminderOptions.toggle() }) {
+                if !hasTime {
+                    Text("All-day events don't have reminders")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+            }
+
+            Button(action: { if hasTime { showingReminderOptions.toggle() } }) {
                 HStack {
                     Text(selectedReminder.displayName)
                         .font(.system(size: 13))
@@ -288,13 +330,17 @@ struct AddEventPopupView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(hasTime ?
+                            (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03)) :
+                            (colorScheme == .dark ? Color.white.opacity(0.02) : Color.black.opacity(0.02)))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(hasTime ? 0.15 : 0.08), lineWidth: 0.8)
                 )
             }
+            .disabled(!hasTime)
+            .opacity(hasTime ? 1.0 : 0.6)
             .sheet(isPresented: $showingReminderOptions) {
                 ReminderOptionsSheet(
                     selectedReminder: $selectedReminder,
