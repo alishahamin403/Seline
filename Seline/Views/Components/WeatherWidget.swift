@@ -108,10 +108,31 @@ struct WeatherWidget: View {
                         showLocationSetup = true
                     }
                 )
+
+                // Location 4 ETA
+                NavigationETARow(
+                    icon: locationPreferences?.location4Icon ?? "plus.circle.fill",
+                    eta: navigationService.location4ETA,
+                    isLocationSet: locationPreferences?.location4Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location4Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
+                        } else {
+                            setupLocationSlot = .location4
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location4
+                        showLocationSetup = true
+                    }
+                )
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(width: (geometry.size.width - 8) * 0.4, height: 120, alignment: .leading)
+            .padding(.vertical, 8)
+            .frame(width: (geometry.size.width - 8) * 0.4, alignment: .leading)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
             }
@@ -353,7 +374,8 @@ struct WeatherWidget: View {
                         currentLocation: currentLocation,
                         location1: preferences.location1Coordinate,
                         location2: preferences.location2Coordinate,
-                        location3: preferences.location3Coordinate
+                        location3: preferences.location3Coordinate,
+                        location4: preferences.location4Coordinate
                     )
 
                     // Save ETAs to widget after calculation completes
@@ -372,7 +394,8 @@ struct WeatherWidget: View {
                 currentLocation: currentLocation,
                 location1: preferences.location1Coordinate,
                 location2: preferences.location2Coordinate,
-                location3: preferences.location3Coordinate
+                location3: preferences.location3Coordinate,
+                location4: preferences.location4Coordinate
             )
 
             // Save ETAs to widget after calculation completes
