@@ -261,11 +261,11 @@ struct SelineWidgetEntryView: View {
 
                             if let eta = entry.location1ETA {
                                 Text(eta)
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
@@ -285,11 +285,11 @@ struct SelineWidgetEntryView: View {
 
                             if let eta = entry.location2ETA {
                                 Text(eta)
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
@@ -309,11 +309,11 @@ struct SelineWidgetEntryView: View {
 
                             if let eta = entry.location3ETA {
                                 Text(eta)
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
@@ -333,11 +333,11 @@ struct SelineWidgetEntryView: View {
 
                             if let eta = entry.location4ETA {
                                 Text(eta)
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
@@ -397,17 +397,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location1Icon)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .frame(width: 18)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(width: 16)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location1ETA {
                                         Text(eta)
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -420,17 +420,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location2Icon)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .frame(width: 18)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(width: 16)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location2ETA {
                                         Text(eta)
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -446,17 +446,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location3Icon)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .frame(width: 18)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(width: 16)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location3ETA {
                                         Text(eta)
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -469,17 +469,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location4Icon)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .frame(width: 18)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(width: 16)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location4ETA {
                                         Text(eta)
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 13, weight: .regular))
+                                            .font(.system(size: 11, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -515,6 +515,8 @@ struct SelineWidgetEntryView: View {
 
                     Spacer()
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .layoutPriority(0)
 
                 Divider()
                     .opacity(0.3)
@@ -557,6 +559,7 @@ struct SelineWidgetEntryView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .layoutPriority(1)
             }
             .padding(12)
     }
