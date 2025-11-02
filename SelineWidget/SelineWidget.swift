@@ -389,12 +389,6 @@ struct SelineWidgetEntryView: View {
                 VStack(alignment: .center, spacing: 10) {
                     Spacer()
 
-                    // Seline logo
-                    Image("SelineLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 28)
-
                     // 4 Location ETAs (2x2 grid)
                     VStack(alignment: .center, spacing: 8) {
                         // Row 1
@@ -403,17 +397,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location1Icon)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(width: 16)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(width: 18)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location1ETA {
                                         Text(eta)
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -426,17 +420,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location2Icon)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(width: 16)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(width: 18)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location2ETA {
                                         Text(eta)
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -452,17 +446,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location3Icon)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(width: 16)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(width: 18)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location3ETA {
                                         Text(eta)
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
@@ -475,17 +469,17 @@ struct SelineWidgetEntryView: View {
                             Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
                                 HStack(spacing: 4) {
                                     Image(systemName: entry.location4Icon)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(width: 16)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(width: 18)
                                         .foregroundColor(textColor)
 
                                     if let eta = entry.location4ETA {
                                         Text(eta)
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                     } else {
                                         Text("--")
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(.system(size: 13, weight: .regular))
                                             .foregroundColor(textColor)
                                             .opacity(0.5)
                                     }
