@@ -30,19 +30,22 @@ struct CategoryBreakdownView: View {
                 Divider()
                     .opacity(0.3)
 
-                VStack(spacing: 0) {
-                    // Category list
-                    ForEach(Array(categoryBreakdown.sortedCategories.enumerated()), id: \.element.category) { index, categoryStat in
-                        CategoryRow(categoryStat: categoryStat)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        // Category list
+                        ForEach(Array(categoryBreakdown.sortedCategories.enumerated()), id: \.element.category) { index, categoryStat in
+                            CategoryRow(categoryStat: categoryStat)
 
-                        if index < categoryBreakdown.sortedCategories.count - 1 {
-                            Divider()
-                                .opacity(0.2)
-                                .padding(.horizontal, 16)
+                            if index < categoryBreakdown.sortedCategories.count - 1 {
+                                Divider()
+                                    .opacity(0.2)
+                                    .padding(.horizontal, 16)
+                            }
                         }
                     }
+                    .padding(.vertical, 12)
                 }
-                .padding(.vertical, 12)
+                .frame(maxHeight: 400)  // Limit height so it doesn't expand infinitely
             }
         }
     }
