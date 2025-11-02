@@ -248,12 +248,7 @@ struct SelineWidgetEntryView: View {
     }
 
     var smallWidgetView: some View {
-        ZStack {
-            // Background
-            (colorScheme == .dark ? Color.black : Color.white)
-                .ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
                 // 4 Location ETAs
                 VStack(alignment: .leading, spacing: 6) {
                     // Location 1
@@ -379,7 +374,6 @@ struct SelineWidgetEntryView: View {
                 }
             }
             .padding(12)
-        }
     }
 
     private func googleMapsURL(lat: Double?, lon: Double?) -> URL {
@@ -390,12 +384,7 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        ZStack {
-            // Background
-            (colorScheme == .dark ? Color.black : Color.white)
-                .ignoresSafeArea()
-
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
                 // Left side - same as small widget content
                 VStack(alignment: .leading, spacing: 10) {
                     Spacer()
@@ -571,7 +560,6 @@ struct SelineWidgetEntryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding(12)
-        }
     }
 
     private func formatTime(_ date: Date) -> String {
