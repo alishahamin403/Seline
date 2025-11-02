@@ -2561,6 +2561,38 @@ class TaskManager: ObservableObject {
         print("✅ Deleted \(deletedCount) synced calendar events")
         print("🔄 Calendar sync has been reset - permission will be requested again on next launch")
     }
+
+    // MARK: - Widget Support
+
+    func syncTodaysTasksToWidget() {
+        let todaysTasks = getTasksForDate(Date())
+
+        // Convert to simple structures that can be encoded
+        struct WidgetTask: Codable {
+            let id: String
+            let title: String
+            let scheduledTime: Date?
+            let isCompleted: Bool
+        }
+
+        let widgetTasks = todaysTasks.map { task in
+            WidgetTask(
+                id: task.id,
+                title: task.title,
+                scheduledTime: task.scheduledTime,
+                isCompleted: task.isCompletedOn(date: Date())
+            )
+        }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        if let encoded = try? encoder.encode(widgetTasks) {
+            let userDefaults = UserDefaults(suiteName: "group.seline")
+            userDefaults?.set(encoded, forKey: "widgetTodaysTasks")
+            print("✅ Synced \(widgetTasks.count) tasks to widget")
+        }
+    }
 }
 
 // MARK: - Tag Manager

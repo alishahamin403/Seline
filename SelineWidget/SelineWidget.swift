@@ -25,6 +25,13 @@ struct UserLocationPreferences: Codable, Equatable {
     var isFirstTimeSetup: Bool = true
 }
 
+struct TaskForWidget: Codable {
+    let id: String
+    let title: String
+    let scheduledTime: Date?
+    let isCompleted: Bool
+}
+
 struct SelineWidgetEntry: TimelineEntry {
     let date: Date
     let location1ETA: String?
@@ -39,6 +46,7 @@ struct SelineWidgetEntry: TimelineEntry {
     let location2Longitude: Double?
     let location3Latitude: Double?
     let location3Longitude: Double?
+    let todaysTasks: [TaskForWidget]
 }
 
 struct SelineWidgetProvider: TimelineProvider {
@@ -56,7 +64,10 @@ struct SelineWidgetProvider: TimelineProvider {
             location2Latitude: nil,
             location2Longitude: nil,
             location3Latitude: nil,
-            location3Longitude: nil
+            location3Longitude: nil,
+            todaysTasks: [
+                TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false)
+            ]
         )
     }
 
@@ -74,7 +85,8 @@ struct SelineWidgetProvider: TimelineProvider {
             location2Latitude: nil,
             location2Longitude: nil,
             location3Latitude: nil,
-            location3Longitude: nil
+            location3Longitude: nil,
+            todaysTasks: []
         )
         completion(entry)
     }
@@ -119,6 +131,9 @@ struct SelineWidgetProvider: TimelineProvider {
 
         print("🟢 Widget: Loaded ETAs from shared UserDefaults - L1: \(location1ETA ?? "---"), L2: \(location2ETA ?? "---"), L3: \(location3ETA ?? "---")")
 
+        // Load today's tasks
+        let todaysTasks = loadTodaysTasks()
+
         // Create entry with location data
         // Note: ETAs are loaded from shared UserDefaults but will show as nil if not available
         let entry = SelineWidgetEntry(
@@ -134,7 +149,8 @@ struct SelineWidgetProvider: TimelineProvider {
             location2Latitude: location2Lat,
             location2Longitude: location2Lon,
             location3Latitude: location3Lat,
-            location3Longitude: location3Lon
+            location3Longitude: location3Lon,
+            todaysTasks: todaysTasks
         )
 
         // Generate one entry that updates every 10 minutes for more frequent ETA updates
@@ -154,6 +170,19 @@ struct SelineWidgetProvider: TimelineProvider {
         return try? decoder.decode(UserLocationPreferences.self, from: data)
     }
 
+    // Helper to load today's tasks from UserDefaults
+    private func loadTodaysTasks() -> [TaskForWidget] {
+        let userDefaults = UserDefaults(suiteName: "group.seline")
+        guard let data = userDefaults?.data(forKey: "widgetTodaysTasks") else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let tasks = try? decoder.decode([TaskForWidget].self, from: data) {
+            return tasks
+        }
+        return []
+    }
 
 }
 
@@ -287,114 +316,161 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Quick Navigation")
-                .font(.system(size: 16, weight: .bold))
-
-            // 3 Location ETAs
+        HStack(spacing: 12) {
+            // Left side - same as small widget content
             VStack(alignment: .leading, spacing: 10) {
-                // Location 1
-                Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                    HStack(spacing: 12) {
-                        Image(systemName: entry.location1Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 28)
+                // 3 Location ETAs (compact)
+                VStack(alignment: .leading, spacing: 6) {
+                    // Location 1
+                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: entry.location1Icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 20)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Location 1")
-                                .font(.system(size: 11, weight: .regular))
-                                .opacity(0.7)
+                            if let eta = entry.location1ETA {
+                                Text(eta)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
 
-                            Text(entry.location1ETA ?? "---")
-                                .font(.system(size: 15, weight: .regular))
+                            Spacer()
                         }
-
-                        Spacer()
                     }
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                Divider().opacity(0.2)
+                    // Location 2
+                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: entry.location2Icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 20)
 
-                // Location 2
-                Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                    HStack(spacing: 12) {
-                        Image(systemName: entry.location2Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 28)
+                            if let eta = entry.location2ETA {
+                                Text(eta)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Location 2")
-                                .font(.system(size: 11, weight: .regular))
-                                .opacity(0.7)
-
-                            Text(entry.location2ETA ?? "---")
-                                .font(.system(size: 15, weight: .regular))
+                            Spacer()
                         }
-
-                        Spacer()
                     }
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                Divider().opacity(0.2)
+                    // Location 3
+                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: entry.location3Icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 20)
 
-                // Location 3
-                Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                    HStack(spacing: 12) {
-                        Image(systemName: entry.location3Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 28)
+                            if let eta = entry.location3ETA {
+                                Text(eta)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Location 3")
-                                .font(.system(size: 11, weight: .regular))
-                                .opacity(0.7)
-
-                            Text(entry.location3ETA ?? "---")
-                                .font(.system(size: 15, weight: .regular))
+                            Spacer()
                         }
-
-                        Spacer()
                     }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+
+                Spacer()
+
+                // Buttons
+                HStack(spacing: 8) {
+                    // Note button
+                    VStack(spacing: 4) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 11))
+                        Text("Note")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/createNote"))
+
+                    // Event button
+                    VStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 11))
+                        Text("Event")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/createEvent"))
+                }
             }
 
-            Spacer()
+            Divider()
 
-            // Buttons
-            HStack(spacing: 12) {
-                // Note button
-                VStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12))
-                    Text("New Note")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/createNote"))
+            // Right side - Today's events
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Today")
+                    .font(.system(size: 13, weight: .semibold))
 
-                // Event button
-                VStack(spacing: 6) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 12))
-                    Text("New Event")
-                        .font(.system(size: 12, weight: .semibold))
+                if entry.todaysTasks.isEmpty {
+                    VStack(alignment: .center, spacing: 4) {
+                        Text("No events")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(textColor.opacity(0.6))
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(entry.todaysTasks, id: \.id) { task in
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(task.title)
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .lineLimit(2)
+
+                                    if let time = task.scheduledTime {
+                                        Text(formatTime(time))
+                                            .font(.system(size: 9, weight: .regular))
+                                            .foregroundColor(textColor.opacity(0.6))
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/createEvent"))
+
+                Spacer()
             }
         }
-        .padding(14)
+        .padding(12)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 

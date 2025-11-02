@@ -318,6 +318,7 @@ struct MainAppView: View {
         mainContentBase
             .onAppear {
                 locationService.requestLocationPermission()
+                taskManager.syncTodaysTasksToWidget()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
