@@ -496,7 +496,7 @@ struct SelineWidgetEntryView: View {
                     // Note button
                     VStack(spacing: 4) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .frame(height: 20)
                             .foregroundColor(textColor)
                     }
@@ -507,7 +507,7 @@ struct SelineWidgetEntryView: View {
                     // Event button
                     VStack(spacing: 4) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .frame(height: 20)
                             .foregroundColor(textColor)
                     }
