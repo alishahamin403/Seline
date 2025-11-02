@@ -52,18 +52,48 @@ struct CategoryBreakdownView: View {
                 Divider()
                     .opacity(0.3)
 
-                // Pie chart
+                // Pie chart (iOS 17.0+)
                 if !categoryBreakdown.sortedCategories.isEmpty {
                     VStack(spacing: 12) {
-                        Chart(categoryBreakdown.sortedCategories, id: \.category) { category in
-                            SectorMark(
-                                angle: .value("Percentage", category.percentage)
-                            )
-                            .foregroundStyle(by: .value("Category", category.category))
-                            .opacity(0.9)
+                        if #available(iOS 17.0, *) {
+                            Chart(categoryBreakdown.sortedCategories, id: \.category) { category in
+                                SectorMark(
+                                    angle: .value("Percentage", category.percentage)
+                                )
+                                .foregroundStyle(by: .value("Category", category.category))
+                                .opacity(0.9)
+                            }
+                            .frame(height: 200)
+                            .padding(.horizontal, 16)
+                        } else {
+                            // Fallback for older iOS versions - show simplified bar chart
+                            VStack(spacing: 12) {
+                                ForEach(categoryBreakdown.sortedCategories.prefix(5), id: \.category) { category in
+                                    HStack(spacing: 8) {
+                                        Text(category.category)
+                                            .font(.system(size: 12, weight: .regular))
+                                            .frame(width: 70, alignment: .leading)
+
+                                        GeometryReader { geometry in
+                                            ZStack(alignment: .leading) {
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(Color.gray.opacity(0.2))
+
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(colorForCategory(category.category))
+                                                    .frame(width: geometry.size.width * (category.percentage / 100))
+                                            }
+                                        }
+                                        .frame(height: 20)
+
+                                        Text(category.formattedPercentage)
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .frame(width: 40, alignment: .trailing)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
                         }
-                        .frame(height: 200)
-                        .padding(.horizontal, 16)
 
                         // Legend
                         VStack(spacing: 8) {
