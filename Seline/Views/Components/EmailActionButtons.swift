@@ -83,7 +83,7 @@ struct ActionButtonWithText: View {
         Button(action: action) {
             Text(text)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor((isDangerous || isHighlighted) ? .white : (colorScheme == .dark ? .white : .black))
+                .foregroundColor(isDangerous ? .white : (isHighlighted ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white : .black)))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
         }
@@ -91,7 +91,7 @@ struct ActionButtonWithText: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(
                     isDangerous ? Color.red :
-                    isHighlighted ? (colorScheme == .dark ? Color.white : Color.black) :
+                    isHighlighted ? (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black) :
                     (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                 )
         )
