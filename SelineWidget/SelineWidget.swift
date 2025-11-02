@@ -136,12 +136,15 @@ struct SelineWidgetProvider: TimelineProvider {
             location1Icon = prefs.location1Icon ?? "house.fill"
             location2Icon = prefs.location2Icon ?? "briefcase.fill"
             location3Icon = prefs.location3Icon ?? "fork.knife"
+            location4Icon = prefs.location4Icon ?? "gym.bag.fill"
             location1Lat = prefs.location1Latitude
             location1Lon = prefs.location1Longitude
             location2Lat = prefs.location2Latitude
             location2Lon = prefs.location2Longitude
             location3Lat = prefs.location3Latitude
             location3Lon = prefs.location3Longitude
+            location4Lat = prefs.location4Latitude
+            location4Lon = prefs.location4Longitude
         }
 
         // Load pre-calculated ETAs from the app's NavigationService
