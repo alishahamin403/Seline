@@ -586,7 +586,7 @@ struct SelineWidgetEntryView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 4) {
                                 Text(task.title)
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(.system(size: 11, weight: .regular))
                                     .foregroundColor(getEventColor(for: task))
                                     .lineLimit(1)
 
@@ -605,7 +605,7 @@ struct SelineWidgetEntryView: View {
 
                             if let time = task.scheduledTime {
                                 Text(formatTime(time))
-                                    .font(.system(size: 9, weight: .regular))
+                                    .font(.system(size: 8, weight: .regular))
                                     .foregroundColor(textColor.opacity(0.6))
                             }
                         }
@@ -616,7 +616,7 @@ struct SelineWidgetEntryView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: .leading, vertical: .center))
-            .layoutPriority(1)
+            .layoutPriority(0)
         }
         .padding(14)
     }
