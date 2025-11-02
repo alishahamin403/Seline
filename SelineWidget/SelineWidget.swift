@@ -30,6 +30,7 @@ struct TaskForWidget: Codable {
     let title: String
     let scheduledTime: Date?
     let isCompleted: Bool
+    let tagId: String?
 }
 
 struct SelineWidgetEntry: TimelineEntry {
@@ -195,18 +196,27 @@ struct SelineWidgetEntryView: View {
         colorScheme == .dark ? .white : .black
     }
 
-    var body: some View {
-        ZStack {
-            // Claude's dark mode background color
-            if colorScheme == .dark {
-                Color(red: 0.1, green: 0.1, blue: 0.1)
-            }
+    private func getEventColor(for task: TaskForWidget) -> Color {
+        // Determine color based on task type (synced, tagged, or personal)
+        if task.id.hasPrefix("cal_") {
+            // Synced events - blue color
+            return colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color.blue
+        } else if let tagId = task.tagId, !tagId.isEmpty {
+            // Tagged events - use a purple/accent color
+            return colorScheme == .dark ? Color(red: 0.8, green: 0.6, blue: 1.0) : Color.purple
+        } else {
+            // Personal events - light gray
+            return colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)
+        }
+    }
 
-            if widgetFamily == .systemSmall {
-                smallWidgetView
-            } else {
-                mediumWidgetView
-            }
+    var body: some View {
+        if widgetFamily == .systemSmall {
+            smallWidgetView
+                .background(colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.1) : Color.white)
+        } else {
+            mediumWidgetView
+                .background(colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.1) : Color.white)
         }
     }
 
@@ -405,28 +415,32 @@ struct SelineWidgetEntryView: View {
                     // Note button
                     VStack(spacing: 4) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 11))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(textColor)
                         Text("Note")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundColor(textColor)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(6)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.1))
+                    .cornerRadius(8)
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createNote"))
 
                     // Event button
                     VStack(spacing: 4) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 11))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(textColor)
                         Text("Event")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundColor(textColor)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(6)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.1))
+                    .cornerRadius(8)
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
                 }
@@ -450,17 +464,25 @@ struct SelineWidgetEntryView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(entry.todaysTasks.prefix(6), id: \.id) { task in
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(task.title)
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundColor(textColor)
-                                    .lineLimit(2)
+                            HStack(spacing: 6) {
+                                // Colored circle for event status
+                                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(getEventColor(for: task))
 
-                                if let time = task.scheduledTime {
-                                    Text(formatTime(time))
-                                        .font(.system(size: 9, weight: .regular))
-                                        .foregroundColor(textColor.opacity(0.6))
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(task.title)
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .lineLimit(2)
+
+                                    if let time = task.scheduledTime {
+                                        Text(formatTime(time))
+                                            .font(.system(size: 9, weight: .regular))
+                                            .foregroundColor(textColor.opacity(0.6))
+                                    }
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 2)

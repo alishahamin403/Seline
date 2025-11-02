@@ -2577,6 +2577,7 @@ class TaskManager: ObservableObject {
             let title: String
             let scheduledTime: Date?
             let isCompleted: Bool
+            let tagId: String?
         }
 
         let widgetTasks = todaysTasks.map { task in
@@ -2584,7 +2585,8 @@ class TaskManager: ObservableObject {
                 id: task.id,
                 title: task.title,
                 scheduledTime: task.scheduledTime,
-                isCompleted: task.isCompletedOn(date: today)
+                isCompleted: task.isCompletedOn(date: today),
+                tagId: task.tagId
             )
         }
 
