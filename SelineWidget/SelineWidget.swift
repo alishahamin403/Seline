@@ -229,6 +229,16 @@ struct SelineWidgetEntryView: View {
         colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
     }
 
+    // Rust/orange color for ETAs and action buttons
+    var rustColor: Color {
+        Color(red: 0.8, green: 0.5, blue: 0.3)
+    }
+
+    // Light background color for circular badges
+    var badgeBackgroundColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+    }
+
     private func getEventColor(for task: TaskForWidget) -> Color {
         // Determine color based on task type (synced, tagged, or personal)
         if task.id.hasPrefix("cal_") {
@@ -265,20 +275,22 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location1Icon)
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(height: 20)
-                                .foregroundColor(textColor)
+                                .foregroundColor(rustColor)
 
                             if let eta = entry.location1ETA {
                                 Text(eta)
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                             } else {
                                 Text("--")
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
+                        .frame(height: 80)
+                        .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
 
@@ -288,20 +300,22 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location2Icon)
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(height: 20)
-                                .foregroundColor(textColor)
+                                .foregroundColor(rustColor)
 
                             if let eta = entry.location2ETA {
                                 Text(eta)
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                             } else {
                                 Text("--")
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
+                        .frame(height: 80)
+                        .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
                 }
@@ -314,20 +328,22 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location3Icon)
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(height: 20)
-                                .foregroundColor(textColor)
+                                .foregroundColor(rustColor)
 
                             if let eta = entry.location3ETA {
                                 Text(eta)
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                             } else {
                                 Text("--")
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
+                        .frame(height: 80)
+                        .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
 
@@ -337,20 +353,22 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location4Icon)
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(height: 20)
-                                .foregroundColor(textColor)
+                                .foregroundColor(rustColor)
 
                             if let eta = entry.location4ETA {
                                 Text(eta)
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                             } else {
                                 Text("--")
                                     .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
+                        .frame(height: 80)
+                        .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
                 }
@@ -363,9 +381,11 @@ struct SelineWidgetEntryView: View {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 18, weight: .semibold))
                         .frame(height: 20)
-                        .foregroundColor(textColor)
+                        .foregroundColor(rustColor)
                 }
                 .frame(maxWidth: .infinity)
+                .frame(height: 80)
+                .background(Circle().fill(badgeBackgroundColor))
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createNote"))
 
@@ -374,9 +394,11 @@ struct SelineWidgetEntryView: View {
                     Image(systemName: "calendar")
                         .font(.system(size: 18, weight: .semibold))
                         .frame(height: 20)
-                        .foregroundColor(textColor)
+                        .foregroundColor(rustColor)
                 }
                 .frame(maxWidth: .infinity)
+                .frame(height: 80)
+                .background(Circle().fill(badgeBackgroundColor))
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createEvent"))
             }
@@ -410,20 +432,22 @@ struct SelineWidgetEntryView: View {
                                 Image(systemName: entry.location1Icon)
                                     .font(.system(size: 16, weight: .semibold))
                                     .frame(height: 20)
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
 
                                 if let eta = entry.location1ETA {
                                     Text(eta)
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                 } else {
                                     Text("--")
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
+                            .frame(height: 80)
+                            .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
 
@@ -433,20 +457,22 @@ struct SelineWidgetEntryView: View {
                                 Image(systemName: entry.location2Icon)
                                     .font(.system(size: 16, weight: .semibold))
                                     .frame(height: 20)
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
 
                                 if let eta = entry.location2ETA {
                                     Text(eta)
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                 } else {
                                     Text("--")
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
+                            .frame(height: 80)
+                            .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
                     }
@@ -459,20 +485,22 @@ struct SelineWidgetEntryView: View {
                                 Image(systemName: entry.location3Icon)
                                     .font(.system(size: 16, weight: .semibold))
                                     .frame(height: 20)
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
 
                                 if let eta = entry.location3ETA {
                                     Text(eta)
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                 } else {
                                     Text("--")
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
+                            .frame(height: 80)
+                            .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
 
@@ -482,20 +510,22 @@ struct SelineWidgetEntryView: View {
                                 Image(systemName: entry.location4Icon)
                                     .font(.system(size: 16, weight: .semibold))
                                     .frame(height: 20)
-                                    .foregroundColor(textColor)
+                                    .foregroundColor(rustColor)
 
                                 if let eta = entry.location4ETA {
                                     Text(eta)
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                 } else {
                                     Text("--")
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(rustColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
+                            .frame(height: 80)
+                            .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
                     }
@@ -508,9 +538,11 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 18, weight: .semibold))
                             .frame(height: 20)
-                            .foregroundColor(textColor)
+                            .foregroundColor(rustColor)
                     }
                     .frame(maxWidth: .infinity)
+                    .frame(height: 80)
+                    .background(Circle().fill(badgeBackgroundColor))
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createNote"))
 
@@ -519,9 +551,11 @@ struct SelineWidgetEntryView: View {
                         Image(systemName: "calendar")
                             .font(.system(size: 18, weight: .semibold))
                             .frame(height: 20)
-                            .foregroundColor(textColor)
+                            .foregroundColor(rustColor)
                     }
                     .frame(maxWidth: .infinity)
+                    .frame(height: 80)
+                    .background(Circle().fill(badgeBackgroundColor))
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
                 }
