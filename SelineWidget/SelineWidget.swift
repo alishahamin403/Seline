@@ -196,10 +196,17 @@ struct SelineWidgetEntryView: View {
     }
 
     var body: some View {
-        if widgetFamily == .systemSmall {
-            smallWidgetView
-        } else {
-            mediumWidgetView
+        ZStack {
+            // Claude's dark mode background color
+            if colorScheme == .dark {
+                Color(red: 0.1, green: 0.1, blue: 0.1)
+            }
+
+            if widgetFamily == .systemSmall {
+                smallWidgetView
+            } else {
+                mediumWidgetView
+            }
         }
     }
 
@@ -480,6 +487,7 @@ struct SelineWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SelineWidgetProvider()) { entry in
             SelineWidgetEntryView(entry: entry)
+                // Widget handles its own background color in dark mode via ZStack
                 .widgetBackground(Color.clear)
         }
         .configurationDisplayName("Seline")
