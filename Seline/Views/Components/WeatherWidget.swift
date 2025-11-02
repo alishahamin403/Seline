@@ -45,7 +45,7 @@ struct WeatherWidget: View {
                 weatherCardButton(width: (geometry.size.width - 8) * 0.6)
 
             // Navigation Card (40%)
-            VStack(spacing: 6) {
+            VStack(spacing: 0) {
                 // Location 1 ETA
                 NavigationETARow(
                     icon: locationPreferences?.location1Icon ?? "house.fill",
