@@ -34,11 +34,6 @@ struct MonthlySummaryReceiptCard: View {
                         .font(.system(size: 17, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
-
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .foregroundColor(.gray)
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 24, alignment: .center)
             }
             .contentShape(Rectangle())
             .onTapGesture {

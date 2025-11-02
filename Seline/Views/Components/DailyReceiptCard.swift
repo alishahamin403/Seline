@@ -33,11 +33,6 @@ struct DailyReceiptCard: View {
                         .font(.system(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
-
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .foregroundColor(.gray)
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 20, alignment: .center)
             }
             .contentShape(Rectangle())
             .onTapGesture {
