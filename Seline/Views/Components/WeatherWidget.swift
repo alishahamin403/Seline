@@ -45,7 +45,7 @@ struct WeatherWidget: View {
                 weatherCardButton(width: (geometry.size.width - 8) * 0.6)
 
             // Navigation Card (40%)
-            VStack(spacing: 2) {
+            VStack(spacing: 6) {
                 // Location 1 ETA
                 NavigationETARow(
                     icon: locationPreferences?.location1Icon ?? "house.fill",
@@ -110,14 +110,14 @@ struct WeatherWidget: View {
                 )
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(width: (geometry.size.width - 8) * 0.4, height: 90, alignment: .leading)
+            .padding(.vertical, 10)
+            .frame(width: (geometry.size.width - 8) * 0.4, height: 120, alignment: .leading)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
             }
-            .frame(height: 90)
+            .frame(height: 120)
         }
-        .frame(height: 90)
+        .frame(height: 120)
         .padding(.horizontal, 12)
         .sheet(isPresented: $showLocationSetup) {
             LocationEditView(
@@ -231,7 +231,7 @@ struct WeatherWidget: View {
         Button(action: {
             openWeatherApp()
         }) {
-            VStack(alignment: .center, spacing: 2) {
+            VStack(alignment: .center, spacing: 4) {
                 // Row 1: Location | Temperature | Weather Icon
                 HStack(spacing: 6) {
                     // Location text
@@ -310,8 +310,8 @@ struct WeatherWidget: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(width: width, height: 90, alignment: .center)
+            .padding(.vertical, 10)
+            .frame(width: width, height: 120, alignment: .center)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
         }
@@ -510,7 +510,7 @@ struct NavigationETARow: View {
                     Spacer()
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())

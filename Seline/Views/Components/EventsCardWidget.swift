@@ -131,7 +131,7 @@ struct EventsCardWidget: View {
             HapticManager.shared.cardTap()
             selectedTask = task
         }) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 // Completion status icon - tappable
                 Button(action: {
                     HapticManager.shared.selection()
@@ -149,7 +149,7 @@ struct EventsCardWidget: View {
 
                 // Event title
                 let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(task.title)
                         .font(.shadcnTextXs)
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
@@ -192,7 +192,7 @@ struct EventsCardWidget: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             // Header with 3-day selector and Add Event button
             HStack(spacing: 8) {
                 // Column 1: Today
@@ -311,7 +311,7 @@ struct EventsCardWidget: View {
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     if sortedEvents.isEmpty {
                         Text("No events")
                             .font(.system(size: 13, weight: .regular))
@@ -324,8 +324,8 @@ struct EventsCardWidget: View {
                     }
                 }
             }
-            .frame(maxHeight: 280)
-            .padding(.top, 4)
+            .frame(maxHeight: 180)
+            .padding(.top, 2)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
