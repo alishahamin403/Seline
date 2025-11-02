@@ -57,7 +57,7 @@ struct CategoryBreakdownView: View {
                     VStack(spacing: 12) {
                         Chart(categoryBreakdown.sortedCategories, id: \.category) { category in
                             SectorMark(
-                                angle: .relative(to: category.percentage / 100)
+                                angle: .value("Percentage", category.percentage)
                             )
                             .foregroundStyle(by: .value("Category", category.category))
                             .opacity(0.9)
