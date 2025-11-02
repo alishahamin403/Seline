@@ -511,12 +511,12 @@ struct SelineWidgetEntryView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .layoutPriority(48)
+            .layoutPriority(0)
 
             Divider()
                 .opacity(0.3)
 
-            // Right side - 52% (Today's uncompleted events, sorted by time, vertically centered)
+            // Right side - 50% (Today's uncompleted events, sorted by time, vertically centered)
             VStack(alignment: .leading, spacing: 4) {
                 let uncompletedAndSorted = entry.todaysTasks
                     .filter { !$0.isCompleted }
@@ -579,7 +579,7 @@ struct SelineWidgetEntryView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: .leading, vertical: .center))
-            .layoutPriority(52)
+            .layoutPriority(0)
         }
         .padding(14)
     }
