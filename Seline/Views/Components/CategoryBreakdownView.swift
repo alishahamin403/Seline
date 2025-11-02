@@ -147,31 +147,61 @@ struct CategoryBreakdownView: View {
 
 struct CategoryRow: View {
     let categoryStat: CategoryStatWithPercentage
+    @State private var isExpanded = false
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(categoryStat.category)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.primary)
+        VStack(spacing: 0) {
+            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(categoryStat.category)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
 
-                ProgressView(value: categoryStat.percentage / 100)
-                    .frame(height: 4)
-                    .tint(colorForCategory(categoryStat.category))
+                        ProgressView(value: categoryStat.percentage / 100)
+                            .frame(height: 4)
+                            .tint(colorForCategory(categoryStat.category))
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(categoryStat.formattedAmount)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+
+                        Text(categoryStat.formattedPercentage)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.gray)
+                    }
+
+                    if !categoryStat.receipts.isEmpty {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.gray)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                }
+                .padding(16)
             }
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(categoryStat.formattedAmount)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.primary)
+            if isExpanded && !categoryStat.receipts.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(categoryStat.receipts.enumerated()), id: \.element.id) { index, receipt in
+                        ReceiptRow(receipt: receipt)
 
-                Text(categoryStat.formattedPercentage)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.gray)
+                        if index < categoryStat.receipts.count - 1 {
+                            Divider()
+                                .opacity(0.1)
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+                .background(colorScheme == .dark ? Color.white.opacity(0.02) : Color.gray.opacity(0.05))
             }
         }
-        .padding(16)
     }
 
     private func colorForCategory(_ category: String) -> Color {
@@ -191,6 +221,38 @@ struct CategoryRow: View {
         default:
             return Color.gray
         }
+    }
+}
+
+// MARK: - Receipt Row Component
+
+struct ReceiptRow: View {
+    let receipt: ReceiptStat
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(receipt.title)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMM d, yyyy"
+                Text(formatter.string(from: receipt.date))
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(.gray)
+            }
+
+            Spacer()
+
+            Text(CurrencyParser.formatAmount(receipt.amount))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.primary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 

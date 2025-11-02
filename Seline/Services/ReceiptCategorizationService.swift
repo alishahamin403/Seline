@@ -46,10 +46,13 @@ class ReceiptCategorizationService: ObservableObject {
     func getCategoryBreakdown(for receipts: [ReceiptStat]) async -> YearlyCategoryBreakdown {
         print("📊 Starting category breakdown for \(receipts.count) receipts")
 
-        // Initialize all categories
+        // Initialize all categories with both totals and receipts
         var categoryMap: [String: (total: Double, count: Int)] = [:]
+        var categoryReceipts: [String: [ReceiptStat]] = [:]
+
         for category in validCategories {
             categoryMap[category] = (0, 0)
+            categoryReceipts[category] = []
         }
 
         var totalAmount: Double = 0
@@ -58,6 +61,14 @@ class ReceiptCategorizationService: ObservableObject {
             let category = await categorizeReceipt(receipt.title)
             let current = categoryMap[category] ?? (0, 0)
             categoryMap[category] = (current.total + receipt.amount, current.count + 1)
+
+            // Track which receipts belong to this category
+            if categoryReceipts[category] != nil {
+                categoryReceipts[category]?.append(receipt)
+            } else {
+                categoryReceipts[category] = [receipt]
+            }
+
             totalAmount += receipt.amount
             print("✓ [\(index + 1)/\(receipts.count)] '\(receipt.title)' → \(category)")
         }
@@ -74,7 +85,8 @@ class ReceiptCategorizationService: ObservableObject {
         let breakdown = YearlyCategoryBreakdown(
             year: Calendar.current.component(.year, from: Date()),
             categories: categoryStats,
-            yearlyTotal: totalAmount
+            yearlyTotal: totalAmount,
+            categoryReceipts: categoryReceipts
         )
 
         // Log summary

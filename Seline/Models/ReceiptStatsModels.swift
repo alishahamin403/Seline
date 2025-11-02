@@ -152,25 +152,29 @@ struct YearlyCategoryBreakdown: Identifiable {
     let year: Int
     let categories: [CategoryStat]
     let yearlyTotal: Double
+    let categoryReceipts: [String: [ReceiptStat]]  // Maps category name to receipts
 
     var sortedCategories: [CategoryStatWithPercentage] {
         categories
             .map { stat in
-                CategoryStatWithPercentage(
+                let receipts = categoryReceipts[stat.category] ?? []
+                return CategoryStatWithPercentage(
                     category: stat.category,
                     total: stat.total,
                     count: stat.count,
-                    percentage: yearlyTotal > 0 ? (stat.total / yearlyTotal) * 100 : 0
+                    percentage: yearlyTotal > 0 ? (stat.total / yearlyTotal) * 100 : 0,
+                    receipts: receipts.sorted { $0.date > $1.date }  // Sort by newest first
                 )
             }
             .sorted { $0.total > $1.total }
     }
 
-    init(year: Int, categories: [CategoryStat], yearlyTotal: Double) {
+    init(year: Int, categories: [CategoryStat], yearlyTotal: Double, categoryReceipts: [String: [ReceiptStat]] = [:]) {
         self.id = UUID()
         self.year = year
         self.categories = categories
         self.yearlyTotal = yearlyTotal
+        self.categoryReceipts = categoryReceipts
     }
 }
 
@@ -181,6 +185,7 @@ struct CategoryStatWithPercentage: Identifiable {
     let total: Double
     let count: Int
     let percentage: Double
+    let receipts: [ReceiptStat]
 
     var formattedAmount: String {
         CurrencyParser.formatAmount(total)
