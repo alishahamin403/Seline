@@ -732,13 +732,13 @@ class OpenAIService: ObservableObject {
     private func extractMeaningfulHTMLText(_ html: String) -> String {
         var text = html
 
-        // Preserve table structure better for receipts
+        // Convert table structure to bullet points (not pipes)
         text = text.replacingOccurrences(of: "<tr[^>]*>", with: "\n", options: .regularExpression)
         text = text.replacingOccurrences(of: "</tr>", with: "\n", options: .regularExpression)
-        text = text.replacingOccurrences(of: "<td[^>]*>", with: " ", options: .regularExpression)
-        text = text.replacingOccurrences(of: "</td>", with: " | ", options: .regularExpression)
-        text = text.replacingOccurrences(of: "<th[^>]*>", with: " ", options: .regularExpression)
-        text = text.replacingOccurrences(of: "</th>", with: " | ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<td[^>]*>", with: "• ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "</td>", with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<th[^>]*>", with: "• ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "</th>", with: "\n", options: .regularExpression)
 
         // Preserve line breaks for important elements
         let blockElements = ["</p>", "</div>", "</h1>", "</h2>", "</h3>", "</h4>", "</h5>", "</h6>", "</li>"]
@@ -761,16 +761,16 @@ class OpenAIService: ObservableObject {
         )
         text = text.replacingOccurrences(of: "</li>", with: "\n", options: .regularExpression)
 
-        // Extract emphasized text (preserve emphasis indicators)
+        // Extract emphasized text (remove markdown syntax)
         text = text.replacingOccurrences(
             of: "<(strong|b)[^>]*>([^<]+)</\\1>",
-            with: "**$2**",
+            with: "$2",
             options: .regularExpression
         )
 
         text = text.replacingOccurrences(
             of: "<(em|i)[^>]*>([^<]+)</\\1>",
-            with: "*$2*",
+            with: "$2",
             options: .regularExpression
         )
 

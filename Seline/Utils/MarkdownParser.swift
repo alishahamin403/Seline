@@ -7,55 +7,30 @@ class MarkdownParser {
     private init() {}
 
     /// Converts markdown text to NSAttributedString with proper formatting
-    /// Supports: **bold**, *italic*, tables, bullet points, numbered lists, headings
+    /// Supports: **bold**, *italic*, bullet points, numbered lists, headings
+    /// Tables are converted to bullet points. No syntax symbols are shown to user.
     func parseMarkdown(_ text: String, fontSize: CGFloat = 15, textColor: UIColor = .label) -> NSAttributedString {
         let attributedString = NSMutableAttributedString()
-        let lines = text.components(separatedBy: .newlines)
 
-        var inTable = false
-        var tableRows: [String] = []
+        // First, clean up all markdown syntax symbols
+        var cleanedText = text
 
-        for (index, line) in lines.enumerated() {
+        // Remove markdown heading symbols (#) but keep the text
+        cleanedText = cleanedText.replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+
+        // Convert table pipes to bullet points
+        cleanedText = convertTablesToBulletPoints(cleanedText)
+
+        // Remove table separator dashes (---)
+        cleanedText = cleanedText.replacingOccurrences(of: "^[-|\\s]+$", with: "", options: .regularExpression)
+
+        let lines = cleanedText.components(separatedBy: .newlines)
+
+        for line in lines {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
 
             // Skip empty lines between elements
-            if trimmedLine.isEmpty && index < lines.count - 1 {
-                // Add single newline for spacing
-                attributedString.append(NSAttributedString(string: "\n"))
-                continue
-            }
-
-            // Handle markdown tables
-            if trimmedLine.contains("|") && !trimmedLine.contains("||") {
-                if !inTable {
-                    inTable = true
-                    tableRows = []
-                }
-                tableRows.append(trimmedLine)
-
-                // Check if next line is table separator or end of table
-                let nextIndex = index + 1
-                let isLastLine = nextIndex >= lines.count
-                let nextLineIsTable = !isLastLine && lines[nextIndex].trimmingCharacters(in: .whitespaces).contains("|")
-
-                if isLastLine || !nextLineIsTable {
-                    // End of table, render it
-                    let tableAttr = renderTable(tableRows, fontSize: fontSize, textColor: textColor)
-                    attributedString.append(tableAttr)
-                    attributedString.append(NSAttributedString(string: "\n"))
-                    inTable = false
-                    tableRows = []
-                }
-                continue
-            } else {
-                inTable = false
-                tableRows = []
-            }
-
-            // Handle headings (# Heading, ## Heading, etc.)
-            if trimmedLine.hasPrefix("#") {
-                let headingAttr = parseHeading(trimmedLine, fontSize: fontSize, textColor: textColor)
-                attributedString.append(headingAttr)
+            if trimmedLine.isEmpty {
                 attributedString.append(NSAttributedString(string: "\n"))
                 continue
             }
@@ -85,6 +60,34 @@ class MarkdownParser {
         }
 
         return attributedString
+    }
+
+    // MARK: - Table to Bullet Points Converter
+
+    private func convertTablesToBulletPoints(_ text: String) -> String {
+        var result = ""
+        let lines = text.components(separatedBy: .newlines)
+
+        for (index, line) in lines.enumerated() {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+
+            // Check if this is a table line (contains pipes)
+            if trimmedLine.contains("|") && !trimmedLine.contains("||") {
+                // Skip header row and separator rows, convert data rows to bullets
+                let cells = trimmedLine.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespaces) }
+                let cellsClean = cells.filter { !$0.isEmpty && !$0.contains("-") }
+
+                // Add each cell as a bullet point
+                for cell in cellsClean {
+                    result += "• \(cell)\n"
+                }
+            } else {
+                // Regular line, keep as is
+                result += line + "\n"
+            }
+        }
+
+        return result
     }
 
     // MARK: - Heading Parser
@@ -291,104 +294,4 @@ class MarkdownParser {
         return attributedString
     }
 
-    // MARK: - Table Renderer
-
-    private func renderTable(_ rows: [String], fontSize: CGFloat, textColor: UIColor) -> NSAttributedString {
-        let attributedString = NSMutableAttributedString()
-
-        // Parse table rows
-        var parsedRows: [[String]] = []
-        var headerRowIndex: Int? = nil
-
-        for (index, row) in rows.enumerated() {
-            let trimmed = row.trimmingCharacters(in: .whitespaces)
-
-            // Check if it's a separator row (e.g., |---|---|)
-            if trimmed.contains("---") || trimmed.contains("===") {
-                // Mark the previous row as header
-                if index > 0 {
-                    headerRowIndex = parsedRows.count - 1
-                }
-                continue
-            }
-
-            // Split by | and clean up
-            var cells = trimmed.components(separatedBy: "|")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-
-            // Remove empty first/last cells (from leading/trailing |)
-            if let first = cells.first, first.isEmpty {
-                cells.removeFirst()
-            }
-            if let last = cells.last, last.isEmpty {
-                cells.removeLast()
-            }
-
-            if !cells.isEmpty {
-                parsedRows.append(cells)
-            }
-        }
-
-        // If no separator was found but we have rows, assume first row is header
-        if headerRowIndex == nil && !parsedRows.isEmpty {
-            headerRowIndex = 0
-        }
-
-        // Render table with enhanced formatting
-        if !parsedRows.isEmpty {
-            // Add top border
-            let borderAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: fontSize - 2, weight: .regular),
-                .foregroundColor: textColor.withAlphaComponent(0.3)
-            ]
-            attributedString.append(NSAttributedString(string: "─────────────────────────────\n", attributes: borderAttrs))
-
-            for (rowIndex, rowCells) in parsedRows.enumerated() {
-                let isHeader = rowIndex == headerRowIndex
-
-                // Find max cell count for alignment
-                let maxCells = parsedRows.map { $0.count }.max() ?? rowCells.count
-
-                // Render each cell
-                for cellIndex in 0..<maxCells {
-                    let cell = cellIndex < rowCells.count ? rowCells[cellIndex] : ""
-
-                    // Parse inline formatting for cell content (bold, italic)
-                    let cellAttr = parseInlineFormatting(cell, fontSize: fontSize, textColor: textColor)
-
-                    // Make header bold if not already formatted
-                    if isHeader {
-                        let mutableCellAttr = NSMutableAttributedString(attributedString: cellAttr)
-                        let range = NSRange(location: 0, length: mutableCellAttr.length)
-                        mutableCellAttr.addAttribute(.font, value: UIFont.systemFont(ofSize: fontSize, weight: .bold), range: range)
-                        attributedString.append(mutableCellAttr)
-                    } else {
-                        attributedString.append(cellAttr)
-                    }
-
-                    // Add separator between cells (not after last cell)
-                    if cellIndex < maxCells - 1 {
-                        let separatorAttrs: [NSAttributedString.Key: Any] = [
-                            .font: UIFont.systemFont(ofSize: fontSize, weight: .regular),
-                            .foregroundColor: textColor.withAlphaComponent(0.5)
-                        ]
-                        attributedString.append(NSAttributedString(string: "  │  ", attributes: separatorAttrs))
-                    }
-                }
-
-                // Add newline after each row
-                attributedString.append(NSAttributedString(string: "\n"))
-
-                // Add separator line after header
-                if isHeader {
-                    attributedString.append(NSAttributedString(string: "─────────────────────────────\n", attributes: borderAttrs))
-                }
-            }
-
-            // Add bottom border
-            attributedString.append(NSAttributedString(string: "─────────────────────────────\n", attributes: borderAttrs))
-        }
-
-        return attributedString
-    }
 }
