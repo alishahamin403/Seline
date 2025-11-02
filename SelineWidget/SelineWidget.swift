@@ -242,10 +242,10 @@ struct SelineWidgetEntryView: View {
     var body: some View {
         if widgetFamily == .systemSmall {
             smallWidgetView
-                .background(colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.1) : Color.white)
+                .background(colorScheme == .dark ? Color.black : Color.white)
         } else {
             mediumWidgetView
-                .background(colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.1) : Color.white)
+                .background(colorScheme == .dark ? Color.black : Color.white)
         }
     }
 
@@ -392,7 +392,7 @@ struct SelineWidgetEntryView: View {
                 Spacer()
 
                 // 4 Location ETAs (compact)
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .center, spacing: 5) {
                     // Location 1
                     Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                         HStack(spacing: 6) {
@@ -411,8 +411,6 @@ struct SelineWidgetEntryView: View {
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
-
-                            Spacer()
                         }
                     }
                     .buttonStyle(.plain)
@@ -435,8 +433,6 @@ struct SelineWidgetEntryView: View {
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
-
-                            Spacer()
                         }
                     }
                     .buttonStyle(.plain)
@@ -459,8 +455,6 @@ struct SelineWidgetEntryView: View {
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
-
-                            Spacer()
                         }
                     }
                     .buttonStyle(.plain)
@@ -483,8 +477,6 @@ struct SelineWidgetEntryView: View {
                                     .foregroundColor(textColor)
                                     .opacity(0.5)
                             }
-
-                            Spacer()
                         }
                     }
                     .buttonStyle(.plain)
@@ -527,10 +519,6 @@ struct SelineWidgetEntryView: View {
 
             // Right side - Today's events
             VStack(alignment: .leading, spacing: 8) {
-                Text("Today")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(textColor)
-
                 if entry.todaysTasks.isEmpty {
                     VStack(alignment: .center, spacing: 4) {
                         Text("No events")
