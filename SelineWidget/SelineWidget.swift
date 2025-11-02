@@ -555,7 +555,6 @@ struct SelineWidgetEntryView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 2)
             .layoutPriority(0)
 
             Divider()
