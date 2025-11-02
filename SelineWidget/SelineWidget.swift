@@ -389,6 +389,8 @@ struct SelineWidgetEntryView: View {
         HStack(spacing: 12) {
             // Left side - same as small widget content
             VStack(alignment: .leading, spacing: 10) {
+                Spacer()
+
                 // 4 Location ETAs (compact)
                 VStack(alignment: .leading, spacing: 5) {
                     // Location 1
@@ -488,45 +490,40 @@ struct SelineWidgetEntryView: View {
                     .buttonStyle(.plain)
                 }
 
-                Spacer()
-
                 // Buttons
-                HStack(spacing: 8) {
+                HStack(spacing: 16) {
                     // Note button
-                    VStack(spacing: 4) {
+                    VStack(spacing: 6) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(textColor)
                         Text("Note")
-                            .font(.system(size: 9, weight: .regular))
+                            .font(.system(size: 10, weight: .regular))
                             .foregroundColor(textColor)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(buttonBackgroundColor)
-                    .cornerRadius(8)
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createNote"))
 
                     // Event button
-                    VStack(spacing: 4) {
+                    VStack(spacing: 6) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(textColor)
                         Text("Event")
-                            .font(.system(size: 9, weight: .regular))
+                            .font(.system(size: 10, weight: .regular))
                             .foregroundColor(textColor)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(buttonBackgroundColor)
-                    .cornerRadius(8)
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
                 }
+
+                Spacer()
             }
 
             Divider()
+                .opacity(0.3)
 
             // Right side - Today's events
             VStack(alignment: .leading, spacing: 8) {
