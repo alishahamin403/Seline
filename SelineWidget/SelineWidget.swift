@@ -516,7 +516,7 @@ struct SelineWidgetEntryView: View {
             Divider()
                 .opacity(0.3)
 
-            // Right side - 50% (Today's uncompleted events, sorted by time, vertically centered)
+            // Right side - 55% (Today's uncompleted events, sorted by time, vertically centered)
             VStack(alignment: .leading, spacing: 4) {
                 let uncompletedAndSorted = entry.todaysTasks
                     .filter { !$0.isCompleted }
@@ -525,6 +525,9 @@ struct SelineWidgetEntryView: View {
                         let time2 = $1.scheduledTime ?? Date.distantFuture
                         return time1 < time2
                     }
+
+                Spacer()
+                    .frame(height: 8)
 
                 if uncompletedAndSorted.isEmpty {
                     VStack(alignment: .center, spacing: 4) {
@@ -576,9 +579,9 @@ struct SelineWidgetEntryView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: .leading, vertical: .center))
-            .layoutPriority(0)
+            .layoutPriority(1)
         }
-        .padding(12)
+        .padding(14)
     }
 
     private func formatTime(_ date: Date) -> String {
