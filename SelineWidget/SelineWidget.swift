@@ -266,108 +266,108 @@ struct SelineWidgetEntryView: View {
             Spacer()
 
             // 4 Location ETAs (2x2 grid - icon on top, time below)
-            VStack(spacing: 12) {
+            VStack(spacing: 8) {
                 // Row 1 - Locations 1 & 2
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     // Location 1
                     Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Image(systemName: entry.location1Icon)
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(height: 16)
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(height: 14)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location1ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 60)
+                        .frame(height: 50)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
 
                     // Location 2
                     Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Image(systemName: entry.location2Icon)
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(height: 16)
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(height: 14)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location2ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 60)
+                        .frame(height: 50)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
                 }
 
                 // Row 2 - Locations 3 & 4
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     // Location 3
                     Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Image(systemName: entry.location3Icon)
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(height: 16)
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(height: 14)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location3ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 60)
+                        .frame(height: 50)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
 
                     // Location 4
                     Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Image(systemName: entry.location4Icon)
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(height: 16)
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(height: 14)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location4ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 7, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(height: 60)
+                        .frame(height: 50)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
@@ -375,29 +375,29 @@ struct SelineWidgetEntryView: View {
             }
 
             // Row 3 - Buttons (same style as ETA rows)
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 // Note button
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(height: 16)
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(height: 14)
                         .foregroundColor(badgeContentColor)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 60)
+                .frame(height: 50)
                 .background(Circle().fill(badgeBackgroundColor))
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createNote"))
 
                 // Event button
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Image(systemName: "calendar")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(height: 16)
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(height: 14)
                         .foregroundColor(badgeContentColor)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 60)
+                .frame(height: 50)
                 .background(Circle().fill(badgeBackgroundColor))
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createEvent"))
@@ -423,108 +423,108 @@ struct SelineWidgetEntryView: View {
                 Spacer()
 
                 // 4 Location ETAs (2x2 grid - icon on top, time below)
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     // Row 1 - Locations 1 & 2
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         // Location 1
                         Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 1) {
                                 Image(systemName: entry.location1Icon)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .frame(height: 16)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(height: 14)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location1ETA {
                                     Text(eta)
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 60)
+                            .frame(height: 50)
                             .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
 
                         // Location 2
                         Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 1) {
                                 Image(systemName: entry.location2Icon)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .frame(height: 16)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(height: 14)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location2ETA {
                                     Text(eta)
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 60)
+                            .frame(height: 50)
                             .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
                     }
 
                     // Row 2 - Locations 3 & 4
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         // Location 3
                         Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 1) {
                                 Image(systemName: entry.location3Icon)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .frame(height: 16)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(height: 14)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location3ETA {
                                     Text(eta)
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 60)
+                            .frame(height: 50)
                             .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
 
                         // Location 4
                         Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 1) {
                                 Image(systemName: entry.location4Icon)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .frame(height: 16)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(height: 14)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location4ETA {
                                     Text(eta)
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 8, weight: .regular))
+                                        .font(.system(size: 7, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 60)
+                            .frame(height: 50)
                             .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
@@ -532,29 +532,29 @@ struct SelineWidgetEntryView: View {
                 }
 
                 // Row 3 - Buttons (same style as ETA rows)
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     // Note button
-                    VStack(spacing: 2) {
+                    VStack(spacing: 1) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(height: 16)
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(height: 14)
                             .foregroundColor(badgeContentColor)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 60)
+                    .frame(height: 50)
                     .background(Circle().fill(badgeBackgroundColor))
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createNote"))
 
                     // Event button
-                    VStack(spacing: 2) {
+                    VStack(spacing: 1) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(height: 16)
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(height: 14)
                             .foregroundColor(badgeContentColor)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 60)
+                    .frame(height: 50)
                     .background(Circle().fill(badgeBackgroundColor))
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
