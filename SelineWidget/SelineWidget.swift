@@ -515,42 +515,64 @@ struct SelineWidgetEntryView: View {
             Divider()
                 .opacity(0.3)
 
-            // Right side - 60% (Today's events, scrollable)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 4) {
-                    if entry.todaysTasks.isEmpty {
-                        VStack(alignment: .center, spacing: 4) {
-                            Text("No events")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(textColor.opacity(0.6))
-                        }
-                        .frame(maxWidth: .infinity)
-                    } else {
-                        ForEach(entry.todaysTasks, id: \.id) { task in
-                            HStack(spacing: 6) {
-                                // Colored circle for event status
-                                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(getEventColor(for: task))
+            // Right side - 60% (Today's uncompleted events, sorted by time)
+            VStack(alignment: .leading, spacing: 4) {
+                let uncompletedAndSorted = entry.todaysTasks
+                    .filter { !$0.isCompleted }
+                    .sorted {
+                        let time1 = $0.scheduledTime ?? Date.distantFuture
+                        let time2 = $1.scheduledTime ?? Date.distantFuture
+                        return time1 < time2
+                    }
 
-                                VStack(alignment: .leading, spacing: 0) {
+                if uncompletedAndSorted.isEmpty {
+                    VStack(alignment: .center, spacing: 4) {
+                        Text("No pending events")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(textColor.opacity(0.6))
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ForEach(uncompletedAndSorted, id: \.id) { task in
+                        HStack(spacing: 4) {
+                            // Colored circle for event status
+                            Image(systemName: "circle")
+                                .font(.system(size: 9))
+                                .foregroundColor(getEventColor(for: task))
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 4) {
                                     Text(task.title)
                                         .font(.system(size: 10, weight: .regular))
                                         .foregroundColor(textColor)
                                         .lineLimit(1)
 
-                                    if let time = task.scheduledTime {
-                                        Text(formatTime(time))
-                                            .font(.system(size: 8, weight: .regular))
-                                            .foregroundColor(textColor.opacity(0.6))
+                                    if let tagId = task.tagId, !tagId.isEmpty {
+                                        Text(tagId)
+                                            .font(.system(size: 8, weight: .semibold))
+                                            .foregroundColor(textColor)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(Color.white.opacity(0.1))
+                                            .cornerRadius(3)
                                     }
+
+                                    Spacer()
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if let time = task.scheduledTime {
+                                    Text(formatTime(time))
+                                        .font(.system(size: 8, weight: .regular))
+                                        .foregroundColor(textColor.opacity(0.6))
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+
+                Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .layoutPriority(1)
