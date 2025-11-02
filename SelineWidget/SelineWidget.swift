@@ -493,13 +493,13 @@ struct SelineWidgetEntryView: View {
 
                 // Spacer between ETAs and buttons
                 Spacer()
-                    .frame(height: 16)
+                    .frame(height: 12)
 
                 // Buttons
-                HStack(spacing: 20) {
+                HStack(spacing: 12) {
                     // Note button
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(textColor)
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
@@ -507,7 +507,7 @@ struct SelineWidgetEntryView: View {
 
                     // Event button
                     Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(textColor)
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())
