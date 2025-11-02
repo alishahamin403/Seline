@@ -884,12 +884,12 @@ struct NoteEditView: View {
             }) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .foregroundColor(.black)
                     .frame(width: 36, height: 36)
                     .background(
                         Circle().fill(
                             colorScheme == .dark ?
-                                Color.white.opacity(0.2) :
+                                Color.white :
                                 Color.black
                         )
                     )
