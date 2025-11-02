@@ -546,39 +546,31 @@ struct SelineWidgetEntryView: View {
                     .frame(maxWidth: .infinity)
                 } else {
                     ForEach(uncompletedAndSorted.prefix(6), id: \.id) { task in
-                        HStack(spacing: 4) {
-                            // Colored circle for event status
-                            Image(systemName: "circle")
-                                .font(.system(size: 9))
-                                .foregroundColor(getEventColor(for: task))
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text(task.title)
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundColor(getEventColor(for: task))
+                                    .lineLimit(1)
 
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: 4) {
-                                    Text(task.title)
-                                        .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(getEventColor(for: task))
-                                        .lineLimit(1)
-
-                                    if let tagName = task.tagName, !tagName.isEmpty {
-                                        Text(tagName)
-                                            .font(.system(size: 8, weight: .semibold))
-                                            .foregroundColor(textColor)
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 2)
-                                            .background(Color.white.opacity(0.1))
-                                            .cornerRadius(3)
-                                    }
-
-                                    Spacer()
+                                if let tagName = task.tagName, !tagName.isEmpty {
+                                    Text(tagName)
+                                        .font(.system(size: 8, weight: .semibold))
+                                        .foregroundColor(textColor)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Color.white.opacity(0.1))
+                                        .cornerRadius(3)
                                 }
 
-                                if let time = task.scheduledTime {
-                                    Text(formatTime(time))
-                                        .font(.system(size: 8, weight: .regular))
-                                        .foregroundColor(textColor.opacity(0.6))
-                                }
+                                Spacer()
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if let time = task.scheduledTime {
+                                Text(formatTime(time))
+                                    .font(.system(size: 8, weight: .regular))
+                                    .foregroundColor(textColor.opacity(0.6))
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
