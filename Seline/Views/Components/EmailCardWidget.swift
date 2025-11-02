@@ -256,7 +256,7 @@ struct EmailCardWidget: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
