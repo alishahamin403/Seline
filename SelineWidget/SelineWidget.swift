@@ -262,9 +262,7 @@ struct SelineWidgetEntryView: View {
     }
 
     var smallWidgetView: some View {
-        VStack(alignment: .center, spacing: 10) {
-            Spacer()
-
+        VStack(alignment: .leading, spacing: 4) {
             // 4 Location ETAs (2x2 grid - icon on top, time below)
             VStack(spacing: 4) {
                 // Row 1 - Locations 1 & 2
@@ -402,10 +400,8 @@ struct SelineWidgetEntryView: View {
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createEvent"))
             }
-
-            Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
     }
 
@@ -419,9 +415,7 @@ struct SelineWidgetEntryView: View {
     var mediumWidgetView: some View {
         HStack(spacing: 12) {
             // Left side - 40% (ETAs + buttons)
-            VStack(alignment: .center, spacing: 10) {
-                Spacer()
-
+            VStack(alignment: .leading, spacing: 4) {
                 // 4 Location ETAs (2x2 grid - icon on top, time below)
                 VStack(spacing: 4) {
                     // Row 1 - Locations 1 & 2
@@ -559,10 +553,9 @@ struct SelineWidgetEntryView: View {
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
                 }
-
-                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 4)
             .layoutPriority(0)
 
             Divider()
