@@ -266,15 +266,15 @@ struct SelineWidgetEntryView: View {
             Spacer()
 
             // 4 Location ETAs (2x2 grid - icon on top, time below)
-            VStack(spacing: 8) {
+            VStack(spacing: 4) {
                 // Row 1 - Locations 1 & 2
                 HStack(spacing: 8) {
                     // Location 1
                     Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                        VStack(spacing: 1) {
+                        VStack(spacing: 0) {
                             Image(systemName: entry.location1Icon)
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(height: 14)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(height: 18)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location1ETA {
@@ -296,10 +296,10 @@ struct SelineWidgetEntryView: View {
 
                     // Location 2
                     Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                        VStack(spacing: 1) {
+                        VStack(spacing: 0) {
                             Image(systemName: entry.location2Icon)
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(height: 14)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(height: 18)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location2ETA {
@@ -324,10 +324,10 @@ struct SelineWidgetEntryView: View {
                 HStack(spacing: 8) {
                     // Location 3
                     Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                        VStack(spacing: 1) {
+                        VStack(spacing: 0) {
                             Image(systemName: entry.location3Icon)
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(height: 14)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(height: 18)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location3ETA {
@@ -349,10 +349,10 @@ struct SelineWidgetEntryView: View {
 
                     // Location 4
                     Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                        VStack(spacing: 1) {
+                        VStack(spacing: 0) {
                             Image(systemName: entry.location4Icon)
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(height: 14)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(height: 18)
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location4ETA {
@@ -377,10 +377,10 @@ struct SelineWidgetEntryView: View {
             // Row 3 - Buttons (same style as ETA rows)
             HStack(spacing: 8) {
                 // Note button
-                VStack(spacing: 1) {
+                VStack(spacing: 0) {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(height: 14)
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(height: 18)
                         .foregroundColor(badgeContentColor)
                 }
                 .frame(maxWidth: .infinity)
@@ -390,10 +390,10 @@ struct SelineWidgetEntryView: View {
                 .widgetURL(URL(string: "seline://action/createNote"))
 
                 // Event button
-                VStack(spacing: 1) {
+                VStack(spacing: 0) {
                     Image(systemName: "calendar")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(height: 14)
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(height: 18)
                         .foregroundColor(badgeContentColor)
                 }
                 .frame(maxWidth: .infinity)
@@ -423,15 +423,15 @@ struct SelineWidgetEntryView: View {
                 Spacer()
 
                 // 4 Location ETAs (2x2 grid - icon on top, time below)
-                VStack(spacing: 8) {
+                VStack(spacing: 4) {
                     // Row 1 - Locations 1 & 2
                     HStack(spacing: 8) {
                         // Location 1
                         Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                            VStack(spacing: 1) {
+                            VStack(spacing: 0) {
                                 Image(systemName: entry.location1Icon)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .frame(height: 14)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(height: 18)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location1ETA {
@@ -453,10 +453,10 @@ struct SelineWidgetEntryView: View {
 
                         // Location 2
                         Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                            VStack(spacing: 1) {
+                            VStack(spacing: 0) {
                                 Image(systemName: entry.location2Icon)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .frame(height: 14)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(height: 18)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location2ETA {
@@ -481,10 +481,10 @@ struct SelineWidgetEntryView: View {
                     HStack(spacing: 8) {
                         // Location 3
                         Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                            VStack(spacing: 1) {
+                            VStack(spacing: 0) {
                                 Image(systemName: entry.location3Icon)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .frame(height: 14)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(height: 18)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location3ETA {
@@ -506,10 +506,10 @@ struct SelineWidgetEntryView: View {
 
                         // Location 4
                         Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                            VStack(spacing: 1) {
+                            VStack(spacing: 0) {
                                 Image(systemName: entry.location4Icon)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .frame(height: 14)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(height: 18)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location4ETA {
@@ -534,10 +534,10 @@ struct SelineWidgetEntryView: View {
                 // Row 3 - Buttons (same style as ETA rows)
                 HStack(spacing: 8) {
                     // Note button
-                    VStack(spacing: 1) {
+                    VStack(spacing: 0) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(height: 14)
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(height: 18)
                             .foregroundColor(badgeContentColor)
                     }
                     .frame(maxWidth: .infinity)
@@ -547,10 +547,10 @@ struct SelineWidgetEntryView: View {
                     .widgetURL(URL(string: "seline://action/createNote"))
 
                     // Event button
-                    VStack(spacing: 1) {
+                    VStack(spacing: 0) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(height: 14)
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(height: 18)
                             .foregroundColor(badgeContentColor)
                     }
                     .frame(maxWidth: .infinity)
