@@ -1448,6 +1448,50 @@ class OpenAIService: ObservableObject {
         return try await makeOpenAIRequest(url: url, requestBody: requestBody)
     }
 
+    // MARK: - Receipt Categorization
+
+    func categorizeReceipt(title: String) async throws -> String {
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        let systemPrompt = """
+        You are a helpful assistant that categorizes receipts and invoices.
+        Categorize the receipt into ONE of these categories only:
+        - Food
+        - Services
+        - Transportation
+        - Healthcare
+        - Entertainment
+        - Shopping
+        - Other
+
+        Return ONLY the category name, nothing else.
+        """
+
+        let userPrompt = """
+        Categorize this receipt/invoice:
+
+        Title: \(title)
+
+        Category:
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userPrompt]
+            ],
+            "max_tokens": 20,
+            "temperature": 0.3
+        ]
+
+        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+    }
+
     // MARK: - Streaming Helper
 
     private func parseStreamingResponse(data: Data) -> String? {

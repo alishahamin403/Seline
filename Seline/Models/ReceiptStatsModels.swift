@@ -123,3 +123,70 @@ struct YearlyReceiptSummary: Identifiable {
         self.monthlySummaries = monthlySummaries.sorted { $0.monthDate > $1.monthDate }
     }
 }
+
+// MARK: - Category Statistics Models
+
+/// Represents spending in a single category
+struct CategoryStat: Identifiable, Hashable {
+    let id: UUID
+    let category: String
+    let total: Double
+    let count: Int
+
+    var percentage: Double {
+        // Will be calculated by the parent
+        0.0
+    }
+
+    init(category: String, total: Double = 0, count: Int = 0) {
+        self.id = UUID()
+        self.category = category
+        self.total = total
+        self.count = count
+    }
+}
+
+/// Represents category breakdown for a year
+struct YearlyCategoryBreakdown: Identifiable {
+    let id: UUID
+    let year: Int
+    let categories: [CategoryStat]
+    let yearlyTotal: Double
+
+    var sortedCategories: [CategoryStatWithPercentage] {
+        categories
+            .map { stat in
+                CategoryStatWithPercentage(
+                    category: stat.category,
+                    total: stat.total,
+                    count: stat.count,
+                    percentage: yearlyTotal > 0 ? (stat.total / yearlyTotal) * 100 : 0
+                )
+            }
+            .sorted { $0.total > $1.total }
+    }
+
+    init(year: Int, categories: [CategoryStat], yearlyTotal: Double) {
+        self.id = UUID()
+        self.year = year
+        self.categories = categories
+        self.yearlyTotal = yearlyTotal
+    }
+}
+
+/// Category stat with calculated percentage
+struct CategoryStatWithPercentage: Identifiable {
+    let id: UUID = UUID()
+    let category: String
+    let total: Double
+    let count: Int
+    let percentage: Double
+
+    var formattedAmount: String {
+        CurrencyParser.formatAmount(total)
+    }
+
+    var formattedPercentage: String {
+        String(format: "%.1f%%", percentage)
+    }
+}
