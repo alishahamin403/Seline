@@ -230,6 +230,12 @@ struct ReceiptRow: View {
     let receipt: ReceiptStat
     @Environment(\.colorScheme) var colorScheme
 
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: receipt.date)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -238,9 +244,7 @@ struct ReceiptRow: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                let formatter = DateFormatter()
-                formatter.dateFormat = "MMM d, yyyy"
-                Text(formatter.string(from: receipt.date))
+                Text(formattedDate)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundColor(.gray)
             }
