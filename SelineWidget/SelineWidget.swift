@@ -35,6 +35,7 @@ struct TaskForWidget: Codable {
     let scheduledTime: Date?
     let isCompleted: Bool
     let tagId: String?
+    let tagName: String?
 }
 
 struct SelineWidgetEntry: TimelineEntry {
@@ -79,7 +80,7 @@ struct SelineWidgetProvider: TimelineProvider {
             location4Latitude: nil,
             location4Longitude: nil,
             todaysTasks: [
-                TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false, tagId: nil)
+                TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false, tagId: nil, tagName: nil)
             ]
         )
     }
@@ -533,7 +534,7 @@ struct SelineWidgetEntryView: View {
                     }
                     .frame(maxWidth: .infinity)
                 } else {
-                    ForEach(uncompletedAndSorted, id: \.id) { task in
+                    ForEach(uncompletedAndSorted.prefix(6), id: \.id) { task in
                         HStack(spacing: 4) {
                             // Colored circle for event status
                             Image(systemName: "circle")
@@ -547,8 +548,8 @@ struct SelineWidgetEntryView: View {
                                         .foregroundColor(textColor)
                                         .lineLimit(1)
 
-                                    if let tagId = task.tagId, !tagId.isEmpty {
-                                        Text(tagId)
+                                    if let tagName = task.tagName, !tagName.isEmpty {
+                                        Text(tagName)
                                             .font(.system(size: 8, weight: .semibold))
                                             .foregroundColor(textColor)
                                             .padding(.horizontal, 4)
