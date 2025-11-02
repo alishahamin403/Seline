@@ -22,11 +22,6 @@ struct CategoryBreakdownView: View {
                     }
 
                     Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.gray)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .padding(16)
             }
@@ -103,13 +98,6 @@ struct CategoryRow: View {
                         Text(categoryStat.formattedPercentage)
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(.gray)
-                    }
-
-                    if !categoryStat.receipts.isEmpty {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.gray)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     }
                 }
                 .padding(16)
