@@ -490,33 +490,27 @@ struct SelineWidgetEntryView: View {
                         }
                     }
 
+                    // Spacer between ETAs and buttons
+                    Spacer()
+                        .frame(height: 16)
+
                     // Buttons
-                    HStack(spacing: 12) {
+                    HStack(spacing: 20) {
                         // Note button
-                        VStack(spacing: 6) {
-                            Image(systemName: "square.and.pencil")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(textColor)
-                            Text("Note")
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundColor(textColor)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .widgetURL(URL(string: "seline://action/createNote"))
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(textColor)
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                            .widgetURL(URL(string: "seline://action/createNote"))
 
                         // Event button
-                        VStack(spacing: 6) {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(textColor)
-                            Text("Event")
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundColor(textColor)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .widgetURL(URL(string: "seline://action/createEvent"))
+                        Image(systemName: "calendar")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(textColor)
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                            .widgetURL(URL(string: "seline://action/createEvent"))
                     }
 
                     Spacer()
