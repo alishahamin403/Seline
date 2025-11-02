@@ -11,6 +11,7 @@ struct MainAppView: View {
     @StateObject private var searchService = SearchService.shared
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var navigationService = NavigationService.shared
+    @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
@@ -318,7 +319,7 @@ struct MainAppView: View {
         mainContentBase
             .onAppear {
                 locationService.requestLocationPermission()
-                taskManager.syncTodaysTasksToWidget()
+                taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {

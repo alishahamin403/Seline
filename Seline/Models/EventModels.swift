@@ -1435,7 +1435,7 @@ class TaskManager: ObservableObject {
             print("✅ Successfully saved \(allTasks.count) tasks to local storage (\(recurringTasks.count) recurring)")
 
             // Sync today's tasks to widget after saving
-            syncTodaysTasksToWidget()
+            syncTodaysTasksToWidget(tags: TagManager.shared.tags)
         } else {
             print("❌ Failed to encode tasks for local storage")
         }
@@ -2567,7 +2567,7 @@ class TaskManager: ObservableObject {
 
     // MARK: - Widget Support
 
-    func syncTodaysTasksToWidget() {
+    func syncTodaysTasksToWidget(tags: [Tag] = []) {
         let today = Date()
         let todaysTasks = getTasksForDate(today)
 
@@ -2582,8 +2582,8 @@ class TaskManager: ObservableObject {
         }
 
         let widgetTasks = todaysTasks.map { task in
-            // Look up tag name if tag exists
-            let tagName = getTag(by: task.tagId)?.name
+            // Look up tag name if tags provided
+            let tagName = tags.first { $0.id == task.tagId }?.name
 
             return WidgetTask(
                 id: task.id,
