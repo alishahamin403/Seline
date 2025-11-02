@@ -1433,6 +1433,9 @@ class TaskManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(allTasks) {
             userDefaults.set(encoded, forKey: tasksKey)
             print("✅ Successfully saved \(allTasks.count) tasks to local storage (\(recurringTasks.count) recurring)")
+
+            // Sync today's tasks to widget after saving
+            syncTodaysTasksToWidget()
         } else {
             print("❌ Failed to encode tasks for local storage")
         }
@@ -2565,7 +2568,8 @@ class TaskManager: ObservableObject {
     // MARK: - Widget Support
 
     func syncTodaysTasksToWidget() {
-        let todaysTasks = getTasksForDate(Date())
+        let today = Date()
+        let todaysTasks = getTasksForDate(today)
 
         // Convert to simple structures that can be encoded
         struct WidgetTask: Codable {
@@ -2580,7 +2584,7 @@ class TaskManager: ObservableObject {
                 id: task.id,
                 title: task.title,
                 scheduledTime: task.scheduledTime,
-                isCompleted: task.isCompletedOn(date: Date())
+                isCompleted: task.isCompletedOn(date: today)
             )
         }
 
@@ -2590,7 +2594,19 @@ class TaskManager: ObservableObject {
         if let encoded = try? encoder.encode(widgetTasks) {
             let userDefaults = UserDefaults(suiteName: "group.seline")
             userDefaults?.set(encoded, forKey: "widgetTodaysTasks")
-            print("✅ Synced \(widgetTasks.count) tasks to widget")
+
+            let calendar = Calendar.current
+            let weekday = calendar.component(.weekday, from: today)
+            let weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            let weekdayName = weekday > 0 && weekday <= weekdayNames.count ? weekdayNames[weekday - 1] : "Unknown"
+
+            print("🔄 Widget sync - \(weekdayName): Found \(todaysTasks.count) tasks for today, encoded \(widgetTasks.count) to UserDefaults")
+            if !widgetTasks.isEmpty {
+                print("   Tasks:")
+                for task in widgetTasks {
+                    print("   - \(task.title) at \(task.scheduledTime?.description ?? "no time")")
+                }
+            }
         }
     }
 }
