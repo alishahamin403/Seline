@@ -2583,7 +2583,7 @@ class TaskManager: ObservableObject {
 
         let widgetTasks = todaysTasks.map { task in
             // Look up tag name if tag exists
-            let tagName = tag(withId: task.tagId ?? "")?.name
+            let tagName = getTag(by: task.tagId)?.name
 
             return WidgetTask(
                 id: task.id,
