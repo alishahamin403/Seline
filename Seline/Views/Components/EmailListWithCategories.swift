@@ -222,7 +222,7 @@ struct ErrorView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
-                    .background(Color.blue)
+                    .background(Color.gray)
                     .clipShape(RoundedRectangle(cornerRadius: ShadcnRadius.md))
             }
             .buttonStyle(PlainButtonStyle())

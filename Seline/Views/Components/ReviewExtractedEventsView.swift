@@ -344,7 +344,7 @@ struct CreateTagSheet: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(tagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color.blue)
+                            .background(tagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color.gray)
                             .cornerRadius(12)
                     }
                     .disabled(tagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -352,7 +352,7 @@ struct CreateTagSheet: View {
                     Button(action: { dismiss() }) {
                         Text("Cancel")
                             .font(.headline)
-                            .foregroundColor(.blue)
+                            .foregroundColor(.gray)
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
                             .background(Color(UIColor.systemGray6))

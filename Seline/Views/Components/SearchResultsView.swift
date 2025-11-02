@@ -123,7 +123,7 @@ struct SearchResultRow: View {
     private var tabColor: Color {
         switch result.item.type {
         case .home:
-            return .blue
+            return .gray
         case .email:
             return .red
         case .events:

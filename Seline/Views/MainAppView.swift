@@ -822,7 +822,7 @@ struct MainAppView: View {
                             Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                                 .font(.system(size: 12))
                                 .foregroundColor(task.isCompleted ?
-                                    (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color(red: 0.20, green: 0.34, blue: 0.40)) :
+                                    (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color.black) :
                                     (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 )
 

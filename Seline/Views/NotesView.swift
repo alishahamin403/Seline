@@ -889,8 +889,8 @@ struct NoteEditView: View {
                     .background(
                         Circle().fill(
                             colorScheme == .dark ?
-                                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                Color(red: 0.20, green: 0.34, blue: 0.40)
+                                Color.white :
+                                Color.black
                         )
                     )
             }
@@ -1060,7 +1060,7 @@ struct NoteEditView: View {
                             .padding(.vertical, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 25)
-                                    .fill(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                    .fill(colorScheme == .dark ? Color.white : Color.black)
                             )
                     }
 
@@ -2319,8 +2319,8 @@ struct FormattingMenuView: View {
                     }
                     .foregroundColor(
                         colorScheme == .dark ?
-                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                            Color.white :
+                            Color.black
                     )
                 }
             }

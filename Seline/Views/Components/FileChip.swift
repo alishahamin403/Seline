@@ -11,7 +11,7 @@ struct FileChip: View {
                 // File icon
                 Image(systemName: attachment.fileTypeIcon)
                     .font(.headline)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.gray)
                     .frame(width: 20)
 
                 // File info

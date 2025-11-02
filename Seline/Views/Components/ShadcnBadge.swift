@@ -12,8 +12,8 @@ enum BadgeVariant {
         switch self {
         case .primary:
             return colorScheme == .dark ?
-                Color(red: 0.40, green: 0.65, blue: 0.80) :
-                Color(red: 0.20, green: 0.34, blue: 0.40)
+                Color.white :
+                Color.black
         case .success:
             return colorScheme == .dark ?
                 Color.green.opacity(0.2) :

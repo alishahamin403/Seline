@@ -170,7 +170,7 @@ struct LoadingOverlay: View {
                 .font(.headline)
 
             HStack(spacing: 20) {
-                ShadcnSpinner(size: .large, color: .blue)
+                ShadcnSpinner(size: .large, color: .gray)
                 ShadcnSpinner(size: .large, color: .green)
                 ShadcnSpinner(size: .large, color: .red)
                 ShadcnSpinner(size: .large, color: .orange)

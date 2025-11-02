@@ -114,7 +114,7 @@ struct FeedbackView: View {
                                 .padding(.vertical, 12)
                         }
                     }
-                    .background(feedbackMessage.trimmingCharacters(in: .whitespaces).isEmpty || isSubmitting ? Color.gray : Color.blue)
+                    .background(feedbackMessage.trimmingCharacters(in: .whitespaces).isEmpty || isSubmitting ? Color.gray : Color.gray)
                     .cornerRadius(8)
                     .disabled(feedbackMessage.trimmingCharacters(in: .whitespaces).isEmpty || isSubmitting)
                 }

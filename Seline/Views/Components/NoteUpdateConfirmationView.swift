@@ -44,7 +44,7 @@ struct NoteUpdateConfirmationView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "doc.text.fill")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.gray)
 
                                 Text(updateData.noteTitle)
                                     .font(.system(size: 16, weight: .semibold))
@@ -56,7 +56,7 @@ struct NoteUpdateConfirmationView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.blue.opacity(0.1))
+                                    .fill(Color.gray.opacity(0.1))
                             )
                         }
 

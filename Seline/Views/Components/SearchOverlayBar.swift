@@ -63,7 +63,7 @@ struct SearchOverlayBar: View {
                 }) {
                     Text("Cancel")
                         .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             }
             .padding(.horizontal, 16)

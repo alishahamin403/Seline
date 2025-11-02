@@ -59,7 +59,7 @@ struct FolderPickerView: View {
                                 if selectedFolderId == nil {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -98,7 +98,7 @@ struct FolderPickerView: View {
                                     if selectedFolderId == item.folder.id {
                                         Image(systemName: "checkmark")
                                             .font(.system(size: 16, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     }
                                 }
                                 .padding(.horizontal, 16)
@@ -118,12 +118,12 @@ struct FolderPickerView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "folder.badge.plus")
                                     .font(.system(size: 20, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .frame(width: 40)
 
                                 Text("New Folder")
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                 Spacer()
                             }
@@ -131,7 +131,7 @@ struct FolderPickerView: View {
                             .padding(.vertical, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80).opacity(0.2) : Color(red: 0.20, green: 0.34, blue: 0.40).opacity(0.1))
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
                             )
                         }
                         .buttonStyle(PlainButtonStyle())

@@ -32,7 +32,7 @@ struct ConversationHistoryView: View {
                 }) {
                     Text(selectedConversationIds.count == searchService.savedConversations.count ? "Deselect All" : "Select All")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             } else {
                 Text("Conversations")
@@ -74,7 +74,7 @@ struct ConversationHistoryView: View {
             }) {
                 Text(isEditMode ? "Done" : "Edit")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             }
         }
         .padding(.horizontal, 16)
@@ -130,7 +130,7 @@ struct ConversationHistoryView: View {
                     if isEditMode {
                         Image(systemName: selectedConversationIds.contains(conversation.id) ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(selectedConversationIds.contains(conversation.id) ? (colorScheme == .dark ? Color(red: 0.40, green: 0.65, blue: 0.80) : Color(red: 0.20, green: 0.34, blue: 0.40)) : Color.gray)
+                            .foregroundColor(selectedConversationIds.contains(conversation.id) ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray)
                             .frame(width: 24)
                     }
 

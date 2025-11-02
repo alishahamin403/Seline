@@ -31,8 +31,8 @@ struct StatsCard: View {
                     .font(.system(size: 36, weight: .bold))
                     .foregroundColor(
                         colorScheme == .dark ?
-                            Color(red: 0.40, green: 0.65, blue: 0.80) :
-                            Color(red: 0.20, green: 0.34, blue: 0.40)
+                            Color.white :
+                            Color.black
                     )
 
                 Text(mainLabel)
@@ -58,8 +58,8 @@ struct StatsCard: View {
                             .trim(from: 0, to: CGFloat(completionPercentage) / 100.0)
                             .stroke(
                                 colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40),
+                                    Color.white :
+                                    Color.black,
                                 style: StrokeStyle(lineWidth: 4, lineCap: .round)
                             )
                             .frame(width: 44, height: 44)
@@ -136,7 +136,7 @@ struct StatsCard: View {
             mainValue: 42,
             mainLabel: "Total Events",
             secondaryStats: [
-                (value: 35, label: "Completed", color: Color(red: 0.40, green: 0.65, blue: 0.80)),
+                (value: 35, label: "Completed", color: Color.white),
                 (value: 7, label: "Incomplete", color: Color.gray.opacity(0.5))
             ],
             showPercentage: true
@@ -147,7 +147,7 @@ struct StatsCard: View {
             mainValue: 156,
             mainLabel: "Total Instances",
             secondaryStats: [
-                (value: 142, label: "Completed", color: Color(red: 0.40, green: 0.65, blue: 0.80)),
+                (value: 142, label: "Completed", color: Color.white),
                 (value: 14, label: "Missed", color: Color.red.opacity(0.7))
             ],
             showPercentage: true

@@ -41,7 +41,7 @@ struct TrashView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "info.circle.fill")
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(.gray)
 
                                 Text("Items are kept for 30 days before permanent deletion")
                                     .font(.system(size: 13, weight: .regular))
@@ -52,7 +52,7 @@ struct TrashView: View {
                             .padding(12)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.blue.opacity(0.15) : Color.blue.opacity(0.1))
+                                    .fill(colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.1))
                             )
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
@@ -278,12 +278,12 @@ struct DeletedNoteRow: View {
                         Text("Restore")
                             .font(.system(size: 14, weight: .semibold))
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(.gray)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(colorScheme == .dark ? Color.blue.opacity(0.2) : Color.blue.opacity(0.1))
+                            .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
                     )
                 }
 
@@ -341,7 +341,7 @@ struct DeletedFolderRow: View {
                 // Folder icon
                 Image(systemName: "folder.fill")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(Color(hex: deletedFolder.color) ?? .blue)
+                    .foregroundColor(Color(hex: deletedFolder.color) ?? .gray)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -378,12 +378,12 @@ struct DeletedFolderRow: View {
                         Text("Restore")
                             .font(.system(size: 14, weight: .semibold))
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(.gray)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(colorScheme == .dark ? Color.blue.opacity(0.2) : Color.blue.opacity(0.1))
+                            .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
                     )
                 }
 

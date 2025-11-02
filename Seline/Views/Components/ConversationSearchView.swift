@@ -207,7 +207,7 @@ struct ConversationSearchView: View {
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(searchService.isWaitingForActionResponse ? Color.blue.opacity(0.5) : Color.gray.opacity(0.3), lineWidth: 1)
+                            .stroke(searchService.isWaitingForActionResponse ? Color.gray.opacity(0.5) : Color.gray.opacity(0.3), lineWidth: 1)
                     )
 
                     Button(action: {
@@ -232,7 +232,7 @@ struct ConversationSearchView: View {
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (searchService.isWaitingForActionResponse ? Color.blue : (colorScheme == .dark ? Color.white : Color.black)))
+                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (searchService.isWaitingForActionResponse ? Color.gray : (colorScheme == .dark ? Color.white : Color.black)))
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)

@@ -230,8 +230,8 @@ struct ViewEventView: View {
                             Image(systemName: "envelope.fill")
                                 .font(.system(size: 16))
                                 .foregroundColor(colorScheme == .dark ?
-                                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                                    Color(red: 0.20, green: 0.34, blue: 0.40))
+                                    Color.white :
+                                    Color.black)
                         }
 
                         VStack(alignment: .leading, spacing: 4) {

@@ -585,7 +585,7 @@ struct TagSelectionSheet: View {
 
 #Preview {
     ZStack {
-        Color.blue
+        Color.gray
             .ignoresSafeArea()
 
         AddEventPopupView(

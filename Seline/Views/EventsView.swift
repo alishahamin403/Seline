@@ -297,7 +297,7 @@ struct EventsView: View {
         if let tagId = tagId, let tag = tagManager.getTag(by: tagId) {
             return tag.color
         }
-        return Color.blue // Personal (default) color
+        return Color.gray // Personal (default) color
     }
 
     // MARK: - Tab Selector

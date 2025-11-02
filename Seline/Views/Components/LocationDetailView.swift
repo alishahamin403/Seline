@@ -418,12 +418,12 @@ struct ReviewCard: View {
                     .clipShape(Circle())
                 } else {
                     Circle()
-                        .fill(Color.blue.opacity(0.2))
+                        .fill(Color.gray.opacity(0.2))
                         .frame(width: 40, height: 40)
                         .overlay(
                             Text(String(review.authorName.prefix(1)))
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.blue)
+                                .foregroundColor(.gray)
                         )
                 }
 

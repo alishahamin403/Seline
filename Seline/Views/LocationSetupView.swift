@@ -30,7 +30,7 @@ struct LocationSetupView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "house.fill")
                             .font(.system(size: 48))
-                            .foregroundColor(colorScheme == .dark ? .blue : .blue.opacity(0.8))
+                            .foregroundColor(colorScheme == .dark ? .gray : .gray.opacity(0.8))
 
                         Text("Set Up Your Locations")
                             .font(.system(size: 24, weight: .bold))
@@ -93,7 +93,7 @@ struct LocationSetupView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(isSetupComplete ? Color.blue : Color.gray.opacity(0.3))
+                            .background(isSetupComplete ? Color.gray : Color.gray.opacity(0.3))
                             .foregroundColor(.white)
                             .cornerRadius(12)
                         }
@@ -243,7 +243,7 @@ struct LocationInput: View {
             HStack {
                 Image(systemName: icon)
                     .font(.system(size: 16))
-                    .foregroundColor(.blue)
+                    .foregroundColor(.gray)
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
             }
@@ -317,7 +317,7 @@ struct LocationInput: View {
                                     HStack(alignment: .top, spacing: 12) {
                                         Image(systemName: "mappin.circle.fill")
                                             .font(.system(size: 16))
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(.gray)
 
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(result.name)

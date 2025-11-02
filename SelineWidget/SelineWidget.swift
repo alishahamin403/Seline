@@ -374,7 +374,7 @@ struct SelineWidgetEntryView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(Color.blue.opacity(0.1))
+                .background(Color.gray.opacity(0.1))
                 .cornerRadius(6)
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createNote"))
@@ -388,7 +388,7 @@ struct SelineWidgetEntryView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(Color.blue.opacity(0.1))
+                .background(Color.gray.opacity(0.1))
                 .cornerRadius(6)
                 .contentShape(Rectangle())
                 .widgetURL(URL(string: "seline://action/createEvent"))

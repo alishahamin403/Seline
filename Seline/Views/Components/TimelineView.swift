@@ -420,8 +420,8 @@ struct TimelineView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .accentColor(colorScheme == .dark ?
-                        Color(red: 0.40, green: 0.65, blue: 0.80) :
-                        Color(red: 0.20, green: 0.34, blue: 0.40))
+                        Color.white :
+                        Color.black)
                     .focused($isTextFieldFocused)
                     .submitLabel(.done)
                     .onSubmit {
@@ -455,8 +455,8 @@ struct TimelineView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(colorScheme == .dark ?
-                    Color(red: 0.40, green: 0.65, blue: 0.80) :
-                    Color(red: 0.20, green: 0.34, blue: 0.40), lineWidth: 1.5)
+                    Color.white :
+                    Color.black, lineWidth: 1.5)
         )
         .offset(y: yPosition(for: timeSlot))
         .transition(.scale.combined(with: .opacity))
