@@ -943,6 +943,10 @@ struct UserLocationPreferences: Codable, Equatable {
     var location3Latitude: Double?
     var location3Longitude: Double?
     var location3Icon: String?
+    var location4Address: String?
+    var location4Latitude: Double?
+    var location4Longitude: Double?
+    var location4Icon: String?
     var isFirstTimeSetup: Bool
 
     // Computed properties for coordinates
@@ -958,6 +962,11 @@ struct UserLocationPreferences: Codable, Equatable {
 
     var location3Coordinate: CLLocationCoordinate2D? {
         guard let lat = location3Latitude, let lon = location3Longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    var location4Coordinate: CLLocationCoordinate2D? {
+        guard let lat = location4Latitude, let lon = location4Longitude else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
@@ -1010,6 +1019,10 @@ struct UserProfileSupabaseData: Codable {
     let location3_latitude: Double?
     let location3_longitude: Double?
     let location3_icon: String?
+    let location4_address: String?
+    let location4_latitude: Double?
+    let location4_longitude: Double?
+    let location4_icon: String?
     let is_first_time_setup: Bool?
 
     func toLocationPreferences() -> UserLocationPreferences {
@@ -1026,6 +1039,10 @@ struct UserProfileSupabaseData: Codable {
         prefs.location3Latitude = location3_latitude
         prefs.location3Longitude = location3_longitude
         prefs.location3Icon = location3_icon ?? "fork.knife"
+        prefs.location4Address = location4_address
+        prefs.location4Latitude = location4_latitude
+        prefs.location4Longitude = location4_longitude
+        prefs.location4Icon = location4_icon
         prefs.isFirstTimeSetup = is_first_time_setup ?? true
         return prefs
     }

@@ -22,6 +22,10 @@ struct UserLocationPreferences: Codable, Equatable {
     var location3Latitude: Double?
     var location3Longitude: Double?
     var location3Icon: String?
+    var location4Address: String?
+    var location4Latitude: Double?
+    var location4Longitude: Double?
+    var location4Icon: String?
     var isFirstTimeSetup: Bool = true
 }
 

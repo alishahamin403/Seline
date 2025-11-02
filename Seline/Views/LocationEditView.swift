@@ -5,6 +5,7 @@ enum LocationSlot {
     case location1
     case location2
     case location3
+    case location4
 }
 
 enum LocationType: String, CaseIterable, Identifiable {

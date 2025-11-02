@@ -11,6 +11,7 @@ class NavigationService: ObservableObject {
     @Published var location1ETA: String?
     @Published var location2ETA: String?
     @Published var location3ETA: String?
+    @Published var location4ETA: String?
     @Published var isLoading = false
     @Published var lastUpdated: Date?
 
@@ -50,8 +51,9 @@ class NavigationService: ObservableObject {
             userDefaults.set(self.location1ETA, forKey: "widgetLocation1ETA")
             userDefaults.set(self.location2ETA, forKey: "widgetLocation2ETA")
             userDefaults.set(self.location3ETA, forKey: "widgetLocation3ETA")
+            userDefaults.set(self.location4ETA, forKey: "widgetLocation4ETA")
             userDefaults.synchronize()
-            print("✅ NavigationService: Saved current ETAs to widget - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---")")
+            print("✅ NavigationService: Saved current ETAs to widget - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---"), L4: \(self.location4ETA ?? "---")")
         } else {
             print("❌ NavigationService: Could not access shared UserDefaults group.seline")
         }
@@ -198,8 +200,8 @@ class NavigationService: ObservableObject {
         return String(format: "%.1f km", kilometers)
     }
 
-    /// Update ETAs for all 3 location slots
-    func updateETAs(currentLocation: CLLocation, location1: CLLocationCoordinate2D?, location2: CLLocationCoordinate2D?, location3: CLLocationCoordinate2D?) async {
+    /// Update ETAs for all 4 location slots
+    func updateETAs(currentLocation: CLLocation, location1: CLLocationCoordinate2D?, location2: CLLocationCoordinate2D?, location3: CLLocationCoordinate2D?, location4: CLLocationCoordinate2D?) async {
         await MainActor.run {
             isLoading = true
         }
@@ -261,6 +263,25 @@ class NavigationService: ObservableObject {
             }
         }
 
+        // Calculate location 4 ETA
+        if let location4 = location4 {
+            do {
+                let result = try await calculateETA(from: currentLocation, to: location4)
+                await MainActor.run {
+                    self.location4ETA = formatETA(result.durationSeconds)
+                }
+            } catch {
+                print("❌ Failed to calculate location 4 ETA: \(error)")
+                await MainActor.run {
+                    self.location4ETA = nil
+                }
+            }
+        } else {
+            await MainActor.run {
+                self.location4ETA = nil
+            }
+        }
+
         await MainActor.run {
             isLoading = false
             lastUpdated = Date()
@@ -270,8 +291,9 @@ class NavigationService: ObservableObject {
                 userDefaults.set(self.location1ETA, forKey: "widgetLocation1ETA")
                 userDefaults.set(self.location2ETA, forKey: "widgetLocation2ETA")
                 userDefaults.set(self.location3ETA, forKey: "widgetLocation3ETA")
+                userDefaults.set(self.location4ETA, forKey: "widgetLocation4ETA")
                 userDefaults.synchronize()
-                print("✅ NavigationService: Saved ETAs to shared UserDefaults - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---")")
+                print("✅ NavigationService: Saved ETAs to shared UserDefaults - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---"), L4: \(self.location4ETA ?? "---")")
             } else {
                 print("❌ NavigationService: Could not access shared UserDefaults group.seline")
             }

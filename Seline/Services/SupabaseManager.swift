@@ -218,6 +218,10 @@ class SupabaseManager: ObservableObject {
             "location3_latitude": preferences.location3Latitude != nil ? .double(preferences.location3Latitude!) : .null,
             "location3_longitude": preferences.location3Longitude != nil ? .double(preferences.location3Longitude!) : .null,
             "location3_icon": preferences.location3Icon != nil ? .string(preferences.location3Icon!) : .null,
+            "location4_address": preferences.location4Address != nil ? .string(preferences.location4Address!) : .null,
+            "location4_latitude": preferences.location4Latitude != nil ? .double(preferences.location4Latitude!) : .null,
+            "location4_longitude": preferences.location4Longitude != nil ? .double(preferences.location4Longitude!) : .null,
+            "location4_icon": preferences.location4Icon != nil ? .string(preferences.location4Icon!) : .null,
             "is_first_time_setup": .bool(preferences.isFirstTimeSetup),
             "updated_at": .string(ISO8601DateFormatter().string(from: Date()))
         ]
