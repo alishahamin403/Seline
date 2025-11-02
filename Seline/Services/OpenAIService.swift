@@ -1468,6 +1468,11 @@ class OpenAIService: ObservableObject {
         - Shopping
         - Other
 
+        IMPORTANT RULES:
+        - Any AI/LLM subscriptions (ChatGPT, Claude, Anthropic, OpenAI, Gemini, etc.) → Services
+        - Any software/app subscriptions → Services
+        - Any cloud service subscriptions → Services
+
         Return ONLY the category name, nothing else.
         """
 
