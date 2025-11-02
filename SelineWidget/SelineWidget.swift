@@ -38,15 +38,19 @@ struct SelineWidgetEntry: TimelineEntry {
     let location1ETA: String?
     let location2ETA: String?
     let location3ETA: String?
+    let location4ETA: String?
     let location1Icon: String
     let location2Icon: String
     let location3Icon: String
+    let location4Icon: String
     let location1Latitude: Double?
     let location1Longitude: Double?
     let location2Latitude: Double?
     let location2Longitude: Double?
     let location3Latitude: Double?
     let location3Longitude: Double?
+    let location4Latitude: Double?
+    let location4Longitude: Double?
     let todaysTasks: [TaskForWidget]
 }
 
@@ -57,15 +61,19 @@ struct SelineWidgetProvider: TimelineProvider {
             location1ETA: "12 min",
             location2ETA: "25 min",
             location3ETA: "8 min",
+            location4ETA: "15 min",
             location1Icon: "house.fill",
             location2Icon: "briefcase.fill",
             location3Icon: "fork.knife",
+            location4Icon: "gym.bag.fill",
             location1Latitude: nil,
             location1Longitude: nil,
             location2Latitude: nil,
             location2Longitude: nil,
             location3Latitude: nil,
             location3Longitude: nil,
+            location4Latitude: nil,
+            location4Longitude: nil,
             todaysTasks: [
                 TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false, tagId: nil)
             ]
@@ -78,15 +86,19 @@ struct SelineWidgetProvider: TimelineProvider {
             location1ETA: "12 min",
             location2ETA: "25 min",
             location3ETA: "8 min",
+            location4ETA: "15 min",
             location1Icon: "house.fill",
             location2Icon: "briefcase.fill",
             location3Icon: "fork.knife",
+            location4Icon: "gym.bag.fill",
             location1Latitude: nil,
             location1Longitude: nil,
             location2Latitude: nil,
             location2Longitude: nil,
             location3Latitude: nil,
             location3Longitude: nil,
+            location4Latitude: nil,
+            location4Longitude: nil,
             todaysTasks: []
         )
         completion(entry)
@@ -100,15 +112,19 @@ struct SelineWidgetProvider: TimelineProvider {
         var location1Icon = "house.fill"
         var location2Icon = "briefcase.fill"
         var location3Icon = "fork.knife"
+        var location4Icon = "gym.bag.fill"
         var location1Lat: Double? = nil
         var location1Lon: Double? = nil
         var location2Lat: Double? = nil
         var location2Lon: Double? = nil
         var location3Lat: Double? = nil
         var location3Lon: Double? = nil
+        var location4Lat: Double? = nil
+        var location4Lon: Double? = nil
         var location1ETA: String? = nil
         var location2ETA: String? = nil
         var location3ETA: String? = nil
+        var location4ETA: String? = nil
 
         // Try to decode UserLocationPreferences from UserDefaults
         if let prefs = loadUserLocationPreferences() {
@@ -129,8 +145,9 @@ struct SelineWidgetProvider: TimelineProvider {
         location1ETA = userDefaults?.string(forKey: "widgetLocation1ETA")
         location2ETA = userDefaults?.string(forKey: "widgetLocation2ETA")
         location3ETA = userDefaults?.string(forKey: "widgetLocation3ETA")
+        location4ETA = userDefaults?.string(forKey: "widgetLocation4ETA")
 
-        print("🟢 Widget: Loaded ETAs from shared UserDefaults - L1: \(location1ETA ?? "---"), L2: \(location2ETA ?? "---"), L3: \(location3ETA ?? "---")")
+        print("🟢 Widget: Loaded ETAs from shared UserDefaults - L1: \(location1ETA ?? "---"), L2: \(location2ETA ?? "---"), L3: \(location3ETA ?? "---"), L4: \(location4ETA ?? "---")")
 
         // Load today's tasks
         let todaysTasks = loadTodaysTasks()
@@ -142,15 +159,19 @@ struct SelineWidgetProvider: TimelineProvider {
             location1ETA: location1ETA,
             location2ETA: location2ETA,
             location3ETA: location3ETA,
+            location4ETA: location4ETA,
             location1Icon: location1Icon,
             location2Icon: location2Icon,
             location3Icon: location3Icon,
+            location4Icon: location4Icon,
             location1Latitude: location1Lat,
             location1Longitude: location1Lon,
             location2Latitude: location2Lat,
             location2Longitude: location2Lon,
             location3Latitude: location3Lat,
             location3Longitude: location3Lon,
+            location4Latitude: location4Lat,
+            location4Longitude: location4Lon,
             todaysTasks: todaysTasks
         )
 
@@ -222,8 +243,8 @@ struct SelineWidgetEntryView: View {
 
     var smallWidgetView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // 3 Location ETAs
-            VStack(alignment: .leading, spacing: 8) {
+            // 4 Location ETAs
+            VStack(alignment: .leading, spacing: 6) {
                 // Location 1
                 Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                     HStack(spacing: 8) {
@@ -295,6 +316,30 @@ struct SelineWidgetEntryView: View {
                     }
                 }
                 .buttonStyle(.plain)
+
+                // Location 4
+                Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                    HStack(spacing: 8) {
+                        Image(systemName: entry.location4Icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 24)
+                            .foregroundColor(textColor)
+
+                        if let eta = entry.location4ETA {
+                            Text(eta)
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(textColor)
+                                .opacity(0.5)
+                        }
+
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
             }
 
             // Action buttons
@@ -336,8 +381,8 @@ struct SelineWidgetEntryView: View {
         HStack(spacing: 12) {
             // Left side - same as small widget content
             VStack(alignment: .leading, spacing: 10) {
-                // 3 Location ETAs (compact)
-                VStack(alignment: .leading, spacing: 6) {
+                // 4 Location ETAs (compact)
+                VStack(alignment: .leading, spacing: 5) {
                     // Location 1
                     Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                         HStack(spacing: 6) {
@@ -392,6 +437,29 @@ struct SelineWidgetEntryView: View {
                                 .frame(width: 20)
 
                             if let eta = entry.location3ETA {
+                                Text(eta)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
+
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    // Location 4
+                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: entry.location4Icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 20)
+
+                            if let eta = entry.location4ETA {
                                 Text(eta)
                                     .font(.system(size: 12, weight: .regular))
                                     .foregroundColor(textColor)
