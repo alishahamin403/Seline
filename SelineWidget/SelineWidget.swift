@@ -556,7 +556,7 @@ struct SelineWidgetEntryView: View {
                                 HStack(spacing: 4) {
                                     Text(task.title)
                                         .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(textColor)
+                                        .foregroundColor(getEventColor(for: task))
                                         .lineLimit(1)
 
                                     if let tagName = task.tagName, !tagName.isEmpty {
