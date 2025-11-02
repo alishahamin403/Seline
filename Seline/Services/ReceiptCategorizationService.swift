@@ -44,6 +44,8 @@ class ReceiptCategorizationService: ObservableObject {
 
     /// Get category breakdown for a list of receipts
     func getCategoryBreakdown(for receipts: [ReceiptStat]) async -> YearlyCategoryBreakdown {
+        print("📊 Starting category breakdown for \(receipts.count) receipts")
+
         // Initialize all categories
         var categoryMap: [String: (total: Double, count: Int)] = [:]
         for category in validCategories {
@@ -52,11 +54,12 @@ class ReceiptCategorizationService: ObservableObject {
 
         var totalAmount: Double = 0
 
-        for receipt in receipts {
+        for (index, receipt) in receipts.enumerated() {
             let category = await categorizeReceipt(receipt.title)
             let current = categoryMap[category] ?? (0, 0)
             categoryMap[category] = (current.total + receipt.amount, current.count + 1)
             totalAmount += receipt.amount
+            print("✓ [\(index + 1)/\(receipts.count)] '\(receipt.title)' → \(category)")
         }
 
         // Convert to CategoryStat array
@@ -68,11 +71,19 @@ class ReceiptCategorizationService: ObservableObject {
                 return CategoryStat(category: category, total: total, count: count)
             }
 
-        return YearlyCategoryBreakdown(
+        let breakdown = YearlyCategoryBreakdown(
             year: Calendar.current.component(.year, from: Date()),
             categories: categoryStats,
             yearlyTotal: totalAmount
         )
+
+        // Log summary
+        print("✅ Category breakdown complete!")
+        for stat in breakdown.sortedCategories {
+            print("   \(stat.category): \(stat.count) receipts = \(CurrencyParser.formatAmount(stat.total))")
+        }
+
+        return breakdown
     }
 
     // MARK: - Caching

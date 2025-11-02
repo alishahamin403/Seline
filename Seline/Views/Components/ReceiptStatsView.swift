@@ -70,12 +70,26 @@ struct ReceiptStatsView: View {
                     .padding(16)
 
                     // Category Breakdown Section
-                    if let breakdown = categoryBreakdown, !breakdown.categories.isEmpty {
+                    if isLoadingCategories {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.9, anchor: .center)
+
+                            Text("Categorizing receipts...")
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(.gray)
+
+                            Spacer()
+                        }
+                        .padding(16)
+                    } else if let breakdown = categoryBreakdown, !breakdown.categories.isEmpty {
                         CategoryBreakdownView(categoryBreakdown: breakdown)
                     }
 
-                    Divider()
-                        .opacity(0.3)
+                    if isLoadingCategories || (categoryBreakdown != nil && !categoryBreakdown!.categories.isEmpty) {
+                        Divider()
+                            .opacity(0.3)
+                    }
 
                     // Monthly breakdown
                     ScrollView(.vertical, showsIndicators: false) {
@@ -144,6 +158,10 @@ struct ReceiptStatsView: View {
         }
         .onChange(of: currentYear) { _ in
             // Reload category breakdown when year changes
+            loadCategoryBreakdown()
+        }
+        .onChange(of: notesManager.notes.count) { _ in
+            // Reload category breakdown when notes are added/removed
             loadCategoryBreakdown()
         }
         .sheet(item: $selectedNote) { note in
