@@ -221,6 +221,10 @@ struct SelineWidgetEntryView: View {
         colorScheme == .dark ? .white : .black
     }
 
+    var buttonBackgroundColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
+    }
+
     private func getEventColor(for task: TaskForWidget) -> Color {
         // Determine color based on task type (synced, tagged, or personal)
         if task.id.hasPrefix("cal_") {
@@ -393,6 +397,7 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location1Icon)
                                 .font(.system(size: 14, weight: .semibold))
                                 .frame(width: 20)
+                                .foregroundColor(textColor)
 
                             if let eta = entry.location1ETA {
                                 Text(eta)
@@ -416,6 +421,7 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location2Icon)
                                 .font(.system(size: 14, weight: .semibold))
                                 .frame(width: 20)
+                                .foregroundColor(textColor)
 
                             if let eta = entry.location2ETA {
                                 Text(eta)
@@ -439,6 +445,7 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location3Icon)
                                 .font(.system(size: 14, weight: .semibold))
                                 .frame(width: 20)
+                                .foregroundColor(textColor)
 
                             if let eta = entry.location3ETA {
                                 Text(eta)
@@ -462,6 +469,7 @@ struct SelineWidgetEntryView: View {
                             Image(systemName: entry.location4Icon)
                                 .font(.system(size: 14, weight: .semibold))
                                 .frame(width: 20)
+                                .foregroundColor(textColor)
 
                             if let eta = entry.location4ETA {
                                 Text(eta)
@@ -495,7 +503,7 @@ struct SelineWidgetEntryView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.1))
+                    .background(buttonBackgroundColor)
                     .cornerRadius(8)
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createNote"))
@@ -511,7 +519,7 @@ struct SelineWidgetEntryView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.1))
+                    .background(buttonBackgroundColor)
                     .cornerRadius(8)
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
