@@ -884,36 +884,67 @@ class SearchService: ObservableObject {
     func generateFinalConversationTitle() async {
         guard conversationHistory.count >= 2 else { return }
 
-        // Get all user messages for context
-        let userMessages = conversationHistory.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
+        // Build conversation context with both user and AI messages
+        var conversationContext = ""
+        for message in conversationHistory {
+            let speaker = message.isUser ? "User" : "Assistant"
+            conversationContext += "\(speaker): \(message.text)\n"
+        }
 
-        guard !userMessages.isEmpty else { return }
+        guard !conversationContext.isEmpty else { return }
 
         do {
-            // Use AI to generate a concise summary title
-            let userPrompt = """
-            Based on this conversation summary, generate a concise 3-5 word title that captures the main topic or action:
-            \(userMessages)
+            // First, create a brief summary of the conversation
+            let summaryPrompt = """
+            Summarize this conversation in 1-2 sentences focusing on the main topic or goal:
 
-            Respond with ONLY the title, no additional text or punctuation.
+            \(conversationContext)
+
+            Respond with ONLY the summary, no additional text.
             """
 
-            let response = try await OpenAIService.shared.generateText(
-                systemPrompt: "You are an expert at creating concise, descriptive conversation titles.",
-                userPrompt: userPrompt,
-                maxTokens: 50,
+            let summaryResponse = try await OpenAIService.shared.generateText(
+                systemPrompt: "You are an expert at creating concise conversation summaries.",
+                userPrompt: summaryPrompt,
+                maxTokens: 100,
                 temperature: 0.5
             )
-            let cleanedTitle = response.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if !cleanedTitle.isEmpty && cleanedTitle.count < 50 {
+            let conversationSummary = summaryResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Now generate a smart title based on the summary
+            let titlePrompt = """
+            Based on this conversation summary, generate a concise 3-6 word title that captures the main topic or action. Make it specific and meaningful:
+
+            Summary: \(conversationSummary)
+
+            Respond with ONLY the title, no additional text, quotes, or punctuation.
+            """
+
+            let titleResponse = try await OpenAIService.shared.generateText(
+                systemPrompt: "You are an expert at creating concise, descriptive, and smart conversation titles that accurately reflect the conversation content.",
+                userPrompt: titlePrompt,
+                maxTokens: 50,
+                temperature: 0.3
+            )
+
+            let cleanedTitle = titleResponse
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\"", with: "")
+                .replacingOccurrences(of: "'", with: "")
+
+            if !cleanedTitle.isEmpty && cleanedTitle.count < 60 && !cleanedTitle.contains("conversation") {
+                conversationTitle = cleanedTitle
+                print("✓ Generated title: \(cleanedTitle)")
+            } else if !cleanedTitle.isEmpty && cleanedTitle.count < 60 {
                 conversationTitle = cleanedTitle
             }
         } catch {
-            // If AI fails, fall back to last user message
-            if let lastUserMessage = conversationHistory.reversed().first(where: { $0.isUser }) {
-                let words = lastUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
+            // If AI fails, fall back to creating a title from first and last user message
+            if let firstMessage = conversationHistory.first(where: { $0.isUser }) {
+                let words = firstMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
                 conversationTitle = String(words.isEmpty ? "Conversation" : words)
+                print("⚠ Fallback title: \(conversationTitle)")
             }
         }
     }
