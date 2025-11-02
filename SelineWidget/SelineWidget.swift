@@ -515,8 +515,8 @@ struct SelineWidgetEntryView: View {
                 Divider()
                     .opacity(0.3)
 
-                // Right side - Today's events (scrollable)
-                VStack(alignment: .leading, spacing: 8) {
+                // Right side - Today's events
+                VStack(alignment: .leading, spacing: 4) {
                     if entry.todaysTasks.isEmpty {
                         VStack(alignment: .center, spacing: 4) {
                             Text("No events")
@@ -525,33 +525,28 @@ struct SelineWidgetEntryView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(entry.todaysTasks, id: \.id) { task in
-                                    HStack(spacing: 6) {
-                                        // Colored circle for event status
-                                        Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(getEventColor(for: task))
+                        ForEach(entry.todaysTasks.prefix(8), id: \.id) { task in
+                            HStack(spacing: 6) {
+                                // Colored circle for event status
+                                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(getEventColor(for: task))
 
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(task.title)
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundColor(textColor)
-                                                .lineLimit(2)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(task.title)
+                                        .font(.system(size: 10, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .lineLimit(1)
 
-                                            if let time = task.scheduledTime {
-                                                Text(formatTime(time))
-                                                    .font(.system(size: 9, weight: .regular))
-                                                    .foregroundColor(textColor.opacity(0.6))
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if let time = task.scheduledTime {
+                                        Text(formatTime(time))
+                                            .font(.system(size: 8, weight: .regular))
+                                            .foregroundColor(textColor.opacity(0.6))
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 2)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
