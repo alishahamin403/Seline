@@ -183,10 +183,10 @@ struct SelineWidgetProvider: TimelineProvider {
             todaysTasks: todaysTasks
         )
 
-        // Generate one entry that updates every 10 minutes for more frequent ETA updates
+        // Generate one entry that updates every 5 minutes for more frequent ETA updates
         entries.append(entry)
 
-        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 600)))
+        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 300)))
         completion(timeline)
     }
 
