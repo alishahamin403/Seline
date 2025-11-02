@@ -516,7 +516,7 @@ struct SelineWidgetEntryView: View {
             Divider()
                 .opacity(0.3)
 
-            // Right side - 60% (Today's uncompleted events, sorted by time)
+            // Right side - 50% (Today's uncompleted events, sorted by time, vertically centered)
             VStack(alignment: .leading, spacing: 4) {
                 let uncompletedAndSorted = entry.todaysTasks
                     .filter { !$0.isCompleted }
@@ -575,8 +575,8 @@ struct SelineWidgetEntryView: View {
 
                 Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .layoutPriority(1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: .leading, vertical: .center))
+            .layoutPriority(0)
         }
         .padding(12)
     }
