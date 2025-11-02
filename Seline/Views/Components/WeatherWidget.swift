@@ -533,7 +533,7 @@ struct NavigationETARow: View {
                     Spacer()
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
