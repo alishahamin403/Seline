@@ -132,7 +132,7 @@ struct WeatherWidget: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(width: (geometry.size.width - 8) * 0.4, alignment: .leading)
+            .frame(width: (geometry.size.width - 8) * 0.4, height: 120, alignment: .leading)
             .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             .cornerRadius(12)
             }
