@@ -424,17 +424,17 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                             VStack(spacing: 0) {
                                 Image(systemName: entry.location1Icon)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(height: 18)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .frame(height: 20)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location1ETA {
                                     Text(eta)
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
@@ -449,17 +449,17 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
                             VStack(spacing: 0) {
                                 Image(systemName: entry.location2Icon)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(height: 18)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .frame(height: 20)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location2ETA {
                                     Text(eta)
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
@@ -477,17 +477,17 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
                             VStack(spacing: 0) {
                                 Image(systemName: entry.location3Icon)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(height: 18)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .frame(height: 20)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location3ETA {
                                     Text(eta)
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
@@ -502,17 +502,17 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
                             VStack(spacing: 0) {
                                 Image(systemName: entry.location4Icon)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(height: 18)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .frame(height: 20)
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location4ETA {
                                     Text(eta)
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 7, weight: .regular))
+                                        .font(.system(size: 8, weight: .regular))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
@@ -530,8 +530,8 @@ struct SelineWidgetEntryView: View {
                     // Note button
                     VStack(spacing: 0) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(height: 18)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(height: 20)
                             .foregroundColor(badgeContentColor)
                     }
                     .frame(maxWidth: .infinity)
@@ -543,8 +543,8 @@ struct SelineWidgetEntryView: View {
                     // Event button
                     VStack(spacing: 0) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(height: 18)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(height: 20)
                             .foregroundColor(badgeContentColor)
                     }
                     .frame(maxWidth: .infinity)
@@ -616,7 +616,7 @@ struct SelineWidgetEntryView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: .leading, vertical: .center))
-            .layoutPriority(0)
+            .layoutPriority(1)
         }
         .padding(14)
     }
