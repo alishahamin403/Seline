@@ -389,6 +389,11 @@ struct SelineWidgetEntryView: View {
                 VStack(alignment: .center, spacing: 10) {
                     Spacer()
 
+                    // Seline icon
+                    Image(systemName: "s.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(textColor)
+
                     // 4 Location ETAs (2x2 grid)
                     VStack(alignment: .center, spacing: 8) {
                         // Row 1
