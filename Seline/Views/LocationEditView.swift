@@ -69,12 +69,14 @@ struct LocationEditView: View {
             case .location1: return "house.fill"
             case .location2: return "briefcase.fill"
             case .location3: return "fork.knife"
+            case .location4: return "plus.circle.fill"
             }
         }
         switch slot {
         case .location1: return prefs.location1Icon ?? "house.fill"
         case .location2: return prefs.location2Icon ?? "briefcase.fill"
         case .location3: return prefs.location3Icon ?? "fork.knife"
+        case .location4: return prefs.location4Icon ?? "plus.circle.fill"
         }
     }
 
@@ -92,6 +94,7 @@ struct LocationEditView: View {
         case .location1: return prefs.location1Address
         case .location2: return prefs.location2Address
         case .location3: return prefs.location3Address
+        case .location4: return prefs.location4Address
         }
     }
 
@@ -347,6 +350,11 @@ struct LocationEditView: View {
             preferences.location3Latitude = selected.latitude
             preferences.location3Longitude = selected.longitude
             preferences.location3Icon = selectedLocationType.icon
+        case .location4:
+            preferences.location4Address = selected.address
+            preferences.location4Latitude = selected.latitude
+            preferences.location4Longitude = selected.longitude
+            preferences.location4Icon = selectedLocationType.icon
         }
 
         onSave(preferences)
@@ -372,6 +380,11 @@ struct LocationEditView: View {
             preferences.location3Latitude = nil
             preferences.location3Longitude = nil
             preferences.location3Icon = "fork.knife"
+        case .location4:
+            preferences.location4Address = nil
+            preferences.location4Latitude = nil
+            preferences.location4Longitude = nil
+            preferences.location4Icon = nil
         }
 
         onSave(preferences)
