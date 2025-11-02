@@ -242,140 +242,144 @@ struct SelineWidgetEntryView: View {
     var body: some View {
         if widgetFamily == .systemSmall {
             smallWidgetView
-                .background(colorScheme == .dark ? Color.black : Color.white)
         } else {
             mediumWidgetView
-                .background(colorScheme == .dark ? Color.black : Color.white)
         }
     }
 
     var smallWidgetView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // 4 Location ETAs
-            VStack(alignment: .leading, spacing: 6) {
-                // Location 1
-                Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                    HStack(spacing: 8) {
-                        Image(systemName: entry.location1Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 24)
-                            .foregroundColor(textColor)
+        ZStack {
+            // Background
+            (colorScheme == .dark ? Color.black : Color.white)
+                .ignoresSafeArea()
 
-                        if let eta = entry.location1ETA {
-                            Text(eta)
-                                .font(.system(size: 13, weight: .regular))
+            VStack(alignment: .leading, spacing: 12) {
+                // 4 Location ETAs
+                VStack(alignment: .leading, spacing: 6) {
+                    // Location 1
+                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                        HStack(spacing: 8) {
+                            Image(systemName: entry.location1Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 24)
                                 .foregroundColor(textColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                                .opacity(0.5)
+
+                            if let eta = entry.location1ETA {
+                                Text(eta)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
+
+                            Spacer()
                         }
-
-                        Spacer()
                     }
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                // Location 2
-                Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                    HStack(spacing: 8) {
-                        Image(systemName: entry.location2Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 24)
-                            .foregroundColor(textColor)
+                    // Location 2
+                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                        HStack(spacing: 8) {
+                            Image(systemName: entry.location2Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 24)
+                                .foregroundColor(textColor)
 
-                        if let eta = entry.location2ETA {
-                            Text(eta)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                                .opacity(0.5)
+                            if let eta = entry.location2ETA {
+                                Text(eta)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
+
+                            Spacer()
                         }
-
-                        Spacer()
                     }
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                // Location 3
-                Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                    HStack(spacing: 8) {
-                        Image(systemName: entry.location3Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 24)
-                            .foregroundColor(textColor)
+                    // Location 3
+                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                        HStack(spacing: 8) {
+                            Image(systemName: entry.location3Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 24)
+                                .foregroundColor(textColor)
 
-                        if let eta = entry.location3ETA {
-                            Text(eta)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                                .opacity(0.5)
+                            if let eta = entry.location3ETA {
+                                Text(eta)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
+
+                            Spacer()
                         }
-
-                        Spacer()
                     }
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                // Location 4
-                Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                    HStack(spacing: 8) {
-                        Image(systemName: entry.location4Icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 24)
-                            .foregroundColor(textColor)
+                    // Location 4
+                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                        HStack(spacing: 8) {
+                            Image(systemName: entry.location4Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 24)
+                                .foregroundColor(textColor)
 
-                        if let eta = entry.location4ETA {
-                            Text(eta)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(textColor)
-                                .opacity(0.5)
+                            if let eta = entry.location4ETA {
+                                Text(eta)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .opacity(0.5)
+                            }
+
+                            Spacer()
                         }
-
-                        Spacer()
                     }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+
+                // Action buttons
+                HStack(spacing: 12) {
+                    // Note button
+                    VStack {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .foregroundColor(textColor)
+                    }
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/createNote"))
+
+                    // Event button
+                    VStack {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .foregroundColor(textColor)
+                    }
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/createEvent"))
+                }
             }
-
-            // Action buttons
-            HStack(spacing: 12) {
-                // Note button
-                VStack {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .foregroundColor(textColor)
-                }
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/createNote"))
-
-                // Event button
-                VStack {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .foregroundColor(textColor)
-                }
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/createEvent"))
-            }
+            .padding(12)
         }
-        .padding(12)
     }
 
     private func googleMapsURL(lat: Double?, lon: Double?) -> URL {
@@ -386,181 +390,188 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        HStack(spacing: 12) {
-            // Left side - same as small widget content
-            VStack(alignment: .leading, spacing: 10) {
-                Spacer()
+        ZStack {
+            // Background
+            (colorScheme == .dark ? Color.black : Color.white)
+                .ignoresSafeArea()
 
-                // 4 Location ETAs (compact)
-                VStack(alignment: .center, spacing: 5) {
-                    // Location 1
-                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                        HStack(spacing: 6) {
-                            Image(systemName: entry.location1Icon)
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 20)
-                                .foregroundColor(textColor)
+            HStack(spacing: 12) {
+                // Left side - same as small widget content
+                VStack(alignment: .leading, spacing: 10) {
+                    Spacer()
 
-                            if let eta = entry.location1ETA {
-                                Text(eta)
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 2
-                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                        HStack(spacing: 6) {
-                            Image(systemName: entry.location2Icon)
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 20)
-                                .foregroundColor(textColor)
-
-                            if let eta = entry.location2ETA {
-                                Text(eta)
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 3
-                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                        HStack(spacing: 6) {
-                            Image(systemName: entry.location3Icon)
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 20)
-                                .foregroundColor(textColor)
-
-                            if let eta = entry.location3ETA {
-                                Text(eta)
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 4
-                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                        HStack(spacing: 6) {
-                            Image(systemName: entry.location4Icon)
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 20)
-                                .foregroundColor(textColor)
-
-                            if let eta = entry.location4ETA {
-                                Text(eta)
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(textColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Buttons
-                HStack(spacing: 16) {
-                    // Note button
-                    VStack(spacing: 6) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(textColor)
-                        Text("Note")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundColor(textColor)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                    .widgetURL(URL(string: "seline://action/createNote"))
-
-                    // Event button
-                    VStack(spacing: 6) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(textColor)
-                        Text("Event")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundColor(textColor)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                    .widgetURL(URL(string: "seline://action/createEvent"))
-                }
-
-                Spacer()
-            }
-
-            Divider()
-                .opacity(0.3)
-
-            // Right side - Today's events
-            VStack(alignment: .leading, spacing: 8) {
-                if entry.todaysTasks.isEmpty {
-                    VStack(alignment: .center, spacing: 4) {
-                        Text("No events")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(textColor.opacity(0.6))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(entry.todaysTasks.prefix(6), id: \.id) { task in
+                    // 4 Location ETAs (compact)
+                    VStack(alignment: .center, spacing: 5) {
+                        // Location 1
+                        Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                             HStack(spacing: 6) {
-                                // Colored circle for event status
-                                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(getEventColor(for: task))
+                                Image(systemName: entry.location1Icon)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 20)
+                                    .foregroundColor(textColor)
 
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(task.title)
-                                        .font(.system(size: 11, weight: .regular))
+                                if let eta = entry.location1ETA {
+                                    Text(eta)
+                                        .font(.system(size: 12, weight: .regular))
                                         .foregroundColor(textColor)
-                                        .lineLimit(2)
-
-                                    if let time = task.scheduledTime {
-                                        Text(formatTime(time))
-                                            .font(.system(size: 9, weight: .regular))
-                                            .foregroundColor(textColor.opacity(0.6))
-                                    }
+                                } else {
+                                    Text("--")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .opacity(0.5)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 2)
                         }
+                        .buttonStyle(.plain)
+
+                        // Location 2
+                        Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: entry.location2Icon)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 20)
+                                    .foregroundColor(textColor)
+
+                                if let eta = entry.location2ETA {
+                                    Text(eta)
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                } else {
+                                    Text("--")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .opacity(0.5)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        // Location 3
+                        Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: entry.location3Icon)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 20)
+                                    .foregroundColor(textColor)
+
+                                if let eta = entry.location3ETA {
+                                    Text(eta)
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                } else {
+                                    Text("--")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .opacity(0.5)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        // Location 4
+                        Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: entry.location4Icon)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 20)
+                                    .foregroundColor(textColor)
+
+                                if let eta = entry.location4ETA {
+                                    Text(eta)
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                } else {
+                                    Text("--")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(textColor)
+                                        .opacity(0.5)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                    // Buttons
+                    HStack(spacing: 16) {
+                        // Note button
+                        VStack(spacing: 6) {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(textColor)
+                            Text("Note")
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundColor(textColor)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .widgetURL(URL(string: "seline://action/createNote"))
+
+                        // Event button
+                        VStack(spacing: 6) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(textColor)
+                            Text("Event")
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundColor(textColor)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .widgetURL(URL(string: "seline://action/createEvent"))
+                    }
+
+                    Spacer()
                 }
 
-                Spacer()
+                Divider()
+                    .opacity(0.3)
+
+                // Right side - Today's events (scrollable)
+                VStack(alignment: .leading, spacing: 8) {
+                    if entry.todaysTasks.isEmpty {
+                        VStack(alignment: .center, spacing: 4) {
+                            Text("No events")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(textColor.opacity(0.6))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(entry.todaysTasks, id: \.id) { task in
+                                    HStack(spacing: 6) {
+                                        // Colored circle for event status
+                                        Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(getEventColor(for: task))
+
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(task.title)
+                                                .font(.system(size: 11, weight: .regular))
+                                                .foregroundColor(textColor)
+                                                .lineLimit(2)
+
+                                            if let time = task.scheduledTime {
+                                                Text(formatTime(time))
+                                                    .font(.system(size: 9, weight: .regular))
+                                                    .foregroundColor(textColor.opacity(0.6))
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 2)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(12)
         }
-        .padding(12)
     }
 
     private func formatTime(_ date: Date) -> String {
