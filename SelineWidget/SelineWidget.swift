@@ -67,7 +67,7 @@ struct SelineWidgetProvider: TimelineProvider {
             location3Latitude: nil,
             location3Longitude: nil,
             todaysTasks: [
-                TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false)
+                TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false, tagId: nil)
             ]
         )
     }
