@@ -1107,7 +1107,9 @@ struct MainAppView: View {
 
             // 60/40 split: Unread Emails and Pinned Notes
             emailAndNotesCards
+                .padding(.top, 0)
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var emailAndNotesCards: some View {
@@ -1122,31 +1124,26 @@ struct MainAppView: View {
                     .frame(width: (geometry.size.width - 8) * 0.4)
             }
         }
-        .frame(height: 220)
+        .frame(maxHeight: .infinity)
         .padding(.horizontal, 12)
     }
 
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
-        VStack(spacing: 0) {
-            // Main content - fixed, no scrolling at page level
-            ZStack(alignment: .top) {
-                mainContentWidgets
-                    .opacity(searchText.isEmpty ? 1 : 0.3)
-                    .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
+        ZStack(alignment: .top) {
+            mainContentWidgets
+                .opacity(searchText.isEmpty ? 1 : 0.3)
+                .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
 
-                // Overlay to dismiss search when tapping outside
-                if !searchText.isEmpty {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            isSearchFocused = false
-                            searchText = ""
-                        }
-                }
+            // Overlay to dismiss search when tapping outside
+            if !searchText.isEmpty {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isSearchFocused = false
+                        searchText = ""
+                    }
             }
-
-            Spacer()
         }
         .background(
             colorScheme == .dark ?

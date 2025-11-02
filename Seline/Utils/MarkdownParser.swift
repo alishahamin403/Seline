@@ -15,7 +15,7 @@ class MarkdownParser {
         // First, clean up all markdown syntax symbols
         var cleanedText = text
 
-        // Remove markdown heading symbols (#) but keep the text
+        // Remove markdown heading symbols (#) at the beginning of lines
         cleanedText = cleanedText.replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
 
         // Convert table pipes to bullet points
@@ -23,6 +23,9 @@ class MarkdownParser {
 
         // Remove table separator dashes (---)
         cleanedText = cleanedText.replacingOccurrences(of: "^[-|\\s]+$", with: "", options: .regularExpression)
+
+        // Remove any remaining # symbols that appear with markdown syntax (e.g., # at start of inline content)
+        cleanedText = cleanedText.replacingOccurrences(of: "(\\n|^)#+\\s+", with: "$1", options: .regularExpression)
 
         let lines = cleanedText.components(separatedBy: .newlines)
 
