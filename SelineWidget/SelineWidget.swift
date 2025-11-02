@@ -393,7 +393,7 @@ struct SelineWidgetEntryView: View {
                     Image("SelineLogo")
                         .resizable()
                         .scaledToFit()
-                        .frame(height: 24)
+                        .frame(height: 28)
 
                     // 4 Location ETAs (2x2 grid)
                     VStack(alignment: .center, spacing: 8) {
