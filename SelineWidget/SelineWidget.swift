@@ -491,27 +491,29 @@ struct SelineWidgetEntryView: View {
                     }
                 }
 
-                // Spacer between ETAs and buttons
-                Spacer()
-                    .frame(height: 12)
-
-                // Buttons
+                // Row 3 - Buttons (same style as ETA rows)
                 HStack(spacing: 12) {
                     // Note button
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(textColor)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .widgetURL(URL(string: "seline://action/createNote"))
+                    VStack(spacing: 4) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(height: 20)
+                            .foregroundColor(textColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/createNote"))
 
                     // Event button
-                    Image(systemName: "calendar")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(textColor)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .widgetURL(URL(string: "seline://action/createEvent"))
+                    VStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(height: 20)
+                            .foregroundColor(textColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/createEvent"))
                 }
 
                 Spacer()
