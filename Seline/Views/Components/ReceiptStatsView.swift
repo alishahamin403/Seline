@@ -4,6 +4,8 @@ struct ReceiptStatsView: View {
     @StateObject private var notesManager = NotesManager.shared
     @State private var currentYear: Int = Calendar.current.component(.year, from: Date())
     @State private var selectedNote: Note? = nil
+    @State private var categoryBreakdown: YearlyCategoryBreakdown? = nil
+    @State private var isLoadingCategories = false
     @Environment(\.colorScheme) var colorScheme
 
     var availableYears: [Int] {
@@ -66,6 +68,11 @@ struct ReceiptStatsView: View {
                         }
                     }
                     .padding(16)
+
+                    // Category Breakdown Section
+                    if let breakdown = categoryBreakdown, !breakdown.categories.isEmpty {
+                        CategoryBreakdownView(categoryBreakdown: breakdown)
+                    }
 
                     Divider()
                         .opacity(0.3)
@@ -132,6 +139,12 @@ struct ReceiptStatsView: View {
             if !availableYears.isEmpty {
                 currentYear = availableYears.first ?? Calendar.current.component(.year, from: Date())
             }
+            // Load category breakdown for current year
+            loadCategoryBreakdown()
+        }
+        .onChange(of: currentYear) { _ in
+            // Reload category breakdown when year changes
+            loadCategoryBreakdown()
         }
         .sheet(item: $selectedNote) { note in
             NavigationView {
@@ -155,6 +168,17 @@ struct ReceiptStatsView: View {
         if let nextYear = availableYears.first(where: { $0 > currentYear }) {
             withAnimation(.easeInOut(duration: 0.2)) {
                 currentYear = nextYear
+            }
+        }
+    }
+
+    private func loadCategoryBreakdown() {
+        isLoadingCategories = true
+        Task {
+            let breakdown = await notesManager.getCategoryBreakdown(for: currentYear)
+            await MainActor.run {
+                categoryBreakdown = breakdown
+                isLoadingCategories = false
             }
         }
     }

@@ -1324,6 +1324,24 @@ class NotesManager: ObservableObject {
         return statistics.map { $0.year }.sorted(by: >)
     }
 
+    /// Get category breakdown for a specific year
+    /// - Parameter year: The year to get category breakdown for
+    /// - Returns: YearlyCategoryBreakdown with categorized receipts
+    func getCategoryBreakdown(for year: Int) async -> YearlyCategoryBreakdown {
+        let yearStats = getReceiptStatistics(year: year)
+        guard let stats = yearStats.first else {
+            // Return empty breakdown if no receipts found
+            return YearlyCategoryBreakdown(year: year, categories: [], yearlyTotal: 0)
+        }
+
+        // Get all receipts from the yearly summary
+        let allReceipts = stats.monthlySummaries.flatMap { $0.receipts }
+
+        // Use ReceiptCategorizationService to get the breakdown
+        let breakdown = await ReceiptCategorizationService.shared.getCategoryBreakdown(for: allReceipts)
+        return breakdown
+    }
+
     // Debug method to print receipt information
     func debugPrintReceipts() {
         guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
