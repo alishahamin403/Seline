@@ -438,6 +438,7 @@ struct SelineWidgetEntryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Today")
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(textColor)
 
                 if entry.todaysTasks.isEmpty {
                     VStack(alignment: .center, spacing: 4) {
@@ -445,31 +446,32 @@ struct SelineWidgetEntryView: View {
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(textColor.opacity(0.6))
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(entry.todaysTasks, id: \.id) { task in
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(task.title)
-                                        .font(.system(size: 11, weight: .regular))
-                                        .foregroundColor(textColor)
-                                        .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(entry.todaysTasks.prefix(6), id: \.id) { task in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(task.title)
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundColor(textColor)
+                                    .lineLimit(2)
 
-                                    if let time = task.scheduledTime {
-                                        Text(formatTime(time))
-                                            .font(.system(size: 9, weight: .regular))
-                                            .foregroundColor(textColor.opacity(0.6))
-                                    }
+                                if let time = task.scheduledTime {
+                                    Text(formatTime(time))
+                                        .font(.system(size: 9, weight: .regular))
+                                        .foregroundColor(textColor.opacity(0.6))
                                 }
-                                .padding(.vertical, 2)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 2)
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
 
                 Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(12)
     }
