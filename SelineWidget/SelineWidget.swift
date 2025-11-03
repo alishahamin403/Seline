@@ -402,7 +402,7 @@ struct SelineWidgetEntryView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(6)
     }
 
     private func googleMapsURL(lat: Double?, lon: Double?) -> URL {
