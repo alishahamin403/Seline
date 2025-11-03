@@ -315,7 +315,7 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                             VStack(spacing: 4) {
                                 Image(systemName: entry.location1Icon)
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location1ETA {
@@ -338,7 +338,7 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
                             VStack(spacing: 4) {
                                 Image(systemName: entry.location2Icon)
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location2ETA {
@@ -364,7 +364,7 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
                             VStack(spacing: 4) {
                                 Image(systemName: entry.location3Icon)
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location3ETA {
@@ -387,7 +387,7 @@ struct SelineWidgetEntryView: View {
                         Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
                             VStack(spacing: 4) {
                                 Image(systemName: entry.location4Icon)
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location4ETA {
