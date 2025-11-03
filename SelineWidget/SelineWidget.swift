@@ -431,7 +431,7 @@ struct SelineWidgetEntryView: View {
                 HStack(spacing: 10) {
                     // Note button
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(badgeContentColor)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
@@ -441,7 +441,7 @@ struct SelineWidgetEntryView: View {
 
                     // Event button
                     Image(systemName: "calendar")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(badgeContentColor)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
