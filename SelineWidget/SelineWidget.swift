@@ -412,21 +412,21 @@ struct SelineWidgetEntryView: View {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(badgeContentColor)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(badgeBackgroundColor))
-                        .contentShape(Rectangle())
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(badgeBackgroundColor))
+                        .contentShape(Circle())
                         .widgetURL(URL(string: "seline://action/createNote"))
 
                     // Event button
                     Image(systemName: "calendar")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(badgeContentColor)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(badgeBackgroundColor))
-                        .contentShape(Rectangle())
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(badgeBackgroundColor))
+                        .contentShape(Circle())
                         .widgetURL(URL(string: "seline://action/createEvent"))
+
+                    Spacer()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
