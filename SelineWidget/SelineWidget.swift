@@ -326,59 +326,53 @@ struct SelineWidgetEntryView: View {
         HStack(spacing: 12) {
             // Left side - 40% (ETAs + buttons)
             VStack(alignment: .leading, spacing: 6) {
-                // 4 Location ETAs (2x2 grid - name + time, no circles)
+                // 4 Location ETAs (2x2 grid - icon on top, time below, no circles)
                 VStack(spacing: 6) {
                     // Row 1 - Locations 1 & 2
                     HStack(spacing: 10) {
                         // Location 1
                         Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                            HStack(spacing: 4) {
-                                Text("Home")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(textColor)
-
-                                Spacer()
+                            VStack(spacing: 4) {
+                                Image(systemName: entry.location1Icon)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location1ETA {
                                     Text(eta)
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                            .frame(height: 28)
+                            .frame(height: 50)
                         }
                         .buttonStyle(.plain)
 
                         // Location 2
                         Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                            HStack(spacing: 4) {
-                                Text("Office")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(textColor)
-
-                                Spacer()
+                            VStack(spacing: 4) {
+                                Image(systemName: entry.location2Icon)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location2ETA {
                                     Text(eta)
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                            .frame(height: 28)
+                            .frame(height: 50)
                         }
                         .buttonStyle(.plain)
                     }
@@ -387,53 +381,47 @@ struct SelineWidgetEntryView: View {
                     HStack(spacing: 10) {
                         // Location 3
                         Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                            HStack(spacing: 4) {
-                                Text("Mom's")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(textColor)
-
-                                Spacer()
+                            VStack(spacing: 4) {
+                                Image(systemName: entry.location3Icon)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location3ETA {
                                     Text(eta)
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                            .frame(height: 28)
+                            .frame(height: 50)
                         }
                         .buttonStyle(.plain)
 
                         // Location 4
                         Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                            HStack(spacing: 4) {
-                                Text("Gym")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(textColor)
-
-                                Spacer()
+                            VStack(spacing: 4) {
+                                Image(systemName: entry.location4Icon)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
 
                                 if let eta = entry.location4ETA {
                                     Text(eta)
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                 } else {
                                     Text("--")
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 9, weight: .semibold))
                                         .foregroundColor(badgeContentColor)
                                         .opacity(0.5)
                                 }
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                            .frame(height: 28)
+                            .frame(height: 50)
                         }
                         .buttonStyle(.plain)
                     }
