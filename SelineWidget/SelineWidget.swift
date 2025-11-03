@@ -268,45 +268,26 @@ struct SelineWidgetEntryView: View {
             Spacer()
 
             // Centered action buttons
-            VStack(spacing: 12) {
-                Text("Quick Actions")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(textColor)
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                HStack(spacing: 12) {
-                    // Note button
-                    VStack(spacing: 4) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-
-                        Text("New Note")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundColor(textColor.opacity(0.8))
-                    }
+            HStack(spacing: 12) {
+                // Note button
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundColor(badgeContentColor)
                     .frame(maxWidth: .infinity)
                     .frame(height: 80)
                     .background(RoundedRectangle(cornerRadius: 12).fill(badgeBackgroundColor))
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createNote"))
 
-                    // Event button
-                    VStack(spacing: 4) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-
-                        Text("New Event")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundColor(textColor.opacity(0.8))
-                    }
+                // Event button
+                Image(systemName: "calendar")
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundColor(badgeContentColor)
                     .frame(maxWidth: .infinity)
                     .frame(height: 80)
                     .background(RoundedRectangle(cornerRadius: 12).fill(badgeBackgroundColor))
                     .contentShape(Rectangle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
-                }
             }
 
             Spacer()
