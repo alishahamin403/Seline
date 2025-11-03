@@ -303,115 +303,105 @@ struct SelineWidgetEntryView: View {
 
     var mediumWidgetView: some View {
         VStack(alignment: .center, spacing: 12) {
-            // Top section - 4 ETAs in 2x2 grid
-            VStack(spacing: 8) {
-                // Row 1
-                HStack(spacing: 8) {
-                    // Location 1
-                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location1Icon)
-                                .font(.system(size: 18, weight: .semibold))
+            // Row 1 - 4 ETAs side by side
+            HStack(spacing: 8) {
+                // Location 1
+                Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                    VStack(spacing: 4) {
+                        Image(systemName: entry.location1Icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(badgeContentColor)
+
+                        if let eta = entry.location1ETA {
+                            Text(eta)
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location1ETA {
-                                Text(eta)
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                        .frame(width: 50, height: 50)
-                        .background(Circle().fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 2
-                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location2Icon)
-                                .font(.system(size: 18, weight: .semibold))
+                        } else {
+                            Text("--")
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location2ETA {
-                                Text(eta)
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
+                                .opacity(0.5)
                         }
-                        .frame(width: 50, height: 50)
-                        .background(Circle().fill(badgeBackgroundColor))
                     }
-                    .buttonStyle(.plain)
-
-                    Spacer()
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(badgeBackgroundColor))
                 }
+                .buttonStyle(.plain)
 
-                // Row 2
-                HStack(spacing: 8) {
-                    // Location 3
-                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location3Icon)
-                                .font(.system(size: 18, weight: .semibold))
+                // Location 2
+                Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                    VStack(spacing: 4) {
+                        Image(systemName: entry.location2Icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(badgeContentColor)
+
+                        if let eta = entry.location2ETA {
+                            Text(eta)
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location3ETA {
-                                Text(eta)
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                        .frame(width: 50, height: 50)
-                        .background(Circle().fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 4
-                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location4Icon)
-                                .font(.system(size: 18, weight: .semibold))
+                        } else {
+                            Text("--")
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location4ETA {
-                                Text(eta)
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
+                                .opacity(0.5)
                         }
-                        .frame(width: 50, height: 50)
-                        .background(Circle().fill(badgeBackgroundColor))
                     }
-                    .buttonStyle(.plain)
-
-                    Spacer()
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(badgeBackgroundColor))
                 }
+                .buttonStyle(.plain)
+
+                // Location 3
+                Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                    VStack(spacing: 4) {
+                        Image(systemName: entry.location3Icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(badgeContentColor)
+
+                        if let eta = entry.location3ETA {
+                            Text(eta)
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+                                .opacity(0.5)
+                        }
+                    }
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(badgeBackgroundColor))
+                }
+                .buttonStyle(.plain)
+
+                // Location 4
+                Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                    VStack(spacing: 4) {
+                        Image(systemName: entry.location4Icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(badgeContentColor)
+
+                        if let eta = entry.location4ETA {
+                            Text(eta)
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+                        } else {
+                            Text("--")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+                                .opacity(0.5)
+                        }
+                    }
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(badgeBackgroundColor))
+                }
+                .buttonStyle(.plain)
             }
 
             Divider()
                 .opacity(0.3)
 
-            // Bottom section - 2 action buttons
+            // Row 2 - 2 action buttons
             HStack(spacing: 12) {
                 Spacer()
 
