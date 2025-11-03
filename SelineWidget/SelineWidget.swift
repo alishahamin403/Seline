@@ -302,10 +302,9 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        HStack(spacing: 12) {
-            // Left side - 40% (ETAs + buttons)
-            VStack(alignment: .leading, spacing: 8) {
-                // 3x2 Grid - 4 ETAs + 2 Buttons in 3 columns, 2 rows
+        VStack(alignment: .center, spacing: 12) {
+            // Top section - 4 ETAs in 2x2 grid
+            VStack(spacing: 8) {
                 // Row 1
                 HStack(spacing: 8) {
                     // Location 1
@@ -354,6 +353,11 @@ struct SelineWidgetEntryView: View {
                     }
                     .buttonStyle(.plain)
 
+                    Spacer()
+                }
+
+                // Row 2
+                HStack(spacing: 8) {
                     // Location 3
                     Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
                         VStack(spacing: 4) {
@@ -376,10 +380,7 @@ struct SelineWidgetEntryView: View {
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
-                }
 
-                // Row 2
-                HStack(spacing: 8) {
                     // Location 4
                     Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
                         VStack(spacing: 4) {
@@ -403,88 +404,39 @@ struct SelineWidgetEntryView: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Note button
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(badgeContentColor)
-                        .frame(width: 50, height: 50)
-                        .background(Circle().fill(badgeBackgroundColor))
-                        .contentShape(Circle())
-                        .widgetURL(URL(string: "seline://action/createNote"))
-
-                    // Event button
-                    Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(badgeContentColor)
-                        .frame(width: 50, height: 50)
-                        .background(Circle().fill(badgeBackgroundColor))
-                        .contentShape(Circle())
-                        .widgetURL(URL(string: "seline://action/createEvent"))
+                    Spacer()
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, -4)
-            .layoutPriority(0)
 
             Divider()
                 .opacity(0.3)
 
-            // Right side - 50% (Today's uncompleted events, sorted by time, vertically centered)
-            VStack(alignment: .leading, spacing: 4) {
-                let uncompletedAndSorted = entry.todaysTasks
-                    .filter { !$0.isCompleted }
-                    .sorted {
-                        let time1 = $0.scheduledTime ?? Date.distantFuture
-                        let time2 = $1.scheduledTime ?? Date.distantFuture
-                        return time1 < time2
-                    }
-
+            // Bottom section - 2 action buttons
+            HStack(spacing: 12) {
                 Spacer()
-                    .frame(height: 8)
 
-                if uncompletedAndSorted.isEmpty {
-                    VStack(alignment: .center, spacing: 4) {
-                        Text("No pending events")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(textColor.opacity(0.6))
-                    }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    ForEach(uncompletedAndSorted.prefix(4), id: \.id) { task in
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Text(task.title)
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundColor(getEventColor(for: task))
-                                    .lineLimit(1)
+                // Note button
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(badgeContentColor)
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(badgeBackgroundColor))
+                    .contentShape(Circle())
+                    .widgetURL(URL(string: "seline://action/createNote"))
 
-                                if let tagName = task.tagName, !tagName.isEmpty {
-                                    Text(tagName)
-                                        .font(.system(size: 8, weight: .semibold))
-                                        .foregroundColor(textColor)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 2)
-                                        .background(Color.white.opacity(0.1))
-                                        .cornerRadius(3)
-                                }
-
-                                Spacer()
-                            }
-
-                            if let time = task.scheduledTime {
-                                Text(formatTime(time))
-                                    .font(.system(size: 8, weight: .regular))
-                                    .foregroundColor(textColor.opacity(0.6))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+                // Event button
+                Image(systemName: "calendar")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(badgeContentColor)
+                    .frame(width: 50, height: 50)
+                    .background(Circle().fill(badgeBackgroundColor))
+                    .contentShape(Circle())
+                    .widgetURL(URL(string: "seline://action/createEvent"))
 
                 Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: Alignment(horizontal: .leading, vertical: .center))
-            .layoutPriority(0)
+
+            Spacer()
         }
         .padding(14)
     }
