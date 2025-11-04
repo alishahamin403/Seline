@@ -159,6 +159,22 @@ class AttachmentService: ObservableObject {
             print("   - note_id: \(noteId.uuidString)")
             print("   - file_name: \(fileName)")
             print("   - storage_path: \(storagePath)")
+
+            // Provide diagnostic information
+            let errorDescription = error.localizedDescription
+            if errorDescription.contains("row-level security policy") {
+                print("\n🔍 RLS POLICY ERROR DETECTED:")
+                print("   The attachment insert is being blocked by a Row-Level Security policy.")
+                print("   This usually means:")
+                print("   1. The note doesn't exist in the database yet")
+                print("   2. The note's user_id doesn't match the authenticated user")
+                print("   3. There's a timing issue - the note write hasn't fully propagated")
+                print("\n   Troubleshooting:")
+                print("   - Ensure the note with ID \(noteId.uuidString) exists")
+                print("   - Verify the authenticated user ID is: \(userId.uuidString)")
+                print("   - The system will retry with a longer delay")
+            }
+
             throw error
         }
 

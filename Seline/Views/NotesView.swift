@@ -1855,6 +1855,33 @@ struct NoteEditView: View {
                         noteIdForUpload = newNote.id
                         shouldUpdateNote = true
                         print("✅ New note created in Supabase: \(newNote.id.uuidString)")
+
+                        // Increase delay significantly to ensure write propagation in Supabase
+                        // This ensures the RLS policy can find the note when inserting the attachment
+                        // (RLS policies need to SELECT from notes table to verify ownership)
+                        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+                        // Verify the note exists before proceeding with attachment
+                        print("📋 Verifying note exists in database...")
+                        do {
+                            let client = await SupabaseManager.shared.getPostgrestClient()
+                            let response: [NoteSupabaseData] = try await client
+                                .from("notes")
+                                .select()
+                                .eq("id", value: newNote.id.uuidString)
+                                .limit(1)
+                                .execute()
+                                .value
+
+                            if response.isEmpty {
+                                print("⚠️ Note saved but not yet visible in database. Trying again...")
+                                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 more second
+                            } else {
+                                print("✅ Note verified in database")
+                            }
+                        } catch {
+                            print("⚠️ Could not verify note: \(error). Proceeding anyway...")
+                        }
                     } else {
                         print("❌ Failed to save new note to Supabase")
                         await MainActor.run {
