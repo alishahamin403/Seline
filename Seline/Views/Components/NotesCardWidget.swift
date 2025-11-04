@@ -117,16 +117,6 @@ struct NotesCardWidget: View {
                     }
 
                     Spacer()
-
-                    if !note.tags.isEmpty {
-                        Text("\\(note.tags.count)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.7))
-                            .cornerRadius(4)
-                    }
                 }
                 .padding(10)
                 .background(
