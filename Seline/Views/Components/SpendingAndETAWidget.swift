@@ -125,7 +125,7 @@ struct SpendingAndETAWidget: View {
                 navigationCard(width: (geometry.size.width - 8) * 0.4)
             }
         }
-        .frame(height: 130)
+        .frame(height: 115)
         .onAppear {
             locationService.requestLocationPermission()
             Task {
@@ -145,16 +145,11 @@ struct SpendingAndETAWidget: View {
     }
 
     private func spendingCard(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Icon only (no header text)
-            Image(systemName: "chart.pie.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white)
-
+        VStack(alignment: .leading, spacing: 6) {
             // Main amount
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(CurrencyParser.formatAmount(monthlyTotal))
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 24, weight: .bold))
                     .foregroundColor(.white)
 
                 // Trend indicator
@@ -162,38 +157,34 @@ struct SpendingAndETAWidget: View {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 10, weight: .semibold))
                     Text("12% from last month")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 11, weight: .regular))
                 }
                 .foregroundColor(Color(red: 0.4, green: 0.9, blue: 0.4))
             }
 
-            // Category breakdown
-            VStack(spacing: 6) {
-                ForEach(categoryBreakdown.prefix(3), id: \.category) { item in
-                    HStack(spacing: 6) {
-                        Text(categoryIcon(item.category))
-                            .font(.system(size: 12))
+            // Top category only
+            if let topCategory = categoryBreakdown.first {
+                HStack(spacing: 6) {
+                    Text(categoryIcon(topCategory.category))
+                        .font(.system(size: 12))
 
-                        Text(item.category)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white)
+                    Text(topCategory.category)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white)
 
-                        Spacer()
+                    Spacer()
 
-                        Text(String(format: "%.0f%%", item.percentage))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.7))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(categoryColor(item.category).opacity(0.3))
-                    .cornerRadius(6)
+                    Text(String(format: "%.0f%%", topCategory.percentage))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(categoryColor(topCategory.category).opacity(0.3))
+                .cornerRadius(6)
             }
-
-            Spacer()
         }
-        .padding(12)
+        .padding(10)
         .frame(width: width)
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -203,14 +194,6 @@ struct SpendingAndETAWidget: View {
 
     private func navigationCard(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // Icon only (no header text)
-            Image(systemName: "location.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
             // ETA Rows
             VStack(spacing: 0) {
                 // Location 1
@@ -297,8 +280,7 @@ struct SpendingAndETAWidget: View {
                     }
                 )
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 8)
+            .padding(10)
         }
         .frame(width: width)
         .background(
