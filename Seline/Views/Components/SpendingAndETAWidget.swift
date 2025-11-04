@@ -94,6 +94,27 @@ struct SpendingAndETAWidget: View {
         }
     }
 
+    private func updateETAs() {
+        guard let preferences = locationPreferences else { return }
+
+        if locationService.currentLocation == nil {
+            locationService.requestLocationPermission()
+            return
+        }
+
+        guard let currentLocation = locationService.currentLocation else { return }
+
+        Task {
+            await navigationService.updateETAs(
+                currentLocation: currentLocation,
+                location1: preferences.location1Coordinate,
+                location2: preferences.location2Coordinate,
+                location3: preferences.location3Coordinate,
+                location4: preferences.location4Coordinate
+            )
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 8) {
@@ -106,32 +127,29 @@ struct SpendingAndETAWidget: View {
         }
         .frame(height: 130)
         .onAppear {
+            locationService.requestLocationPermission()
             Task {
                 do {
                     locationPreferences = try await supabaseManager.loadLocationPreferences()
+                    updateETAs()
                 } catch {
                     print("Failed to load location preferences: \(error)")
                 }
             }
         }
+        .onChange(of: locationService.currentLocation) { location in
+            if let location = location {
+                updateETAs()
+            }
+        }
     }
 
     private func spendingCard(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Header
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-
-                    Text("MONTHLY SPENDING")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            // Icon only (no header text)
+            Image(systemName: "chart.pie.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
 
             // Main amount
             VStack(alignment: .leading, spacing: 4) {
@@ -185,20 +203,13 @@ struct SpendingAndETAWidget: View {
 
     private func navigationCard(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 4) {
-                Image(systemName: "location.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.white)
-
-                Text("NAVIGATION")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            // Icon only (no header text)
+            Image(systemName: "location.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             // ETA Rows
             VStack(spacing: 0) {
