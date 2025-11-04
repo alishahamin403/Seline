@@ -239,12 +239,8 @@ struct MapsViewNew: View, Searchable {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
             // Request location permission for nearby suggestions
             locationService.requestLocationPermission()
-            // Load nearby places with ETA
+            // Load nearby places with ETA (which will also refresh their opening hours)
             loadNearbyPlaces()
-            // Refresh opening hours for places (will be skipped if already done in this session)
-            Task {
-                await locationsManager.refreshOpeningHoursForAllPlaces()
-            }
         }
         .onChange(of: selectedTimeMinutes) { _ in
             loadNearbyPlaces()
@@ -304,6 +300,9 @@ struct MapsViewNew: View, Searchable {
                 maxTravelTimeMinutes: selectedTimeMinutes,
                 category: selectedSuggestionCategory
             )
+
+            // Only refresh opening hours for the nearby places being shown
+            await locationsManager.refreshOpeningHours(for: places)
 
             await MainActor.run {
                 nearbyPlaces = places
@@ -727,6 +726,11 @@ struct FolderOverlayView: View {
         .onAppear {
             // Capture screenshot when view appears
             backgroundImage = captureScreen()
+
+            // Only refresh opening hours for places in this specific folder
+            Task {
+                await locationsManager.refreshOpeningHours(for: places)
+            }
         }
         .alert("Rename Place", isPresented: $showingRenameAlert) {
             TextField("Place name", text: $newPlaceName)

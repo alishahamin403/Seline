@@ -926,6 +926,46 @@ class LocationsManager: ObservableObject {
             await updatePlaceInSupabase(place)
         }
     }
+
+    /// Refresh opening hours for a specific set of places (e.g., nearby places or folder contents)
+    /// This avoids refreshing all places and only updates the ones being viewed
+    func refreshOpeningHours(for places: [SavedPlace]) async {
+        guard !places.isEmpty else { return }
+
+        print("🔄 Refreshing opening hours for \(places.count) specific places...")
+
+        for place in places {
+            do {
+                // Fetch updated details from Google Places API
+                let placeDetails = try await GoogleMapsService.shared.getPlaceDetails(placeId: place.googlePlaceId, minimizeFields: true)
+
+                // Update the saved place in our main array
+                if let index = savedPlaces.firstIndex(where: { $0.id == place.id }) {
+                    savedPlaces[index].isOpenNow = placeDetails.isOpenNow
+                    savedPlaces[index].openingHours = placeDetails.openingHours
+                }
+
+                print("✅ Updated opening hours for: \(place.name)")
+
+                // Small delay to avoid rate limiting
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+            } catch {
+                print("⚠️ Failed to refresh opening hours for \(place.name): \(error)")
+            }
+        }
+
+        // Save updated data
+        await MainActor.run {
+            savePlacesToStorage()
+        }
+
+        // Sync updated places to Supabase
+        for place in places {
+            if let updatedPlace = savedPlaces.first(where: { $0.id == place.id }) {
+                await updatePlaceInSupabase(updatedPlace)
+            }
+        }
+    }
 }
 
 // MARK: - User Location Preferences
