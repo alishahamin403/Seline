@@ -219,8 +219,8 @@ class ReceiptCategorizationService: ObservableObject {
 
             print("✅ Saved category to Supabase: \(title) → \(category)")
         } catch {
-            // Silently fail - local cache is the source of truth
-            // Supabase sync is an optimization for future logins
+            print("❌ Failed to save category to Supabase: \(error)")
+            // Local cache is the source of truth; Supabase sync is an optimization
         }
     }
 }
