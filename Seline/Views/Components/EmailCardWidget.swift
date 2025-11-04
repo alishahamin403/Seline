@@ -223,7 +223,7 @@ struct EmailCardWidget: View {
 
                 Spacer()
 
-                Button(action: { selectedTab = .emails }) {
+                Button(action: { selectedTab = .email }) {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
@@ -331,7 +331,7 @@ struct EmailCardWidget: View {
                                 }
 
                                 if unreadEmails.count > 3 {
-                                    Button(action: { selectedTab = .emails }) {
+                                    Button(action: { selectedTab = .email }) {
                                         Text("+ \\(unreadEmails.count - 3) more emails")
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
