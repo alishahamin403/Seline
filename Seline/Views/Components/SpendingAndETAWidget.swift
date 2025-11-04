@@ -13,6 +13,7 @@ struct SpendingAndETAWidget: View {
     @State private var locationPreferences: UserLocationPreferences?
     @State private var showLocationSetup = false
     @State private var setupLocationSlot: LocationSlot?
+    @State private var showReceiptStats = false
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -142,54 +143,60 @@ struct SpendingAndETAWidget: View {
                 updateETAs()
             }
         }
+        .sheet(isPresented: $showReceiptStats) {
+            ReceiptStatsView()
+        }
     }
 
     private func spendingCard(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Main amount
-            VStack(alignment: .leading, spacing: 2) {
-                Text(CurrencyParser.formatAmount(monthlyTotal))
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
-
-                // Trend indicator
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("12% from last month")
-                        .font(.system(size: 11, weight: .regular))
-                }
-                .foregroundColor(Color(red: 0.4, green: 0.9, blue: 0.4))
-            }
-
-            // Top category only
-            if let topCategory = categoryBreakdown.first {
-                HStack(spacing: 6) {
-                    Text(categoryIcon(topCategory.category))
-                        .font(.system(size: 12))
-
-                    Text(topCategory.category)
-                        .font(.system(size: 10, weight: .medium))
+        Button(action: { showReceiptStats = true }) {
+            VStack(alignment: .leading, spacing: 6) {
+                // Main amount
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(CurrencyParser.formatAmount(monthlyTotal))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundColor(.white)
 
-                    Spacer()
-
-                    Text(String(format: "%.0f%%", topCategory.percentage))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
+                    // Trend indicator
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("12% from last month")
+                            .font(.system(size: 11, weight: .regular))
+                    }
+                    .foregroundColor(Color(red: 0.4, green: 0.9, blue: 0.4))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(categoryColor(topCategory.category).opacity(0.3))
-                .cornerRadius(6)
+
+                // Top category only
+                if let topCategory = categoryBreakdown.first {
+                    HStack(spacing: 6) {
+                        Text(categoryIcon(topCategory.category))
+                            .font(.system(size: 12))
+
+                        Text(topCategory.category)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        Text(String(format: "%.0f%%", topCategory.percentage))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(categoryColor(topCategory.category).opacity(0.3))
+                    .cornerRadius(6)
+                }
             }
+            .padding(10)
+            .frame(width: width)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            )
         }
-        .padding(10)
-        .frame(width: width)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-        )
+        .buttonStyle(PlainButtonStyle())
     }
 
     private func navigationCard(width: CGFloat) -> some View {
