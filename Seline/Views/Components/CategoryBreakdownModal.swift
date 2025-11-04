@@ -17,67 +17,55 @@ struct CategoryBreakdownModal: View {
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(monthName)
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(.primary)
+        VStack(spacing: 0) {
+            // Header
+            VStack(alignment: .leading, spacing: 8) {
+                Text(monthName)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.primary)
 
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Total Spending")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(.gray)
-                            Text(CurrencyParser.formatAmount(monthlyTotal))
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.primary)
-                        }
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Total Spending")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.gray)
+                        Text(CurrencyParser.formatAmount(monthlyTotal))
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.primary)
+                    }
 
-                        Spacer()
+                    Spacer()
 
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("Categories")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(.gray)
-                            Text("\(categoryBreakdown.count)")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.primary)
-                        }
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("Categories")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.gray)
+                        Text("\(categoryBreakdown.count)")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.primary)
+                    }
+                }
+            }
+            .padding(16)
+            .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
+
+            Divider()
+                .opacity(0.3)
+
+            // Category breakdown list
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 12) {
+                    ForEach(Array(categoryBreakdown.enumerated()), id: \.element.category) { index, item in
+                        CategoryBreakdownItem(
+                            category: item.category,
+                            total: item.total,
+                            count: item.count,
+                            percentage: monthlyTotal > 0 ? (item.total / monthlyTotal) * 100 : 0,
+                            receipts: item.receipts
+                        )
                     }
                 }
                 .padding(16)
-                .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
-
-                Divider()
-                    .opacity(0.3)
-
-                // Category breakdown list
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        ForEach(Array(categoryBreakdown.enumerated()), id: \.element.category) { index, item in
-                            CategoryBreakdownItem(
-                                category: item.category,
-                                total: item.total,
-                                count: item.count,
-                                percentage: monthlyTotal > 0 ? (item.total / monthlyTotal) * 100 : 0,
-                                receipts: item.receipts
-                            )
-                        }
-                    }
-                    .padding(16)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(.gray)
-                    }
-                }
             }
         }
     }
