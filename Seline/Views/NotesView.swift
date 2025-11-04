@@ -1862,6 +1862,13 @@ struct NoteEditView: View {
                     if saved {
                         noteIdForUpload = newNote.id
                         shouldUpdateNote = true
+
+                        // CRITICAL: Update self.note so subsequent saves don't create duplicates
+                        // This marks the note as "existing" in the local state
+                        await MainActor.run {
+                            self.note = newNote
+                        }
+
                         print("✅ New note created in Supabase: \(newNote.id.uuidString)")
 
                         // Increase delay significantly to ensure write propagation in Supabase
@@ -1953,6 +1960,8 @@ struct NoteEditView: View {
                         // Update UI on main thread
                         await MainActor.run {
                             self.attachment = uploadedAttachment
+                            // CRITICAL: Update self.note to reflect the attachment
+                            self.note = noteToUpdate
                             HapticManager.shared.success()
                             print("✅ Note updated with attachment")
                         }
