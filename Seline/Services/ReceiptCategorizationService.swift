@@ -7,12 +7,28 @@ class ReceiptCategorizationService: ObservableObject {
     private let openAIService = OpenAIService.shared
     private let userDefaults = UserDefaults.standard
     private let categoryCache = NSMutableDictionary()
-    private let categoryKey = "receiptCategories"
+    private var currentUserId: String = ""
 
     private let validCategories = ["Food", "Services", "Transportation", "Healthcare", "Entertainment", "Shopping", "Other"]
 
     private init() {
         loadCategoryCache()
+    }
+
+    // MARK: - User Management
+
+    /// Set the current user ID for cache isolation
+    func setCurrentUser(_ userId: String) {
+        currentUserId = userId
+        loadCategoryCache()
+    }
+
+    /// Get the user-specific cache key
+    private func getCacheKey() -> String {
+        if currentUserId.isEmpty {
+            return "receiptCategories"
+        }
+        return "receiptCategories_\(currentUserId)"
     }
 
     // MARK: - Categorization
@@ -109,11 +125,13 @@ class ReceiptCategorizationService: ObservableObject {
 
     private func saveCategoryCache() {
         let dictionary = categoryCache.copy() as! [String: String]
-        userDefaults.set(dictionary, forKey: categoryKey)
+        userDefaults.set(dictionary, forKey: getCacheKey())
     }
 
     private func loadCategoryCache() {
-        if let cached = userDefaults.dictionary(forKey: categoryKey) as? [String: String] {
+        categoryCache.removeAllObjects()
+        let cacheKey = getCacheKey()
+        if let cached = userDefaults.dictionary(forKey: cacheKey) as? [String: String] {
             for (key, value) in cached {
                 categoryCache[key] = value
             }
@@ -122,6 +140,12 @@ class ReceiptCategorizationService: ObservableObject {
 
     func clearCache() {
         categoryCache.removeAllObjects()
-        userDefaults.removeObject(forKey: categoryKey)
+        userDefaults.removeObject(forKey: getCacheKey())
+    }
+
+    /// Clear cache for a specific user (used during logout)
+    func clearCacheForUser(_ userId: String) {
+        let userCacheKey = "receiptCategories_\(userId)"
+        userDefaults.removeObject(forKey: userCacheKey)
     }
 }

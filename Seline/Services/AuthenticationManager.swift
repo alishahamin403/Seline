@@ -35,6 +35,9 @@ class AuthenticationManager: ObservableObject {
             // Initialize encryption with restored user ID
             EncryptionManager.shared.setupEncryption(with: session.user.id)
 
+            // Set user for receipt cache isolation
+            ReceiptCategorizationService.shared.setCurrentUser(session.user.id)
+
             // Try to restore Google Sign-In state
             GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
                 Task { @MainActor in
@@ -106,6 +109,9 @@ class AuthenticationManager: ObservableObject {
             // Initialize encryption with user's UUID
             EncryptionManager.shared.setupEncryption(with: supabaseUser.id)
 
+            // Set user for receipt cache isolation
+            ReceiptCategorizationService.shared.setCurrentUser(supabaseUser.id)
+
             print("✅ Google Sign-In Success: \(result.user.profile?.email ?? "No email")")
             print("✅ Supabase User Created: \(supabaseUser.id)")
             print("✅ End-to-End Encryption Enabled")
@@ -149,6 +155,9 @@ class AuthenticationManager: ObservableObject {
         errorMessage = nil
 
         do {
+            // Capture user ID before clearing for cache cleanup
+            let userIdToClean = supabaseUser?.id
+
             // Sign out from Supabase
             try await supabaseManager.signOut()
 
@@ -158,6 +167,11 @@ class AuthenticationManager: ObservableObject {
             // Clear encryption key
             EncryptionManager.shared.clearEncryption()
 
+            // Clear receipt categorization cache for this user
+            if let userId = userIdToClean {
+                ReceiptCategorizationService.shared.clearCacheForUser(userId)
+            }
+
             // Clear tasks and set authentication state
             TaskManager.shared.clearTasksOnLogout()
             self.isAuthenticated = false
@@ -165,6 +179,7 @@ class AuthenticationManager: ObservableObject {
             self.supabaseUser = nil
 
             print("✅ Encryption key cleared on logout")
+            print("✅ Receipt cache cleared for user")
 
         } catch {
             errorMessage = "Sign out failed: \(error.localizedDescription)"
