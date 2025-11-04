@@ -208,13 +208,10 @@ class ReceiptCategorizationService: ObservableObject {
                 created_at: ISO8601DateFormatter().string(from: Date())
             )
 
-            // Encode using JSONEncoder for type-safe encoding
-            let encoder = JSONEncoder()
-            let jsonData = try encoder.encode([record])
-
+            // Pass the Codable object directly to upsert (PostgrestClient handles encoding)
             try await client
                 .from("receipt_categories")
-                .upsert(jsonData)
+                .upsert([record])
                 .execute()
 
             print("✅ Saved category to Supabase: \(title) → \(category)")
