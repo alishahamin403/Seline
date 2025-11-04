@@ -181,7 +181,9 @@ class ReceiptCategorizationService: ObservableObject {
                 categoryCache[category.receipt_title] = category.category
             }
 
-            print("✅ Loaded \(categories.count) categories from Supabase")
+            if !categories.isEmpty {
+                print("✅ Loaded \(categories.count) categories from Supabase")
+            }
         } catch {
             print("⚠️ Failed to load categories from Supabase: \(error)")
             // Silently fail - use local cache if available
@@ -194,6 +196,8 @@ class ReceiptCategorizationService: ObservableObject {
 
         do {
             let client = await supabaseManager.getPostgrestClient()
+
+            // Create record for Supabase
             let record = ReceiptCategoryRecord(
                 id: UUID().uuidString,
                 user_id: currentUserId,
@@ -202,12 +206,13 @@ class ReceiptCategorizationService: ObservableObject {
                 created_at: ISO8601DateFormatter().string(from: Date())
             )
 
+            // Encode record array to JSON data (upsert expects array)
             let encoder = JSONEncoder()
-            let data = try encoder.encode(record)
+            let jsonData = try encoder.encode([record])
 
             try await client
                 .from("receipt_categories")
-                .upsert(data)
+                .upsert(jsonData)
                 .execute()
 
             print("✅ Saved category to Supabase: \(title) → \(category)")
