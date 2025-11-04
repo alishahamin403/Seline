@@ -131,8 +131,8 @@ struct EventsCardWidget: View {
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.9))
                                             .lineLimit(1)
 
-                                        if !next.description.isEmpty {
-                                            Text(next.description)
+                                        if !(next.description?.isEmpty ?? true) {
+                                            Text(next.description ?? "")
                                                 .font(.system(size: 11, weight: .regular))
                                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                                 .lineLimit(1)
