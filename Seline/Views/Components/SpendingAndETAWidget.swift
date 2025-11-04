@@ -34,32 +34,32 @@ struct SpendingAndETAWidget: View {
         }.reduce(0) { $0 + $1.monthlyTotal }
     }
 
-    private var categoryBreakdown: [(category: String, amount: Double, percentage: Double)] {
-        guard let stats = currentYearStats else { return [] }
+    private var previousMonthTotal: Double {
+        guard let stats = currentYearStats else { return 0 }
         let calendar = Calendar.current
         let now = Date()
         let currentMonth = calendar.component(.month, from: now)
+        let previousMonth = currentMonth - 1
+        let previousYear = previousMonth <= 0 ? calendar.component(.year, from: now) - 1 : calendar.component(.year, from: now)
+        let adjustedPreviousMonth = previousMonth <= 0 ? 12 : previousMonth
 
-        var categoryTotals: [String: Double] = [:]
+        return stats.monthlySummaries.filter { summary in
+            let month = calendar.component(.month, from: summary.monthDate)
+            let year = calendar.component(.year, from: summary.monthDate)
+            return month == adjustedPreviousMonth && year == previousYear
+        }.reduce(0) { $0 + $1.monthlyTotal }
+    }
 
-        // Get all receipts for current month from monthly summaries
-        for monthlySummary in stats.monthlySummaries {
-            let month = calendar.component(.month, from: monthlySummary.monthDate)
-            if month == currentMonth {
-                for receipt in monthlySummary.receipts {
-                    let current = categoryTotals[receipt.category] ?? 0
-                    categoryTotals[receipt.category] = current + receipt.amount
-                }
-            }
-        }
+    private var monthOverMonthPercentage: (percentage: Double, isIncrease: Bool) {
+        guard previousMonthTotal > 0 else { return (0, false) }
+        let change = ((monthlyTotal - previousMonthTotal) / previousMonthTotal) * 100
+        return (abs(change), change >= 0)
+    }
 
-        // Convert to sorted array with percentages
-        let total = categoryTotals.values.reduce(0, +)
-        return categoryTotals
-            .map { (category: $0.key, amount: $0.value, percentage: total > 0 ? ($0.value / total) * 100 : 0) }
-            .sorted { $0.amount > $1.amount }
-            .prefix(5)
-            .map { $0 }
+    @State private var categoryBreakdownCache: [(category: String, amount: Double, percentage: Double)] = []
+
+    private var categoryBreakdown: [(category: String, amount: Double, percentage: Double)] {
+        return categoryBreakdownCache
     }
 
     private func categoryIcon(_ category: String) -> String {
@@ -116,15 +116,55 @@ struct SpendingAndETAWidget: View {
         }
     }
 
+    private func updateCategoryBreakdown() {
+        Task {
+            guard let stats = currentYearStats else { return }
+            let calendar = Calendar.current
+            let now = Date()
+            let currentMonth = calendar.component(.month, from: now)
+            let currentYear = calendar.component(.year, from: now)
+
+            // Get all receipts for current month and year
+            var monthReceipts: [ReceiptStat] = []
+            for monthlySummary in stats.monthlySummaries {
+                let month = calendar.component(.month, from: monthlySummary.monthDate)
+                let year = calendar.component(.year, from: monthlySummary.monthDate)
+                if month == currentMonth && year == currentYear {
+                    monthReceipts.append(contentsOf: monthlySummary.receipts)
+                }
+            }
+
+            // Categorize receipts using the service
+            var categoryTotals: [String: Double] = [:]
+            for receipt in monthReceipts {
+                let category = await ReceiptCategorizationService.shared.categorizeReceipt(receipt.title)
+                let current = categoryTotals[category] ?? 0
+                categoryTotals[category] = current + receipt.amount
+            }
+
+            // Convert to sorted array with percentages
+            let total = categoryTotals.values.reduce(0, +)
+            let result = categoryTotals
+                .map { (category: $0.key, amount: $0.value, percentage: total > 0 ? ($0.value / total) * 100 : 0) }
+                .sorted { $0.amount > $1.amount }
+                .prefix(5)
+                .map { $0 }
+
+            DispatchQueue.main.async {
+                self.categoryBreakdownCache = result
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 HStack(spacing: 12) {
                     // Spending Card (60%)
-                    spendingCard(width: (geometry.size.width - 12) * 0.6)
+                    spendingCard(width: (geometry.size.width - 36) * 0.6)
 
                     // Navigation Card (40%)
-                    navigationCard(width: (geometry.size.width - 12) * 0.4)
+                    navigationCard(width: (geometry.size.width - 36) * 0.4)
                 }
                 .padding(.horizontal, 12)
             }
@@ -132,6 +172,7 @@ struct SpendingAndETAWidget: View {
         .frame(height: 115)
         .onAppear {
             locationService.requestLocationPermission()
+            updateCategoryBreakdown()
             Task {
                 do {
                     locationPreferences = try await supabaseManager.loadLocationPreferences()
@@ -146,6 +187,9 @@ struct SpendingAndETAWidget: View {
                 updateETAs()
             }
         }
+        .onChange(of: notesManager.notes.count) { _ in
+            updateCategoryBreakdown()
+        }
         .sheet(isPresented: $showReceiptStats) {
             ReceiptStatsView()
         }
@@ -158,20 +202,20 @@ struct SpendingAndETAWidget: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(CurrencyParser.formatAmount(monthlyTotal))
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     // Trend indicator
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.right")
+                        Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
                             .font(.system(size: 10, weight: .semibold))
-                        Text("12% from last month")
+                        Text(String(format: "%.0f%% %@ last month", monthOverMonthPercentage.percentage, monthOverMonthPercentage.isIncrease ? "more than" : "less than"))
                             .font(.system(size: 11, weight: .regular))
                     }
-                    .foregroundColor(Color(red: 0.4, green: 0.9, blue: 0.4))
+                    .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
                 }
 
                 // Top category only
-                if let topCategory = categoryBreakdown.first, topCategory.category != "Other" {
+                if let topCategory = categoryBreakdown.first {
                     HStack(spacing: 6) {
                         Text(categoryIcon(topCategory.category))
                             .font(.system(size: 12))
@@ -179,18 +223,18 @@ struct SpendingAndETAWidget: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(topCategory.category)
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(.white)
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
 
                             Text(CurrencyParser.formatAmount(topCategory.amount))
                                 .font(.system(size: 9, weight: .regular))
-                                .foregroundColor(.white.opacity(0.7))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                         }
 
                         Spacer()
 
                         Text(String(format: "%.0f%%", topCategory.percentage))
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -198,7 +242,7 @@ struct SpendingAndETAWidget: View {
                     .cornerRadius(6)
                 }
             }
-            .padding(8)
+            .padding(10)
             .frame(width: width)
             .background(
                 RoundedRectangle(cornerRadius: 12)
@@ -296,7 +340,7 @@ struct SpendingAndETAWidget: View {
                     }
                 )
             }
-            .padding(8)
+            .padding(10)
         }
         .frame(width: width)
         .background(
