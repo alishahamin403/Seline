@@ -64,10 +64,10 @@ struct MapsViewNew: View, Searchable {
                     VStack(spacing: 0) {
                         if selectedTab == "folders" {
                             // FOLDERS TAB CONTENT
-                            // Spacer for fixed header
+                            // Fixed spacer height to prevent folder movement
                             Rectangle()
                                 .fill(Color.clear)
-                                .frame(height: selectedCategory == nil ? 20 : 60)
+                                .frame(height: 20)
 
                             if selectedCategory == nil {
                             // Categories Grid
@@ -183,7 +183,7 @@ struct MapsViewNew: View, Searchable {
                                 .padding(.top, 8)
                             }
                             }
-                            .transition(.scale(scale: 0.85).combined(with: .opacity))
+                            // Removed transition to prevent folder movement when opening overlay
                         }
 
                             // Bottom spacing
@@ -619,8 +619,8 @@ struct FolderOverlayView: View {
                     .ignoresSafeArea()
             }
 
-            // Dimmed overlay
-            Color.black.opacity(0.6)
+            // Dimmed overlay - more transparent for better visibility
+            Color.black.opacity(0.3)
                 .ignoresSafeArea()
                 .onTapGesture {
                     onClose()
