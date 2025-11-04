@@ -204,157 +204,63 @@ struct EmailCardWidget: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header with count
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "envelope.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+        VStack(alignment: .leading, spacing: 8) {
+            // Header
+            Text("Unread Emails")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text("UNREAD")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    Text("(\\(unreadEmails.count))")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                }
-
-                Spacer()
-
-                Button(action: { selectedTab = .emails }) {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 12)
-
-            if unreadEmails.isEmpty {
-                // Empty state
-                VStack(spacing: 8) {
-                    Image(systemName: "envelope.badge.fill")
-                        .font(.system(size: 28, weight: .light))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
-
-                    Text("No unread emails")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 10) {
-                        // Most recent email (Prominent)
-                        if let recentEmail = unreadEmails.first {
-                            VStack(alignment: .leading, spacing: 8) {
+            // Emails list
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if unreadEmails.isEmpty {
+                        Text("No unread emails")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(unreadEmails.prefix(5)) { email in
+                            Button(action: {
+                                HapticManager.shared.email()
+                                selectedEmail = email
+                            }) {
                                 HStack(spacing: 8) {
-                                    // Avatar
+                                    // Avatar circle with colored background and initials
                                     Circle()
-                                        .fill(emailAvatarColor(for: recentEmail))
-                                        .frame(width: 32, height: 32)
+                                        .fill(emailAvatarColor(for: email))
+                                        .frame(width: 20, height: 20)
                                         .overlay(
-                                            Text(recentEmail.sender.shortDisplayName.prefix(1).uppercased())
-                                                .font(.system(size: 13, weight: .semibold))
+                                            Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                                                .font(FontManager.geist(size: .small, weight: .semibold))
                                                 .foregroundColor(.white)
                                         )
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(recentEmail.sender.displayName)
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(1)
-
-                                        Text(recentEmail.subject)
-                                            .font(.system(size: 12, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-                                            .lineLimit(2)
-                                    }
+                                    // Only sender name
+                                    Text(email.sender.displayName)
+                                        .font(.shadcnTextXs)
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
 
                                     Spacer()
                                 }
-                                .padding(10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.blue.opacity(0.1))
-                                )
                             }
-                        }
-
-                        // Other emails
-                        if unreadEmails.count > 1 {
-                            Divider()
-                                .opacity(0.3)
-                                .padding(.vertical, 4)
-
-                            VStack(spacing: 8) {
-                                ForEach(unreadEmails.dropFirst().prefix(2)) { email in
-                                    Button(action: {
-                                        HapticManager.shared.email()
-                                        selectedEmail = email
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            // Compact avatar
-                                            Circle()
-                                                .fill(emailAvatarColor(for: email))
-                                                .frame(width: 24, height: 24)
-                                                .overlay(
-                                                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                                        .font(.system(size: 10, weight: .semibold))
-                                                        .foregroundColor(.white)
-                                                )
-
-                                            VStack(alignment: .leading, spacing: 1) {
-                                                Text(email.sender.displayName)
-                                                    .font(.system(size: 11, weight: .medium))
-                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                    .lineLimit(1)
-
-                                                Text(email.subject)
-                                                    .font(.system(size: 10, weight: .regular))
-                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                                    .lineLimit(1)
-                                            }
-
-                                            Spacer()
-                                        }
-                                        .padding(8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                                        )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-
-                                if unreadEmails.count > 3 {
-                                    Button(action: { selectedTab = .emails }) {
-                                        Text("+ \\(unreadEmails.count - 3) more emails")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 6)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
                 }
             }
+            .frame(maxHeight: 150)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color(red: 0.08, green: 0.08, blue: 0.08) : Color(red: 0.97, green: 0.97, blue: 0.97))
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        .cornerRadius(12)
     }
 }
 

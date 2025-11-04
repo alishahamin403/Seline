@@ -1101,8 +1101,8 @@ struct MainAppView: View {
 
     private var mainContentWidgets: some View {
         VStack(spacing: 12) {
-            // Weather widget - only fetch when on home tab
-            WeatherWidget(isVisible: selectedTab == .home)
+            // Spending + ETA widget - replaces weather widget
+            SpendingAndETAWidget(isVisible: selectedTab == .home)
 
             // Events card
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
