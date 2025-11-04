@@ -1835,15 +1835,37 @@ struct NoteEditView: View {
                 // Upload file to Supabase Storage
                 print("📤 Uploading file to Supabase...")
 
-                // Ensure we have a note ID - create temporary note if needed
-                var noteIdForUpload = self.currentNoteId
-                if noteIdForUpload == nil {
-                    // Create temporary note to get an ID
-                    let tempNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
-                    noteIdForUpload = tempNote.id
-                    await MainActor.run {
-                        self.currentNoteId = tempNote.id
+                // Ensure we have a note ID and save the note first if it's new
+                // (RLS policy requires the note to exist before we can attach files)
+                var noteIdForUpload: UUID?
+                var shouldUpdateNote = false
+
+                if let existingNoteId = self.currentNoteId {
+                    // Existing note
+                    noteIdForUpload = existingNoteId
+                    shouldUpdateNote = true
+                } else if self.note == nil {
+                    // New note - create and save it first
+                    var newNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
+                    newNote.folderId = self.selectedFolderId
+
+                    // Save to Supabase synchronously to ensure RLS passes for file attachment
+                    let saved = await self.notesManager.addNoteAndWaitForSync(newNote)
+                    if saved {
+                        noteIdForUpload = newNote.id
+                        shouldUpdateNote = true
+                        print("✅ New note created in Supabase: \(newNote.id.uuidString)")
+                    } else {
+                        print("❌ Failed to save new note to Supabase")
+                        await MainActor.run {
+                            HapticManager.shared.error()
+                        }
+                        return
                     }
+                } else if let existingNote = self.note {
+                    // Existing note passed in
+                    noteIdForUpload = existingNote.id
+                    shouldUpdateNote = true
                 }
 
                 guard let noteId = noteIdForUpload else {
@@ -1880,28 +1902,29 @@ struct NoteEditView: View {
 
                     print("✅ File uploaded successfully: \(fileName)")
 
-                    // Update current note with attachment ID
-                    await MainActor.run {
-                        self.attachment = uploadedAttachment
-
-                        // If this is a new note, we need to save it with the attachment ID
-                        if self.note == nil {
-                            // Create a new note with the attachment
-                            var newNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
-                            newNote.id = noteId
-                            newNote.attachmentId = uploadedAttachment.id
-
-                            // Save the new note
-                            self.notesManager.addNote(newNote)
-                            print("✅ New note created with attachment")
-                        } else if var existingNote = self.note {
-                            // Update existing note with attachment ID
-                            existingNote.attachmentId = uploadedAttachment.id
-                            self.notesManager.updateNote(existingNote)
-                            print("✅ Existing note updated with attachment")
+                    // Update note with attachment ID
+                    if shouldUpdateNote {
+                        var noteToUpdate: Note
+                        if let existingNote = self.note {
+                            noteToUpdate = existingNote
+                        } else {
+                            // Recreate the note with updated content and attachment
+                            noteToUpdate = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
+                            noteToUpdate.id = noteId
+                            noteToUpdate.folderId = self.selectedFolderId
                         }
 
-                        HapticManager.shared.success()
+                        noteToUpdate.attachmentId = uploadedAttachment.id
+
+                        // Update the note synchronously to ensure file is linked
+                        await self.notesManager.updateNoteAndWaitForSync(noteToUpdate)
+
+                        // Update UI on main thread
+                        await MainActor.run {
+                            self.attachment = uploadedAttachment
+                            HapticManager.shared.success()
+                            print("✅ Note updated with attachment")
+                        }
                     }
 
                 } catch {
