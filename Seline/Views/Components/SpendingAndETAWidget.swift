@@ -104,7 +104,7 @@ struct SpendingAndETAWidget: View {
                 navigationCard(width: (geometry.size.width - 8) * 0.4)
             }
         }
-        .frame(height: 200)
+        .frame(height: 130)
         .onAppear {
             Task {
                 do {
@@ -184,7 +184,7 @@ struct SpendingAndETAWidget: View {
     }
 
     private func navigationCard(width: CGFloat) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
             // Header
             HStack(spacing: 4) {
                 Image(systemName: "location.fill")
@@ -198,98 +198,96 @@ struct SpendingAndETAWidget: View {
                 Spacer()
             }
             .padding(.horizontal, 12)
-            .padding(.top, 12)
+            .padding(.vertical, 10)
 
             // ETA Rows
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Location 1
-                    NavigationETARow(
-                        icon: locationPreferences?.location1Icon ?? "house.fill",
-                        eta: navigationService.location1ETA,
-                        isLocationSet: locationPreferences?.location1Coordinate != nil,
-                        isLoading: navigationService.isLoading,
-                        colorScheme: colorScheme,
-                        onTap: {
-                            if locationPreferences?.location1Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
-                            } else {
-                                setupLocationSlot = .location1
-                                showLocationSetup = true
-                            }
-                        },
-                        onLongPress: {
+            VStack(spacing: 0) {
+                // Location 1
+                NavigationETARow(
+                    icon: locationPreferences?.location1Icon ?? "house.fill",
+                    eta: navigationService.location1ETA,
+                    isLocationSet: locationPreferences?.location1Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location1Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
+                        } else {
                             setupLocationSlot = .location1
                             showLocationSetup = true
                         }
-                    )
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location1
+                        showLocationSetup = true
+                    }
+                )
 
-                    // Location 2
-                    NavigationETARow(
-                        icon: locationPreferences?.location2Icon ?? "briefcase.fill",
-                        eta: navigationService.location2ETA,
-                        isLocationSet: locationPreferences?.location2Coordinate != nil,
-                        isLoading: navigationService.isLoading,
-                        colorScheme: colorScheme,
-                        onTap: {
-                            if locationPreferences?.location2Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
-                            } else {
-                                setupLocationSlot = .location2
-                                showLocationSetup = true
-                            }
-                        },
-                        onLongPress: {
+                // Location 2
+                NavigationETARow(
+                    icon: locationPreferences?.location2Icon ?? "briefcase.fill",
+                    eta: navigationService.location2ETA,
+                    isLocationSet: locationPreferences?.location2Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location2Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
+                        } else {
                             setupLocationSlot = .location2
                             showLocationSetup = true
                         }
-                    )
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location2
+                        showLocationSetup = true
+                    }
+                )
 
-                    // Location 3
-                    NavigationETARow(
-                        icon: locationPreferences?.location3Icon ?? "fork.knife",
-                        eta: navigationService.location3ETA,
-                        isLocationSet: locationPreferences?.location3Coordinate != nil,
-                        isLoading: navigationService.isLoading,
-                        colorScheme: colorScheme,
-                        onTap: {
-                            if locationPreferences?.location3Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
-                            } else {
-                                setupLocationSlot = .location3
-                                showLocationSetup = true
-                            }
-                        },
-                        onLongPress: {
+                // Location 3
+                NavigationETARow(
+                    icon: locationPreferences?.location3Icon ?? "fork.knife",
+                    eta: navigationService.location3ETA,
+                    isLocationSet: locationPreferences?.location3Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location3Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
+                        } else {
                             setupLocationSlot = .location3
                             showLocationSetup = true
                         }
-                    )
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location3
+                        showLocationSetup = true
+                    }
+                )
 
-                    // Location 4
-                    NavigationETARow(
-                        icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
-                        eta: navigationService.location4ETA,
-                        isLocationSet: locationPreferences?.location4Coordinate != nil,
-                        isLoading: navigationService.isLoading,
-                        colorScheme: colorScheme,
-                        onTap: {
-                            if locationPreferences?.location4Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
-                            } else {
-                                setupLocationSlot = .location4
-                                showLocationSetup = true
-                            }
-                        },
-                        onLongPress: {
+                // Location 4
+                NavigationETARow(
+                    icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
+                    eta: navigationService.location4ETA,
+                    isLocationSet: locationPreferences?.location4Coordinate != nil,
+                    isLoading: navigationService.isLoading,
+                    colorScheme: colorScheme,
+                    onTap: {
+                        if locationPreferences?.location4Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
+                        } else {
                             setupLocationSlot = .location4
                             showLocationSetup = true
                         }
-                    )
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location4
+                        showLocationSetup = true
+                    }
+                )
             }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
         }
         .frame(width: width)
         .background(
