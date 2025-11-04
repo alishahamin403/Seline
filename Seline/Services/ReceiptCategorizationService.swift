@@ -56,8 +56,10 @@ class ReceiptCategorizationService: ObservableObject {
             categoryCache[title] = validCategory
             saveCategoryCache()
 
-            // Save to Supabase for persistence
-            await saveCategoryToSupabase(title, category: validCategory)
+            // Save to Supabase for persistence (background task, don't block)
+            Task {
+                await self.saveCategoryToSupabase(title, category: validCategory)
+            }
 
             return validCategory
         } catch {
@@ -161,7 +163,7 @@ class ReceiptCategorizationService: ObservableObject {
 
     /// Load categories from Supabase into memory cache
     private func loadCategoriesFromSupabase() async {
-        guard !currentUserId.isEmpty else { return }
+        guard !currentUserId.isEmpty, let userUUID = UUID(uuidString: currentUserId) else { return }
 
         do {
             // Query receipt_categories table for current user
@@ -169,7 +171,7 @@ class ReceiptCategorizationService: ObservableObject {
             let response = try await client
                 .from("receipt_categories")
                 .select()
-                .eq("user_id", value: currentUserId)
+                .eq("user_id", value: userUUID.uuidString)
                 .execute()
 
             let data = response.data
@@ -192,21 +194,21 @@ class ReceiptCategorizationService: ObservableObject {
 
     /// Save a categorization to both local cache and Supabase
     private func saveCategoryToSupabase(_ title: String, category: String) async {
-        guard !currentUserId.isEmpty else { return }
+        guard !currentUserId.isEmpty, let userUUID = UUID(uuidString: currentUserId) else { return }
 
         do {
             let client = await supabaseManager.getPostgrestClient()
 
-            // Create record for Supabase
+            // Create record with proper UUID types
             let record = ReceiptCategoryRecord(
-                id: UUID().uuidString,
-                user_id: currentUserId,
+                id: UUID(),
+                user_id: userUUID,
                 receipt_title: title,
                 category: category,
                 created_at: ISO8601DateFormatter().string(from: Date())
             )
 
-            // Encode record array to JSON data (upsert expects array)
+            // Encode using JSONEncoder for type-safe encoding
             let encoder = JSONEncoder()
             let jsonData = try encoder.encode([record])
 
@@ -217,8 +219,8 @@ class ReceiptCategorizationService: ObservableObject {
 
             print("✅ Saved category to Supabase: \(title) → \(category)")
         } catch {
-            print("⚠️ Failed to save category to Supabase: \(error)")
-            // Continue anyway - local cache still works
+            // Silently fail - local cache is the source of truth
+            // Supabase sync is an optimization for future logins
         }
     }
 }
@@ -226,8 +228,8 @@ class ReceiptCategorizationService: ObservableObject {
 // MARK: - Data Models for Supabase
 
 struct ReceiptCategoryRecord: Codable {
-    let id: String
-    let user_id: String
+    let id: UUID
+    let user_id: UUID
     let receipt_title: String
     let category: String
     let created_at: String
