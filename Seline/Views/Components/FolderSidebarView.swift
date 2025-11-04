@@ -245,6 +245,11 @@ struct FolderSidebarView: View {
                 .ignoresSafeArea()
         )
         .shadow(color: .black.opacity(0.3), radius: 20, x: 5, y: 0)
+        .onAppear {
+            // Initialize with all root folders collapsed
+            let rootFolders = notesManager.folders.filter { $0.parentFolderId == nil }
+            collapsedFolders = Set(rootFolders.map { $0.id })
+        }
         .alert("New Folder", isPresented: $showingNewFolderAlert) {
             TextField("Folder name", text: $newFolderName)
             Button("Cancel", role: .cancel) {

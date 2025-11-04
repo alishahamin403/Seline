@@ -5,7 +5,7 @@ struct MonthlySummaryReceiptCard: View {
     let isLast: Bool
     let onReceiptTap: (UUID) -> Void
     let categorizedReceipts: [ReceiptStat]
-    @State private var isExpanded = true
+    @State private var isExpanded = false
     @State private var showCategoryBreakdown = false
     @Environment(\.colorScheme) var colorScheme
 
