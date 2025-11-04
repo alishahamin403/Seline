@@ -4,6 +4,7 @@ struct MonthlySummaryReceiptCard: View {
     let monthlySummary: MonthlyReceiptSummary
     let isLast: Bool
     let onReceiptTap: (UUID) -> Void
+    let categorizedReceipts: [ReceiptStat]
     @State private var isExpanded = true
     @State private var showCategoryBreakdown = false
     @Environment(\.colorScheme) var colorScheme
@@ -67,7 +68,7 @@ struct MonthlySummaryReceiptCard: View {
         }
         .sheet(isPresented: $showCategoryBreakdown) {
             CategoryBreakdownModal(
-                monthlyReceipts: monthlySummary.receipts,
+                monthlyReceipts: categorizedReceipts,
                 monthName: monthlySummary.month,
                 monthlyTotal: monthlySummary.monthlyTotal
             )
@@ -78,12 +79,12 @@ struct MonthlySummaryReceiptCard: View {
 
 #Preview {
     let receipts = [
-        ReceiptStat(id: UUID(), title: "Whole Foods - Grocery", amount: 127.53, date: Date(), noteId: UUID()),
-        ReceiptStat(id: UUID(), title: "Target - Shopping", amount: 89.99, date: Date(), noteId: UUID()),
-        ReceiptStat(id: UUID(), title: "Gas Station", amount: 52.00, date: Date(), noteId: UUID())
+        ReceiptStat(id: UUID(), title: "Whole Foods - Grocery", amount: 127.53, date: Date(), noteId: UUID(), category: "Shopping"),
+        ReceiptStat(id: UUID(), title: "Target - Shopping", amount: 89.99, date: Date(), noteId: UUID(), category: "Shopping"),
+        ReceiptStat(id: UUID(), title: "Gas Station", amount: 52.00, date: Date(), noteId: UUID(), category: "Transportation")
     ]
     let summary = MonthlyReceiptSummary(month: "December", monthDate: Date(), receipts: receipts)
 
-    MonthlySummaryReceiptCard(monthlySummary: summary, isLast: true, onReceiptTap: { _ in })
+    MonthlySummaryReceiptCard(monthlySummary: summary, isLast: true, onReceiptTap: { _ in }, categorizedReceipts: receipts)
         .padding()
 }

@@ -83,7 +83,7 @@ struct ReceiptStatsView: View {
                         }
                         .padding(16)
                     } else if let breakdown = categoryBreakdown, !breakdown.categories.isEmpty {
-                        CategoryBreakdownView(categoryBreakdown: breakdown)
+                        HorizontalCategoryBreakdownView(categoryBreakdown: breakdown)
                     }
 
                     if isLoadingCategories || (categoryBreakdown != nil && !categoryBreakdown!.categories.isEmpty) {
@@ -113,12 +113,15 @@ struct ReceiptStatsView: View {
                                     .padding(.vertical, 40)
                                 } else {
                                     ForEach(Array(stats.monthlySummaries.enumerated()), id: \.element.id) { index, monthlySummary in
+                                        let categorizedReceiptsForMonth = getCategorizedReceiptsForMonth(monthlySummary.monthDate)
+
                                         MonthlySummaryReceiptCard(
                                             monthlySummary: monthlySummary,
                                             isLast: index == stats.monthlySummaries.count - 1,
                                             onReceiptTap: { noteId in
                                                 selectedNote = notesManager.notes.first { $0.id == noteId }
-                                            }
+                                            },
+                                            categorizedReceipts: categorizedReceiptsForMonth
                                         )
 
                                         if index < stats.monthlySummaries.count - 1 {
@@ -198,6 +201,20 @@ struct ReceiptStatsView: View {
                 categoryBreakdown = breakdown
                 isLoadingCategories = false
             }
+        }
+    }
+
+    private func getCategorizedReceiptsForMonth(_ monthDate: Date) -> [ReceiptStat] {
+        guard let breakdown = categoryBreakdown else { return [] }
+
+        let calendar = Calendar.current
+        let month = calendar.component(.month, from: monthDate)
+        let year = calendar.component(.year, from: monthDate)
+
+        return breakdown.allReceipts.filter { receipt in
+            let receiptMonth = calendar.component(.month, from: receipt.date)
+            let receiptYear = calendar.component(.year, from: receipt.date)
+            return receiptMonth == month && receiptYear == year
         }
     }
 }
