@@ -5,6 +5,7 @@ struct MonthlySummaryReceiptCard: View {
     let isLast: Bool
     let onReceiptTap: (UUID) -> Void
     @State private var isExpanded = true
+    @State private var showCategoryBreakdown = false
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -34,6 +35,14 @@ struct MonthlySummaryReceiptCard: View {
                         .font(.system(size: 17, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
+
+                // Category breakdown button
+                Button(action: { showCategoryBreakdown = true }) {
+                    Image(systemName: "chart.pie.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                        .opacity(0.6)
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -55,6 +64,14 @@ struct MonthlySummaryReceiptCard: View {
                 .padding(.bottom, 12)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
+        }
+        .sheet(isPresented: $showCategoryBreakdown) {
+            CategoryBreakdownModal(
+                monthlyReceipts: monthlySummary.receipts,
+                monthName: monthlySummary.month,
+                monthlyTotal: monthlySummary.monthlyTotal
+            )
+            .presentationDetents([.medium, .large])
         }
     }
 }
