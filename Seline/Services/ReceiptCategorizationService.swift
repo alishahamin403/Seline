@@ -165,7 +165,8 @@ class ReceiptCategorizationService: ObservableObject {
 
         do {
             // Query receipt_categories table for current user
-            let response = try await supabaseManager.client
+            let client = await supabaseManager.getPostgrestClient()
+            let response = try await client
                 .from("receipt_categories")
                 .select()
                 .eq("user_id", value: currentUserId)
@@ -192,6 +193,7 @@ class ReceiptCategorizationService: ObservableObject {
         guard !currentUserId.isEmpty else { return }
 
         do {
+            let client = await supabaseManager.getPostgrestClient()
             let record = ReceiptCategoryRecord(
                 id: UUID().uuidString,
                 user_id: currentUserId,
@@ -203,9 +205,9 @@ class ReceiptCategorizationService: ObservableObject {
             let encoder = JSONEncoder()
             let data = try encoder.encode(record)
 
-            try await supabaseManager.client
+            try await client
                 .from("receipt_categories")
-                .upsert(data, returning: .representation)
+                .upsert(data)
                 .execute()
 
             print("✅ Saved category to Supabase: \(title) → \(category)")

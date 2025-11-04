@@ -36,7 +36,7 @@ class AuthenticationManager: ObservableObject {
             EncryptionManager.shared.setupEncryption(with: session.user.id)
 
             // Set user for receipt cache isolation
-            ReceiptCategorizationService.shared.setCurrentUser(session.user.id)
+            ReceiptCategorizationService.shared.setCurrentUser(session.user.id.uuidString)
 
             // Try to restore Google Sign-In state
             GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
@@ -110,7 +110,7 @@ class AuthenticationManager: ObservableObject {
             EncryptionManager.shared.setupEncryption(with: supabaseUser.id)
 
             // Set user for receipt cache isolation
-            ReceiptCategorizationService.shared.setCurrentUser(supabaseUser.id)
+            ReceiptCategorizationService.shared.setCurrentUser(supabaseUser.id.uuidString)
 
             print("✅ Google Sign-In Success: \(result.user.profile?.email ?? "No email")")
             print("✅ Supabase User Created: \(supabaseUser.id)")
@@ -169,7 +169,7 @@ class AuthenticationManager: ObservableObject {
 
             // Clear receipt categorization cache for this user
             if let userId = userIdToClean {
-                ReceiptCategorizationService.shared.clearCacheForUser(userId)
+                ReceiptCategorizationService.shared.clearCacheForUser(userId.uuidString)
             }
 
             // Clear tasks and set authentication state
