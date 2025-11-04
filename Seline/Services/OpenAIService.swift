@@ -1468,10 +1468,17 @@ class OpenAIService: ObservableObject {
         - Shopping
         - Other
 
-        IMPORTANT RULES:
-        - Any AI/LLM subscriptions (ChatGPT, Claude, Anthropic, OpenAI, Gemini, etc.) → Services
-        - Any software/app subscriptions → Services
-        - Any cloud service subscriptions → Services
+        IMPORTANT RULES - Categorize as SERVICES:
+        - Any AI/LLM subscriptions or payments (ChatGPT, Claude, Anthropic, OpenAI, Gemini, Copilot, etc.)
+        - Any software/app subscriptions (Adobe, Microsoft, Slack, etc.)
+        - Any cloud service subscriptions (AWS, Google Cloud, Azure, etc.)
+        - Any recurring subscription payments or memberships
+        - Any professional service payments (contractors, consultants, accountants, etc.)
+        - Any utility, internet, phone, or connectivity services
+        - Any maintenance, repair, or installation services
+        - Even if company name is abbreviated or vague, if it looks like a service/subscription payment → Services
+
+        IMPORTANT: Err on the side of "Services" for unclear or ambiguous company names - subscriptions and service payments are the most common "Other" misclassifications.
 
         Return ONLY the category name, nothing else.
         """
