@@ -117,13 +117,16 @@ struct SpendingAndETAWidget: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 8) {
-                // Spending Card (60%)
-                spendingCard(width: (geometry.size.width - 8) * 0.6)
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                HStack(spacing: 12) {
+                    // Spending Card (60%)
+                    spendingCard(width: (geometry.size.width - 12) * 0.6)
 
-                // Navigation Card (40%)
-                navigationCard(width: (geometry.size.width - 8) * 0.4)
+                    // Navigation Card (40%)
+                    navigationCard(width: (geometry.size.width - 12) * 0.4)
+                }
+                .padding(.horizontal, 12)
             }
         }
         .frame(height: 115)
@@ -168,14 +171,20 @@ struct SpendingAndETAWidget: View {
                 }
 
                 // Top category only
-                if let topCategory = categoryBreakdown.first {
+                if let topCategory = categoryBreakdown.first, topCategory.category != "Other" {
                     HStack(spacing: 6) {
                         Text(categoryIcon(topCategory.category))
                             .font(.system(size: 12))
 
-                        Text(topCategory.category)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.white)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(topCategory.category)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white)
+
+                            Text(CurrencyParser.formatAmount(topCategory.amount))
+                                .font(.system(size: 9, weight: .regular))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
 
                         Spacer()
 
@@ -189,7 +198,7 @@ struct SpendingAndETAWidget: View {
                     .cornerRadius(6)
                 }
             }
-            .padding(10)
+            .padding(8)
             .frame(width: width)
             .background(
                 RoundedRectangle(cornerRadius: 12)
@@ -287,7 +296,7 @@ struct SpendingAndETAWidget: View {
                     }
                 )
             }
-            .padding(10)
+            .padding(8)
         }
         .frame(width: width)
         .background(
