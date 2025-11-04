@@ -611,16 +611,18 @@ struct FolderOverlayView: View {
 
     var body: some View {
         ZStack {
-            // Background image (captured screenshot)
+            // Background image (captured screenshot) - blurred and grayed out
             if let bgImage = backgroundImage {
                 Image(uiImage: bgImage)
                     .resizable()
                     .scaledToFill()
                     .ignoresSafeArea()
+                    .blur(radius: 10)  // Blur the background
+                    .grayscale(0.5)    // Gray out the background
             }
 
-            // Dimmed overlay - very transparent for better background visibility
-            Color.black.opacity(0.15)
+            // Dimmed overlay
+            Color.black.opacity(0.2)
                 .ignoresSafeArea()
                 .onTapGesture {
                     onClose()
