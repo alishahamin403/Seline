@@ -179,7 +179,7 @@ struct SpendingAndETAWidget: View {
         .frame(width: width)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color(red: 0.2, green: 0.2, blue: 0.2))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
         )
     }
 
@@ -292,7 +292,7 @@ struct SpendingAndETAWidget: View {
         .frame(width: width)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color(red: 0.2, green: 0.2, blue: 0.2))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
         )
     }
 }
