@@ -5,19 +5,7 @@ struct HorizontalCategoryBreakdownView: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Spending by Category")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
-
-                Text("Year: \(categoryBreakdown.year)")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.gray)
-            }
-            .padding(.horizontal, 16)
-
+        VStack(alignment: .leading, spacing: 0) {
             // Horizontal scrollable categories
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
@@ -26,10 +14,9 @@ struct HorizontalCategoryBreakdownView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+                .padding(.vertical, 12)
             }
         }
-        .padding(.vertical, 12)
     }
 }
 

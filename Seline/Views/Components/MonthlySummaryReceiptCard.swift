@@ -9,6 +9,13 @@ struct MonthlySummaryReceiptCard: View {
     @State private var showCategoryBreakdown = false
     @Environment(\.colorScheme) var colorScheme
 
+    private var dailyAverage: Double {
+        let calendar = Calendar.current
+        let range = calendar.range(of: .day, in: .month, for: monthlySummary.monthDate) ?? 1..<2
+        let daysInMonth = range.count
+        return monthlySummary.monthlyTotal / Double(daysInMonth)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -37,12 +44,18 @@ struct MonthlySummaryReceiptCard: View {
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
-                // Category breakdown button
-                Button(action: { showCategoryBreakdown = true }) {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
-                        .opacity(0.6)
+                // Daily average + Category breakdown button
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(String(format: "$%.2f", dailyAverage))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primary)
+
+                    Button(action: { showCategoryBreakdown = true }) {
+                        Image(systemName: "chart.pie.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
+                            .opacity(0.6)
+                    }
                 }
             }
             .contentShape(Rectangle())

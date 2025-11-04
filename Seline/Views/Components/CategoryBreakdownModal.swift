@@ -132,7 +132,7 @@ struct CategoryBreakdownItem: View {
                         .opacity(0.2)
                         .padding(.top, 8)
 
-                    ForEach(Array(receipts.prefix(3).enumerated()), id: \.element.id) { index, receipt in
+                    ForEach(Array(receipts.enumerated()), id: \.element.id) { index, receipt in
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(receipt.title)
@@ -153,18 +153,10 @@ struct CategoryBreakdownItem: View {
                         }
                         .padding(.vertical, 4)
 
-                        if index < min(2, receipts.count - 1) {
+                        if index < receipts.count - 1 {
                             Divider()
                                 .opacity(0.1)
                         }
-                    }
-
-                    if receipts.count > 3 {
-                        Text("+\(receipts.count - 3) more receipt\(receipts.count - 3 == 1 ? "" : "s")")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(.gray)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 4)
                     }
                 }
                 .padding(12)
