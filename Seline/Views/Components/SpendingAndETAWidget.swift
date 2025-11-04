@@ -41,12 +41,14 @@ struct SpendingAndETAWidget: View {
 
         var categoryTotals: [String: Double] = [:]
 
-        // Get all receipts for current month
-        for receipt in stats.allReceipts {
-            let month = calendar.component(.month, from: receipt.date)
+        // Get all receipts for current month from monthly summaries
+        for monthlySummary in stats.monthlySummaries {
+            let month = calendar.component(.month, from: monthlySummary.monthDate)
             if month == currentMonth {
-                let current = categoryTotals[receipt.category] ?? 0
-                categoryTotals[receipt.category] = current + receipt.amount
+                for receipt in monthlySummary.receipts {
+                    let current = categoryTotals[receipt.category] ?? 0
+                    categoryTotals[receipt.category] = current + receipt.amount
+                }
             }
         }
 
@@ -105,7 +107,11 @@ struct SpendingAndETAWidget: View {
         .frame(height: 200)
         .onAppear {
             Task {
-                locationPreferences = await supabaseManager.loadUserLocationPreferences()
+                do {
+                    locationPreferences = try await supabaseManager.loadLocationPreferences()
+                } catch {
+                    print("Failed to load location preferences: \(error)")
+                }
             }
         }
     }
