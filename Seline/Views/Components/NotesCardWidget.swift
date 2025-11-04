@@ -11,132 +11,76 @@ struct NotesCardWidget: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            headerSection
-            contentSection
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color(red: 0.08, green: 0.08, blue: 0.08) : Color(red: 0.97, green: 0.97, blue: 0.97))
-        )
-        .padding(.horizontal, 12)
-    }
+        VStack(alignment: .leading, spacing: 8) {
+            // Header with pin icon and Add Note button
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
 
-    private var headerSection: some View {
-        HStack {
-            HStack(spacing: 6) {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                Text("PINNED")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                Text("(\\(pinnedNotes.count))")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-            }
-
-            Spacer()
-
-            Button(action: {
-                HapticManager.shared.selection()
-                showingNewNoteSheet = true
-            }) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-            }
-            .buttonStyle(PlainButtonStyle())
-        }
-        .padding(.horizontal, 12)
-    }
-
-    private var contentSection: some View {
-        Group {
-            if pinnedNotes.isEmpty {
-                emptyStateView
-            } else {
-                notesListView
-            }
-        }
-    }
-
-    private var emptyStateView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "note.text")
-                .font(.system(size: 28, weight: .light))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
-
-            Text("No pinned notes")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
-    }
-
-    private var notesListView: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 10) {
-                ForEach(pinnedNotes.prefix(4)) { note in
-                    noteCardButton(for: note)
+                    Text("Notes")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
-                if pinnedNotes.count > 4 {
-                    moreNotesButton
+                Spacer()
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showingNewNoteSheet = true
+                }) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(width: 24, height: 24)
+
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white)
+                    }
                 }
+                .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
-        }
-    }
 
-    private func noteCardButton(for note: Note) -> some View {
-        Button(action: {
-            HapticManager.shared.cardTap()
-            selectedNoteToOpen = note
-        }) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(note.title.isEmpty ? "Untitled" : note.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .lineLimit(1)
+            // Notes list
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if pinnedNotes.isEmpty {
+                        Text("No pinned notes")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(pinnedNotes.prefix(5)) { note in
+                            Button(action: {
+                                HapticManager.shared.cardTap()
+                                selectedNoteToOpen = note
+                            }) {
+                                HStack(spacing: 8) {
+                                    // Note title
+                                    Text(note.title)
+                                        .font(.shadcnTextXs)
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
 
-                        if !note.content.isEmpty {
-                            Text(note.content)
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                .lineLimit(1)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-
-                    Spacer()
                 }
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
             }
+            .frame(maxHeight: 150)
+            .padding(.top, 4)
         }
-        .buttonStyle(PlainButtonStyle())
-    }
-
-    private var moreNotesButton: some View {
-        Button(action: { /* Navigate to notes view */ }) {
-            Text("+ \\(pinnedNotes.count - 4) more notes")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-        }
-        .buttonStyle(PlainButtonStyle())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        .cornerRadius(12)
     }
 }
 
