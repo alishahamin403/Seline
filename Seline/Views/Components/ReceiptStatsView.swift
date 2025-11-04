@@ -6,6 +6,7 @@ struct ReceiptStatsView: View {
     @State private var selectedNote: Note? = nil
     @State private var categoryBreakdown: YearlyCategoryBreakdown? = nil
     @State private var isLoadingCategories = false
+    @State private var selectedCategory: String? = nil
     @Environment(\.colorScheme) var colorScheme
 
     var availableYears: [Int] {
@@ -83,7 +84,12 @@ struct ReceiptStatsView: View {
                         }
                         .padding(16)
                     } else if let breakdown = categoryBreakdown, !breakdown.categories.isEmpty {
-                        HorizontalCategoryBreakdownView(categoryBreakdown: breakdown)
+                        HorizontalCategoryBreakdownView(
+                            categoryBreakdown: breakdown,
+                            onCategoryTap: { category in
+                                selectedCategory = category
+                            }
+                        )
                     }
 
                     if isLoadingCategories || (categoryBreakdown != nil && !categoryBreakdown!.categories.isEmpty) {
@@ -173,6 +179,20 @@ struct ReceiptStatsView: View {
                     get: { selectedNote != nil },
                     set: { if !$0 { selectedNote = nil } }
                 ))
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { selectedCategory != nil },
+            set: { if !$0 { selectedCategory = nil } }
+        )) {
+            if let category = selectedCategory, let breakdown = categoryBreakdown {
+                let categoryReceipts = breakdown.allReceipts.filter { $0.category == category }
+                CategoryBreakdownModal(
+                    monthlyReceipts: categoryReceipts,
+                    monthName: "\(category) - \(currentYear)",
+                    monthlyTotal: categoryReceipts.reduce(0) { $0 + $1.amount }
+                )
+                .presentationDetents([.medium, .large])
             }
         }
     }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HorizontalCategoryBreakdownView: View {
     let categoryBreakdown: YearlyCategoryBreakdown
+    let onCategoryTap: (String) -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -10,7 +11,7 @@ struct HorizontalCategoryBreakdownView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(categoryBreakdown.sortedCategories, id: \.category) { category in
-                        HorizontalCategoryCard(category: category)
+                        HorizontalCategoryCard(category: category, onTap: { onCategoryTap(category.category) })
                     }
                 }
                 .padding(.horizontal, 16)
@@ -24,40 +25,43 @@ struct HorizontalCategoryBreakdownView: View {
 
 struct HorizontalCategoryCard: View {
     let category: CategoryStatWithPercentage
+    let onTap: () -> Void
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 6) {
-            // Category icon/color circle
-            Circle()
-                .fill(colorForCategory(category.category))
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Text(getCategoryIcon(category.category))
-                        .font(.system(size: 16))
-                )
+        Button(action: onTap) {
+            VStack(spacing: 6) {
+                // Category icon/color circle
+                Circle()
+                    .fill(colorForCategory(category.category))
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Text(getCategoryIcon(category.category))
+                            .font(.system(size: 16))
+                    )
 
-            // Category info
-            VStack(spacing: 2) {
-                Text(category.category)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                // Category info
+                VStack(spacing: 2) {
+                    Text(category.category)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
 
-                Text(category.formattedAmount)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                    Text(category.formattedAmount)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
 
-                Text(category.formattedPercentage)
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundColor(.gray)
+                    Text(category.formattedPercentage)
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundColor(.gray)
+                }
             }
+            .frame(width: 90)
+            .padding(10)
+            .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
+            .cornerRadius(8)
         }
-        .frame(width: 90)
-        .padding(10)
-        .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
-        .cornerRadius(8)
     }
 
     private func colorForCategory(_ category: String) -> Color {
@@ -124,6 +128,7 @@ struct HorizontalCategoryCard: View {
             ],
             yearlyTotal: 1400.50,
             allReceipts: sampleReceipts
-        )
+        ),
+        onCategoryTap: { _ in }
     )
 }
