@@ -1840,12 +1840,20 @@ struct NoteEditView: View {
                 var noteIdForUpload: UUID?
                 var shouldUpdateNote = false
 
-                if let existingNoteId = self.currentNoteId {
-                    // Existing note
+                // Priority 1: If we're editing an existing note, ALWAYS use it (prevents duplication)
+                if let existingNote = self.note {
+                    noteIdForUpload = existingNote.id
+                    shouldUpdateNote = true
+                    print("📝 Attaching file to existing note: \(existingNote.title)")
+                }
+                // Priority 2: If currentNoteId is set but we don't have self.note (edge case)
+                else if let existingNoteId = self.currentNoteId {
                     noteIdForUpload = existingNoteId
                     shouldUpdateNote = true
-                } else if self.note == nil {
-                    // New note - create and save it first
+                    print("📝 Attaching file to note: \(existingNoteId.uuidString)")
+                }
+                // Priority 3: Create a new note
+                else {
                     var newNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
                     newNote.folderId = self.selectedFolderId
 
@@ -1889,10 +1897,6 @@ struct NoteEditView: View {
                         }
                         return
                     }
-                } else if let existingNote = self.note {
-                    // Existing note passed in
-                    noteIdForUpload = existingNote.id
-                    shouldUpdateNote = true
                 }
 
                 guard let noteId = noteIdForUpload else {
