@@ -57,6 +57,9 @@ struct SelineWidgetEntry: TimelineEntry {
     let location4Latitude: Double?
     let location4Longitude: Double?
     let todaysTasks: [TaskForWidget]
+    let monthlySpending: Double
+    let monthOverMonthPercentage: Double
+    let isSpendingIncreasing: Bool
 }
 
 struct SelineWidgetProvider: TimelineProvider {
@@ -81,7 +84,10 @@ struct SelineWidgetProvider: TimelineProvider {
             location4Longitude: nil,
             todaysTasks: [
                 TaskForWidget(id: "1", title: "Sample Event", scheduledTime: Date(), isCompleted: false, tagId: nil, tagName: nil)
-            ]
+            ],
+            monthlySpending: 2450.80,
+            monthOverMonthPercentage: 12.0,
+            isSpendingIncreasing: true
         )
     }
 
@@ -104,7 +110,10 @@ struct SelineWidgetProvider: TimelineProvider {
             location3Longitude: nil,
             location4Latitude: nil,
             location4Longitude: nil,
-            todaysTasks: []
+            todaysTasks: [],
+            monthlySpending: 2450.80,
+            monthOverMonthPercentage: 12.0,
+            isSpendingIncreasing: true
         )
         completion(entry)
     }
@@ -157,11 +166,16 @@ struct SelineWidgetProvider: TimelineProvider {
 
         print("🟢 Widget: Loaded ETAs from shared UserDefaults - L1: \(location1ETA ?? "---"), L2: \(location2ETA ?? "---"), L3: \(location3ETA ?? "---"), L4: \(location4ETA ?? "---")")
 
+        // Load spending data from shared UserDefaults
+        let monthlySpending = userDefaults?.double(forKey: "widgetMonthlySpending") ?? 0.0
+        let monthOverMonthPercentage = userDefaults?.double(forKey: "widgetMonthOverMonthPercentage") ?? 0.0
+        let isSpendingIncreasing = userDefaults?.bool(forKey: "widgetIsSpendingIncreasing") ?? false
+
         // Load today's tasks
         let todaysTasks = loadTodaysTasks()
 
-        // Create entry with location data
-        // Note: ETAs are loaded from shared UserDefaults but will show as nil if not available
+        // Create entry with location data and spending data
+        // Note: ETAs and spending data are loaded from shared UserDefaults but will show defaults if not available
         let entry = SelineWidgetEntry(
             date: currentDate,
             location1ETA: location1ETA,
@@ -180,7 +194,10 @@ struct SelineWidgetProvider: TimelineProvider {
             location3Longitude: location3Lon,
             location4Latitude: location4Lat,
             location4Longitude: location4Lon,
-            todaysTasks: todaysTasks
+            todaysTasks: todaysTasks,
+            monthlySpending: monthlySpending,
+            monthOverMonthPercentage: monthOverMonthPercentage,
+            isSpendingIncreasing: isSpendingIncreasing
         )
 
         // Generate one entry that updates every 5 minutes for more frequent ETA updates
@@ -302,133 +319,171 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        VStack(alignment: .center, spacing: 12) {
-            // Row 1 - 4 ETAs side by side
-            HStack(spacing: 8) {
-                // Location 1
-                Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                    VStack(spacing: 4) {
-                        Image(systemName: entry.location1Icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
+        VStack(alignment: .leading, spacing: 12) {
+            // Section 1 - Monthly Spending with Trend
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(format: "$%.2f", entry.monthlySpending))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(badgeContentColor)
 
-                        if let eta = entry.location1ETA {
-                            Text(eta)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                                .opacity(0.5)
-                        }
-                    }
-                    .frame(width: 50, height: 50)
-                    .background(Circle().fill(badgeBackgroundColor))
+                HStack(spacing: 4) {
+                    Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(format: "%.0f%% %@ last month", entry.monthOverMonthPercentage, entry.isSpendingIncreasing ? "more" : "less"))
+                        .font(.system(size: 11, weight: .regular))
                 }
-                .buttonStyle(.plain)
-
-                // Location 2
-                Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                    VStack(spacing: 4) {
-                        Image(systemName: entry.location2Icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-
-                        if let eta = entry.location2ETA {
-                            Text(eta)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                                .opacity(0.5)
-                        }
-                    }
-                    .frame(width: 50, height: 50)
-                    .background(Circle().fill(badgeBackgroundColor))
-                }
-                .buttonStyle(.plain)
-
-                // Location 3
-                Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                    VStack(spacing: 4) {
-                        Image(systemName: entry.location3Icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-
-                        if let eta = entry.location3ETA {
-                            Text(eta)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                                .opacity(0.5)
-                        }
-                    }
-                    .frame(width: 50, height: 50)
-                    .background(Circle().fill(badgeBackgroundColor))
-                }
-                .buttonStyle(.plain)
-
-                // Location 4
-                Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                    VStack(spacing: 4) {
-                        Image(systemName: entry.location4Icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-
-                        if let eta = entry.location4ETA {
-                            Text(eta)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                        } else {
-                            Text("--")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                                .opacity(0.5)
-                        }
-                    }
-                    .frame(width: 50, height: 50)
-                    .background(Circle().fill(badgeBackgroundColor))
-                }
-                .buttonStyle(.plain)
+                .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
             }
 
             Divider()
                 .opacity(0.3)
 
-            // Row 2 - 2 action buttons
-            HStack(spacing: 12) {
-                Spacer()
+            // Section 2 - 2x2 ETA Grid
+            VStack(spacing: 8) {
+                // Top row - Location 1 and 2
+                HStack(spacing: 8) {
+                    // Location 1
+                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location1Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
 
+                            if let eta = entry.location1ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 45)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+
+                    // Location 2
+                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location2Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+
+                            if let eta = entry.location2ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 45)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Bottom row - Location 3 and 4
+                HStack(spacing: 8) {
+                    // Location 3
+                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location3Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+
+                            if let eta = entry.location3ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 45)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+
+                    // Location 4
+                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location4Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+
+                            if let eta = entry.location4ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 45)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+                .opacity(0.3)
+
+            // Section 3 - Action Buttons
+            HStack(spacing: 12) {
                 // Note button
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 18, weight: .semibold))
+                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
+                    HStack {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Note")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
                     .foregroundColor(badgeContentColor)
-                    .frame(width: 50, height: 50)
-                    .background(Circle().fill(badgeBackgroundColor))
-                    .contentShape(Circle())
-                    .widgetURL(URL(string: "seline://action/createNote"))
+                    .frame(height: 36)
+                    .background(badgeBackgroundColor)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
 
                 // Event button
-                Image(systemName: "calendar")
-                    .font(.system(size: 18, weight: .semibold))
+                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
+                    HStack {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Event")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
                     .foregroundColor(badgeContentColor)
-                    .frame(width: 50, height: 50)
-                    .background(Circle().fill(badgeBackgroundColor))
-                    .contentShape(Circle())
-                    .widgetURL(URL(string: "seline://action/createEvent"))
-
-                Spacer()
+                    .frame(height: 36)
+                    .background(badgeBackgroundColor)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer()
         }
-        .padding(14)
+        .padding(12)
     }
 
     var largeWidgetView: some View {
