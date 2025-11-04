@@ -11,9 +11,18 @@ struct MonthlySummaryReceiptCard: View {
 
     private var dailyAverage: Double {
         let calendar = Calendar.current
-        let range = calendar.range(of: .day, in: .month, for: monthlySummary.monthDate) ?? 1..<2
-        let daysInMonth = range.count
-        return monthlySummary.monthlyTotal / Double(daysInMonth)
+
+        // Count unique days that have receipts
+        let uniqueDays = Set(monthlySummary.receipts.map { receipt in
+            calendar.component(.day, from: receipt.date)
+        })
+
+        let daysWithReceipts = uniqueDays.count
+
+        // Fallback to 1 if no receipts to avoid division by zero
+        let divisor = Double(max(daysWithReceipts, 1))
+
+        return monthlySummary.monthlyTotal / divisor
     }
 
     var body: some View {
