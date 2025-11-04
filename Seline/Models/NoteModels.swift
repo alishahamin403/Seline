@@ -1331,7 +1331,7 @@ class NotesManager: ObservableObject {
         let yearStats = getReceiptStatistics(year: year)
         guard let stats = yearStats.first else {
             // Return empty breakdown if no receipts found
-            return YearlyCategoryBreakdown(year: year, categories: [], yearlyTotal: 0)
+            return YearlyCategoryBreakdown(year: year, categories: [], yearlyTotal: 0, categoryReceipts: [:], allReceipts: [])
         }
 
         // Get all receipts from the yearly summary

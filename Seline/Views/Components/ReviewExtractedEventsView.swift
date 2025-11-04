@@ -91,8 +91,8 @@ struct ReviewExtractedEventsView: View {
                                     }) {
                                         Image(systemName: "plus.circle.fill")
                                             .font(.system(size: 20))
-                                            .foregroundColor(.black)
-                                            .opacity(0.4)
+                                            .foregroundColor(.primary)
+                                            .opacity(0.6)
                                     }
                                 }
 
@@ -248,10 +248,10 @@ struct ReviewExtractedEventsView: View {
                         Text("Creating events...")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                     }
                     .padding(28)
-                    .background(Color.white)
+                    .background(Color(UIColor.secondarySystemBackground))
                     .cornerRadius(12)
                 }
             }
@@ -562,8 +562,8 @@ struct SimpleEventCard: View {
                 .padding(.horizontal, 14)
             }
         }
-        .background(Color.white)
-        .cornerRadius(0)
+        .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.black.opacity(0.1), lineWidth: 1)

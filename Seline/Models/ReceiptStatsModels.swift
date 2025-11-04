@@ -14,8 +14,9 @@ struct ReceiptStat: Identifiable, Hashable {
     let noteId: UUID
     let year: Int?
     let month: String?
+    var category: String
 
-    init(id: UUID = UUID(), title: String, amount: Double, date: Date, noteId: UUID, year: Int? = nil, month: String? = nil) {
+    init(id: UUID = UUID(), title: String, amount: Double, date: Date, noteId: UUID, year: Int? = nil, month: String? = nil, category: String = "Other") {
         self.id = id
         self.title = title
         self.amount = amount
@@ -23,9 +24,10 @@ struct ReceiptStat: Identifiable, Hashable {
         self.noteId = noteId
         self.year = year
         self.month = month
+        self.category = category
     }
 
-    init(from note: Note, year: Int? = nil, month: String? = nil, date: Date? = nil) {
+    init(from note: Note, year: Int? = nil, month: String? = nil, date: Date? = nil, category: String = "Other") {
         self.id = UUID()
         self.title = note.title
         // Extract amount from note content (body text), fallback to title if content is empty
@@ -35,6 +37,7 @@ struct ReceiptStat: Identifiable, Hashable {
         self.noteId = note.id
         self.year = year
         self.month = month
+        self.category = category
     }
 }
 
@@ -153,6 +156,7 @@ struct YearlyCategoryBreakdown: Identifiable {
     let categories: [CategoryStat]
     let yearlyTotal: Double
     let categoryReceipts: [String: [ReceiptStat]]  // Maps category name to receipts
+    let allReceipts: [ReceiptStat]  // All receipts for the year
 
     var sortedCategories: [CategoryStatWithPercentage] {
         categories
@@ -169,12 +173,13 @@ struct YearlyCategoryBreakdown: Identifiable {
             .sorted { $0.total > $1.total }
     }
 
-    init(year: Int, categories: [CategoryStat], yearlyTotal: Double, categoryReceipts: [String: [ReceiptStat]] = [:]) {
+    init(year: Int, categories: [CategoryStat], yearlyTotal: Double, categoryReceipts: [String: [ReceiptStat]] = [:], allReceipts: [ReceiptStat] = []) {
         self.id = UUID()
         self.year = year
         self.categories = categories
         self.yearlyTotal = yearlyTotal
         self.categoryReceipts = categoryReceipts
+        self.allReceipts = allReceipts
     }
 }
 

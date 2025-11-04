@@ -49,6 +49,7 @@ class ReceiptCategorizationService: ObservableObject {
         // Initialize all categories with both totals and receipts
         var categoryMap: [String: (total: Double, count: Int)] = [:]
         var categoryReceipts: [String: [ReceiptStat]] = [:]
+        var categorizedReceipts: [ReceiptStat] = []
 
         for category in validCategories {
             categoryMap[category] = (0, 0)
@@ -62,13 +63,18 @@ class ReceiptCategorizationService: ObservableObject {
             let current = categoryMap[category] ?? (0, 0)
             categoryMap[category] = (current.total + receipt.amount, current.count + 1)
 
+            // Create a new receipt with category set
+            var updatedReceipt = receipt
+            updatedReceipt.category = category
+
             // Track which receipts belong to this category
             if categoryReceipts[category] != nil {
-                categoryReceipts[category]?.append(receipt)
+                categoryReceipts[category]?.append(updatedReceipt)
             } else {
-                categoryReceipts[category] = [receipt]
+                categoryReceipts[category] = [updatedReceipt]
             }
 
+            categorizedReceipts.append(updatedReceipt)
             totalAmount += receipt.amount
             print("✓ [\(index + 1)/\(receipts.count)] '\(receipt.title)' → \(category)")
         }
@@ -86,7 +92,8 @@ class ReceiptCategorizationService: ObservableObject {
             year: Calendar.current.component(.year, from: Date()),
             categories: categoryStats,
             yearlyTotal: totalAmount,
-            categoryReceipts: categoryReceipts
+            categoryReceipts: categoryReceipts,
+            allReceipts: categorizedReceipts
         )
 
         // Log summary
