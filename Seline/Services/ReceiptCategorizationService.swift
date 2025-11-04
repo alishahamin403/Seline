@@ -24,7 +24,10 @@ class ReceiptCategorizationService: ObservableObject {
         // Load from local cache first, then sync with Supabase
         loadCategoryCache()
         Task {
+            // Load categories from Supabase first
             await loadCategoriesFromSupabase()
+            // Then sync any cached items that aren't in Supabase yet (backfill)
+            await syncCachedCategoriesToSupabase()
         }
     }
 
@@ -157,6 +160,23 @@ class ReceiptCategorizationService: ObservableObject {
     func clearCacheForUser(_ userId: String) {
         let userCacheKey = "receiptCategories_\(userId)"
         userDefaults.removeObject(forKey: userCacheKey)
+    }
+
+    /// Sync all cached categories to Supabase (useful for backfilling existing cache)
+    func syncCachedCategoriesToSupabase() async {
+        guard !currentUserId.isEmpty else { return }
+
+        let allCached = categoryCache.copy() as? [String: String] ?? [:]
+        var syncedCount = 0
+
+        for (title, category) in allCached {
+            await saveCategoryToSupabase(title, category: category)
+            syncedCount += 1
+        }
+
+        if syncedCount > 0 {
+            print("✅ Synced \(syncedCount) cached categories to Supabase")
+        }
     }
 
     // MARK: - Supabase Persistence
