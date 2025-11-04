@@ -558,12 +558,14 @@ struct NoteEditView: View {
     @Binding var isPresented: Bool
     let initialFolderId: UUID?
     @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var attachmentService = AttachmentService.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 
     @State private var title: String = ""
     @State private var content: String = ""
     @State private var attributedContent: NSAttributedString = NSAttributedString()
+    @State private var currentNoteId: UUID? = nil  // Track note ID for attachment uploads
     @State private var isLockedInSession: Bool = false
     @State private var showingFaceIDPrompt: Bool = false
     @State private var undoHistory: [NSAttributedString] = []
@@ -1228,6 +1230,7 @@ struct NoteEditView: View {
         }
 
         if let note = note {
+            currentNoteId = note.id  // Track note ID for attachment uploads
             title = note.title
             content = note.content
 
@@ -1827,7 +1830,85 @@ struct NoteEditView: View {
                     self.attributedContent = newAttrString
 
                     print("✅ File content added to note")
-                    HapticManager.shared.success()
+                }
+
+                // Upload file to Supabase Storage
+                print("📤 Uploading file to Supabase...")
+
+                // Ensure we have a note ID - create temporary note if needed
+                var noteIdForUpload = self.currentNoteId
+                if noteIdForUpload == nil {
+                    // Create temporary note to get an ID
+                    let tempNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
+                    noteIdForUpload = tempNote.id
+                    await MainActor.run {
+                        self.currentNoteId = tempNote.id
+                    }
+                }
+
+                guard let noteId = noteIdForUpload else {
+                    print("❌ Failed to get note ID for file upload")
+                    await MainActor.run {
+                        HapticManager.shared.error()
+                    }
+                    return
+                }
+
+                // Determine file type from extension
+                let fileExtension = (fileName as NSString).pathExtension.lowercased()
+                var fileType = fileExtension
+                if fileExtension == "pdf" {
+                    fileType = "pdf"
+                } else if ["csv", "tsv"].contains(fileExtension) {
+                    fileType = "csv"
+                } else if ["xlsx", "xls"].contains(fileExtension) {
+                    fileType = "excel"
+                } else if ["jpg", "jpeg", "png", "gif", "webp"].contains(fileExtension) {
+                    fileType = "image"
+                } else if fileExtension == "txt" {
+                    fileType = "text"
+                }
+
+                do {
+                    // Upload file to Supabase
+                    let uploadedAttachment = try await self.attachmentService.uploadFileToNote(
+                        fileData,
+                        fileName: fileName,
+                        fileType: fileType,
+                        noteId: noteId
+                    )
+
+                    print("✅ File uploaded successfully: \(fileName)")
+
+                    // Update current note with attachment ID
+                    await MainActor.run {
+                        self.attachment = uploadedAttachment
+
+                        // If this is a new note, we need to save it with the attachment ID
+                        if self.note == nil {
+                            // Create a new note with the attachment
+                            var newNote = Note(title: self.title.isEmpty ? "Untitled" : self.title, content: self.content)
+                            newNote.id = noteId
+                            newNote.attachmentId = uploadedAttachment.id
+
+                            // Save the new note
+                            self.notesManager.addNote(newNote)
+                            print("✅ New note created with attachment")
+                        } else if var existingNote = self.note {
+                            // Update existing note with attachment ID
+                            existingNote.attachmentId = uploadedAttachment.id
+                            self.notesManager.updateNote(existingNote)
+                            print("✅ Existing note updated with attachment")
+                        }
+
+                        HapticManager.shared.success()
+                    }
+
+                } catch {
+                    print("❌ File upload error: \(error.localizedDescription)")
+                    await MainActor.run {
+                        HapticManager.shared.error()
+                    }
                 }
 
             } catch {
