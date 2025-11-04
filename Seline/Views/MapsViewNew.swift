@@ -619,8 +619,8 @@ struct FolderOverlayView: View {
                     .ignoresSafeArea()
             }
 
-            // Dimmed overlay - more transparent for better visibility
-            Color.black.opacity(0.3)
+            // Dimmed overlay - very transparent for better background visibility
+            Color.black.opacity(0.15)
                 .ignoresSafeArea()
                 .onTapGesture {
                     onClose()
