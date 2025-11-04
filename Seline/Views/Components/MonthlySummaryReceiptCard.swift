@@ -20,18 +20,21 @@ struct MonthlySummaryReceiptCard: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(monthlySummary.month)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(.primary)
 
-                    HStack(spacing: 4) {
-                        Text("\(monthlySummary.receipts.count)")
-                            .font(.system(size: 13, weight: .regular))
+                    HStack(spacing: 8) {
+                        Text("\(monthlySummary.receipts.count) receipt\(monthlySummary.receipts.count == 1 ? "" : "s")")
+                            .font(.system(size: 12, weight: .regular))
                             .foregroundColor(.gray)
 
-                        Text("receipt\(monthlySummary.receipts.count == 1 ? "" : "s")")
-                            .font(.system(size: 13, weight: .regular))
+                        Text("•")
+                            .foregroundColor(.gray)
+
+                        Text(String(format: "Avg $%.2f/day", dailyAverage))
+                            .font(.system(size: 12, weight: .regular))
                             .foregroundColor(.gray)
                     }
                 }
@@ -44,18 +47,12 @@ struct MonthlySummaryReceiptCard: View {
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
-                // Daily average + Category breakdown button
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(String(format: "$%.2f", dailyAverage))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primary)
-
-                    Button(action: { showCategoryBreakdown = true }) {
-                        Image(systemName: "chart.pie.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
-                            .opacity(0.6)
-                    }
+                // Category breakdown button
+                Button(action: { showCategoryBreakdown = true }) {
+                    Image(systemName: "chart.pie.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                        .opacity(0.6)
                 }
             }
             .contentShape(Rectangle())

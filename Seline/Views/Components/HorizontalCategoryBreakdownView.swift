@@ -8,13 +8,13 @@ struct HorizontalCategoryBreakdownView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Horizontal scrollable categories
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     ForEach(categoryBreakdown.sortedCategories, id: \.category) { category in
                         HorizontalCategoryCard(category: category)
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 8)
             }
         }
     }
@@ -27,37 +27,37 @@ struct HorizontalCategoryCard: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
             // Category icon/color circle
             Circle()
                 .fill(colorForCategory(category.category))
-                .frame(width: 40, height: 40)
+                .frame(width: 32, height: 32)
                 .overlay(
                     Text(getCategoryIcon(category.category))
-                        .font(.system(size: 18))
+                        .font(.system(size: 16))
                 )
 
             // Category info
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Text(category.category)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
                 Text(category.formattedAmount)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
                 Text(category.formattedPercentage)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundColor(.gray)
             }
         }
-        .frame(width: 100)
-        .padding(12)
+        .frame(width: 90)
+        .padding(10)
         .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
-        .cornerRadius(10)
+        .cornerRadius(8)
     }
 
     private func colorForCategory(_ category: String) -> Color {
