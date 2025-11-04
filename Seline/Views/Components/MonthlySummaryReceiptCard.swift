@@ -22,7 +22,7 @@ struct MonthlySummaryReceiptCard: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(monthlySummary.month)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.primary)
 
                     HStack(spacing: 8) {
@@ -43,7 +43,7 @@ struct MonthlySummaryReceiptCard: View {
 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(CurrencyParser.formatAmount(monthlySummary.monthlyTotal))
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.system(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
