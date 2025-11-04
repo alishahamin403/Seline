@@ -566,6 +566,7 @@ struct NoteEditView: View {
     @State private var content: String = ""
     @State private var attributedContent: NSAttributedString = NSAttributedString()
     @State private var currentNoteId: UUID? = nil  // Track note ID for attachment uploads
+    @State private var editingNote: Note? = nil  // Track the note being edited (can be updated when new note is created)
     @State private var isLockedInSession: Bool = false
     @State private var showingFaceIDPrompt: Bool = false
     @State private var undoHistory: [NSAttributedString] = []
@@ -1221,6 +1222,9 @@ struct NoteEditView: View {
         // Track that a note is being viewed (for tab bar visibility)
         notesManager.isViewingNoteInNavigation = true
 
+        // Initialize editing note from parameter (or nil if creating new note)
+        editingNote = note
+
         // Add keyboard observers
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { _ in
             isKeyboardVisible = true
@@ -1334,7 +1338,7 @@ struct NoteEditView: View {
     }
 
     private func performSave(title: String, content: String) {
-        if let existingNote = note {
+        if let existingNote = editingNote {
             // Updating an existing note
             Task {
                 var updatedNote = existingNote
@@ -1841,7 +1845,7 @@ struct NoteEditView: View {
                 var shouldUpdateNote = false
 
                 // Priority 1: If we're editing an existing note, ALWAYS use it (prevents duplication)
-                if let existingNote = self.note {
+                if let existingNote = self.editingNote {
                     noteIdForUpload = existingNote.id
                     shouldUpdateNote = true
                     print("📝 Attaching file to existing note: \(existingNote.title)")
@@ -1863,10 +1867,10 @@ struct NoteEditView: View {
                         noteIdForUpload = newNote.id
                         shouldUpdateNote = true
 
-                        // CRITICAL: Update self.note so subsequent saves don't create duplicates
+                        // CRITICAL: Update editingNote so subsequent saves don't create duplicates
                         // This marks the note as "existing" in the local state
                         await MainActor.run {
-                            self.note = newNote
+                            self.editingNote = newNote
                         }
 
                         print("✅ New note created in Supabase: \(newNote.id.uuidString)")
@@ -1943,7 +1947,7 @@ struct NoteEditView: View {
                     // Update note with attachment ID
                     if shouldUpdateNote {
                         var noteToUpdate: Note
-                        if let existingNote = self.note {
+                        if let existingNote = self.editingNote {
                             noteToUpdate = existingNote
                         } else {
                             // Recreate the note with updated content and attachment
@@ -1960,8 +1964,8 @@ struct NoteEditView: View {
                         // Update UI on main thread
                         await MainActor.run {
                             self.attachment = uploadedAttachment
-                            // CRITICAL: Update self.note to reflect the attachment
-                            self.note = noteToUpdate
+                            // CRITICAL: Update editingNote to reflect the attachment
+                            self.editingNote = noteToUpdate
                             HapticManager.shared.success()
                             print("✅ Note updated with attachment")
                         }
