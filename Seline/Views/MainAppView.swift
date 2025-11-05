@@ -1155,8 +1155,9 @@ struct MainAppView: View {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
 
-            // Events card
+            // Events card - expands to fill available space
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
+                .frame(maxHeight: .infinity)
 
             // 60/40 split: Unread Emails and Pinned Notes
             emailAndNotesCards
