@@ -171,16 +171,16 @@ struct SpendingAndETAWidget: View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 HStack(spacing: 12) {
-                    // Spending Card (60%)
-                    spendingCard(width: (geometry.size.width - 36) * 0.6)
+                    // Spending Card (50%)
+                    spendingCard(width: (geometry.size.width - 36) * 0.5)
 
-                    // Navigation Card (40%)
-                    navigationCard(width: (geometry.size.width - 36) * 0.4)
+                    // Navigation Card with 2x2 ETA grid (50%)
+                    navigationCard2x2(width: (geometry.size.width - 36) * 0.5)
                 }
                 .padding(.horizontal, 12)
             }
         }
-        .frame(height: 115)
+        .frame(height: 130)
         .onAppear {
             locationService.requestLocationPermission()
             updateCategoryBreakdown()
@@ -200,6 +200,11 @@ struct SpendingAndETAWidget: View {
         }
         .onChange(of: notesManager.notes.count) { _ in
             updateCategoryBreakdown()
+        }
+        .sheet(isPresented: $showLocationSetup) {
+            if let slot = setupLocationSlot {
+                LocationSetupView(selectedSlot: slot)
+            }
         }
         .sheet(isPresented: $showReceiptStats) {
             ReceiptStatsView()
@@ -261,6 +266,133 @@ struct SpendingAndETAWidget: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    private func navigationCard2x2(width: CGFloat) -> some View {
+        VStack(spacing: 8) {
+            // Top row - Location 1 and Location 2
+            HStack(spacing: 8) {
+                // Location 1
+                navigationETACircle(
+                    icon: locationPreferences?.location1Icon ?? "house.fill",
+                    eta: navigationService.location1ETA,
+                    isLocationSet: locationPreferences?.location1Coordinate != nil,
+                    onTap: {
+                        if locationPreferences?.location1Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
+                        } else {
+                            setupLocationSlot = .location1
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location1
+                        showLocationSetup = true
+                    }
+                )
+
+                // Location 2
+                navigationETACircle(
+                    icon: locationPreferences?.location2Icon ?? "briefcase.fill",
+                    eta: navigationService.location2ETA,
+                    isLocationSet: locationPreferences?.location2Coordinate != nil,
+                    onTap: {
+                        if locationPreferences?.location2Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
+                        } else {
+                            setupLocationSlot = .location2
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location2
+                        showLocationSetup = true
+                    }
+                )
+            }
+
+            // Bottom row - Location 3 and Location 4
+            HStack(spacing: 8) {
+                // Location 3
+                navigationETACircle(
+                    icon: locationPreferences?.location3Icon ?? "fork.knife",
+                    eta: navigationService.location3ETA,
+                    isLocationSet: locationPreferences?.location3Coordinate != nil,
+                    onTap: {
+                        if locationPreferences?.location3Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
+                        } else {
+                            setupLocationSlot = .location3
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location3
+                        showLocationSetup = true
+                    }
+                )
+
+                // Location 4
+                navigationETACircle(
+                    icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
+                    eta: navigationService.location4ETA,
+                    isLocationSet: locationPreferences?.location4Coordinate != nil,
+                    onTap: {
+                        if locationPreferences?.location4Coordinate != nil {
+                            openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
+                        } else {
+                            setupLocationSlot = .location4
+                            showLocationSetup = true
+                        }
+                    },
+                    onLongPress: {
+                        setupLocationSlot = .location4
+                        showLocationSetup = true
+                    }
+                )
+            }
+        }
+        .padding(10)
+        .frame(width: width)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        )
+    }
+
+    private func navigationETACircle(icon: String, eta: String?, isLocationSet: Bool, onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                if navigationService.isLoading && isLocationSet {
+                    ProgressView()
+                        .scaleEffect(0.7, anchor: .center)
+                        .frame(height: 14)
+                } else if let eta = eta, isLocationSet {
+                    Text(eta)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
+                        .lineLimit(1)
+                } else {
+                    Text("--")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onLongPressGesture {
+            onLongPress()
+        }
     }
 
     private func navigationCard(width: CGFloat) -> some View {
