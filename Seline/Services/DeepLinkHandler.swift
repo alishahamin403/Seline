@@ -6,6 +6,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
 
     @Published var shouldShowNoteCreation = false
     @Published var shouldShowEventCreation = false
+    @Published var pendingAction: String? = nil
 
     private override init() {
         super.init()
@@ -38,6 +39,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     print("📝 Setting shouldShowNoteCreation = true")
                     self.shouldShowNoteCreation = true
+                    self.pendingAction = "createNote"
                 }
 
             case "createEvent":
@@ -45,6 +47,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     print("📅 Setting shouldShowEventCreation = true")
                     self.shouldShowEventCreation = true
+                    self.pendingAction = "createEvent"
                 }
 
             default:
@@ -55,10 +58,33 @@ class DeepLinkHandler: NSObject, ObservableObject {
         }
     }
 
+    /// Check if there's a pending action and trigger it
+    func processPendingAction() {
+        guard let action = pendingAction else { return }
+
+        print("🔗 Processing pending action: \(action)")
+
+        switch action {
+        case "createNote":
+            DispatchQueue.main.async {
+                print("📝 Triggering note creation from pending action")
+                self.shouldShowNoteCreation = true
+            }
+        case "createEvent":
+            DispatchQueue.main.async {
+                print("📅 Triggering event creation from pending action")
+                self.shouldShowEventCreation = true
+            }
+        default:
+            break
+        }
+    }
+
     /// Reset navigation state after handling
     func resetNavigationState() {
         shouldShowNoteCreation = false
         shouldShowEventCreation = false
+        pendingAction = nil
     }
 }
 

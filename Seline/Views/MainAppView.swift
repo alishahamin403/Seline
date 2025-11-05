@@ -320,6 +320,8 @@ struct MainAppView: View {
             .onAppear {
                 locationService.requestLocationPermission()
                 taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
+                // Check if there's a pending deep link action (e.g., from widget)
+                deepLinkHandler.processPendingAction()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
