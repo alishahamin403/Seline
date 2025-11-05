@@ -10,6 +10,7 @@ struct AllLocationsEditView: View {
     var currentPreferences: UserLocationPreferences?
 
     @State private var selectedLocationIndex = 0
+    @State private var searchDebounceTimer: Timer?
 
     @State private var location1Address: String = ""
     @State private var location1Icon: String = "house.fill"
@@ -157,6 +158,18 @@ struct AllLocationsEditView: View {
                 }
             } catch {
                 print("Error searching places: \(error)")
+            }
+        }
+    }
+
+    private func debouncedSearch(query: String, index: Int) {
+        // Cancel existing timer
+        searchDebounceTimer?.invalidate()
+
+        // Create new timer that fires after 0.5 seconds of inactivity
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            if !query.isEmpty {
+                searchPlace(query: query, index: index)
             }
         }
     }
@@ -316,7 +329,8 @@ struct AllLocationsEditView: View {
                                         get: { getCurrentSearchQuery() },
                                         set: { newValue in
                                             setCurrentSearchQuery(newValue)
-                                            searchPlace(query: newValue, index: selectedLocationIndex + 1)
+                                            // Use debounced search to avoid excessive API calls
+                                            debouncedSearch(query: newValue, index: selectedLocationIndex + 1)
                                         }
                                     ))
                                     .font(.system(size: 16, weight: .regular))
@@ -473,6 +487,10 @@ struct AllLocationsEditView: View {
             location4Icon = currentPreferences?.location4Icon ?? "mappin.circle.fill"
             location4Latitude = currentPreferences?.location4Latitude
             location4Longitude = currentPreferences?.location4Longitude
+        }
+        .onDisappear {
+            // Clean up debounce timer when view closes
+            searchDebounceTimer?.invalidate()
         }
     }
 }
