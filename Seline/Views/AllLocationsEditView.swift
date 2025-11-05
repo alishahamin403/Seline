@@ -9,6 +9,8 @@ struct AllLocationsEditView: View {
 
     var currentPreferences: UserLocationPreferences?
 
+    @State private var selectedLocationIndex = 0
+
     @State private var location1Address: String = ""
     @State private var location1Icon: String = "house.fill"
     @State private var location1SearchQuery: String = ""
@@ -38,22 +40,96 @@ struct AllLocationsEditView: View {
     @State private var location4Longitude: Double?
 
     @State private var isSaving = false
-    @State private var showIconPicker1 = false
-    @State private var showIconPicker2 = false
-    @State private var showIconPicker3 = false
-    @State private var showIconPicker4 = false
 
     init(currentPreferences: UserLocationPreferences?) {
         self.currentPreferences = currentPreferences
     }
 
-    private func getLocationName(_ index: Int) -> String {
-        switch index {
-        case 1: return "Location 1"
-        case 2: return "Location 2"
-        case 3: return "Location 3"
-        case 4: return "Location 4"
-        default: return "Location"
+    private var locationNames: [String] {
+        ["Home", "Work", "Dining", "Fitness"]
+    }
+
+    private var locationIcons: [String] {
+        ["house.fill", "briefcase.fill", "fork.knife", "dumbbell.fill"]
+    }
+
+    private func getCurrentAddress() -> String {
+        switch selectedLocationIndex {
+        case 0: return location1Address
+        case 1: return location2Address
+        case 2: return location3Address
+        case 3: return location4Address
+        default: return ""
+        }
+    }
+
+    private func setCurrentAddress(_ value: String) {
+        switch selectedLocationIndex {
+        case 0: location1Address = value
+        case 1: location2Address = value
+        case 2: location3Address = value
+        case 3: location4Address = value
+        default: break
+        }
+    }
+
+    private func getCurrentIcon() -> String {
+        switch selectedLocationIndex {
+        case 0: return location1Icon
+        case 1: return location2Icon
+        case 2: return location3Icon
+        case 3: return location4Icon
+        default: return ""
+        }
+    }
+
+    private func setCurrentIcon(_ value: String) {
+        switch selectedLocationIndex {
+        case 0: location1Icon = value
+        case 1: location2Icon = value
+        case 2: location3Icon = value
+        case 3: location4Icon = value
+        default: break
+        }
+    }
+
+    private func getCurrentSearchQuery() -> String {
+        switch selectedLocationIndex {
+        case 0: return location1SearchQuery
+        case 1: return location2SearchQuery
+        case 2: return location3SearchQuery
+        case 3: return location4SearchQuery
+        default: return ""
+        }
+    }
+
+    private func setCurrentSearchQuery(_ value: String) {
+        switch selectedLocationIndex {
+        case 0: location1SearchQuery = value
+        case 1: location2SearchQuery = value
+        case 2: location3SearchQuery = value
+        case 3: location4SearchQuery = value
+        default: break
+        }
+    }
+
+    private func getCurrentSearchResults() -> [PlaceSearchResult] {
+        switch selectedLocationIndex {
+        case 0: return location1SearchResults
+        case 1: return location2SearchResults
+        case 2: return location3SearchResults
+        case 3: return location4SearchResults
+        default: return []
+        }
+    }
+
+    private func setCurrentSearchResults(_ value: [PlaceSearchResult]) {
+        switch selectedLocationIndex {
+        case 0: location1SearchResults = value
+        case 1: location2SearchResults = value
+        case 2: location3SearchResults = value
+        case 3: location4SearchResults = value
+        default: break
         }
     }
 
@@ -156,81 +232,224 @@ struct AllLocationsEditView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Location 1
-                    locationEditCard(
-                        title: "Location 1",
-                        address: $location1Address,
-                        icon: $location1Icon,
-                        searchQuery: $location1SearchQuery,
-                        searchResults: $location1SearchResults,
-                        showIconPicker: $showIconPicker1,
-                        onSelectPlace: { place in selectPlace(place, index: 1) },
-                        onSearch: { query in searchPlace(query: query, index: 1) }
-                    )
+            VStack(spacing: 0) {
+                // Location Selector with dots
+                HStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { index in
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedLocationIndex = index
+                            }
+                        }) {
+                            VStack(spacing: 12) {
+                                Image(systemName: locationIcons[index])
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
 
-                    // Location 2
-                    locationEditCard(
-                        title: "Location 2",
-                        address: $location2Address,
-                        icon: $location2Icon,
-                        searchQuery: $location2SearchQuery,
-                        searchResults: $location2SearchResults,
-                        showIconPicker: $showIconPicker2,
-                        onSelectPlace: { place in selectPlace(place, index: 2) },
-                        onSearch: { query in searchPlace(query: query, index: 2) }
-                    )
+                                Text(locationNames[index])
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
 
-                    // Location 3
-                    locationEditCard(
-                        title: "Location 3",
-                        address: $location3Address,
-                        icon: $location3Icon,
-                        searchQuery: $location3SearchQuery,
-                        searchResults: $location3SearchResults,
-                        showIconPicker: $showIconPicker3,
-                        onSelectPlace: { place in selectPlace(place, index: 3) },
-                        onSearch: { query in searchPlace(query: query, index: 3) }
-                    )
-
-                    // Location 4
-                    locationEditCard(
-                        title: "Location 4",
-                        address: $location4Address,
-                        icon: $location4Icon,
-                        searchQuery: $location4SearchQuery,
-                        searchResults: $location4SearchResults,
-                        showIconPicker: $showIconPicker4,
-                        onSelectPlace: { place in selectPlace(place, index: 4) },
-                        onSearch: { query in searchPlace(query: query, index: 4) }
-                    )
+                                if selectedLocationIndex == index {
+                                    RoundedRectangle(cornerRadius: 1.5)
+                                        .fill(colorScheme == .dark ? Color.white : Color.black)
+                                        .frame(width: 24, height: 3)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
-                .padding(16)
+                .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+
+                Divider()
+
+                // Location Editor
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Icon Selector - Horizontal
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Icon")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .padding(.horizontal, 16)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(LocationType.allCases) { locationType in
+                                        Button(action: {
+                                            HapticManager.shared.selection()
+                                            setCurrentIcon(locationType.icon)
+                                        }) {
+                                            Image(systemName: locationType.icon)
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundColor(getCurrentIcon() == locationType.icon ? .white : (colorScheme == .dark ? .white : .black))
+                                                .frame(width: 48, height: 48)
+                                                .background(
+                                                    Circle()
+                                                        .fill(getCurrentIcon() == locationType.icon ? Color.blue : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)))
+                                                )
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 16)
+                            }
+                        }
+
+                        // Address Search
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Address")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .padding(.horizontal, 16)
+
+                            VStack(spacing: 0) {
+                                // Search Field
+                                HStack(spacing: 10) {
+                                    Image(systemName: "magnifyingglass")
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+
+                                    TextField("Search places", text: .init(
+                                        get: { getCurrentSearchQuery() },
+                                        set: { newValue in
+                                            setCurrentSearchQuery(newValue)
+                                            searchPlace(query: newValue, index: selectedLocationIndex + 1)
+                                        }
+                                    ))
+                                    .font(.system(size: 16, weight: .regular))
+
+                                    if !getCurrentSearchQuery().isEmpty {
+                                        Button(action: {
+                                            HapticManager.shared.selection()
+                                            setCurrentSearchQuery("")
+                                            setCurrentSearchResults([])
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+
+                                // Selected Address
+                                if !getCurrentAddress().isEmpty {
+                                    Divider()
+                                        .padding(.horizontal, 0)
+
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "mappin.circle.fill")
+                                            .foregroundColor(.green)
+                                            .font(.system(size: 16))
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(getCurrentAddress())
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(2)
+                                        }
+
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                }
+                            }
+                            .background(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                            .cornerRadius(10)
+                            .padding(.horizontal, 16)
+
+                            // Search Results
+                            if !getCurrentSearchResults().isEmpty {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    ForEach(getCurrentSearchResults().prefix(5), id: \.id) { result in
+                                        Button(action: {
+                                            HapticManager.shared.selection()
+                                            selectPlace(result, index: selectedLocationIndex + 1)
+                                            setCurrentAddress(result.name)
+                                        }) {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: "mappin")
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundColor(.blue)
+                                                    .frame(width: 24)
+
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    Text(result.name)
+                                                        .font(.system(size: 14, weight: .semibold))
+                                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                        .lineLimit(1)
+
+                                                    Text(result.address)
+                                                        .font(.system(size: 12, weight: .regular))
+                                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                                        .lineLimit(1)
+                                                }
+
+                                                Spacer()
+                                            }
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 12)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+
+                                        if result.id != getCurrentSearchResults().prefix(5).last?.id {
+                                            Divider()
+                                                .padding(.horizontal, 14)
+                                        }
+                                    }
+                                }
+                                .background(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                                .cornerRadius(10)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 24)
+                }
+
+                Divider()
+
+                // Save Button
+                Button(action: {
+                    Task {
+                        await saveLocations()
+                    }
+                }) {
+                    HStack {
+                        Spacer()
+                        if isSaving {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Text("Save")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        Spacer()
+                    }
+                    .foregroundColor(.white)
+                    .padding(.vertical, 14)
+                    .background(Color.blue)
+                    .cornerRadius(10)
+                    .padding(16)
+                }
+                .disabled(isSaving)
             }
-            .navigationTitle("Edit Locations")
+            .navigationTitle("Locations")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        Task {
-                            await saveLocations()
-                        }
-                    }) {
-                        if isSaving {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Text("Save")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .disabled(isSaving)
                 }
             }
         }
@@ -255,139 +474,6 @@ struct AllLocationsEditView: View {
             location4Latitude = currentPreferences?.location4Latitude
             location4Longitude = currentPreferences?.location4Longitude
         }
-    }
-
-    private func locationEditCard(
-        title: String,
-        address: Binding<String>,
-        icon: Binding<String>,
-        searchQuery: Binding<String>,
-        searchResults: Binding<[PlaceSearchResult]>,
-        showIconPicker: Binding<Bool>,
-        onSelectPlace: @escaping (PlaceSearchResult) -> Void,
-        onSearch: @escaping (String) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Title and Icon Picker
-            HStack(spacing: 12) {
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Button(action: { showIconPicker.wrappedValue.toggle() }) {
-                    Image(systemName: icon.wrappedValue)
-                        .font(.system(size: 24))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 44, height: 44)
-                        .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                        .cornerRadius(8)
-                }
-            }
-
-            // Icon Picker Menu
-            if showIconPicker.wrappedValue {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Select Icon")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 50))], spacing: 8) {
-                        ForEach(LocationType.allCases) { locationType in
-                            Button(action: {
-                                icon.wrappedValue = locationType.icon
-                                showIconPicker.wrappedValue = false
-                            }) {
-                                Image(systemName: locationType.icon)
-                                    .font(.system(size: 18))
-                                    .foregroundColor(icon.wrappedValue == locationType.icon ? .white : (colorScheme == .dark ? .white : .black))
-                                    .frame(height: 44)
-                                    .frame(maxWidth: .infinity)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(
-                                                icon.wrappedValue == locationType.icon ?
-                                                Color.blue :
-                                                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                            )
-                                    )
-                            }
-                        }
-                    }
-                }
-                .padding(12)
-                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-                .cornerRadius(8)
-            }
-
-            // Address Search
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Address")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                TextField("Search or enter address", text: searchQuery)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onChange(of: searchQuery.wrappedValue) { newValue in
-                        onSearch(newValue)
-                    }
-
-                // Selected address display
-                if !address.wrappedValue.isEmpty {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.green)
-
-                        Text(address.wrappedValue)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                    .padding(10)
-                    .background(colorScheme == .dark ? Color.green.opacity(0.2) : Color.green.opacity(0.1))
-                    .cornerRadius(6)
-                }
-
-                // Search Results
-                if !searchResults.wrappedValue.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(searchResults.wrappedValue.prefix(5)) { result in
-                            Button(action: {
-                                onSelectPlace(result)
-                                address.wrappedValue = result.name
-                            }) {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "mappin.circle.fill")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.blue)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(result.name)
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(1)
-
-                                        Text(result.address)
-                                            .font(.system(size: 11, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                            .lineLimit(1)
-                                    }
-
-                                    Spacer()
-                                }
-                                .padding(10)
-                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-                                .cornerRadius(6)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-        .cornerRadius(12)
     }
 }
 
