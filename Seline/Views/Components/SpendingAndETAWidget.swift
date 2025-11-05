@@ -238,10 +238,6 @@ struct SpendingAndETAWidget: View {
             }
             .padding(10)
             .frame(maxWidth: width, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -367,10 +363,6 @@ struct SpendingAndETAWidget: View {
         }
         .padding(10)
         .frame(maxWidth: width, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-        )
     }
 
     private func navigationETACircle(icon: String, eta: String?, isLocationSet: Bool, onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
