@@ -14,7 +14,7 @@ struct SpendingAndETAWidget: View {
     @State private var showLocationSetup = false
     @State private var setupLocationSlot: LocationSlot?
     @State private var showReceiptStats = false
-    @State private var showEditLocations = false
+    @State private var showETAEditModal = false
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -202,7 +202,7 @@ struct SpendingAndETAWidget: View {
         .onChange(of: notesManager.notes.count) { _ in
             updateCategoryBreakdown()
         }
-        .onChange(of: showEditLocations) { isShowing in
+        .onChange(of: showETAEditModal) { isShowing in
             if !isShowing {
                 // Reload location preferences when edit sheet closes
                 Task {
@@ -215,7 +215,7 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
-        .sheet(isPresented: $showEditLocations) {
+        .sheet(isPresented: $showETAEditModal) {
             AllLocationsEditView(currentPreferences: locationPreferences)
         }
         .sheet(isPresented: $showLocationSetup) {
@@ -300,7 +300,7 @@ struct SpendingAndETAWidget: View {
                         }
                     },
                     onLongPress: {
-                        showEditLocations = true
+                        showETAEditModal = true
                     }
                 )
 
@@ -315,7 +315,7 @@ struct SpendingAndETAWidget: View {
                         }
                     },
                     onLongPress: {
-                        showEditLocations = true
+                        showETAEditModal = true
                     }
                 )
             }
@@ -333,7 +333,7 @@ struct SpendingAndETAWidget: View {
                         }
                     },
                     onLongPress: {
-                        showEditLocations = true
+                        showETAEditModal = true
                     }
                 )
 
@@ -348,7 +348,7 @@ struct SpendingAndETAWidget: View {
                         }
                     },
                     onLongPress: {
-                        showEditLocations = true
+                        showETAEditModal = true
                     }
                 )
             }
@@ -365,35 +365,36 @@ struct SpendingAndETAWidget: View {
 
     private func navigationETACircle(icon: String, eta: String?, isLocationSet: Bool, onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
         Button(action: onTap) {
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 if navigationService.isLoading && isLocationSet {
                     ProgressView()
-                        .scaleEffect(0.7, anchor: .center)
-                        .frame(height: 14)
+                        .scaleEffect(0.6, anchor: .center)
+                        .frame(height: 12)
                 } else if let eta = eta, isLocationSet {
                     Text(eta)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                         .lineLimit(1)
                 } else {
                     Text("--")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(height: 40)
             .background(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
             )
         }
         .buttonStyle(PlainButtonStyle())
         .onLongPressGesture {
+            HapticManager.shared.selection()
             onLongPress()
         }
     }
