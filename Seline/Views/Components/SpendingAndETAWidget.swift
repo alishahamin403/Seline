@@ -170,43 +170,37 @@ struct SpendingAndETAWidget: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Refresh button
-            HStack {
-                Spacer()
-                Button(action: {
-                    isRefreshingETAs = true
-                    HapticManager.shared.selection()
-                    updateETAs()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("Refresh")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.blue)
-                    .cornerRadius(6)
-                }
-                .disabled(isRefreshingETAs || navigationService.isLoading)
-                .padding(.horizontal, 12)
-            }
-
+        VStack(spacing: 0) {
             GeometryReader { geometry in
                 HStack(spacing: 12) {
                     // Spending Card (50%)
                     spendingCard(width: (geometry.size.width - 36) * 0.5)
 
                     // Navigation Card with 2x2 ETA grid (50%)
-                    navigationCard2x2(width: (geometry.size.width - 36) * 0.5)
+                    ZStack(alignment: .topTrailing) {
+                        navigationCard2x2(width: (geometry.size.width - 36) * 0.5)
+
+                        // Refresh button - small icon in top right
+                        Button(action: {
+                            isRefreshingETAs = true
+                            HapticManager.shared.selection()
+                            updateETAs()
+                        }) {
+                            Image(systemName: navigationService.isLoading ? "hourglass" : "arrow.clockwise")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(width: 24, height: 24)
+                                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                .clipShape(Circle())
+                        }
+                        .disabled(navigationService.isLoading)
+                        .padding(8)
+                    }
                 }
                 .padding(.horizontal, 12)
             }
         }
-        .frame(height: 160)
+        .frame(height: 130)
         .onAppear {
             locationService.requestLocationPermission()
             updateCategoryBreakdown()

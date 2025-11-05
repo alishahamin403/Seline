@@ -14,8 +14,16 @@ class GoogleMapsService: ObservableObject {
         let timestamp: Date
     }
 
+    // Place details cache to prevent repeated API calls
+    private struct PlaceDetailsCacheEntry {
+        let details: PlaceDetails
+        let timestamp: Date
+    }
+
     private var searchCache: [String: SearchCacheEntry] = [:] // Key: search query
+    private var detailsCache: [String: PlaceDetailsCacheEntry] = [:] // Key: place ID
     private let searchCacheDurationSeconds: TimeInterval = 300 // 5 minutes
+    private let detailsCacheDurationSeconds: TimeInterval = 3600 // 1 hour
 
     private init() {}
 
@@ -46,6 +54,10 @@ class GoogleMapsService: ObservableObject {
 
     private func isSearchCacheValid(_ entry: SearchCacheEntry) -> Bool {
         return Date().timeIntervalSince(entry.timestamp) < searchCacheDurationSeconds
+    }
+
+    private func isDetailsCacheValid(_ entry: PlaceDetailsCacheEntry) -> Bool {
+        return Date().timeIntervalSince(entry.timestamp) < detailsCacheDurationSeconds
     }
 
     // MARK: - Search Places
@@ -148,6 +160,11 @@ class GoogleMapsService: ObservableObject {
     // MARK: - Get Place Details
 
     func getPlaceDetails(placeId: String, minimizeFields: Bool = false) async throws -> PlaceDetails {
+        // Check cache first to prevent unnecessary API calls
+        if !minimizeFields, let cachedEntry = detailsCache[placeId], isDetailsCacheValid(cachedEntry) {
+            return cachedEntry.details
+        }
+
         // The new Places API expects the full resource name format: places/{placeId}
         // But the search returns just the ID, so we need to construct the full path
         let resourceName = placeId.hasPrefix("places/") ? placeId : "places/\(placeId)"
@@ -162,10 +179,13 @@ class GoogleMapsService: ObservableObject {
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
 
         // Optimize field mask based on use case
-        // For opening hours refresh, we only need basic info and opening hours
+        // COST OPTIMIZATION: Removed photos and reviews from default fields
+        // - photos: Incurs egress/bandwidth charges + $0.30+ per request
+        // - reviews: Only available in expensive "Atmosphere" tier ($0.30+)
+        // Users can still view saved place photos or visit Google Maps for reviews
         let fieldMask = minimizeFields ?
             "displayName,location,regularOpeningHours,currentOpeningHours" :
-            "displayName,formattedAddress,location,internationalPhoneNumber,photos,rating,userRatingCount,reviews,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types"
+            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types"
 
         request.setValue(fieldMask, forHTTPHeaderField: "X-Goog-FieldMask")
 
@@ -208,41 +228,10 @@ class GoogleMapsService: ObservableObject {
                 longitude = location["longitude"] ?? 0.0
             }
 
-            // Extract photo URLs (new API structure)
-            // OPTIMIZED: Reduced from 10 to 3 photos, and size from 800px to 400px to reduce egress
-            var photoURLs: [String] = []
-            if let photos = place["photos"] as? [[String: Any]] {
-                photoURLs = photos.prefix(3).compactMap { photo in
-                    guard let photoName = photo["name"] as? String else { return nil }
-                    // Use new API photo endpoint with reduced size
-                    return "https://places.googleapis.com/v1/\(photoName)/media?maxWidthPx=400&key=\(apiKey)"
-                }
-            }
-
-            // Extract reviews (new API structure)
-            var reviews: [PlaceReview] = []
-            if let reviewsData = place["reviews"] as? [[String: Any]] {
-                reviews = reviewsData.prefix(5).compactMap { reviewData in
-                    guard let authorAttribution = reviewData["authorAttribution"] as? [String: Any],
-                          let authorName = authorAttribution["displayName"] as? String,
-                          let rating = reviewData["rating"] as? Int,
-                          let textData = reviewData["text"] as? [String: Any],
-                          let text = textData["text"] as? String else {
-                        return nil
-                    }
-
-                    let relativeTime = reviewData["relativePublishTimeDescription"] as? String
-                    let profilePhoto = authorAttribution["photoUri"] as? String
-
-                    return PlaceReview(
-                        authorName: authorName,
-                        rating: rating,
-                        text: text,
-                        relativeTime: relativeTime,
-                        profilePhotoUrl: profilePhoto
-                    )
-                }
-            }
+            // Photos and reviews removed for cost optimization
+            // Each call to fetch these was adding $0.30+ to per-request cost
+            let photoURLs: [String] = []
+            let reviews: [PlaceReview] = []
 
             // Extract opening hours (new API structure)
             var isOpenNow: Bool? = nil
@@ -283,7 +272,7 @@ class GoogleMapsService: ObservableObject {
 
             print("✅ Successfully parsed place details: \(name)")
 
-            return PlaceDetails(
+            let placeDetails = PlaceDetails(
                 name: name,
                 address: address,
                 phone: phone,
@@ -299,6 +288,13 @@ class GoogleMapsService: ObservableObject {
                 priceLevel: priceLevelInt,
                 types: types
             )
+
+            // Cache the result (but not for minimized field queries)
+            if !minimizeFields {
+                detailsCache[placeId] = PlaceDetailsCacheEntry(details: placeDetails, timestamp: Date())
+            }
+
+            return placeDetails
 
         } catch let error as MapsError {
             throw error
