@@ -16,6 +16,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
     func handleURL(_ url: URL) {
         print("🔗 Deep link received: \(url.absoluteString)")
         print("🔗 URL scheme: \(url.scheme ?? "nil")")
+        print("🔗 URL host: \(url.host ?? "nil")")
         print("🔗 URL path: \(url.path)")
         print("🔗 URL pathComponents: \(url.pathComponents)")
 
@@ -25,36 +26,38 @@ class DeepLinkHandler: NSObject, ObservableObject {
         }
 
         // Parse the URL: seline://action/createNote or seline://action/createEvent
-        let pathComponents = url.pathComponents
-        print("🔗 Parsed pathComponents: \(pathComponents)")
+        // The URL format seline://action/createNote parses as:
+        // - host: "action"
+        // - path: "/createNote"
 
-        // pathComponents is ["", "action", "createNote"] for seline://action/createNote
-        if pathComponents.count >= 3 && pathComponents[1] == "action" {
-            let action = pathComponents[2]
-            print("🔗 Detected action: \(action)")
+        guard let host = url.host, host == "action" else {
+            print("⚠️ Invalid URL host. Expected 'action', got: \(url.host ?? "nil")")
+            return
+        }
 
-            switch action {
-            case "createNote":
-                print("📝 Opening note creation sheet")
-                DispatchQueue.main.async {
-                    print("📝 Setting shouldShowNoteCreation = true")
-                    self.shouldShowNoteCreation = true
-                    self.pendingAction = "createNote"
-                }
+        // Extract the action from the path (remove leading /)
+        let pathWithoutSlash = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        print("🔗 Detected action: \(pathWithoutSlash)")
 
-            case "createEvent":
-                print("📅 Opening event creation popup")
-                DispatchQueue.main.async {
-                    print("📅 Setting shouldShowEventCreation = true")
-                    self.shouldShowEventCreation = true
-                    self.pendingAction = "createEvent"
-                }
-
-            default:
-                print("⚠️ Unknown action: \(action)")
+        switch pathWithoutSlash {
+        case "createNote":
+            print("📝 Opening note creation sheet")
+            DispatchQueue.main.async {
+                print("📝 Setting shouldShowNoteCreation = true")
+                self.shouldShowNoteCreation = true
+                self.pendingAction = "createNote"
             }
-        } else {
-            print("⚠️ Invalid URL format. pathComponents: \(pathComponents)")
+
+        case "createEvent":
+            print("📅 Opening event creation popup")
+            DispatchQueue.main.async {
+                print("📅 Setting shouldShowEventCreation = true")
+                self.shouldShowEventCreation = true
+                self.pendingAction = "createEvent"
+            }
+
+        default:
+            print("⚠️ Unknown action: \(pathWithoutSlash)")
         }
     }
 
