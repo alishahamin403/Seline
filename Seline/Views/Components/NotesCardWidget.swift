@@ -73,7 +73,7 @@ struct NotesCardWidget: View {
                     }
                 }
             }
-            .frame(maxHeight: 60)
+            .frame(maxHeight: 45)
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

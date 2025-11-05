@@ -252,7 +252,7 @@ struct EmailCardWidget: View {
                     }
                 }
             }
-            .frame(maxHeight: 60)
+            .frame(maxHeight: 45)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
         }
