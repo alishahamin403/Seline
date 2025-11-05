@@ -9,6 +9,7 @@ class NavigationService: ObservableObject {
     // MapKit is FREE (native iOS framework)
     // Google Routes API was costing $0.12 per request (~$10-15/month)
     private let mapKitService = MapKitService.shared
+    private let locationManager = CLLocationManager()
 
     @Published var location1ETA: String? {
         didSet { mapKitService.location1ETA = location1ETA }
@@ -25,7 +26,13 @@ class NavigationService: ObservableObject {
     @Published var isLoading = false
     @Published var lastUpdated: Date?
 
-    private init() {}
+    // Movement tracking for auto-refresh
+    private var lastRefreshLocation: CLLocationCoordinate2D?
+    private let minimumDistanceForRefresh: CLLocationDistance = 5000 // 5 km in meters
+
+    private init() {
+        locationManager.delegate = self
+    }
 
     enum NavigationError: Error, LocalizedError {
         case invalidURL
@@ -238,6 +245,42 @@ class NavigationService: ObservableObject {
         }
 
         return "\(minutes) min"
+    }
+
+    // MARK: - Auto-Refresh on Movement
+
+    /// Check if user has moved 5km+ and trigger refresh if so
+    func checkAndRefreshIfNeeded(currentLocation: CLLocation, location1: CLLocationCoordinate2D?, location2: CLLocationCoordinate2D?, location3: CLLocationCoordinate2D?, location4: CLLocationCoordinate2D?) async {
+        // If no previous refresh location, set it and trigger refresh
+        guard let lastLocation = lastRefreshLocation else {
+            lastRefreshLocation = currentLocation.coordinate
+            await updateETAs(currentLocation: currentLocation, location1: location1, location2: location2, location3: location3, location4: location4)
+            return
+        }
+
+        // Calculate distance from last refresh location
+        let lastLocation = CLLocation(latitude: lastRefreshLocation!.latitude, longitude: lastRefreshLocation!.longitude)
+        let distanceMoved = currentLocation.distance(from: lastLocation)
+
+        // If moved 5km+, refresh ETAs
+        if distanceMoved >= minimumDistanceForRefresh {
+            print("📍 User moved \(Int(distanceMoved)) meters (5km+ threshold). Refreshing ETAs...")
+            lastRefreshLocation = currentLocation.coordinate
+            await updateETAs(currentLocation: currentLocation, location1: location1, location2: location2, location3: location3, location4: location4)
+        }
+    }
+}
+
+// MARK: - CLLocationManager Delegate
+
+extension NavigationService: CLLocationManagerDelegate {
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        // Location updates are handled by the caller (SpendingAndETAWidget)
+        // This extension is here for future expansion if needed
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("❌ Location manager error: \(error)")
     }
 }
 

@@ -15,7 +15,6 @@ struct SpendingAndETAWidget: View {
     @State private var setupLocationSlot: LocationSlot?
     @State private var showReceiptStats = false
     @State private var showETAEditModal = false
-    @State private var isRefreshingETAs = false
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -177,25 +176,7 @@ struct SpendingAndETAWidget: View {
                     spendingCard(width: (geometry.size.width - 36) * 0.5)
 
                     // Navigation Card with 2x2 ETA grid (50%)
-                    ZStack(alignment: .topTrailing) {
-                        navigationCard2x2(width: (geometry.size.width - 36) * 0.5)
-
-                        // Refresh button - small icon in top right
-                        Button(action: {
-                            isRefreshingETAs = true
-                            HapticManager.shared.selection()
-                            updateETAs()
-                        }) {
-                            Image(systemName: navigationService.isLoading ? "hourglass" : "arrow.clockwise")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(width: 24, height: 24)
-                                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                .clipShape(Circle())
-                        }
-                        .disabled(navigationService.isLoading)
-                        .padding(8)
-                    }
+                    navigationCard2x2(width: (geometry.size.width - 36) * 0.5)
                 }
                 .padding(.horizontal, 12)
             }
@@ -207,16 +188,37 @@ struct SpendingAndETAWidget: View {
             Task {
                 do {
                     locationPreferences = try await supabaseManager.loadLocationPreferences()
-                    updateETAs()
+
+                    // Initial refresh or check if 5km moved since last refresh
+                    if let currentLocation = locationService.currentLocation, let preferences = locationPreferences {
+                        await navigationService.checkAndRefreshIfNeeded(
+                            currentLocation: currentLocation,
+                            location1: preferences.location1Coordinate,
+                            location2: preferences.location2Coordinate,
+                            location3: preferences.location3Coordinate,
+                            location4: preferences.location4Coordinate
+                        )
+                    } else {
+                        // Fallback to direct update if no location yet
+                        updateETAs()
+                    }
                 } catch {
                     print("Failed to load location preferences: \(error)")
                 }
             }
         }
-        .onChange(of: navigationService.isLoading) { isLoading in
-            // Clear refresh state when ETAs finish loading
-            if !isLoading {
-                isRefreshingETAs = false
+        .onChange(of: locationService.currentLocation) { location in
+            // Auto-refresh ETAs when user moves 5km+
+            guard let currentLocation = location, let preferences = locationPreferences else { return }
+
+            Task {
+                await navigationService.checkAndRefreshIfNeeded(
+                    currentLocation: currentLocation,
+                    location1: preferences.location1Coordinate,
+                    location2: preferences.location2Coordinate,
+                    location3: preferences.location3Coordinate,
+                    location4: preferences.location4Coordinate
+                )
             }
         }
         .onChange(of: notesManager.notes.count) { _ in
