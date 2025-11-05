@@ -395,7 +395,7 @@ struct SpendingAndETAWidget: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .onLongPressGesture {
+        .onLongPressGesture(minimumDuration: 1.0) {
             HapticManager.shared.selection()
             onLongPress()
         }
