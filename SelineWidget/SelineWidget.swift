@@ -320,7 +320,7 @@ struct SelineWidgetEntryView: View {
 
     var mediumWidgetView: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section 1 - Monthly Spending with Trend
+            // Section 1 - Monthly Spending with Trend (Tappable)
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(format: "$%.2f", entry.monthlySpending))
                     .font(.system(size: 32, weight: .bold))
@@ -334,6 +334,9 @@ struct SelineWidgetEntryView: View {
                 }
                 .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .widgetURL(URL(string: "seline://action/viewReceiptStats"))
 
             Spacer()
 

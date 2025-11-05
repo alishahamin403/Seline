@@ -6,6 +6,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
 
     @Published var shouldShowNoteCreation = false
     @Published var shouldShowEventCreation = false
+    @Published var shouldShowReceiptStats = false
     @Published var pendingAction: String? = nil
 
     private override init() {
@@ -56,6 +57,14 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 self.pendingAction = "createEvent"
             }
 
+        case "viewReceiptStats":
+            print("💰 Opening receipt stats")
+            DispatchQueue.main.async {
+                print("💰 Setting shouldShowReceiptStats = true")
+                self.shouldShowReceiptStats = true
+                self.pendingAction = "viewReceiptStats"
+            }
+
         default:
             print("⚠️ Unknown action: \(pathWithoutSlash)")
         }
@@ -78,6 +87,11 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 print("📅 Triggering event creation from pending action")
                 self.shouldShowEventCreation = true
             }
+        case "viewReceiptStats":
+            DispatchQueue.main.async {
+                print("💰 Triggering receipt stats from pending action")
+                self.shouldShowReceiptStats = true
+            }
         default:
             break
         }
@@ -87,6 +101,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
     func resetNavigationState() {
         shouldShowNoteCreation = false
         shouldShowEventCreation = false
+        shouldShowReceiptStats = false
         pendingAction = nil
     }
 }

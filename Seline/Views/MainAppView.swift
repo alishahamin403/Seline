@@ -29,6 +29,7 @@ struct MainAppView: View {
     @State private var notificationTaskId: String? = nil
     @FocusState private var isSearchFocused: Bool
     @State private var showConversationModal = false
+    @State private var showReceiptStats = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -310,6 +311,16 @@ struct MainAppView: View {
                     }
                 }
             }
+            .onChange(of: deepLinkHandler.shouldShowReceiptStats) { newValue in
+                print("💰 MainAppView: shouldShowReceiptStats changed to \(newValue)")
+                if newValue {
+                    print("💰 MainAppView: Opening receipt stats")
+                    showReceiptStats = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        deepLinkHandler.shouldShowReceiptStats = false
+                    }
+                }
+            }
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()
             }
@@ -449,6 +460,11 @@ struct MainAppView: View {
                         )
                     }
                 )
+            }
+            .sheet(isPresented: $showReceiptStats) {
+                ReceiptStatsView()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
     }
 
