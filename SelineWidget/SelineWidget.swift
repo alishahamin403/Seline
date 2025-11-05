@@ -281,11 +281,34 @@ struct SelineWidgetEntryView: View {
     }
 
     var smallWidgetView: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
+            // Search bar at top
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(badgeContentColor.opacity(0.6))
+
+                Text("Search")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(badgeContentColor.opacity(0.6))
+
+                Spacer()
+            }
+            .frame(height: 36)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 10)
+            .background(badgeBackgroundColor)
+            .cornerRadius(8)
+            .contentShape(Rectangle())
+            .widgetURL(URL(string: "seline://action/search"))
+            .padding(12)
+
             Spacer()
 
             // Centered action buttons
             HStack(spacing: 12) {
+                Spacer()
+
                 // Note button
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 20, weight: .semibold))
@@ -303,12 +326,14 @@ struct SelineWidgetEntryView: View {
                     .background(Circle().fill(badgeBackgroundColor))
                     .contentShape(Circle())
                     .widgetURL(URL(string: "seline://action/createEvent"))
+
+                Spacer()
             }
 
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(0)
     }
 
     private func googleMapsURL(lat: Double?, lon: Double?) -> URL {

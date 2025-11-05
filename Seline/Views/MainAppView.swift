@@ -321,6 +321,16 @@ struct MainAppView: View {
                     }
                 }
             }
+            .onChange(of: deepLinkHandler.shouldShowSearch) { newValue in
+                print("🔍 MainAppView: shouldShowSearch changed to \(newValue)")
+                if newValue {
+                    print("🔍 MainAppView: Opening search")
+                    isSearchFocused = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        deepLinkHandler.shouldShowSearch = false
+                    }
+                }
+            }
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()
             }
