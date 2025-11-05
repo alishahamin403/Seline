@@ -282,7 +282,7 @@ struct SelineWidgetEntryView: View {
 
     var smallWidgetView: some View {
         VStack(spacing: 0) {
-            // Chat button at top
+            // Chat button at top (pill-shaped)
             Link(destination: URL(string: "seline://action/chat")!) {
                 HStack(spacing: 6) {
                     Image(systemName: "bubble.left.fill")
@@ -299,7 +299,7 @@ struct SelineWidgetEntryView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 8)
                 .background(badgeBackgroundColor)
-                .cornerRadius(6)
+                .cornerRadius(14)
             }
             .buttonStyle(.plain)
             .padding(10)
@@ -343,7 +343,10 @@ struct SelineWidgetEntryView: View {
         guard let lat = lat, let lon = lon else {
             return URL(string: "https://maps.google.com")!
         }
-        return URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(lat),\(lon)&travelmode=driving")!
+        // Try Google Maps app first with comgooglemaps scheme
+        // Falls back to web URL if app not installed
+        return URL(string: "comgooglemaps://?daddr=\(lat),\(lon)")
+            ?? URL(string: "https://www.google.com/maps/search/?api=1&query=\(lat),\(lon)")!
     }
 
     var mediumWidgetView: some View {
@@ -472,7 +475,7 @@ struct SelineWidgetEntryView: View {
                     .buttonStyle(.plain)
                 }
 
-                // Chat bar - centered text
+                // Chat bar - pill-shaped
                 Link(destination: URL(string: "seline://action/chat")!) {
                     Text("Chat")
                         .font(.system(size: 13, weight: .semibold))
@@ -480,7 +483,7 @@ struct SelineWidgetEntryView: View {
                         .frame(height: 44)
                         .frame(maxWidth: 120)
                         .background(badgeBackgroundColor)
-                        .cornerRadius(8)
+                        .cornerRadius(22)
                 }
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .center)
