@@ -320,13 +320,11 @@ struct SelineWidgetEntryView: View {
 
     var mediumWidgetView: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section 1 - Monthly Spending with Trend (Tappable)
+            // Section 1 - Monthly Spending with Trend (Display only - NOT tappable)
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(format: "$%.2f", entry.monthlySpending))
                     .font(.system(size: 32, weight: .bold))
                     .foregroundColor(badgeContentColor)
-                    .contentShape(Rectangle())
-                    .widgetURL(URL(string: "seline://action/viewReceiptStats"))
 
                 HStack(spacing: 4) {
                     Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
@@ -335,49 +333,33 @@ struct SelineWidgetEntryView: View {
                         .font(.system(size: 12, weight: .regular))
                 }
                 .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/viewReceiptStats"))
             }
 
             Spacer()
 
-            // Section 2 - Action Buttons
-            HStack(spacing: 12) {
-                // Note button
-                ZStack {
-                    badgeBackgroundColor
-                        .cornerRadius(10)
+            // Section 2 - Action Buttons (Two circular buttons)
+            HStack(spacing: 20) {
+                Spacer()
 
-                    HStack {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("New Note")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
+                // Note button - Circle with icon
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(badgeContentColor)
-                }
-                .frame(height: 40)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/createNote"))
+                    .frame(width: 60, height: 60)
+                    .background(Circle().fill(badgeBackgroundColor))
+                    .contentShape(Circle())
+                    .widgetURL(URL(string: "seline://action/createNote"))
 
-                // Event button
-                ZStack {
-                    badgeBackgroundColor
-                        .cornerRadius(10)
-
-                    HStack {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("New Event")
-                            .font(.system(size: 13, weight: .semibold))
-                    }
+                // Event button - Circle with icon
+                Image(systemName: "calendar")
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(badgeContentColor)
-                }
-                .frame(height: 40)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-                .widgetURL(URL(string: "seline://action/createEvent"))
+                    .frame(width: 60, height: 60)
+                    .background(Circle().fill(badgeBackgroundColor))
+                    .contentShape(Circle())
+                    .widgetURL(URL(string: "seline://action/createEvent"))
+
+                Spacer()
             }
         }
         .padding(14)
