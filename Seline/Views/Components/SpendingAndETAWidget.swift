@@ -15,6 +15,7 @@ struct SpendingAndETAWidget: View {
     @State private var setupLocationSlot: LocationSlot?
     @State private var showReceiptStats = false
     @State private var showETAEditModal = false
+    @State private var isRefreshingETAs = false
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -169,7 +170,31 @@ struct SpendingAndETAWidget: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 12) {
+            // Refresh button
+            HStack {
+                Spacer()
+                Button(action: {
+                    isRefreshingETAs = true
+                    HapticManager.shared.selection()
+                    updateETAs()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Refresh")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue)
+                    .cornerRadius(6)
+                }
+                .disabled(isRefreshingETAs || navigationService.isLoading)
+                .padding(.horizontal, 12)
+            }
+
             GeometryReader { geometry in
                 HStack(spacing: 12) {
                     // Spending Card (50%)
@@ -181,7 +206,7 @@ struct SpendingAndETAWidget: View {
                 .padding(.horizontal, 12)
             }
         }
-        .frame(height: 130)
+        .frame(height: 160)
         .onAppear {
             locationService.requestLocationPermission()
             updateCategoryBreakdown()
@@ -194,9 +219,10 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
-        .onChange(of: locationService.currentLocation) { location in
-            if let location = location {
-                updateETAs()
+        .onChange(of: navigationService.isLoading) { isLoading in
+            // Clear refresh state when ETAs finish loading
+            if !isLoading {
+                isRefreshingETAs = false
             }
         }
         .onChange(of: notesManager.notes.count) { _ in
