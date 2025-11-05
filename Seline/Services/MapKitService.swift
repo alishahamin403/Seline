@@ -30,9 +30,12 @@ class MapKitService: NSObject, ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        var etas: [String?] = [nil, nil, nil, nil]
-
         // Calculate ETA for each location sequentially
+        var eta1: String? = nil
+        var eta2: String? = nil
+        var eta3: String? = nil
+        var eta4: String? = nil
+
         for (index, location) in locations.enumerated() where index < 4 {
             let destination = CLLocationCoordinate2D(
                 latitude: location.latitude,
@@ -41,21 +44,33 @@ class MapKitService: NSObject, ObservableObject {
 
             do {
                 let eta = try await calculateSingleETA(from: origin, to: destination)
-                etas[index] = eta
+                switch index {
+                case 0: eta1 = eta
+                case 1: eta2 = eta
+                case 2: eta3 = eta
+                case 3: eta4 = eta
+                default: break
+                }
             } catch {
                 print("❌ Failed to calculate ETA for \(location.name): \(error)")
-                etas[index] = "N/A"
+                switch index {
+                case 0: eta1 = "N/A"
+                case 1: eta2 = "N/A"
+                case 2: eta3 = "N/A"
+                case 3: eta4 = "N/A"
+                default: break
+                }
             }
         }
 
         // Update published properties on main thread
         await MainActor.run {
-            location1ETA = etas.count > 0 ? etas[0] : nil
-            location2ETA = etas.count > 1 ? etas[1] : nil
-            location3ETA = etas.count > 2 ? etas[2] : nil
-            location4ETA = etas.count > 3 ? etas[3] : nil
-            lastUpdated = Date()
-            print("✅ MapKit ETAs updated: L1=\(location1ETA ?? "---"), L2=\(location2ETA ?? "---"), L3=\(location3ETA ?? "---"), L4=\(location4ETA ?? "---")")
+            self.location1ETA = eta1
+            self.location2ETA = eta2
+            self.location3ETA = eta3
+            self.location4ETA = eta4
+            self.lastUpdated = Date()
+            print("✅ MapKit ETAs updated: L1=\(eta1 ?? "---"), L2=\(eta2 ?? "---"), L3=\(eta3 ?? "---"), L4=\(eta4 ?? "---")")
         }
     }
 
