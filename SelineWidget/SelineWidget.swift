@@ -239,21 +239,21 @@ struct SelineWidgetEntryView: View {
     @Environment(\.colorScheme) var colorScheme
 
     var textColor: Color {
-        colorScheme == .dark ? .white : .black
+        colorScheme == .dark ? Color(red: 0.95, green: 0.96, blue: 0.98) : .black
     }
 
     var buttonBackgroundColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
     }
 
-    // Dark gray color for ETAs and action buttons
+    // Deep Slate Blue theme - bright text for contrast
     var badgeContentColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7)
+        colorScheme == .dark ? Color(red: 0.95, green: 0.96, blue: 0.98) : Color.black.opacity(0.7)
     }
 
-    // Light background color for circular badges
+    // Deep Slate Blue theme - slightly lighter background for badges
     var badgeBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+        colorScheme == .dark ? Color(red: 0.2, green: 0.22, blue: 0.3) : Color.black.opacity(0.08)
     }
 
     private func getEventColor(for task: TaskForWidget) -> Color {
@@ -695,8 +695,8 @@ struct SelineWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SelineWidgetProvider()) { entry in
             SelineWidgetEntryView(entry: entry)
-                // Widget handles its own background color in dark mode via ZStack
-                .widgetBackground(Color.clear)
+                // Deep Slate Blue theme background
+                .widgetBackground(Color(red: 0.11, green: 0.13, blue: 0.18))
         }
         .configurationDisplayName("Seline")
         .description("Quick access to your Seline information")
