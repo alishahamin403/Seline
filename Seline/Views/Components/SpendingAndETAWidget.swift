@@ -272,6 +272,8 @@ struct SpendingAndETAWidget: View {
                     .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                     .cornerRadius(6)
                 }
+
+                Spacer()
             }
             .padding(10)
             .frame(width: width)
@@ -350,6 +352,8 @@ struct SpendingAndETAWidget: View {
                     }
                 )
             }
+
+            Spacer()
         }
         .padding(10)
         .frame(width: width)

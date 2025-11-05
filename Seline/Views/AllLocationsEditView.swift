@@ -13,25 +13,29 @@ struct AllLocationsEditView: View {
     @State private var location1Icon: String = "house.fill"
     @State private var location1SearchQuery: String = ""
     @State private var location1SearchResults: [PlaceSearchResult] = []
-    @State private var location1Coords: CLLocationCoordinate2D?
+    @State private var location1Latitude: Double?
+    @State private var location1Longitude: Double?
 
     @State private var location2Address: String = ""
     @State private var location2Icon: String = "briefcase.fill"
     @State private var location2SearchQuery: String = ""
     @State private var location2SearchResults: [PlaceSearchResult] = []
-    @State private var location2Coords: CLLocationCoordinate2D?
+    @State private var location2Latitude: Double?
+    @State private var location2Longitude: Double?
 
     @State private var location3Address: String = ""
     @State private var location3Icon: String = "fork.knife"
     @State private var location3SearchQuery: String = ""
     @State private var location3SearchResults: [PlaceSearchResult] = []
-    @State private var location3Coords: CLLocationCoordinate2D?
+    @State private var location3Latitude: Double?
+    @State private var location3Longitude: Double?
 
     @State private var location4Address: String = ""
     @State private var location4Icon: String = "mappin.circle.fill"
     @State private var location4SearchQuery: String = ""
     @State private var location4SearchResults: [PlaceSearchResult] = []
-    @State private var location4Coords: CLLocationCoordinate2D?
+    @State private var location4Latitude: Double?
+    @State private var location4Longitude: Double?
 
     @State private var isSaving = false
     @State private var showIconPicker1 = false
@@ -85,22 +89,26 @@ struct AllLocationsEditView: View {
         switch index {
         case 1:
             location1Address = place.name
-            location1Coords = place.coordinate
+            location1Latitude = place.latitude
+            location1Longitude = place.longitude
             location1SearchResults = []
             location1SearchQuery = ""
         case 2:
             location2Address = place.name
-            location2Coords = place.coordinate
+            location2Latitude = place.latitude
+            location2Longitude = place.longitude
             location2SearchResults = []
             location2SearchQuery = ""
         case 3:
             location3Address = place.name
-            location3Coords = place.coordinate
+            location3Latitude = place.latitude
+            location3Longitude = place.longitude
             location3SearchResults = []
             location3SearchQuery = ""
         case 4:
             location4Address = place.name
-            location4Coords = place.coordinate
+            location4Latitude = place.latitude
+            location4Longitude = place.longitude
             location4SearchResults = []
             location4SearchQuery = ""
         default: break
@@ -115,26 +123,26 @@ struct AllLocationsEditView: View {
         // Update location 1
         updatedPrefs.location1Address = location1Address.isEmpty ? nil : location1Address
         updatedPrefs.location1Icon = location1Icon
-        updatedPrefs.location1Latitude = location1Coords?.latitude
-        updatedPrefs.location1Longitude = location1Coords?.longitude
+        updatedPrefs.location1Latitude = location1Latitude
+        updatedPrefs.location1Longitude = location1Longitude
 
         // Update location 2
         updatedPrefs.location2Address = location2Address.isEmpty ? nil : location2Address
         updatedPrefs.location2Icon = location2Icon
-        updatedPrefs.location2Latitude = location2Coords?.latitude
-        updatedPrefs.location2Longitude = location2Coords?.longitude
+        updatedPrefs.location2Latitude = location2Latitude
+        updatedPrefs.location2Longitude = location2Longitude
 
         // Update location 3
         updatedPrefs.location3Address = location3Address.isEmpty ? nil : location3Address
         updatedPrefs.location3Icon = location3Icon
-        updatedPrefs.location3Latitude = location3Coords?.latitude
-        updatedPrefs.location3Longitude = location3Coords?.longitude
+        updatedPrefs.location3Latitude = location3Latitude
+        updatedPrefs.location3Longitude = location3Longitude
 
         // Update location 4
         updatedPrefs.location4Address = location4Address.isEmpty ? nil : location4Address
         updatedPrefs.location4Icon = location4Icon
-        updatedPrefs.location4Latitude = location4Coords?.latitude
-        updatedPrefs.location4Longitude = location4Coords?.longitude
+        updatedPrefs.location4Latitude = location4Latitude
+        updatedPrefs.location4Longitude = location4Longitude
 
         do {
             try await supabaseManager.saveLocationPreferences(updatedPrefs)
@@ -229,19 +237,23 @@ struct AllLocationsEditView: View {
         .onAppear {
             location1Address = currentPreferences?.location1Address ?? ""
             location1Icon = currentPreferences?.location1Icon ?? "house.fill"
-            location1Coords = currentPreferences?.location1Coordinate
+            location1Latitude = currentPreferences?.location1Latitude
+            location1Longitude = currentPreferences?.location1Longitude
 
             location2Address = currentPreferences?.location2Address ?? ""
             location2Icon = currentPreferences?.location2Icon ?? "briefcase.fill"
-            location2Coords = currentPreferences?.location2Coordinate
+            location2Latitude = currentPreferences?.location2Latitude
+            location2Longitude = currentPreferences?.location2Longitude
 
             location3Address = currentPreferences?.location3Address ?? ""
             location3Icon = currentPreferences?.location3Icon ?? "fork.knife"
-            location3Coords = currentPreferences?.location3Coordinate
+            location3Latitude = currentPreferences?.location3Latitude
+            location3Longitude = currentPreferences?.location3Longitude
 
             location4Address = currentPreferences?.location4Address ?? ""
             location4Icon = currentPreferences?.location4Icon ?? "mappin.circle.fill"
-            location4Coords = currentPreferences?.location4Coordinate
+            location4Latitude = currentPreferences?.location4Latitude
+            location4Longitude = currentPreferences?.location4Longitude
         }
     }
 
