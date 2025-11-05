@@ -282,27 +282,19 @@ struct SelineWidgetEntryView: View {
 
     var smallWidgetView: some View {
         VStack(spacing: 0) {
-            // Chat button at top (pill-shaped)
+            // Chat bar - pill-shaped (matching medium widget style)
             Link(destination: URL(string: "seline://action/chat")!) {
-                HStack(spacing: 6) {
-                    Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(badgeContentColor.opacity(0.6))
-
-                    Text("Chat")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(badgeContentColor.opacity(0.6))
-
-                    Spacer()
-                }
-                .frame(height: 28)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 8)
-                .background(badgeBackgroundColor)
-                .cornerRadius(14)
+                Text("Chat")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(badgeContentColor.opacity(0.7))
+                    .frame(height: 44)
+                    .frame(maxWidth: 120)
+                    .background(badgeBackgroundColor)
+                    .cornerRadius(22)
             }
             .buttonStyle(.plain)
-            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 14)
 
             Spacer()
 
