@@ -9,6 +9,9 @@ class DeepLinkHandler: NSObject, ObservableObject {
     @Published var shouldShowReceiptStats = false
     @Published var shouldShowSearch = false
     @Published var shouldShowChat = false
+    @Published var shouldOpenMaps = false
+    @Published var mapsLatitude: Double? = nil
+    @Published var mapsLongitude: Double? = nil
     @Published var pendingAction: String? = nil
 
     private override init() {
@@ -25,6 +28,35 @@ class DeepLinkHandler: NSObject, ObservableObject {
 
         guard url.scheme == "seline" else {
             print("⚠️ Invalid URL scheme: \(url.scheme ?? "nil")")
+            return
+        }
+
+        // Handle maps deep link: seline://maps?lat=43.2417461&lon=-79.861607
+        if let host = url.host, host == "maps" {
+            print("🗺️ Opening maps with coordinates")
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let queryItems = components?.queryItems ?? []
+
+            var lat: Double? = nil
+            var lon: Double? = nil
+
+            for item in queryItems {
+                if item.name == "lat", let value = item.value {
+                    lat = Double(value)
+                }
+                if item.name == "lon", let value = item.value {
+                    lon = Double(value)
+                }
+            }
+
+            print("🗺️ Maps coordinates: lat=\(lat ?? 0), lon=\(lon ?? 0)")
+
+            DispatchQueue.main.async {
+                self.mapsLatitude = lat
+                self.mapsLongitude = lon
+                self.shouldOpenMaps = true
+                self.pendingAction = "maps"
+            }
             return
         }
 
@@ -120,6 +152,11 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 print("💬 Triggering chat from pending action")
                 self.shouldShowChat = true
             }
+        case "maps":
+            DispatchQueue.main.async {
+                print("🗺️ Triggering maps from pending action")
+                self.shouldOpenMaps = true
+            }
         default:
             break
         }
@@ -132,6 +169,9 @@ class DeepLinkHandler: NSObject, ObservableObject {
         shouldShowReceiptStats = false
         shouldShowSearch = false
         shouldShowChat = false
+        shouldOpenMaps = false
+        mapsLatitude = nil
+        mapsLongitude = nil
         pendingAction = nil
     }
 }

@@ -341,11 +341,11 @@ struct SelineWidgetEntryView: View {
 
     private func googleMapsURL(lat: Double?, lon: Double?) -> URL {
         guard let lat = lat, let lon = lon else {
-            return URL(string: "https://maps.google.com")!
+            return URL(string: "seline://maps?lat=0&lon=0")!
         }
-        // Use Google Maps web URL which opens Maps app if installed
-        // Format: https://maps.google.com/?q=lat,lon
-        return URL(string: "https://maps.google.com/?q=\(lat),\(lon)")!
+        // Use custom seline deep link for maps
+        // Format: seline://maps?lat=43.2417461&lon=-79.861607
+        return URL(string: "seline://maps?lat=\(lat)&lon=\(lon)")!
     }
 
     var mediumWidgetView: some View {

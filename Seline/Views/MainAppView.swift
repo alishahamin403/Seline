@@ -341,6 +341,19 @@ struct MainAppView: View {
                     }
                 }
             }
+            .onChange(of: deepLinkHandler.shouldOpenMaps) { newValue in
+                print("🗺️ MainAppView: shouldOpenMaps changed to \(newValue)")
+                if newValue {
+                    if let lat = deepLinkHandler.mapsLatitude, let lon = deepLinkHandler.mapsLongitude {
+                        print("🗺️ MainAppView: Opening Google Maps with coordinates")
+                        let mapsURL = URL(string: "https://maps.google.com/?q=\(lat),\(lon)")!
+                        UIApplication.shared.open(mapsURL)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        deepLinkHandler.shouldOpenMaps = false
+                    }
+                }
+            }
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()
             }
