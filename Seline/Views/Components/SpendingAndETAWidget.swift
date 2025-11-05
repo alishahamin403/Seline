@@ -395,9 +395,13 @@ struct SpendingAndETAWidget: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .onLongPressGesture(minimumDuration: 1.0) {
-            HapticManager.shared.selection()
-            onLongPress()
+        .contextMenu {
+            Button(action: {
+                HapticManager.shared.selection()
+                onLongPress()
+            }) {
+                Label("Edit Locations", systemImage: "pencil")
+            }
         }
     }
 
