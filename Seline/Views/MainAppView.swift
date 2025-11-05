@@ -1178,7 +1178,7 @@ struct MainAppView: View {
                     .frame(width: (geometry.size.width - 8) * 0.4)
             }
         }
-        .frame(height: 150)
+        .frame(height: 170)
         .padding(.horizontal, 12)
     }
 
