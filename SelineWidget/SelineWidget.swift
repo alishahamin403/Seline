@@ -325,6 +325,8 @@ struct SelineWidgetEntryView: View {
                 Text(String(format: "$%.2f", entry.monthlySpending))
                     .font(.system(size: 32, weight: .bold))
                     .foregroundColor(badgeContentColor)
+                    .contentShape(Rectangle())
+                    .widgetURL(URL(string: "seline://action/viewReceiptStats"))
 
                 HStack(spacing: 4) {
                     Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
@@ -333,10 +335,9 @@ struct SelineWidgetEntryView: View {
                         .font(.system(size: 12, weight: .regular))
                 }
                 .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/viewReceiptStats"))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .widgetURL(URL(string: "seline://action/viewReceiptStats"))
 
             Spacer()
 
