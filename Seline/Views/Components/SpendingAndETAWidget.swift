@@ -14,6 +14,7 @@ struct SpendingAndETAWidget: View {
     @State private var showLocationSetup = false
     @State private var setupLocationSlot: LocationSlot?
     @State private var showReceiptStats = false
+    @State private var showEditLocations = false
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -201,6 +202,22 @@ struct SpendingAndETAWidget: View {
         .onChange(of: notesManager.notes.count) { _ in
             updateCategoryBreakdown()
         }
+        .onChange(of: showEditLocations) { isShowing in
+            if !isShowing {
+                // Reload location preferences when edit sheet closes
+                Task {
+                    do {
+                        locationPreferences = try await supabaseManager.loadLocationPreferences()
+                        updateETAs()
+                    } catch {
+                        print("Failed to reload location preferences: \(error)")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showEditLocations) {
+            AllLocationsEditView(currentPreferences: locationPreferences)
+        }
         .sheet(isPresented: $showLocationSetup) {
             LocationSetupView()
         }
@@ -278,14 +295,10 @@ struct SpendingAndETAWidget: View {
                     onTap: {
                         if locationPreferences?.location1Coordinate != nil {
                             openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
-                        } else {
-                            setupLocationSlot = .location1
-                            showLocationSetup = true
                         }
                     },
                     onLongPress: {
-                        setupLocationSlot = .location1
-                        showLocationSetup = true
+                        showEditLocations = true
                     }
                 )
 
@@ -297,14 +310,10 @@ struct SpendingAndETAWidget: View {
                     onTap: {
                         if locationPreferences?.location2Coordinate != nil {
                             openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
-                        } else {
-                            setupLocationSlot = .location2
-                            showLocationSetup = true
                         }
                     },
                     onLongPress: {
-                        setupLocationSlot = .location2
-                        showLocationSetup = true
+                        showEditLocations = true
                     }
                 )
             }
@@ -319,14 +328,10 @@ struct SpendingAndETAWidget: View {
                     onTap: {
                         if locationPreferences?.location3Coordinate != nil {
                             openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
-                        } else {
-                            setupLocationSlot = .location3
-                            showLocationSetup = true
                         }
                     },
                     onLongPress: {
-                        setupLocationSlot = .location3
-                        showLocationSetup = true
+                        showEditLocations = true
                     }
                 )
 
@@ -338,14 +343,10 @@ struct SpendingAndETAWidget: View {
                     onTap: {
                         if locationPreferences?.location4Coordinate != nil {
                             openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
-                        } else {
-                            setupLocationSlot = .location4
-                            showLocationSetup = true
                         }
                     },
                     onLongPress: {
-                        setupLocationSlot = .location4
-                        showLocationSetup = true
+                        showEditLocations = true
                     }
                 )
             }
