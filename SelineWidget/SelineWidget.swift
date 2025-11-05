@@ -319,171 +319,58 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             // Section 1 - Monthly Spending with Trend
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(String(format: "$%.2f", entry.monthlySpending))
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(badgeContentColor)
 
                 HStack(spacing: 4) {
                     Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                     Text(String(format: "%.0f%% %@ last month", entry.monthOverMonthPercentage, entry.isSpendingIncreasing ? "more" : "less"))
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 12, weight: .regular))
                 }
                 .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
             }
 
-            Divider()
-                .opacity(0.3)
+            Spacer()
 
-            // Section 2 - 2x2 ETA Grid
-            VStack(spacing: 8) {
-                // Top row - Location 1 and 2
-                HStack(spacing: 8) {
-                    // Location 1
-                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location1Icon)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location1ETA {
-                                Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 45)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 2
-                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location2Icon)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location2ETA {
-                                Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 45)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Bottom row - Location 3 and 4
-                HStack(spacing: 8) {
-                    // Location 3
-                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location3Icon)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location3ETA {
-                                Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 45)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Location 4
-                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
-                        VStack(spacing: 4) {
-                            Image(systemName: entry.location4Icon)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-
-                            if let eta = entry.location4ETA {
-                                Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                            } else {
-                                Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundColor(badgeContentColor)
-                                    .opacity(0.5)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 45)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Divider()
-                .opacity(0.3)
-
-            // Section 3 - Action Buttons
+            // Section 2 - Action Buttons
             HStack(spacing: 12) {
                 // Note button
-                Link(destination: URL(string: "seline://action/createNote") ?? URL(fileURLWithPath: "")) {
-                    HStack {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Note")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .foregroundColor(badgeContentColor)
-                    .frame(height: 36)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(8)
+                HStack {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("New Note")
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .foregroundColor(badgeContentColor)
+                .frame(height: 40)
+                .background(badgeBackgroundColor)
+                .cornerRadius(10)
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/createNote"))
 
                 // Event button
-                Link(destination: URL(string: "seline://action/createEvent") ?? URL(fileURLWithPath: "")) {
-                    HStack {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Event")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .foregroundColor(badgeContentColor)
-                    .frame(height: 36)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(8)
+                HStack {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("New Event")
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .foregroundColor(badgeContentColor)
+                .frame(height: 40)
+                .background(badgeBackgroundColor)
+                .cornerRadius(10)
+                .contentShape(Rectangle())
+                .widgetURL(URL(string: "seline://action/createEvent"))
             }
-
-            Spacer()
         }
-        .padding(12)
+        .padding(14)
     }
 
     var largeWidgetView: some View {
