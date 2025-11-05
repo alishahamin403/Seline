@@ -347,77 +347,150 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // Section 1 - Spending with Chat button
-            HStack(alignment: .top, spacing: 12) {
-                // Spending info (Tappable)
-                Link(destination: URL(string: "seline://action/viewReceiptStats")!) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(String(format: "$%.2f", entry.monthlySpending))
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(badgeContentColor)
+        HStack(alignment: .center, spacing: 12) {
+            // LEFT HALF - 4 ETAs in 2x2 grid
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    // Location 1
+                    Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location1Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
 
-                        HStack(spacing: 4) {
-                            Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text(String(format: "%.0f%% %@", entry.monthOverMonthPercentage, entry.isSpendingIncreasing ? "more" : "less"))
-                                .font(.system(size: 11, weight: .regular))
+                            if let eta = entry.location1ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
                         }
-                        .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+                        .frame(width: 50, height: 50)
+                        .background(Circle().fill(badgeBackgroundColor))
                     }
+                    .buttonStyle(.plain)
+
+                    // Location 2
+                    Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location2Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+
+                            if let eta = entry.location2ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(width: 50, height: 50)
+                        .background(Circle().fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
-                Spacer()
+                HStack(spacing: 8) {
+                    // Location 3
+                    Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location3Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
 
-                // Chat button
-                Link(destination: URL(string: "seline://action/chat")!) {
-                    VStack(spacing: 4) {
-                        Image(systemName: "bubble.left.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(badgeContentColor.opacity(0.7))
-
-                        Text("Chat")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(badgeContentColor.opacity(0.7))
+                            if let eta = entry.location3ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(width: 50, height: 50)
+                        .background(Circle().fill(badgeBackgroundColor))
                     }
-                    .frame(width: 50, height: 50)
+                    .buttonStyle(.plain)
+
+                    // Location 4
+                    Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
+                        VStack(spacing: 4) {
+                            Image(systemName: entry.location4Icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(badgeContentColor)
+
+                            if let eta = entry.location4ETA {
+                                Text(eta)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                            } else {
+                                Text("--")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(badgeContentColor)
+                                    .opacity(0.5)
+                            }
+                        }
+                        .frame(width: 50, height: 50)
+                        .background(Circle().fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // RIGHT HALF - Action buttons and chat
+            VStack(spacing: 10) {
+                // Note and Event buttons side by side
+                HStack(spacing: 10) {
+                    // Note button
+                    Link(destination: URL(string: "seline://action/createNote")!) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(badgeContentColor)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Circle().fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+
+                    // Event button
+                    Link(destination: URL(string: "seline://action/createEvent")!) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(badgeContentColor)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Circle().fill(badgeBackgroundColor))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Chat bar - centered text
+                Link(destination: URL(string: "seline://action/chat")!) {
+                    HStack {
+                        Spacer()
+                        Text("Chat")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(badgeContentColor.opacity(0.7))
+                        Spacer()
+                    }
+                    .frame(height: 44)
                     .background(badgeBackgroundColor)
                     .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
             }
-
-            Spacer()
-
-            // Section 2 - Action Buttons (Two circular buttons)
-            HStack(spacing: 20) {
-                Spacer()
-
-                // Note button - Circle with icon
-                Link(destination: URL(string: "seline://action/createNote")!) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(badgeContentColor)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(badgeBackgroundColor))
-                }
-                .buttonStyle(.plain)
-
-                // Event button - Circle with icon
-                Link(destination: URL(string: "seline://action/createEvent")!) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(badgeContentColor)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(badgeBackgroundColor))
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
         }
-        .padding(18)
+        .padding(14)
     }
 
     var largeWidgetView: some View {
