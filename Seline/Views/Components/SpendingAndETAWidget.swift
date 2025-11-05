@@ -202,9 +202,7 @@ struct SpendingAndETAWidget: View {
             updateCategoryBreakdown()
         }
         .sheet(isPresented: $showLocationSetup) {
-            if let slot = setupLocationSlot {
-                LocationSetupView(selectedSlot: slot)
-            }
+            LocationSetupView()
         }
         .sheet(isPresented: $showReceiptStats) {
             ReceiptStatsView()
