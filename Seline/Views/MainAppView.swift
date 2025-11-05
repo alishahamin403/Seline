@@ -331,6 +331,16 @@ struct MainAppView: View {
                     }
                 }
             }
+            .onChange(of: deepLinkHandler.shouldShowChat) { newValue in
+                print("💬 MainAppView: shouldShowChat changed to \(newValue)")
+                if newValue {
+                    print("💬 MainAppView: Opening chat")
+                    showConversationModal = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        deepLinkHandler.shouldShowChat = false
+                    }
+                }
+            }
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()
             }

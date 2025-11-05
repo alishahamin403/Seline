@@ -282,27 +282,27 @@ struct SelineWidgetEntryView: View {
 
     var smallWidgetView: some View {
         VStack(spacing: 0) {
-            // Search bar at top
-            Link(destination: URL(string: "seline://action/search")!) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16, weight: .semibold))
+            // Chat button at top
+            Link(destination: URL(string: "seline://action/chat")!) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left.fill")
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(badgeContentColor.opacity(0.6))
 
-                    Text("Search")
-                        .font(.system(size: 14, weight: .regular))
+                    Text("Chat")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(badgeContentColor.opacity(0.6))
 
                     Spacer()
                 }
-                .frame(height: 36)
+                .frame(height: 28)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 8)
                 .background(badgeBackgroundColor)
-                .cornerRadius(8)
+                .cornerRadius(6)
             }
             .buttonStyle(.plain)
-            .padding(12)
+            .padding(10)
 
             Spacer()
 
@@ -347,20 +347,45 @@ struct SelineWidgetEntryView: View {
     }
 
     var mediumWidgetView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Section 1 - Monthly Spending with Trend (Display only - NOT tappable)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(format: "$%.2f", entry.monthlySpending))
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(badgeContentColor)
+        VStack(alignment: .leading, spacing: 18) {
+            // Section 1 - Spending with Chat button
+            HStack(alignment: .top, spacing: 12) {
+                // Spending info (Tappable)
+                Link(destination: URL(string: "seline://action/viewReceiptStats")!) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(String(format: "$%.2f", entry.monthlySpending))
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(badgeContentColor)
 
-                HStack(spacing: 4) {
-                    Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(String(format: "%.0f%% %@ last month", entry.monthOverMonthPercentage, entry.isSpendingIncreasing ? "more" : "less"))
-                        .font(.system(size: 12, weight: .regular))
+                        HStack(spacing: 4) {
+                            Image(systemName: entry.isSpendingIncreasing ? "arrow.up.right" : "arrow.down.right")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(String(format: "%.0f%% %@", entry.monthOverMonthPercentage, entry.isSpendingIncreasing ? "more" : "less"))
+                                .font(.system(size: 11, weight: .regular))
+                        }
+                        .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+                    }
                 }
-                .foregroundColor(entry.isSpendingIncreasing ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                // Chat button
+                Link(destination: URL(string: "seline://action/chat")!) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(badgeContentColor.opacity(0.7))
+
+                        Text("Chat")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(badgeContentColor.opacity(0.7))
+                    }
+                    .frame(width: 50, height: 50)
+                    .background(badgeBackgroundColor)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer()
@@ -392,7 +417,7 @@ struct SelineWidgetEntryView: View {
                 Spacer()
             }
         }
-        .padding(14)
+        .padding(18)
     }
 
     var largeWidgetView: some View {

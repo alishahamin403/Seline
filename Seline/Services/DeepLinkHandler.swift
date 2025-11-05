@@ -8,6 +8,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
     @Published var shouldShowEventCreation = false
     @Published var shouldShowReceiptStats = false
     @Published var shouldShowSearch = false
+    @Published var shouldShowChat = false
     @Published var pendingAction: String? = nil
 
     private override init() {
@@ -74,6 +75,14 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 self.pendingAction = "search"
             }
 
+        case "chat":
+            print("💬 Opening chat")
+            DispatchQueue.main.async {
+                print("💬 Setting shouldShowChat = true")
+                self.shouldShowChat = true
+                self.pendingAction = "chat"
+            }
+
         default:
             print("⚠️ Unknown action: \(pathWithoutSlash)")
         }
@@ -106,6 +115,11 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 print("🔍 Triggering search from pending action")
                 self.shouldShowSearch = true
             }
+        case "chat":
+            DispatchQueue.main.async {
+                print("💬 Triggering chat from pending action")
+                self.shouldShowChat = true
+            }
         default:
             break
         }
@@ -117,6 +131,7 @@ class DeepLinkHandler: NSObject, ObservableObject {
         shouldShowEventCreation = false
         shouldShowReceiptStats = false
         shouldShowSearch = false
+        shouldShowChat = false
         pendingAction = nil
     }
 }
