@@ -1163,7 +1163,7 @@ struct MainAppView: View {
             emailAndNotesCards
                 .padding(.top, 0)
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxHeight: .infinity)
     }
 
     private var emailAndNotesCards: some View {
