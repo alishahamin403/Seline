@@ -1,17 +1,27 @@
 import Foundation
 import CoreLocation
+import MapKit
 
 class NavigationService: ObservableObject {
     static let shared = NavigationService()
 
-    // Google Maps API Key (same as GoogleMapsService)
-    private let apiKey = "AIzaSyDL864Gd2OuJBIuL9380kQFbb0jJAJilQ8"
-    private let routesBaseURL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    // COST OPTIMIZATION: Using MapKit instead of Google Routes API
+    // MapKit is FREE (native iOS framework)
+    // Google Routes API was costing $0.12 per request (~$10-15/month)
+    private let mapKitService = MapKitService.shared
 
-    @Published var location1ETA: String?
-    @Published var location2ETA: String?
-    @Published var location3ETA: String?
-    @Published var location4ETA: String?
+    @Published var location1ETA: String? {
+        didSet { mapKitService.location1ETA = location1ETA }
+    }
+    @Published var location2ETA: String? {
+        didSet { mapKitService.location2ETA = location2ETA }
+    }
+    @Published var location3ETA: String? {
+        didSet { mapKitService.location3ETA = location3ETA }
+    }
+    @Published var location4ETA: String? {
+        didSet { mapKitService.location4ETA = location4ETA }
+    }
     @Published var isLoading = false
     @Published var lastUpdated: Date?
 
@@ -59,145 +69,48 @@ class NavigationService: ObservableObject {
         }
     }
 
-    // MARK: - Calculate ETA
+    // MARK: - Calculate ETA (Using MapKit - FREE)
 
-    /// Calculate driving ETA from current location to a destination
+    /// Calculate driving ETA from current location to a destination using native MapKit
+    /// No API cost - uses Apple's built-in routing
     func calculateETA(from origin: CLLocation, to destination: CLLocationCoordinate2D) async throws -> ETAResult {
-        guard let url = URL(string: routesBaseURL) else {
-            throw NavigationError.invalidURL
-        }
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin.coordinate))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = false
 
-        // Create request body for Routes API v2 (computeRoutes)
-        let requestBody: [String: Any] = [
-            "origin": [
-                "location": [
-                    "latLng": [
-                        "latitude": origin.coordinate.latitude,
-                        "longitude": origin.coordinate.longitude
-                    ]
-                ]
-            ],
-            "destination": [
-                "location": [
-                    "latLng": [
-                        "latitude": destination.latitude,
-                        "longitude": destination.longitude
-                    ]
-                ]
-            ],
-            "travelMode": "DRIVE",
-            "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
-            "routeModifiers": [
-                "avoidTolls": true,
-                "avoidHighways": false,
-                "avoidFerries": false
-            ],
-            "computeAlternativeRoutes": false,
-            "languageCode": "en-US",
-            "units": "METRIC"
-        ]
+        let directions = MKDirections(request: request)
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
-            throw NavigationError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
-        request.setValue("routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline", forHTTPHeaderField: "X-Goog-FieldMask")
-        request.httpBody = jsonData
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📥 Routes API HTTP Status: \(httpResponse.statusCode)")
-
-                guard httpResponse.statusCode == 200 else {
-                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("❌ Error response: \(errorData)")
-                        if let error = errorData["error"] as? [String: Any],
-                           let errorMessage = error["message"] as? String {
-                            throw NavigationError.apiError(errorMessage)
-                        }
-                    }
-                    throw NavigationError.apiError("HTTP \(httpResponse.statusCode)")
+        return try await withCheckedThrowingContinuation { continuation in
+            directions.calculate { response, error in
+                if let error = error {
+                    print("❌ MapKit error: \(error)")
+                    continuation.resume(throwing: NavigationError.networkError(error))
+                    return
                 }
-            }
 
-            // Parse response - computeRoutes API returns routes array
-            guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📄 Routes API Response: \(String(responseString.prefix(500)))")
+                guard let route = response?.routes.first else {
+                    print("❌ No route found via MapKit")
+                    continuation.resume(throwing: NavigationError.apiError("No route found"))
+                    return
                 }
-                throw NavigationError.apiError("Invalid JSON response")
+
+                let durationSeconds = Int(route.expectedTravelTime)
+                let durationText = self.formatETA(durationSeconds)
+                let distanceMeters = Int(route.distance)
+                let distanceText = self.formatDistance(distanceMeters)
+
+                print("✅ MapKit ETA: \(durationText) for \(distanceText)")
+
+                continuation.resume(returning: ETAResult(
+                    durationSeconds: durationSeconds,
+                    durationText: durationText,
+                    distanceMeters: distanceMeters,
+                    distanceText: distanceText
+                ))
             }
-
-            guard let routes = jsonResponse["routes"] as? [[String: Any]],
-                  let firstRoute = routes.first else {
-                // Log response for debugging
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📄 Routes API Response: \(String(responseString.prefix(500)))")
-                }
-                print("❌ No routes found in response")
-                throw NavigationError.apiError("No route found")
-            }
-
-            return try parseRouteResult(firstRoute)
-
-        } catch let error as NavigationError {
-            throw error
-        } catch {
-            throw NavigationError.networkError(error)
         }
-    }
-
-    private func parseRouteResult(_ route: [String: Any]) throws -> ETAResult {
-        // Get duration (in seconds with 's' suffix like "123s")
-        var durationSeconds = 0
-        var durationText = ""
-
-        if let duration = route["duration"] as? String {
-            // Remove 's' suffix and convert to int
-            let cleanDuration = duration.replacingOccurrences(of: "s", with: "")
-            durationSeconds = Int(cleanDuration) ?? 0
-            durationText = formatETA(durationSeconds)
-        } else {
-            print("⚠️ No duration in route result")
-            throw NavigationError.apiError("No duration available")
-        }
-
-        // Get distance
-        var distanceMeters = 0
-        var distanceText = ""
-        if let distance = route["distanceMeters"] as? Int {
-            distanceMeters = distance
-            distanceText = formatDistance(distanceMeters)
-        } else if let distanceString = route["distanceMeters"] as? String,
-                  let distance = Int(distanceString) {
-            distanceMeters = distance
-            distanceText = formatDistance(distanceMeters)
-        } else {
-            print("⚠️ No distance in route result")
-        }
-
-        print("✅ ETA calculated: \(durationText), Distance: \(distanceText)")
-
-        return ETAResult(
-            durationSeconds: durationSeconds,
-            durationText: durationText,
-            distanceMeters: distanceMeters,
-            distanceText: distanceText
-        )
-    }
-
-    private func formatDistance(_ meters: Int) -> String {
-        let kilometers = Double(meters) / 1000.0
-        if kilometers < 1.0 {
-            return "\(meters) m"
-        }
-        return String(format: "%.1f km", kilometers)
     }
 
     /// Update ETAs for all 4 location slots
@@ -301,6 +214,15 @@ class NavigationService: ObservableObject {
     }
 
     // MARK: - Formatting Helpers
+
+    /// Format distance in meters to a readable string
+    private func formatDistance(_ meters: Int) -> String {
+        let kilometers = Double(meters) / 1000.0
+        if kilometers < 1.0 {
+            return "\(meters) m"
+        }
+        return String(format: "%.1f km", kilometers)
+    }
 
     /// Format duration in seconds to a short string (e.g., "12 min", "1h 5m")
     private func formatETA(_ seconds: Int) -> String {
