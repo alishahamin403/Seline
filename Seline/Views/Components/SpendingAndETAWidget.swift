@@ -229,6 +229,8 @@ struct SpendingAndETAWidget: View {
     private func spendingCard(width: CGFloat) -> some View {
         Button(action: { showReceiptStats = true }) {
             VStack(alignment: .leading, spacing: 6) {
+                Spacer()
+
                 // Main amount
                 VStack(alignment: .leading, spacing: 2) {
                     Text(CurrencyParser.formatAmount(monthlyTotal))
@@ -276,7 +278,7 @@ struct SpendingAndETAWidget: View {
                 Spacer()
             }
             .padding(10)
-            .frame(width: width)
+            .frame(width: width, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
@@ -287,6 +289,8 @@ struct SpendingAndETAWidget: View {
 
     private func navigationCard2x2(width: CGFloat) -> some View {
         VStack(spacing: 8) {
+            Spacer()
+
             // Top row - Location 1 and Location 2
             HStack(spacing: 8) {
                 // Location 1
@@ -356,7 +360,7 @@ struct SpendingAndETAWidget: View {
             Spacer()
         }
         .padding(10)
-        .frame(width: width)
+        .frame(width: width, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
