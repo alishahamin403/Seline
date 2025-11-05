@@ -349,27 +349,27 @@ struct SelineWidgetEntryView: View {
     var mediumWidgetView: some View {
         HStack(alignment: .center, spacing: 12) {
             // LEFT HALF - 4 ETAs in 2x2 grid
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
                     // Location 1
                     Link(destination: googleMapsURL(lat: entry.location1Latitude, lon: entry.location1Longitude)) {
                         VStack(spacing: 4) {
                             Image(systemName: entry.location1Icon)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location1ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
-                        .frame(width: 50, height: 50)
+                        .frame(width: 60, height: 60)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
@@ -378,46 +378,46 @@ struct SelineWidgetEntryView: View {
                     Link(destination: googleMapsURL(lat: entry.location2Latitude, lon: entry.location2Longitude)) {
                         VStack(spacing: 4) {
                             Image(systemName: entry.location2Icon)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location2ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
-                        .frame(width: 50, height: 50)
+                        .frame(width: 60, height: 60)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     // Location 3
                     Link(destination: googleMapsURL(lat: entry.location3Latitude, lon: entry.location3Longitude)) {
                         VStack(spacing: 4) {
                             Image(systemName: entry.location3Icon)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location3ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
-                        .frame(width: 50, height: 50)
+                        .frame(width: 60, height: 60)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
@@ -426,21 +426,21 @@ struct SelineWidgetEntryView: View {
                     Link(destination: googleMapsURL(lat: entry.location4Latitude, lon: entry.location4Longitude)) {
                         VStack(spacing: 4) {
                             Image(systemName: entry.location4Icon)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
 
                             if let eta = entry.location4ETA {
                                 Text(eta)
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                             } else {
                                 Text("--")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(badgeContentColor)
                                     .opacity(0.5)
                             }
                         }
-                        .frame(width: 50, height: 50)
+                        .frame(width: 60, height: 60)
                         .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
@@ -454,10 +454,9 @@ struct SelineWidgetEntryView: View {
                     // Note button
                     Link(destination: URL(string: "seline://action/createNote")!) {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(badgeContentColor)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
+                            .frame(width: 55, height: 55)
                             .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
@@ -465,10 +464,9 @@ struct SelineWidgetEntryView: View {
                     // Event button
                     Link(destination: URL(string: "seline://action/createEvent")!) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(badgeContentColor)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
+                            .frame(width: 55, height: 55)
                             .background(Circle().fill(badgeBackgroundColor))
                     }
                     .buttonStyle(.plain)
@@ -476,18 +474,16 @@ struct SelineWidgetEntryView: View {
 
                 // Chat bar - centered text
                 Link(destination: URL(string: "seline://action/chat")!) {
-                    HStack {
-                        Spacer()
-                        Text("Chat")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(badgeContentColor.opacity(0.7))
-                        Spacer()
-                    }
-                    .frame(height: 44)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(8)
+                    Text("Chat")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(badgeContentColor.opacity(0.7))
+                        .frame(height: 44)
+                        .frame(maxWidth: 120)
+                        .background(badgeBackgroundColor)
+                        .cornerRadius(8)
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .padding(14)
