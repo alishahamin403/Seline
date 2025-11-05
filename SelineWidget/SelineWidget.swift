@@ -343,10 +343,9 @@ struct SelineWidgetEntryView: View {
         guard let lat = lat, let lon = lon else {
             return URL(string: "https://maps.google.com")!
         }
-        // Try Google Maps app first with comgooglemaps scheme
-        // Falls back to web URL if app not installed
-        return URL(string: "comgooglemaps://?daddr=\(lat),\(lon)")
-            ?? URL(string: "https://www.google.com/maps/search/?api=1&query=\(lat),\(lon)")!
+        // Use Google Maps web URL which opens Maps app if installed
+        // Format: https://maps.google.com/?q=lat,lon
+        return URL(string: "https://maps.google.com/?q=\(lat),\(lon)")!
     }
 
     var mediumWidgetView: some View {
