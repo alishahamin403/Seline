@@ -324,7 +324,7 @@ struct EventsCardWidget: View {
                     }
                 }
             }
-            .frame(maxHeight: 380)
+            .frame(maxHeight: 320)
             .padding(.top, 2)
         }
         .padding(.horizontal, 12)

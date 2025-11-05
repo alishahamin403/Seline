@@ -231,60 +231,66 @@ struct SpendingAndETAWidget: View {
             VStack(alignment: .leading, spacing: 6) {
                 Spacer()
 
-                // Main amount
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(CurrencyParser.formatAmount(monthlyTotal))
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    // Trend indicator
-                    HStack(spacing: 4) {
-                        Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(String(format: "%.0f%% %@ last month", monthOverMonthPercentage.percentage, monthOverMonthPercentage.isIncrease ? "more than" : "less than"))
-                            .font(.system(size: 11, weight: .regular))
-                    }
-                    .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
-                }
-
-                // Top category only
-                if let topCategory = categoryBreakdown.first {
-                    HStack(spacing: 6) {
-                        Text(categoryIcon(topCategory.category))
-                            .font(.system(size: 12))
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(topCategory.category)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                            Text(CurrencyParser.formatAmount(topCategory.amount))
-                                .font(.system(size: 9, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                        }
-
-                        Spacer()
-
-                        Text(String(format: "%.0f%%", topCategory.percentage))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    .cornerRadius(6)
-                }
+                spendingAmountView
+                topCategoryView
 
                 Spacer()
             }
             .padding(10)
-            .frame(width: width, maxHeight: .infinity)
+            .frame(maxWidth: width, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    private var spendingAmountView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(CurrencyParser.formatAmount(monthlyTotal))
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            HStack(spacing: 4) {
+                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(String(format: "%.0f%% %@ last month", monthOverMonthPercentage.percentage, monthOverMonthPercentage.isIncrease ? "more than" : "less than"))
+                    .font(.system(size: 11, weight: .regular))
+            }
+            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+        }
+    }
+
+    private var topCategoryView: some View {
+        Group {
+            if let topCategory = categoryBreakdown.first {
+                HStack(spacing: 6) {
+                    Text(categoryIcon(topCategory.category))
+                        .font(.system(size: 12))
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(topCategory.category)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                        Text(CurrencyParser.formatAmount(topCategory.amount))
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    }
+
+                    Spacer()
+
+                    Text(String(format: "%.0f%%", topCategory.percentage))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                .cornerRadius(6)
+            }
+        }
     }
 
     private func navigationCard2x2(width: CGFloat) -> some View {
@@ -360,7 +366,7 @@ struct SpendingAndETAWidget: View {
             Spacer()
         }
         .padding(10)
-        .frame(width: width, maxHeight: .infinity)
+        .frame(maxWidth: width, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
