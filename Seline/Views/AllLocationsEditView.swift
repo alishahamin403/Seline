@@ -296,7 +296,7 @@ struct AllLocationsEditView: View {
                                                 .frame(width: 48, height: 48)
                                                 .background(
                                                     Circle()
-                                                        .fill(getCurrentIcon() == locationType.icon ? Color.blue : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)))
+                                                        .fill(getCurrentIcon() == locationType.icon ? (colorScheme == .dark ? Color.white : Color.black) : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)))
                                                 )
                                         }
                                     }
@@ -384,7 +384,7 @@ struct AllLocationsEditView: View {
                                             HStack(spacing: 12) {
                                                 Image(systemName: "mappin")
                                                     .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(.blue)
+                                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                                     .frame(width: 24)
 
                                                 VStack(alignment: .leading, spacing: 3) {
@@ -444,9 +444,9 @@ struct AllLocationsEditView: View {
                         }
                         Spacer()
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                     .padding(.vertical, 14)
-                    .background(Color.blue)
+                    .background(colorScheme == .dark ? Color.white : Color.black)
                     .cornerRadius(10)
                     .padding(16)
                 }
