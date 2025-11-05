@@ -327,6 +327,7 @@ struct EventsCardWidget: View {
             .frame(maxHeight: .infinity)
             .padding(.top, 2)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
