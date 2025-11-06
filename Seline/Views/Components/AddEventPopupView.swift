@@ -70,11 +70,11 @@ struct AddEventPopupView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
         }
     }
@@ -94,11 +94,11 @@ struct AddEventPopupView: View {
                 .lineLimit(2...4)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
         }
     }
@@ -140,11 +140,11 @@ struct AddEventPopupView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
             }
             .sheet(isPresented: $showingTagOptions) {
@@ -341,12 +341,12 @@ struct AddEventPopupView: View {
                 .background(
                     RoundedRectangle(cornerRadius: 6)
                         .fill(hasTime ?
-                            (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03)) :
-                            (colorScheme == .dark ? Color.white.opacity(0.02) : Color.black.opacity(0.02)))
+                            (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)) :
+                            (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03)))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(hasTime ? 0.15 : 0.08), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(hasTime ? 0.2 : 0.1), lineWidth: 0.8)
                 )
             }
             .disabled(!hasTime)
@@ -367,9 +367,13 @@ struct AddEventPopupView: View {
             Button(action: { isPresented = false }) {
                 Text("Cancel")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                    )
             }
 
             Button(action: {

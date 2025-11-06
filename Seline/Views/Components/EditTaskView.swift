@@ -86,11 +86,11 @@ struct EditTaskView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
         }
     }
@@ -109,11 +109,11 @@ struct EditTaskView: View {
                 .lineLimit(2...4)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
         }
     }
@@ -154,11 +154,11 @@ struct EditTaskView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
             }
             .sheet(isPresented: $showingTagOptions) {
@@ -333,11 +333,11 @@ struct EditTaskView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.8)
                 )
             }
             .sheet(isPresented: $showingReminderOptions) {
@@ -356,9 +356,13 @@ struct EditTaskView: View {
                 onCancel()
             }
             .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+            )
 
             Button("Save") {
                 let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -393,7 +397,7 @@ struct EditTaskView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .fill(isValidInput ?
                         (colorScheme == .dark ?
                             Color.white :
