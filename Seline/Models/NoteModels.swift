@@ -1082,7 +1082,6 @@ class NotesManager: ObservableObject {
     // Organize all receipts in the receipts folder into month/year structure
     func organizeReceiptsIntoMonthYears() {
         guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
-            print("❌ Receipts folder not found")
             return
         }
 
@@ -1226,7 +1225,6 @@ class NotesManager: ObservableObject {
     /// - Returns: Array of YearlyReceiptSummary sorted by year (most recent first)
     func getReceiptStatistics(year: Int? = nil) -> [YearlyReceiptSummary] {
         guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
-            print("❌ Receipts folder not found")
             return []
         }
 
@@ -1345,7 +1343,6 @@ class NotesManager: ObservableObject {
     // Debug method to print receipt information
     func debugPrintReceipts() {
         guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
-            print("❌ Receipts folder not found")
             return
         }
 
