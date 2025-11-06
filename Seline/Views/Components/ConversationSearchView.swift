@@ -251,11 +251,10 @@ struct ConversationSearchView: View {
             Task {
                 await searchService.generateFinalConversationTitle()
 
-                // Save conversation to Supabase and local history
+                // Save conversation to Supabase
                 await searchService.saveConversationToSupabase()
-                searchService.saveConversationToHistory()
 
-                // Then clear the conversation state
+                // Clear conversation state (which handles saving to local history)
                 DispatchQueue.main.async {
                     searchService.isInConversationMode = false
                     searchService.clearConversation()
