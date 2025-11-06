@@ -21,6 +21,8 @@ struct AddEventPopupView: View {
     @State private var showingRecurrenceOptions: Bool = false
     @State private var showingReminderOptions: Bool = false
     @State private var showingTagOptions: Bool = false
+    @State private var showingStartTimePicker: Bool = false
+    @State private var showingEndTimePicker: Bool = false
     @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var taskManager = TaskManager.shared
@@ -190,23 +192,23 @@ struct AddEventPopupView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                        Button(action: { /* show time picker */ }) {
+                        Button(action: { showingStartTimePicker = true }) {
                             HStack {
                                 Text(formatTimeWithAMPM(selectedTime))
                                     .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.white)
 
                                 Spacer()
 
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.white.opacity(0.6))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.darkGray))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -214,6 +216,10 @@ struct AddEventPopupView: View {
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .sheet(isPresented: $showingStartTimePicker) {
+                            TimePickerSheet(selectedTime: $selectedTime, colorScheme: colorScheme, title: "Start Time")
+                                .presentationDetents([.height(350)])
+                        }
                         .onChange(of: selectedTime) { newStartTime in
                             selectedEndTime = newStartTime.addingTimeInterval(3600)
                         }
@@ -224,23 +230,23 @@ struct AddEventPopupView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                        Button(action: { /* show time picker */ }) {
+                        Button(action: { showingEndTimePicker = true }) {
                             HStack {
                                 Text(formatTimeWithAMPM(selectedEndTime))
                                     .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.white)
 
                                 Spacer()
 
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.white.opacity(0.6))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.darkGray))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -248,6 +254,10 @@ struct AddEventPopupView: View {
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .sheet(isPresented: $showingEndTimePicker) {
+                            TimePickerSheet(selectedTime: $selectedEndTime, colorScheme: colorScheme, title: "End Time")
+                                .presentationDetents([.height(350)])
+                        }
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -579,6 +589,48 @@ struct TagSelectionSheet: View {
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Time Picker Sheet
+struct TimePickerSheet: View {
+    @Binding var selectedTime: Date
+    let colorScheme: ColorScheme
+    let title: String
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                DatePicker(
+                    "",
+                    selection: $selectedTime,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .padding(.vertical, 20)
+
+                Spacer()
+
+                Button(action: { dismiss() }) {
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+            .background(colorScheme == .dark ? Color.black : Color.white)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
