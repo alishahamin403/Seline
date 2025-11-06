@@ -208,7 +208,7 @@ struct AddEventPopupView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color.black : Color.white.opacity(0.08))
+                                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -246,7 +246,7 @@ struct AddEventPopupView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color.black : Color.white.opacity(0.08))
+                                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)

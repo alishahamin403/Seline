@@ -569,7 +569,7 @@ struct TimePickerField: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.black : Color.white.opacity(0.08))
+                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
@@ -578,9 +578,55 @@ struct TimePickerField: View {
         }
         .buttonStyle(PlainButtonStyle())
         .sheet(isPresented: $showingTimePicker) {
-            TimePickerSheet(time: $time, colorScheme: colorScheme, onClose: {
+            EventTimePickerSheetCompat(selectedTime: $time, colorScheme: colorScheme, title: "Select Time", onClose: {
                 onTimeChange?(time)
             })
+        }
+    }
+}
+
+// MARK: - Event Time Picker Sheet (Compatible with EditTaskView)
+struct EventTimePickerSheetCompat: View {
+    @Binding var selectedTime: Date
+    let colorScheme: ColorScheme
+    let title: String
+    var onClose: () -> Void = {}
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                DatePicker(
+                    "",
+                    selection: $selectedTime,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .padding(.vertical, 20)
+
+                Spacer()
+
+                Button(action: {
+                    onClose()
+                    dismiss()
+                }) {
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+            .background(colorScheme == .dark ? Color.black : Color.white)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
