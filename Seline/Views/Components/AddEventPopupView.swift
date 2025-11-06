@@ -60,7 +60,7 @@ struct AddEventPopupView: View {
     private var titleInputSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Event Title")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             TextField("Enter event title", text: $title)
@@ -83,7 +83,7 @@ struct AddEventPopupView: View {
     private var descriptionInputSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Description (Optional)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             TextField("Add additional details...", text: $description, axis: .vertical)
@@ -107,7 +107,7 @@ struct AddEventPopupView: View {
     private var tagSelectorSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Tag (Optional)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             Button(action: {
@@ -161,7 +161,7 @@ struct AddEventPopupView: View {
     private var datePickerSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Date")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
             HStack {
@@ -179,7 +179,7 @@ struct AddEventPopupView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Toggle("Include Time", isOn: $hasTime)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
@@ -270,7 +270,7 @@ struct AddEventPopupView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Toggle("Repeat Event", isOn: $isRecurring)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
@@ -314,7 +314,7 @@ struct AddEventPopupView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("Reminder (Optional)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
                 if !hasTime {
