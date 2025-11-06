@@ -34,7 +34,6 @@ class CalendarSyncService {
         let key = "\(year)-\(String(format: "%02d", month))"
         monthsToSkip.insert(key)
         saveMonthsToSkip()
-        print("⏭️ Skipping \(monthName(month)) \(year) during calendar sync")
     }
 
     /// Clear a month skip
@@ -42,14 +41,12 @@ class CalendarSyncService {
         let key = "\(year)-\(String(format: "%02d", month))"
         monthsToSkip.remove(key)
         saveMonthsToSkip()
-        print("✅ No longer skipping \(monthName(month)) \(year)")
     }
 
     /// Clear all month skips
     func clearAllMonthSkips() {
         monthsToSkip.removeAll()
         userDefaults.removeObject(forKey: monthsToSkipKey)
-        print("✅ Cleared all month skips")
     }
 
     /// Get list of months being skipped
@@ -154,12 +151,6 @@ class CalendarSyncService {
         // Filter out all-day events and events that don't have a time component
         let timedEvents = allEvents.filter { !$0.isAllDay }
 
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        let startStr = formatter.string(from: currentMonthStart)
-        let endStr = formatter.string(from: endDate)
-        print("📅 [CalendarSyncService] Fetched \(timedEvents.count) calendar events from \(startStr) to \(endStr) [3-month rolling window, READ-ONLY]")
-
         return timedEvents
     }
 
@@ -168,17 +159,8 @@ class CalendarSyncService {
         let allEvents = await fetchCalendarEventsFromCurrentMonthOnwards()
         let syncedEventIDs = getSyncedEventIDs()
 
-        print("🔍 [CalendarSyncService] Filtering events:")
-        print("   Total events fetched: \(allEvents.count)")
-        print("   Already synced IDs count: \(syncedEventIDs.count)")
-        if !syncedEventIDs.isEmpty {
-            print("   Synced IDs: \(syncedEventIDs.prefix(5).joined(separator: ", "))...")
-        }
-
         // Filter out events we've already synced AND events from skipped months
         let calendar = Calendar.current
-        var filteredOutCount = 0
-        var skippedMonthCount = 0
 
         let newEvents = allEvents.filter { event in
             let isAlreadySynced = syncedEventIDs.contains(event.eventIdentifier)
@@ -187,22 +169,8 @@ class CalendarSyncService {
             let components = calendar.dateComponents([.year, .month], from: event.startDate)
             let isInSkippedMonth = isMonthSkipped(year: components.year ?? 0, month: components.month ?? 0)
 
-            if isAlreadySynced {
-                filteredOutCount += 1
-            }
-            if isInSkippedMonth {
-                skippedMonthCount += 1
-            }
-
             return !isAlreadySynced && !isInSkippedMonth
         }
-
-        print("   Filtered out (already synced): \(filteredOutCount)")
-        print("   Filtered out (skipped months): \(skippedMonthCount)")
-        if !monthsToSkip.isEmpty {
-            print("⏭️ Skipping months: \(getSkippedMonths().joined(separator: ", "))")
-        }
-        print("✅ Found \(newEvents.count) new calendar events to sync")
 
         return newEvents
     }
@@ -305,12 +273,8 @@ class CalendarSyncService {
 
     /// Clear sync tracking (for testing or manual reset)
     func clearSyncTracking() {
-        let beforeCount = getSyncedEventIDs().count
         userDefaults.removeObject(forKey: syncedEventIDsKey)
         userDefaults.removeObject(forKey: lastSyncDateKey)
-        print("🔄 Calendar sync tracking cleared")
-        print("   Deleted \(beforeCount) synced event IDs from local storage")
-        print("   Permission will be requested again on next launch")
     }
 
     /// Reset calendar sync completely (delete all tracking and request permission again)
@@ -318,7 +282,6 @@ class CalendarSyncService {
         clearSyncTracking()
         // Reset authorization status by clearing the event store
         // Note: This doesn't actually revoke permission, user must do that in Settings
-        print("🔄 Calendar sync has been reset. Permission will be requested again.")
         print("⚠️ To fully reset: Go to Settings > Seline > Calendars and toggle OFF, then ON")
     }
 }
