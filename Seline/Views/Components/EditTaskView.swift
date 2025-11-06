@@ -76,7 +76,7 @@ struct EditTaskView: View {
     private var titleInputSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Event Title")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             TextField("Enter event title", text: $title)
@@ -98,7 +98,7 @@ struct EditTaskView: View {
     private var descriptionInputSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Description (Optional)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             TextField("Add additional details...", text: $description, axis: .vertical)
@@ -121,7 +121,7 @@ struct EditTaskView: View {
     private var tagSelectorSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Tag (Optional)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             Button(action: {
@@ -174,7 +174,7 @@ struct EditTaskView: View {
     private var datePickerSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Date")
-                .font(.shadcnTextSm)
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
             HStack {
@@ -191,7 +191,7 @@ struct EditTaskView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Toggle("Include Time", isOn: $hasTime)
-                    .font(.shadcnTextSm)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
@@ -231,8 +231,8 @@ struct EditTaskView: View {
     private var recurringToggleSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Toggle("Recurring Event", isOn: $isRecurring)
-                    .font(.shadcnTextSm)
+                Toggle("Repeat Event", isOn: $isRecurring)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
@@ -240,20 +240,20 @@ struct EditTaskView: View {
 
             if isRecurring {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Repeat")
-                        .font(.shadcnTextSm)
+                    Text("Frequency")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                     if task.isRecurring {
                         HStack {
                             Text(recurrenceFrequency.rawValue.capitalized)
-                                .font(.shadcnTextBase)
+                                .font(.system(size: 13))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                             Spacer()
 
                             Text("Cannot change frequency")
-                                .font(.shadcnTextXs)
+                                .font(.system(size: 11))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .padding(.horizontal, 16)
@@ -272,7 +272,7 @@ struct EditTaskView: View {
                         }) {
                             HStack {
                                 Text(recurrenceFrequency.rawValue.capitalized)
-                                    .font(.shadcnTextBase)
+                                    .font(.system(size: 13))
                                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                 Spacer()
@@ -307,8 +307,8 @@ struct EditTaskView: View {
 
     private var reminderPickerSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Reminder")
-                .font(.system(size: 12, weight: .semibold))
+            Text("Reminder (Optional)")
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
 
             Button(action: {
@@ -355,18 +355,10 @@ struct EditTaskView: View {
             Button("Cancel") {
                 onCancel()
             }
-            .font(.shadcnTextBase)
-            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-            )
 
             Button("Save") {
                 let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -396,8 +388,8 @@ struct EditTaskView: View {
 
                 onSave(updatedTask)
             }
-            .font(.shadcnTextBase)
-            .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(
@@ -577,11 +569,11 @@ struct TimePickerField: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                    .fill(colorScheme == .dark ? Color.black : Color.white.opacity(0.08))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
