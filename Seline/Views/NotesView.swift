@@ -572,7 +572,6 @@ struct NoteEditView: View {
     @State private var undoHistory: [NSAttributedString] = []
     @State private var redoHistory: [NSAttributedString] = []
     @State private var noteIsLocked: Bool = false
-    @State private var checklistItems: [ChecklistItem] = []  // Circle checkbox todos (separate from markdown lists)
     @State private var selectedFolderId: UUID? = nil
     @State private var showingFolderPicker = false
     @State private var showingNewFolderAlert = false
@@ -947,13 +946,6 @@ struct NoteEditView: View {
             .padding(.horizontal, 0)
             .padding(.top, 8)
 
-            // Checklist items (circle checkboxes) - separate from markdown lists
-            if !checklistItems.isEmpty {
-                ChecklistEditor(checklistItems: $checklistItems)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
-            }
-
             // Tappable area to continue writing
             Color.clear
                 .frame(minHeight: 300)
@@ -1132,21 +1124,6 @@ struct NoteEditView: View {
             )
             .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            // Todo button - adds a new checkbox todo item
-            Button(action: {
-                HapticManager.shared.buttonTap()
-                checklistItems.append(ChecklistItem())
-            }) {
-                Image(systemName: "checklist")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-
             // Spacer
             Spacer()
 
@@ -1269,7 +1246,6 @@ struct NoteEditView: View {
             currentNoteId = note.id  // Track note ID for attachment uploads
             title = note.title
             content = note.content
-            checklistItems = note.checklistItems ?? []  // Load checklist items
 
             // Parse content and load images
             attributedContent = parseContentWithImages(note.content)
@@ -1380,10 +1356,6 @@ struct NoteEditView: View {
                 updatedNote.isLocked = noteIsLocked
                 updatedNote.folderId = selectedFolderId
 
-                // Filter out empty checklist items and save
-                let filteredItems = checklistItems.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                updatedNote.checklistItems = filteredItems.isEmpty ? nil : filteredItems
-
                 // Check if there are new images to upload (compare count)
                 if imageAttachments.count > existingNote.imageUrls.count {
                     // Upload only new images
@@ -1401,10 +1373,6 @@ struct NoteEditView: View {
             Task {
                 var newNote = Note(title: title, content: content, folderId: selectedFolderId)
                 newNote.isLocked = noteIsLocked
-
-                // Filter out empty checklist items and save
-                let filteredItems = checklistItems.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                newNote.checklistItems = filteredItems.isEmpty ? nil : filteredItems
 
                 // 1. Add note to database and WAIT for sync
                 let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
@@ -1439,10 +1407,6 @@ struct NoteEditView: View {
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
             updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
-
-            // Filter out empty checklist items and save
-            let filteredItems = checklistItems.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            updatedNote.checklistItems = filteredItems.isEmpty ? nil : filteredItems
 
             // CRITICAL: Wait for sync to complete to ensure changes are persisted
             updatedNote.dateModified = Date()

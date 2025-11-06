@@ -2,24 +2,6 @@ import Foundation
 import SwiftUI
 import PostgREST
 
-// MARK: - Checklist Models
-
-struct ChecklistItem: Identifiable, Codable, Hashable {
-    var id: UUID
-    var text: String
-    var isCompleted: Bool
-    var createdAt: Date
-    var completedAt: Date?
-
-    init(id: UUID = UUID(), text: String = "", isCompleted: Bool = false) {
-        self.id = id
-        self.text = text
-        self.isCompleted = isCompleted
-        self.createdAt = Date()
-        self.completedAt = nil
-    }
-}
-
 // MARK: - Note Models
 
 struct Note: Identifiable, Codable, Hashable {
@@ -33,7 +15,6 @@ struct Note: Identifiable, Codable, Hashable {
     var isLocked: Bool
     var imageUrls: [String] // Store image URLs from Supabase Storage
     var attachmentId: UUID? // Single file attachment per note (for documents like bank statements, invoices)
-    var checklistItems: [ChecklistItem]? // Optional checklist items with circle checkboxes
 
     // Temporary compatibility - will be removed after migration
     var imageAttachments: [Data] {
@@ -279,15 +260,6 @@ class NotesManager: ObservableObject {
 
         let imageUrlsArray: [PostgREST.AnyJSON] = imageUrls.map { .string($0) }
 
-        // Serialize checklist items to JSON
-        var checklistJson: PostgREST.AnyJSON = .null
-        if let items = encryptedNote.checklistItems, !items.isEmpty {
-            if let jsonData = try? JSONEncoder().encode(items),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                checklistJson = .string(jsonString)
-            }
-        }
-
         var noteData: [String: PostgREST.AnyJSON] = [
             "id": .string(note.id.uuidString),
             "user_id": .string(userId.uuidString),
@@ -299,8 +271,7 @@ class NotesManager: ObservableObject {
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray),
-            "checklist_items": checklistJson
+            "image_attachments": .array(imageUrlsArray)
         ]
 
         do {
@@ -413,15 +384,6 @@ class NotesManager: ObservableObject {
         let formatter = ISO8601DateFormatter()
         let imageUrlsArray: [PostgREST.AnyJSON] = encryptedNote.imageUrls.map { .string($0) }
 
-        // Serialize checklist items to JSON
-        var checklistJson: PostgREST.AnyJSON = .null
-        if let items = encryptedNote.checklistItems, !items.isEmpty {
-            if let jsonData = try? JSONEncoder().encode(items),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                checklistJson = .string(jsonString)
-            }
-        }
-
         var noteData: [String: PostgREST.AnyJSON] = [
             "title": .string(encryptedNote.title),
             "content": .string(encryptedNote.content),
@@ -430,8 +392,7 @@ class NotesManager: ObservableObject {
             "is_pinned": .bool(encryptedNote.isPinned),
             "folder_id": note.folderId != nil ? .string(note.folderId!.uuidString) : .null,
             "attachment_id": note.attachmentId != nil ? .string(note.attachmentId!.uuidString) : .null,
-            "image_attachments": .array(imageUrlsArray),
-            "checklist_items": checklistJson
+            "image_attachments": .array(imageUrlsArray)
         ]
 
         do {
@@ -1612,8 +1573,6 @@ class NotesManager: ObservableObject {
         }
         // Store image URLs directly - no download!
         note.imageUrls = data.image_attachments ?? []
-        // Load checklist items
-        note.checklistItems = data.checklist_items
 
         // ✨ DECRYPT after loading
         let decryptedNote: Note
@@ -2172,10 +2131,9 @@ struct NoteSupabaseData: Codable {
     let folder_id: String?
     let attachment_id: String? // Single file attachment
     let image_attachments: [String]? // Array of image URLs from JSONB
-    let checklist_items: [ChecklistItem]? // Array of todo items
 
     enum CodingKeys: String, CodingKey {
-        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments, checklist_items
+        case id, user_id, title, content, is_locked, date_created, date_modified, is_pinned, folder_id, attachment_id, image_attachments
     }
 
     init(from decoder: Decoder) throws {
@@ -2200,17 +2158,6 @@ struct NoteSupabaseData: Codable {
             image_attachments = array
         } else {
             image_attachments = nil
-        }
-
-        // Handle checklist_items - can be array directly or JSON string
-        if let items = try? container.decodeIfPresent([ChecklistItem].self, forKey: .checklist_items) {
-            checklist_items = items
-        } else if let itemsString = try? container.decodeIfPresent(String.self, forKey: .checklist_items),
-                  let data = itemsString.data(using: .utf8),
-                  let items = try? JSONDecoder().decode([ChecklistItem].self, from: data) {
-            checklist_items = items
-        } else {
-            checklist_items = nil
         }
     }
 }
