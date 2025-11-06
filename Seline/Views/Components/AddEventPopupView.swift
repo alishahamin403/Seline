@@ -196,23 +196,23 @@ struct AddEventPopupView: View {
                             HStack {
                                 Text(formatTimeWithAMPM(selectedTime))
                                     .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.white)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                 Spacer()
 
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.white.opacity(0.6))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.darkGray))
+                                    .fill(colorScheme == .dark ? Color.black : Color.white.opacity(0.08))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
@@ -234,23 +234,23 @@ struct AddEventPopupView: View {
                             HStack {
                                 Text(formatTimeWithAMPM(selectedEndTime))
                                     .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.white)
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                 Spacer()
 
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.white.opacity(0.6))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color.black : Color(UIColor.darkGray))
+                                    .fill(colorScheme == .dark ? Color.black : Color.white.opacity(0.08))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
