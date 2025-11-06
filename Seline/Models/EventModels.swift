@@ -1289,13 +1289,11 @@ class TaskManager: ObservableObject {
         // create duplicate instances since the display logic handles it automatically.
 
         saveTasks()
-        print("💾 Task saved to local storage")
 
         // Sync the updated task to Supabase
         if let updatedTask = tasks[task.weekday]?[index] {
             Task {
                 await updateTaskInSupabase(updatedTask)
-                print("☁️ Task synced to Supabase")
             }
         }
     }
@@ -1432,7 +1430,6 @@ class TaskManager: ObservableObject {
 
         if let encoded = try? JSONEncoder().encode(allTasks) {
             userDefaults.set(encoded, forKey: tasksKey)
-            print("✅ Successfully saved \(allTasks.count) tasks to local storage (\(recurringTasks.count) recurring)")
 
             // Sync today's tasks to widget after saving
             syncTodaysTasksToWidget(tags: TagManager.shared.tags)
@@ -1448,8 +1445,6 @@ class TaskManager: ObservableObject {
             addSampleTasks()
             return
         }
-
-        print("📂 Loading \(savedTasks.count) tasks from local storage")
 
         // Fix any recurring tasks that were accidentally marked as completed
         let fixedTasks = savedTasks.map { task -> TaskItem in
@@ -1467,26 +1462,6 @@ class TaskManager: ObservableObject {
             tasksByWeekday[weekday] = fixedTasks.filter { $0.weekday == weekday }
         }
 
-        // Debug: Print recurring tasks with detailed completed dates info
-        let recurringTasks = fixedTasks.filter { $0.isRecurring }
-        if !recurringTasks.isEmpty {
-            print("📊 Recurring tasks loaded:")
-            for task in recurringTasks {
-                print("   - '\(task.title)':")
-                print("     • Frequency: \(task.recurrenceFrequency?.rawValue ?? "nil")")
-                print("     • isCompleted: \(task.isCompleted)")
-                print("     • Completed dates count: \(task.completedDates.count)")
-                if !task.completedDates.isEmpty {
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-                    for completedDate in task.completedDates {
-                        print("       - \(dateFormatter.string(from: completedDate))")
-                    }
-                }
-                print("     • tagId: \(task.tagId ?? "nil")")
-            }
-        }
-
         self.tasks = tasksByWeekday
         initializeEmptyDays()
 
@@ -1496,13 +1471,11 @@ class TaskManager: ObservableObject {
         }
 
         if !tasksToFix.isEmpty {
-            print("💾 Saving \(tasksToFix.count) fixed recurring tasks to local storage")
             saveTasks()
 
             // Also sync fixes to Supabase
             Task {
                 for task in tasksToFix {
-                    print("☁️ Syncing fixed recurring task '\(task.title)' to Supabase")
                     await updateTaskInSupabase(task)
                 }
             }
@@ -1576,34 +1549,12 @@ class TaskManager: ObservableObject {
                         tasksByWeekday[weekday] = supabaseTasks.filter { $0.weekday == weekday }
                     }
 
-                    // Debug: Print recurring tasks loaded from Supabase with detailed completion info
-                    let recurringTasks = supabaseTasks.filter { $0.isRecurring }
-                    if !recurringTasks.isEmpty {
-                        print("📊 Recurring tasks loaded from Supabase:")
-                        for task in recurringTasks {
-                            print("   - '\(task.title)':")
-                            print("     • Frequency: \(task.recurrenceFrequency?.rawValue ?? "nil")")
-                            print("     • isCompleted: \(task.isCompleted)")
-                            print("     • Completed dates count: \(task.completedDates.count)")
-                            if !task.completedDates.isEmpty {
-                                let dateFormatter = DateFormatter()
-                                dateFormatter.dateStyle = .medium
-                                for completedDate in task.completedDates {
-                                    print("       - \(dateFormatter.string(from: completedDate))")
-                                }
-                            }
-                            print("     • targetDate: \(task.targetDate?.description ?? "nil")")
-                            print("     • tagId: \(task.tagId ?? "nil")")
-                        }
-                    }
-
                     self.tasks = tasksByWeekday
                     initializeEmptyDays()
 
                     // IMPORTANT: Save loaded tasks to local cache so they persist across rebuilds
                     // This ensures email attachments and all data are available even if Supabase is unreachable
                     self.saveTasks()
-                    print("💾 Cached \(supabaseTasks.count) tasks from Supabase to local storage")
 
                     // Check if any recurring tasks were fixed (marked incomplete)
                     let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
@@ -1617,7 +1568,6 @@ class TaskManager: ObservableObject {
                     }
 
                     if !tasksNeedingFix.isEmpty {
-                        print("☁️ Syncing \(tasksNeedingFix.count) fixed recurring tasks back to Supabase")
                         Task {
                             for task in tasksNeedingFix {
                                 await updateTaskInSupabase(task)
@@ -1788,19 +1738,10 @@ class TaskManager: ObservableObject {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
             let client = await supabaseManager.getPostgrestClient()
 
-            print("💾 Saving task to Supabase: '\(task.title)' - Recurring: \(task.isRecurring), Frequency: \(task.recurrenceFrequency?.rawValue ?? "none")")
-
-            // Log completion dates if this is a recurring task
-            if task.isRecurring && !task.completedDates.isEmpty {
-                print("   with \(task.completedDates.count) completed dates")
-            }
-
             try await client
                 .from("tasks")
                 .upsert(taskData)
                 .execute()
-
-            print("✅ Task '\(task.title)' saved to Supabase")
 
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
@@ -1816,18 +1757,6 @@ class TaskManager: ObservableObject {
         do {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
 
-            // Log completion status for recurring tasks
-            if task.isRecurring && !task.completedDates.isEmpty {
-                print("📤 Updating recurring task '\(task.title)' with \(task.completedDates.count) completed dates to Supabase")
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
-                for date in task.completedDates {
-                    print("   - \(dateFormatter.string(from: date))")
-                }
-            } else if task.isRecurring {
-                print("📤 Updating recurring task '\(task.title)' with 0 completed dates to Supabase")
-            }
-
             let client = await supabaseManager.getPostgrestClient()
 
             try await client
@@ -1835,8 +1764,6 @@ class TaskManager: ObservableObject {
                 .update(taskData)
                 .eq("id", value: task.id)
                 .execute()
-
-            print("✅ Task '\(task.title)' updated in Supabase")
 
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")
@@ -2485,16 +2412,10 @@ class TaskManager: ObservableObject {
     /// Only syncs events from current month onwards (3-month rolling window)
     @MainActor
     func syncCalendarEvents() async {
-        print("🔄 [TaskManager] Starting calendar sync...")
-        print("📅 [TaskManager] Will fetch events using 3-month rolling window (current month + 3 months)")
-
         let newEvents = await CalendarSyncService.shared.fetchNewCalendarEvents()
         guard !newEvents.isEmpty else {
-            print("✅ [TaskManager] Calendar sync complete - no new events to sync")
             return
         }
-
-        print("📥 [TaskManager] Adding \(newEvents.count) new calendar events to app")
 
         // Convert EventKit events to TaskItems and add them
         var addedCount = 0
@@ -2519,8 +2440,6 @@ class TaskManager: ObservableObject {
 
         // Save to local storage
         saveTasks()
-
-        print("✅ [TaskManager] Calendar sync complete - successfully synced \(addedCount) new events")
     }
 
     /// Manually trigger calendar access request
@@ -2533,8 +2452,6 @@ class TaskManager: ObservableObject {
     /// Use this when you want to remove previously synced calendar events and start fresh
     @MainActor
     func deleteSyncedCalendarEventsAndReset() {
-        print("🗑️ Deleting all synced calendar events...")
-
         // Get list of synced event IDs
         let syncedIDs = CalendarSyncService.shared.getSyncedEventIDsPublic()
 
@@ -2560,9 +2477,6 @@ class TaskManager: ObservableObject {
 
         // Save changes
         saveTasks()
-
-        print("✅ Deleted \(deletedCount) synced calendar events")
-        print("🔄 Calendar sync has been reset - permission will be requested again on next launch")
     }
 
     // MARK: - Widget Support
@@ -2602,18 +2516,6 @@ class TaskManager: ObservableObject {
             let userDefaults = UserDefaults(suiteName: "group.seline")
             userDefaults?.set(encoded, forKey: "widgetTodaysTasks")
 
-            let calendar = Calendar.current
-            let weekday = calendar.component(.weekday, from: today)
-            let weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-            let weekdayName = weekday > 0 && weekday <= weekdayNames.count ? weekdayNames[weekday - 1] : "Unknown"
-
-            print("🔄 Widget sync - \(weekdayName): Found \(todaysTasks.count) tasks for today, encoded \(widgetTasks.count) to UserDefaults")
-            if !widgetTasks.isEmpty {
-                print("   Tasks:")
-                for task in widgetTasks {
-                    print("   - \(task.title) at \(task.scheduledTime?.description ?? "no time")")
-                }
-            }
         }
     }
 }
@@ -2693,7 +2595,6 @@ class TagManager: ObservableObject {
             await MainActor.run {
                 self.tags = loadedTags
                 self.saveTags()
-                print("✅ Loaded \(loadedTags.count) tags from Supabase")
             }
         } catch {
             print("❌ Error loading tags from Supabase: \(error.localizedDescription)")
@@ -2722,7 +2623,6 @@ class TagManager: ObservableObject {
                 .insert(tagModel)
                 .execute()
 
-            print("✅ Saved tag '\(tag.name)' to Supabase")
         } catch {
             print("❌ Error saving tag to Supabase: \(error.localizedDescription)")
         }
@@ -2743,7 +2643,6 @@ class TagManager: ObservableObject {
                 .eq("user_id", value: userId.uuidString)
                 .execute()
 
-            print("✅ Deleted tag '\(tag.name)' from Supabase")
         } catch {
             print("❌ Error deleting tag from Supabase: \(error.localizedDescription)")
         }

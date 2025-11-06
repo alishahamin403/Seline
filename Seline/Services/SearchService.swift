@@ -421,7 +421,6 @@ class SearchService: ObservableObject {
                 )
                 scores.merge(batchScores) { _, new in new }
             } catch {
-                print("⚠️ Error getting semantic scores: \(error)")
                 // Fallback: return zero scores, keyword matching will still work
             }
         }
@@ -935,7 +934,6 @@ class SearchService: ObservableObject {
 
             if !cleanedTitle.isEmpty && cleanedTitle.count < 60 && !cleanedTitle.contains("conversation") {
                 conversationTitle = cleanedTitle
-                print("✓ Generated title: \(cleanedTitle)")
             } else if !cleanedTitle.isEmpty && cleanedTitle.count < 60 {
                 conversationTitle = cleanedTitle
             }
@@ -944,7 +942,6 @@ class SearchService: ObservableObject {
             if let firstMessage = conversationHistory.first(where: { $0.isUser }) {
                 let words = firstMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
                 conversationTitle = String(words.isEmpty ? "Conversation" : words)
-                print("⚠ Fallback title: \(conversationTitle)")
             }
         }
     }
@@ -956,7 +953,7 @@ class SearchService: ObservableObject {
             let encoded = try JSONEncoder().encode(conversationHistory)
             defaults.set(encoded, forKey: "lastConversation")
         } catch {
-            print("Error saving conversation locally: \(error)")
+            print("❌ Error saving conversation locally: \(error)")
         }
     }
 
@@ -972,7 +969,7 @@ class SearchService: ObservableObject {
                 conversationTitle = String(words.isEmpty ? "New Conversation" : words)
             }
         } catch {
-            print("Error loading conversation: \(error)")
+            print("❌ Error loading conversation: \(error)")
         }
     }
 
@@ -1013,10 +1010,8 @@ class SearchService: ObservableObject {
                 .from("conversations")
                 .insert(data)
                 .execute()
-
-            print("✓ Conversation saved to Supabase")
         } catch {
-            print("Error saving conversation to Supabase: \(error)")
+            print("❌ Error saving conversation to Supabase: \(error)")
         }
     }
 
@@ -1027,14 +1022,13 @@ class SearchService: ObservableObject {
         // To implement this:
         // 1. Create the conversations table in Supabase (using provided SQL)
         // 2. Use direct HTTP request or update Supabase SDK implementation
-        print("Note: Load conversations from Supabase not yet implemented. Use Supabase dashboard to view saved conversations.")
         return []
     }
 
     /// Load specific conversation from Supabase by ID
     /// Currently disabled - can be implemented once proper SDK support is available
     func loadConversationFromSupabase(id: String) async {
-        print("Note: Load conversation from Supabase not yet implemented. Use loadLastConversation() for local persistence.")
+        // Not yet implemented - use loadLastConversation() for local persistence
     }
 
     /// Save current conversation to history
@@ -1060,7 +1054,7 @@ class SearchService: ObservableObject {
         do {
             savedConversations = try JSONDecoder().decode([SavedConversation].self, from: data)
         } catch {
-            print("Error loading conversation history: \(error)")
+            print("❌ Error loading conversation history: \(error)")
         }
     }
 
@@ -1071,7 +1065,7 @@ class SearchService: ObservableObject {
             let encoded = try JSONEncoder().encode(savedConversations)
             defaults.set(encoded, forKey: "conversationHistory")
         } catch {
-            print("Error saving conversation history: \(error)")
+            print("❌ Error saving conversation history: \(error)")
         }
     }
 
@@ -1167,7 +1161,6 @@ class SearchService: ObservableObject {
                             }
 
                             hasChanges = true
-                            print("✅ Applied pending note update for: \(noteTitle)")
                         }
                     }
                 }

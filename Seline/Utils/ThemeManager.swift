@@ -77,27 +77,20 @@ class ThemeManager: ObservableObject {
         let now = Date()
         let hour = calendar.component(.hour, from: now)
 
-        print("🕐 ThemeManager - Current hour: \(hour)")
-
         // Consider daytime as 6 AM to 6 PM
         let isDay = hour >= 6 && hour < 18
-        print("🌓 ThemeManager - Is daytime: \(isDay)")
         return isDay
     }
 
     // Update the effective color scheme based on selected theme
     private func updateEffectiveColorScheme() {
-        print("🎨 ThemeManager - Selected theme: \(selectedTheme.rawValue)")
         switch selectedTheme {
         case .auto:
             effectiveColorScheme = isDaytime() ? .light : .dark
-            print("🎨 ThemeManager - Auto mode, effective scheme: \(effectiveColorScheme == .dark ? "dark" : "light")")
         case .light:
             effectiveColorScheme = .light
-            print("🎨 ThemeManager - Light mode")
         case .dark:
             effectiveColorScheme = .dark
-            print("🎨 ThemeManager - Dark mode")
         }
     }
 

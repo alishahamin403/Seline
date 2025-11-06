@@ -133,7 +133,7 @@ class EmailService: ObservableObject {
                 if !Task.isCancelled {
                     let errorMessage = self.getUserFriendlyErrorMessage(error)
                     setLoadingState(for: folder, state: .error(errorMessage))
-                    print("Error loading emails for \(folder.displayName): \(error)")
+                    print("❌ Error loading emails for \(folder.displayName): \(error)")
                 }
             }
 
@@ -682,9 +682,6 @@ class EmailService: ObservableObject {
                     // Debug logging to track content extraction
                     if rawEmailBody == nil || rawEmailBody?.isEmpty == true {
                         print("⚠️ No body content extracted for email: '\(email.subject)' (ID: \(gmailMessageId))")
-                    } else {
-                        let contentLength = rawEmailBody?.count ?? 0
-                        print("✅ Extracted \(contentLength) characters for AI summary: '\(email.subject.prefix(50))'")
                     }
                 }
 
@@ -742,7 +739,6 @@ class EmailService: ObservableObject {
         isAppActive = false
         // Keep email polling running in background for notifications
         // The polling will continue checking for new emails every 60 seconds
-        print("App entered background - email polling continues for background notifications")
     }
 
     // MARK: - New Email Polling (Only when app is active)
@@ -838,14 +834,10 @@ class EmailService: ObservableObject {
                     // Update badge count (only count today's unread emails)
                     let currentUnreadCount = todaysNewEmails.filter { !$0.isRead }.count
                     notificationService.updateAppBadge(count: currentUnreadCount)
-
-                    print("📧 New emails from TODAY: \(todaysNewEmails.count)")
-                } else {
-                    print("📧 New emails found but none from today - suppressing old notification")
                 }
             }
         } catch {
-            print("Error checking for new emails: \(error)")
+            print("❌ Error checking for new emails: \(error)")
         }
     }
 
@@ -862,8 +854,6 @@ class EmailService: ObservableObject {
 
             // If we had emails and now we have fewer, save the cleaned cache
             if cachedInboxEmails.count > todaysEmails.count {
-                print("🧹 Cleaning cache: removed \(cachedInboxEmails.count - todaysEmails.count) old emails")
-
                 // Save cleaned emails back to cache
                 if let encoded = try? JSONEncoder().encode(todaysEmails) {
                     UserDefaults.standard.set(encoded, forKey: CacheKeys.inboxEmails)
@@ -875,7 +865,6 @@ class EmailService: ObservableObject {
         if let inboxTimestamp = UserDefaults.standard.object(forKey: CacheKeys.inboxTimestamp) as? Date {
             let calendar = Calendar.current
             if !calendar.isDateInToday(inboxTimestamp) {
-                print("🧹 Clearing old cache timestamp")
                 UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
             }
         }
@@ -920,7 +909,7 @@ class EmailService: ObservableObject {
                 break
             }
         } catch {
-            print("Failed to save cached emails for \(folder.displayName): \(error)")
+            print("❌ Failed to save cached emails for \(folder.displayName): \(error)")
         }
     }
 

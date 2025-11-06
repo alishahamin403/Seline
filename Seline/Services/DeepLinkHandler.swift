@@ -20,12 +20,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
 
     /// Handle URL deep links from the app (e.g., from widget buttons)
     func handleURL(_ url: URL) {
-        print("🔗 Deep link received: \(url.absoluteString)")
-        print("🔗 URL scheme: \(url.scheme ?? "nil")")
-        print("🔗 URL host: \(url.host ?? "nil")")
-        print("🔗 URL path: \(url.path)")
-        print("🔗 URL pathComponents: \(url.pathComponents)")
-
         guard url.scheme == "seline" else {
             print("⚠️ Invalid URL scheme: \(url.scheme ?? "nil")")
             return
@@ -33,7 +27,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
 
         // Handle maps deep link: seline://maps?lat=43.2417461&lon=-79.861607
         if let host = url.host, host == "maps" {
-            print("🗺️ Opening maps with coordinates")
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let queryItems = components?.queryItems ?? []
 
@@ -48,8 +41,6 @@ class DeepLinkHandler: NSObject, ObservableObject {
                     lon = Double(value)
                 }
             }
-
-            print("🗺️ Maps coordinates: lat=\(lat ?? 0), lon=\(lon ?? 0)")
 
             DispatchQueue.main.async {
                 self.mapsLatitude = lat
@@ -72,45 +63,34 @@ class DeepLinkHandler: NSObject, ObservableObject {
 
         // Extract the action from the path (remove leading /)
         let pathWithoutSlash = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        print("🔗 Detected action: \(pathWithoutSlash)")
 
         switch pathWithoutSlash {
         case "createNote":
-            print("📝 Opening note creation sheet")
             DispatchQueue.main.async {
-                print("📝 Setting shouldShowNoteCreation = true")
                 self.shouldShowNoteCreation = true
                 self.pendingAction = "createNote"
             }
 
         case "createEvent":
-            print("📅 Opening event creation popup")
             DispatchQueue.main.async {
-                print("📅 Setting shouldShowEventCreation = true")
                 self.shouldShowEventCreation = true
                 self.pendingAction = "createEvent"
             }
 
         case "viewReceiptStats":
-            print("💰 Opening receipt stats")
             DispatchQueue.main.async {
-                print("💰 Setting shouldShowReceiptStats = true")
                 self.shouldShowReceiptStats = true
                 self.pendingAction = "viewReceiptStats"
             }
 
         case "search":
-            print("🔍 Opening search")
             DispatchQueue.main.async {
-                print("🔍 Setting shouldShowSearch = true")
                 self.shouldShowSearch = true
                 self.pendingAction = "search"
             }
 
         case "chat":
-            print("💬 Opening chat")
             DispatchQueue.main.async {
-                print("💬 Setting shouldShowChat = true")
                 self.shouldShowChat = true
                 self.pendingAction = "chat"
             }
@@ -124,37 +104,29 @@ class DeepLinkHandler: NSObject, ObservableObject {
     func processPendingAction() {
         guard let action = pendingAction else { return }
 
-        print("🔗 Processing pending action: \(action)")
-
         switch action {
         case "createNote":
             DispatchQueue.main.async {
-                print("📝 Triggering note creation from pending action")
                 self.shouldShowNoteCreation = true
             }
         case "createEvent":
             DispatchQueue.main.async {
-                print("📅 Triggering event creation from pending action")
                 self.shouldShowEventCreation = true
             }
         case "viewReceiptStats":
             DispatchQueue.main.async {
-                print("💰 Triggering receipt stats from pending action")
                 self.shouldShowReceiptStats = true
             }
         case "search":
             DispatchQueue.main.async {
-                print("🔍 Triggering search from pending action")
                 self.shouldShowSearch = true
             }
         case "chat":
             DispatchQueue.main.async {
-                print("💬 Triggering chat from pending action")
                 self.shouldShowChat = true
             }
         case "maps":
             DispatchQueue.main.async {
-                print("🗺️ Triggering maps from pending action")
                 self.shouldOpenMaps = true
             }
         default:

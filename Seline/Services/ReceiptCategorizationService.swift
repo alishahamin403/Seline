@@ -70,8 +70,6 @@ class ReceiptCategorizationService: ObservableObject {
 
     /// Get category breakdown for a list of receipts
     func getCategoryBreakdown(for receipts: [ReceiptStat]) async -> YearlyCategoryBreakdown {
-        print("📊 Starting category breakdown for \(receipts.count) receipts")
-
         // Initialize all categories with both totals and receipts
         var categoryMap: [String: (total: Double, count: Int)] = [:]
         var categoryReceipts: [String: [ReceiptStat]] = [:]
@@ -84,7 +82,7 @@ class ReceiptCategorizationService: ObservableObject {
 
         var totalAmount: Double = 0
 
-        for (index, receipt) in receipts.enumerated() {
+        for receipt in receipts {
             let category = await categorizeReceipt(receipt.title)
             let current = categoryMap[category] ?? (0, 0)
             categoryMap[category] = (current.total + receipt.amount, current.count + 1)
@@ -102,7 +100,6 @@ class ReceiptCategorizationService: ObservableObject {
 
             categorizedReceipts.append(updatedReceipt)
             totalAmount += receipt.amount
-            print("✓ [\(index + 1)/\(receipts.count)] '\(receipt.title)' → \(category)")
         }
 
         // Convert to CategoryStat array
@@ -121,12 +118,6 @@ class ReceiptCategorizationService: ObservableObject {
             categoryReceipts: categoryReceipts,
             allReceipts: categorizedReceipts
         )
-
-        // Log summary
-        print("✅ Category breakdown complete!")
-        for stat in breakdown.sortedCategories {
-            print("   \(stat.category): \(stat.count) receipts = \(CurrencyParser.formatAmount(stat.total))")
-        }
 
         return breakdown
     }
@@ -182,10 +173,6 @@ class ReceiptCategorizationService: ObservableObject {
             for category in categories {
                 categoryCache[category.receipt_title] = category.category
             }
-
-            if !categories.isEmpty {
-                print("✅ Loaded \(categories.count) categories from Supabase")
-            }
         } catch {
             print("⚠️ Failed to load categories from Supabase: \(error)")
             // Silently fail - use local cache if available
@@ -213,8 +200,6 @@ class ReceiptCategorizationService: ObservableObject {
                 .from("receipt_categories")
                 .upsert([record])
                 .execute()
-
-            print("✅ Saved category to Supabase: \(title) → \(category)")
         } catch {
             print("❌ Failed to save category to Supabase: \(error)")
             // Local cache is the source of truth; Supabase sync is an optimization

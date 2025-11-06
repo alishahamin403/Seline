@@ -70,7 +70,6 @@ class MapKitService: NSObject, ObservableObject {
             self.location3ETA = eta3
             self.location4ETA = eta4
             self.lastUpdated = Date()
-            print("✅ MapKit ETAs updated: L1=\(eta1 ?? "---"), L2=\(eta2 ?? "---"), L3=\(eta3 ?? "---"), L4=\(eta4 ?? "---")")
         }
     }
 
@@ -128,7 +127,6 @@ class MapKitService: NSObject, ObservableObject {
             userDefaults.set(location3ETA, forKey: "widgetLocation3ETA")
             userDefaults.set(location4ETA, forKey: "widgetLocation4ETA")
             userDefaults.synchronize()
-            print("✅ MapKit: Saved ETAs to widget")
         }
     }
 }

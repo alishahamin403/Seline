@@ -292,9 +292,7 @@ struct MainAppView: View {
                 showConversationModal = newValue
             }
             .onChange(of: deepLinkHandler.shouldShowNoteCreation) { newValue in
-                print("📝 MainAppView: shouldShowNoteCreation changed to \(newValue)")
                 if newValue {
-                    print("📝 MainAppView: Opening note creation sheet")
                     showingNewNoteSheet = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         deepLinkHandler.shouldShowNoteCreation = false
@@ -302,9 +300,7 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: deepLinkHandler.shouldShowEventCreation) { newValue in
-                print("📅 MainAppView: shouldShowEventCreation changed to \(newValue)")
                 if newValue {
-                    print("📅 MainAppView: Opening event creation popup")
                     showingAddEventPopup = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         deepLinkHandler.shouldShowEventCreation = false
@@ -312,9 +308,7 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: deepLinkHandler.shouldShowReceiptStats) { newValue in
-                print("💰 MainAppView: shouldShowReceiptStats changed to \(newValue)")
                 if newValue {
-                    print("💰 MainAppView: Opening receipt stats")
                     showReceiptStats = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         deepLinkHandler.shouldShowReceiptStats = false
@@ -322,9 +316,7 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: deepLinkHandler.shouldShowSearch) { newValue in
-                print("🔍 MainAppView: shouldShowSearch changed to \(newValue)")
                 if newValue {
-                    print("🔍 MainAppView: Opening search")
                     isSearchFocused = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         deepLinkHandler.shouldShowSearch = false
@@ -332,9 +324,7 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: deepLinkHandler.shouldShowChat) { newValue in
-                print("💬 MainAppView: shouldShowChat changed to \(newValue)")
                 if newValue {
-                    print("💬 MainAppView: Opening chat")
                     showConversationModal = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         deepLinkHandler.shouldShowChat = false
@@ -342,10 +332,8 @@ struct MainAppView: View {
                 }
             }
             .onChange(of: deepLinkHandler.shouldOpenMaps) { newValue in
-                print("🗺️ MainAppView: shouldOpenMaps changed to \(newValue)")
                 if newValue {
                     if let lat = deepLinkHandler.mapsLatitude, let lon = deepLinkHandler.mapsLongitude {
-                        print("🗺️ MainAppView: Opening Google Maps with coordinates")
                         let mapsURL = URL(string: "https://maps.google.com/?q=\(lat),\(lon)")!
                         UIApplication.shared.open(mapsURL)
                     }

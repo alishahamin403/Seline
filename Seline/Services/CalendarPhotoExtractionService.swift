@@ -53,8 +53,6 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.invalidURL
         }
 
-        print("📸 Processing image - Size: \(image.size), Scale: \(image.scale)")
-
         // Convert image to base64 with adaptive quality based on image size
         // For large images (from gallery), use lower compression to avoid memory issues
         var base64Image: String
@@ -63,15 +61,11 @@ class CalendarPhotoExtractionService {
         let imagePixels = image.size.width * image.size.height * image.scale * image.scale
         let compressionQuality: CGFloat = imagePixels > 1_000_000 ? 0.7 : 0.95
 
-        print("📸 Image pixels: \(Int(imagePixels)), Compression quality: \(compressionQuality)")
-
         // Try JPEG first with adaptive quality, then PNG if JPEG fails
         if let jpegData = image.jpegData(compressionQuality: compressionQuality) {
             base64Image = jpegData.base64EncodedString()
-            print("📸 JPEG size: \(String(format: "%.2f", Double(jpegData.count) / 1024 / 1024))MB")
         } else if let pngData = image.pngData() {
             base64Image = pngData.base64EncodedString()
-            print("📸 PNG size: \(String(format: "%.2f", Double(pngData.count) / 1024 / 1024))MB")
         } else {
             throw ExtractionError.imageConversionError
         }
@@ -303,10 +297,6 @@ class CalendarPhotoExtractionService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
-        print("📡 Sending request to OpenAI API...")
-        print("📡 URL: \(baseURL)")
-        print("📡 Image size: \(String(format: "%.2f", Double(base64Image.count) / 1024))KB")
-
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
@@ -315,8 +305,6 @@ class CalendarPhotoExtractionService {
 
         let (data, response): (Data, URLResponse)
         do {
-            print("📡 Request timeout interval: \(request.timeoutInterval)s")
-            print("📡 Base64 image size: \(base64Image.count / 1024)KB")
             (data, response) = try await URLSession.shared.data(for: request)
         } catch let error as URLError {
             print("🔴 URLError: \(error.localizedDescription)")
@@ -349,8 +337,6 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.networkError(NSError(domain: "InvalidResponse", code: -1))
         }
 
-        print("📡 Response status: \(httpResponse.statusCode)")
-
         // Handle API errors
         if httpResponse.statusCode != 200 {
             print("🔴 HTTP Error \(httpResponse.statusCode)")
@@ -374,8 +360,6 @@ class CalendarPhotoExtractionService {
             throw ExtractionError.apiError(statusDescription)
         }
 
-        print("✅ API request successful")
-
         guard let decodedResponse = try? JSONDecoder().decode(OpenAIResponse.self, from: data),
               let content = decodedResponse.choices.first?.message.content else {
             // Log the raw response for debugging
@@ -384,8 +368,6 @@ class CalendarPhotoExtractionService {
             }
             throw ExtractionError.decodingError
         }
-
-        print("🔍 GPT-4o extracted: \(content)")
 
         // Parse the JSON response from GPT-4o
         return try parseExtractionResponse(content)
@@ -412,8 +394,6 @@ class CalendarPhotoExtractionService {
         // Trim whitespace
         cleanedJson = cleanedJson.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        print("🔍 Cleaned JSON: \(cleanedJson.prefix(100))...") // Log first 100 chars
-
         guard let jsonData = cleanedJson.data(using: .utf8) else {
             throw ExtractionError.decodingError
         }
@@ -428,8 +408,6 @@ class CalendarPhotoExtractionService {
 
         do {
             let parsedResponse = try decoder.decode(RawExtractionResponse.self, from: jsonData)
-
-            print("🔍 Parsed status: \(parsedResponse.status), event count: \(parsedResponse.events.count)")
 
             // Convert raw dates and times to Date objects
             let extractedEvents = try parsedResponse.events.map { rawEvent -> ExtractedEvent in
@@ -477,13 +455,6 @@ class CalendarPhotoExtractionService {
                             endCombinedComponents.minute = endTimeComponents.minute
 
                             endDateTime = calendar.date(from: endCombinedComponents)
-
-                            // Calculate extracted duration for logging
-                            if let endDT = endDateTime {
-                                let durationMinutes = Int(endDT.timeIntervalSince(startDateTime) / 60)
-                                durationFromExtraction = durationMinutes
-                                print("📊 Extracted: '\(rawEvent.title)' → \(startTimeString)-\(endTimeString) (\(durationMinutes) min)")
-                            }
                         }
                     }
                 }
@@ -509,7 +480,6 @@ class CalendarPhotoExtractionService {
 
                     if let inferredEndDateTime = calendar.date(byAdding: .minute, value: inferredDuration, to: startDateTime) {
                         endDateTime = inferredEndDateTime
-                        print("⚠️ No endTime from API, inferring: '\(rawEvent.title)' → +\(inferredDuration) min")
                     }
                 }
 

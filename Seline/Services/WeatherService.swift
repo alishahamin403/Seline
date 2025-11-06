@@ -62,15 +62,12 @@ class WeatherService: ObservableObject {
     private init() {}
 
     func fetchWeather(for location: CLLocation) async {
-        print("🌍 Attempting to fetch weather for location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
-
         isLoading = true
         errorMessage = nil
 
         do {
             let weatherData = try await performWeatherRequest(for: location)
             self.weatherData = weatherData
-            print("✅ Weather data successfully loaded")
         } catch {
             self.errorMessage = error.localizedDescription
             print("❌ Weather fetch error: \(error.localizedDescription)")
@@ -99,16 +96,12 @@ class WeatherService: ObservableObject {
             throw WeatherError.invalidURL
         }
 
-        print("🌤️ Fetching weather from: \(url.absoluteString)")
-
         // Perform network request
         let (data, response) = try await URLSession.shared.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw WeatherError.networkError
         }
-
-        print("🌤️ Open-Meteo API response status: \(httpResponse.statusCode)")
 
         if httpResponse.statusCode != 200 {
             if let errorString = String(data: data, encoding: .utf8) {
@@ -120,7 +113,6 @@ class WeatherService: ObservableObject {
         // Decode response
         let decoder = JSONDecoder()
         let meteoResponse = try decoder.decode(OpenMeteoResponse.self, from: data)
-        print("✅ Successfully fetched weather: \(meteoResponse.current.temperature_2m)°C")
 
         // Generate next 6 days of forecast
         let dateFormatter = DateFormatter()
@@ -143,7 +135,6 @@ class WeatherService: ObservableObject {
                     let icon = mapWeatherCodeToIcon(weatherCode)
 
                     dailyForecasts.append(DailyForecast(day: dayName, temperature: avgTemp, iconName: icon))
-                    print("📅 Day \(i): \(dayName) - Avg: \(avgTemp)°C")
                 }
             }
         }
@@ -156,9 +147,6 @@ class WeatherService: ObservableObject {
 
         let sunrise = sunDateFormatter.date(from: meteoResponse.daily.sunrise[0]) ?? Date()
         let sunset = sunDateFormatter.date(from: meteoResponse.daily.sunset[0]) ?? Date()
-
-        print("🌅 Sunrise: \(meteoResponse.daily.sunrise[0]) -> \(sunrise)")
-        print("🌇 Sunset: \(meteoResponse.daily.sunset[0]) -> \(sunset)")
 
         // Get location name via reverse geocoding
         let geocoder = CLGeocoder()

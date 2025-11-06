@@ -35,11 +35,6 @@ class AttachmentService: ObservableObject {
         let fileExtension = (fileName as NSString).pathExtension
         let simpleFileName = "\(noteId.uuidString)_\(timestamp).\(fileExtension)"
 
-        print("📤 Uploading file: \(fileName)")
-        print("📤 Simple filename: \(simpleFileName)")
-        print("📤 File size: \(fileData.count) bytes")
-        print("📤 Bucket: \(attachmentStorageBucket)")
-
         // Upload using SupabaseManager (same auth and verification as image uploads)
         let publicURL = try await SupabaseManager.shared.uploadFile(
             fileData,
@@ -47,9 +42,6 @@ class AttachmentService: ObservableObject {
             userId: userId,
             bucket: attachmentStorageBucket
         )
-
-        print("✅ File uploaded successfully to Supabase Storage")
-        print("📤 Storage URL: \(publicURL)")
 
         // Extract path from public URL (format: https://.../{bucket}/{userId}/{fileName})
         let storagePath = "\(userId.uuidString)/\(simpleFileName)"
@@ -76,13 +68,11 @@ class AttachmentService: ObservableObject {
     func downloadFile(from storagePath: String) async throws -> Data {
         // Use the same storage client configuration as image downloads
         let storage = await SupabaseManager.shared.getStorageClient()
-        print("📥 Downloading from path: \(storagePath)")
 
         do {
             let data = try await storage
                 .from(attachmentStorageBucket)
                 .download(path: storagePath)
-            print("✅ Downloaded \(data.count) bytes")
             return data
         } catch {
             print("❌ Download failed: \(error)")
@@ -113,8 +103,6 @@ class AttachmentService: ObservableObject {
         // Remove from local cache
         attachments.removeAll { $0.id == attachment.id }
         extractedDataCache.removeValue(forKey: attachment.id)
-
-        print("✅ Deleted attachment: \(attachment.fileName)")
     }
 
     // MARK: - Attachment Records
@@ -151,7 +139,6 @@ class AttachmentService: ObservableObject {
                 .from("attachments")
                 .insert(attachmentData)
                 .execute()
-            print("✅ Attachment record created successfully")
         } catch {
             print("❌ Failed to create attachment record: \(error)")
             print("📊 Attempted insert data:")
@@ -246,8 +233,6 @@ class AttachmentService: ObservableObject {
         await MainActor.run {
             self.extractedDataCache[data.attachmentId] = data
         }
-
-        print("✅ Updated extracted data for attachment: \(data.attachmentId.uuidString)")
     }
 
     // MARK: - File Extraction via OpenAI
@@ -261,24 +246,18 @@ class AttachmentService: ObservableObject {
         var fileContent = ""  // Declare outside do block for error handling
 
         do {
-            print("📨 Starting extraction from \(fileName)...")
-            print("📄 File: \(fileName) | Size: \(fileData.count) bytes")
-
             let documentType = detectDocumentType(fileName)
             let prompt = buildExtractionPrompt(fileName: fileName, documentType: documentType)
 
             // Convert file data to text for extraction
-            print("🔍 Extracting text from file...")
             fileContent = extractTextFromFileData(fileData, fileName: fileName)
 
             // Call OpenAI to extract detailed content
-            print("🤖 Sending to OpenAI for detailed extraction... (this may take a while for large files)")
             let responseText = try await openAIService.extractDetailedDocumentContent(
                 fileContent,
                 withPrompt: prompt,
                 fileName: fileName
             )
-            print("✅ OpenAI extraction complete")
 
             // Clean markdown symbols from extracted text
             let cleanedText = cleanMarkdownSymbols(responseText)
@@ -303,13 +282,11 @@ class AttachmentService: ObservableObject {
 
             let client = await SupabaseManager.shared.getPostgrestClient()
 
-            print("💾 Saving extracted data to database...")
             do {
                 try await client
                     .from("extracted_data")
                     .insert(extractedDataRecord)
                     .execute()
-                print("✅ Extracted data saved successfully")
             } catch {
                 print("❌ EXTRACTED_DATA INSERT FAILED: \(error)")
                 throw error
@@ -321,20 +298,16 @@ class AttachmentService: ObservableObject {
                 "updated_at": .string(formatter.string(from: Date()))
             ]
 
-            print("🔄 Updating attachment record...")
             do {
                 try await client
                     .from("attachments")
                     .update(updateData)
                     .eq("id", value: attachment.id.uuidString)
                     .execute()
-                print("✅ Attachment updated successfully")
             } catch {
                 print("❌ ATTACHMENTS UPDATE FAILED: \(error)")
                 // Don't throw - attachment is already created, update failure isn't critical
             }
-
-            print("✅ Successfully extracted data from \(fileName) as \(documentType)")
 
         } catch let error as NSError {
             // Provide specific error messages for common issues
@@ -436,7 +409,6 @@ class AttachmentService: ObservableObject {
                 }
 
                 if !extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    print("✅ Extracted \(extractedText.count) characters from PDF")
                     return extractedText
                 } else {
                     return "[PDF file found but contains no extractable text. File size: \(fileData.count) bytes]"

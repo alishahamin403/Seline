@@ -47,9 +47,6 @@ class AuthenticationManager: ObservableObject {
                 }
             }
 
-            print("✅ Session restored for user: \(session.user.email ?? "unknown")")
-            print("✅ End-to-End Encryption Re-enabled")
-
             // Sync tasks and notes from Supabase
             await TaskManager.shared.syncTasksOnLogin()
             await NotesManager.shared.syncNotesOnLogin()
@@ -57,7 +54,6 @@ class AuthenticationManager: ObservableObject {
 
         } catch {
             // No valid session found, user needs to sign in
-            print("No existing session found: \(error.localizedDescription)")
             self.isAuthenticated = false
         }
     }
@@ -112,10 +108,6 @@ class AuthenticationManager: ObservableObject {
             // Set user for receipt cache isolation
             ReceiptCategorizationService.shared.setCurrentUser(supabaseUser.id.uuidString)
 
-            print("✅ Google Sign-In Success: \(result.user.profile?.email ?? "No email")")
-            print("✅ Supabase User Created: \(supabaseUser.id)")
-            print("✅ End-to-End Encryption Enabled")
-
             // Sync tasks and notes from Supabase
             Task {
                 await TaskManager.shared.syncTasksOnLogin()
@@ -131,7 +123,7 @@ class AuthenticationManager: ObservableObject {
 
         } catch {
             errorMessage = "Authentication failed: \(error.localizedDescription)"
-            print("Google Sign-In error: \(error)")
+            print("❌ Google Sign-In error: \(error)")
         }
 
         isLoading = false
@@ -178,12 +170,9 @@ class AuthenticationManager: ObservableObject {
             self.currentUser = nil
             self.supabaseUser = nil
 
-            print("✅ Encryption key cleared on logout")
-            print("✅ Receipt cache cleared for user")
-
         } catch {
             errorMessage = "Sign out failed: \(error.localizedDescription)"
-            print("Sign out error: \(error)")
+            print("❌ Sign out error: \(error)")
         }
 
         isLoading = false
@@ -195,7 +184,6 @@ class AuthenticationManager: ObservableObject {
             let session = try await supabaseManager.authClient.session
             self.supabaseUser = session.user
             self.isAuthenticated = true
-            print("✅ Session refreshed successfully")
         } catch {
             print("❌ Failed to refresh session: \(error.localizedDescription)")
             self.isAuthenticated = false
