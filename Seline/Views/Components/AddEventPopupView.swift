@@ -217,7 +217,7 @@ struct AddEventPopupView: View {
                         }
                         .buttonStyle(PlainButtonStyle())
                         .sheet(isPresented: $showingStartTimePicker) {
-                            TimePickerSheet(selectedTime: $selectedTime, colorScheme: colorScheme, title: "Start Time")
+                            EventTimePickerSheet(selectedTime: $selectedTime, colorScheme: colorScheme, title: "Start Time")
                                 .presentationDetents([.height(350)])
                         }
                         .onChange(of: selectedTime) { newStartTime in
@@ -255,7 +255,7 @@ struct AddEventPopupView: View {
                         }
                         .buttonStyle(PlainButtonStyle())
                         .sheet(isPresented: $showingEndTimePicker) {
-                            TimePickerSheet(selectedTime: $selectedEndTime, colorScheme: colorScheme, title: "End Time")
+                            EventTimePickerSheet(selectedTime: $selectedEndTime, colorScheme: colorScheme, title: "End Time")
                                 .presentationDetents([.height(350)])
                         }
                     }
@@ -593,8 +593,8 @@ struct TagSelectionSheet: View {
     }
 }
 
-// MARK: - Time Picker Sheet
-struct TimePickerSheet: View {
+// MARK: - Time Picker Sheet for Events
+struct EventTimePickerSheet: View {
     @Binding var selectedTime: Date
     let colorScheme: ColorScheme
     let title: String
