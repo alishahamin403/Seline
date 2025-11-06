@@ -381,13 +381,11 @@ struct MainAppView: View {
             .onReceive(NotificationCenter.default.publisher(for: .navigateToTask)) { notification in
                 handleTaskNotification(notification)
             }
-            .sheet(item: $selectedNoteToOpen) { note in
+            .fullScreenCover(item: $selectedNoteToOpen) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { selectedNoteToOpen != nil },
                     set: { if !$0 { selectedNoteToOpen = nil } }
                 ))
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)

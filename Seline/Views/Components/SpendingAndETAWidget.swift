@@ -268,7 +268,7 @@ struct SpendingAndETAWidget: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(CurrencyParser.formatAmount(monthlyTotal))
                 .font(.system(size: 24, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
             HStack(spacing: 4) {
                 Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
@@ -305,7 +305,7 @@ struct SpendingAndETAWidget: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color(red: 0.98, green: 0.97, blue: 0.95))
                 .cornerRadius(6)
             }
         }
@@ -392,7 +392,7 @@ struct SpendingAndETAWidget: View {
             VStack(spacing: 2) {
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
                 if navigationService.isLoading && isLocationSet {
                     ProgressView()
@@ -413,7 +413,7 @@ struct SpendingAndETAWidget: View {
             .frame(height: 40)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color(red: 0.98, green: 0.97, blue: 0.95))
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -517,7 +517,7 @@ struct SpendingAndETAWidget: View {
         .frame(width: width)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color(red: 0.98, green: 0.97, blue: 0.95))
         )
     }
 }

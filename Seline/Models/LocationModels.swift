@@ -158,18 +158,6 @@ class LocationsManager: ObservableObject {
     private let searchHistoryKey = "MapsSearchHistory"
     private let authManager = AuthenticationManager.shared
 
-    // Cache to prevent repeated opening hours refreshes during the same session
-    private var hasRefreshedOpeningHoursThisSession = false
-
-    // ETA Cache to avoid repeated API calls within 10 minutes
-    private struct ETACacheEntry {
-        let results: [SavedPlace]
-        let timestamp: Date
-    }
-
-    private var etaCache: [String: ETACacheEntry] = [:] // Key: "lat,long,timeMinutes,category"
-    private let etaCacheDurationSeconds: TimeInterval = 600 // 10 minutes
-
     private init() {
         loadSavedPlaces()
         loadSearchHistory()
@@ -177,17 +165,6 @@ class LocationsManager: ObservableObject {
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadPlacesFromSupabase() after user authenticates
         // This ensures EncryptionManager.setupEncryption() is called FIRST
-    }
-
-    // Helper to generate cache key for ETA queries
-    private func etaCacheKey(lat: Double, long: Double, timeMinutes: Int, category: String?) -> String {
-        let categoryStr = category ?? "all"
-        return "\(lat),\(long),\(timeMinutes),\(categoryStr)"
-    }
-
-    // Helper to check if ETA cache is still valid
-    private func isETACacheValid(_ entry: ETACacheEntry) -> Bool {
-        return Date().timeIntervalSince(entry.timestamp) < etaCacheDurationSeconds
     }
 
     // MARK: - Search History Management
@@ -421,171 +398,6 @@ class LocationsManager: ObservableObject {
         return Set(filtered.compactMap { $0.city }.filter { !$0.isEmpty })
     }
 
-    // MARK: - Nearby Places
-
-    /// Get places within a certain radius of the current location (OLD METHOD - uses distance)
-    /// - Parameters:
-    ///   - currentLocation: The user's current location
-    ///   - radiusInKm: The search radius in kilometers (default: 20km)
-    ///   - category: Optional category filter
-    /// - Returns: Array of SavedPlace objects sorted by distance (closest first)
-    func getNearbyPlaces(from currentLocation: CLLocation, radiusInKm: Double = 20.0, category: String? = nil) -> [SavedPlace] {
-        let radiusInMeters = radiusInKm * 1000.0
-
-        var places = savedPlaces
-
-        // Filter by category if specified
-        if let category = category {
-            places = places.filter { $0.category == category }
-        }
-
-        // Filter places within radius and calculate distances
-        let nearbyPlaces = places.compactMap { place -> (place: SavedPlace, distance: Double)? in
-            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-            let distance = currentLocation.distance(from: placeLocation)
-
-            // Return place if within radius
-            if distance <= radiusInMeters {
-                return (place, distance)
-            }
-            return nil
-        }
-
-        // Sort by distance (closest first) and return just the places
-        return nearbyPlaces.sorted { $0.distance < $1.distance }
-            .map { $0.place }
-    }
-
-    /// Get places within a certain driving time from current location
-    /// - Parameters:
-    ///   - currentLocation: The user's current location
-    ///   - maxTravelTimeMinutes: Maximum travel time in minutes (e.g., 10, 20, 30)
-    ///   - category: Optional category filter
-    /// - Returns: Array of SavedPlace objects sorted by ETA (fastest first)
-    func getNearbyPlacesByETA(from currentLocation: CLLocation, maxTravelTimeMinutes: Int, category: String? = nil) async -> [SavedPlace] {
-        // Check cache first - if we have valid cached results for this location/time/category, return them
-        let cacheKey = etaCacheKey(lat: currentLocation.coordinate.latitude, long: currentLocation.coordinate.longitude, timeMinutes: maxTravelTimeMinutes, category: category)
-        if let cachedEntry = etaCache[cacheKey], isETACacheValid(cachedEntry) {
-            print("⚡ Using cached ETA results (valid for \(Int(etaCacheDurationSeconds - Date().timeIntervalSince(cachedEntry.timestamp))) more seconds)")
-            return cachedEntry.results
-        }
-
-        var places = savedPlaces
-
-        // Filter by category if specified
-        if let category = category {
-            places = places.filter { $0.category == category }
-        }
-
-        // First, filter by distance to reduce number of ETA requests
-        // Use a rough estimate: assume average speed of 40 km/h
-        let estimatedMaxDistance = Double(maxTravelTimeMinutes) * (40.0 / 60.0) * 1000.0 // in meters
-        let distanceFiltered = places.filter { place in
-            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-            let distance = currentLocation.distance(from: placeLocation)
-            return distance <= estimatedMaxDistance * 1.5 // 1.5x buffer for non-straight routes
-        }
-
-        // Calculate ETA for filtered places with rate limiting
-        var placesWithETA: [(place: SavedPlace, eta: TimeInterval)] = []
-
-        // Process in batches of 5 to avoid rate limiting
-        let batchSize = 5
-        let batches = stride(from: 0, to: distanceFiltered.count, by: batchSize).map {
-            Array(distanceFiltered[$0..<min($0 + batchSize, distanceFiltered.count)])
-        }
-
-        for batch in batches {
-            // Process batch concurrently
-            await withTaskGroup(of: (SavedPlace, TimeInterval).self) { group in
-                for place in batch {
-                    group.addTask {
-                        if let eta = await self.calculateETA(from: currentLocation, to: place) {
-                            return (place, eta)
-                        }
-                        // Fallback to distance-based estimation if ETA fails
-                        let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-                        let distance = currentLocation.distance(from: placeLocation)
-                        // Assume average speed of 30 km/h in city
-                        let estimatedETA = (distance / 1000.0) / 30.0 * 3600.0 // seconds
-                        return (place, estimatedETA)
-                    }
-                }
-
-                for await result in group {
-                    let (place, eta) = result
-                    let etaMinutes = eta / 60.0
-                    // Only include places within the time limit
-                    if etaMinutes <= Double(maxTravelTimeMinutes) {
-                        placesWithETA.append((place, eta))
-                    }
-                }
-            }
-
-            // Add delay between batches to avoid rate limiting
-            if batch != batches.last {
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms delay
-            }
-        }
-
-        // Sort by ETA (fastest first) and return just the places
-        let sortedPlaces = placesWithETA.sorted { $0.eta < $1.eta }
-            .map { $0.place }
-
-        // Cache the results (reuse cacheKey from line 425)
-        etaCache[cacheKey] = ETACacheEntry(results: sortedPlaces, timestamp: Date())
-        print("💾 Cached ETA results for \(sortedPlaces.count) places")
-
-        return sortedPlaces
-    }
-
-    /// Calculate actual driving ETA to a place using MapKit
-    /// - Parameters:
-    ///   - currentLocation: User's current location
-    ///   - place: The destination place
-    /// - Returns: ETA in seconds, or nil if calculation fails
-    private func calculateETA(from currentLocation: CLLocation, to place: SavedPlace) async -> TimeInterval? {
-        let sourcePlacemark = MKPlacemark(coordinate: currentLocation.coordinate)
-        let destinationPlacemark = MKPlacemark(
-            coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
-        )
-
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: sourcePlacemark)
-        request.destination = MKMapItem(placemark: destinationPlacemark)
-        request.transportType = .automobile
-
-        let directions = MKDirections(request: request)
-
-        // Add timeout to avoid hanging requests
-        return await withTaskGroup(of: TimeInterval?.self) { group in
-            group.addTask {
-                do {
-                    let response = try await directions.calculate()
-                    if let route = response.routes.first {
-                        return route.expectedTravelTime
-                    }
-                } catch {
-                    // Silently fail - we'll use distance-based estimation as fallback
-                }
-                return nil
-            }
-
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 second timeout
-                return nil
-            }
-
-            // Return first result (either ETA or timeout)
-            if let result = await group.next() {
-                group.cancelAll()
-                return result
-            }
-
-            return nil
-        }
-    }
-
     /// Format distance in a human-readable way
     /// - Parameter meters: Distance in meters
     /// - Returns: Formatted string like "1.2 km" or "500 m"
@@ -705,6 +517,7 @@ class LocationsManager: ObservableObject {
                 .from("saved_places")
                 .update(placeData)
                 .eq("id", value: place.id.uuidString)
+                .select("id")  // Only return id to reduce egress
                 .execute()
         } catch {
             print("❌ Error updating place in Supabase: \(error)")
@@ -878,94 +691,6 @@ class LocationsManager: ObservableObject {
         await loadPlacesFromSupabase()
     }
 
-    // MARK: - Refresh Opening Hours
-
-    /// Refresh opening hours for all saved places that are missing this data
-    func refreshOpeningHoursForAllPlaces() async {
-        // Skip if already refreshed in this session to avoid expensive API calls on view reappear
-        if hasRefreshedOpeningHoursThisSession {
-            print("⏭️ Opening hours already refreshed this session, skipping...")
-            return
-        }
-
-        // Mark as refreshed to prevent repeated calls
-        hasRefreshedOpeningHoursThisSession = true
-
-        // Refresh all places to get the most current open/closed status
-        print("🔄 Refreshing opening hours for \(savedPlaces.count) places...")
-
-        for place in savedPlaces {
-            do {
-                // Fetch updated details from Google Places API
-                // Only fetch essential fields for opening hours refresh (minimizeFields = true)
-                let placeDetails = try await GoogleMapsService.shared.getPlaceDetails(placeId: place.googlePlaceId, minimizeFields: true)
-
-                // Update the saved place with new data
-                if let index = savedPlaces.firstIndex(where: { $0.id == place.id }) {
-                    savedPlaces[index].isOpenNow = placeDetails.isOpenNow
-                    savedPlaces[index].openingHours = placeDetails.openingHours
-                }
-
-                print("✅ Updated opening hours for: \(place.name)")
-
-                // Small delay to avoid rate limiting
-                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
-            } catch {
-                print("⚠️ Failed to refresh opening hours for \(place.name): \(error)")
-            }
-        }
-
-        // Save updated data
-        await MainActor.run {
-            savePlacesToStorage()
-            print("✅ Opening hours refresh complete")
-        }
-
-        // Sync to Supabase
-        for place in savedPlaces {
-            await updatePlaceInSupabase(place)
-        }
-    }
-
-    /// Refresh opening hours for a specific set of places (e.g., nearby places or folder contents)
-    /// This avoids refreshing all places and only updates the ones being viewed
-    func refreshOpeningHours(for places: [SavedPlace]) async {
-        guard !places.isEmpty else { return }
-
-        print("🔄 Refreshing opening hours for \(places.count) specific places...")
-
-        for place in places {
-            do {
-                // Fetch updated details from Google Places API
-                let placeDetails = try await GoogleMapsService.shared.getPlaceDetails(placeId: place.googlePlaceId, minimizeFields: true)
-
-                // Update the saved place in our main array
-                if let index = savedPlaces.firstIndex(where: { $0.id == place.id }) {
-                    savedPlaces[index].isOpenNow = placeDetails.isOpenNow
-                    savedPlaces[index].openingHours = placeDetails.openingHours
-                }
-
-                print("✅ Updated opening hours for: \(place.name)")
-
-                // Small delay to avoid rate limiting
-                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
-            } catch {
-                print("⚠️ Failed to refresh opening hours for \(place.name): \(error)")
-            }
-        }
-
-        // Save updated data
-        await MainActor.run {
-            savePlacesToStorage()
-        }
-
-        // Sync updated places to Supabase
-        for place in places {
-            if let updatedPlace = savedPlaces.first(where: { $0.id == place.id }) {
-                await updatePlaceInSupabase(updatedPlace)
-            }
-        }
-    }
 }
 
 // MARK: - User Location Preferences

@@ -95,6 +95,13 @@ struct ActionButtonWithText: View {
                     (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                 )
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(
+                    (isDangerous || colorScheme == .dark) ? Color.clear : Color.black.opacity(0.3),
+                    lineWidth: 1
+                )
+        )
         .buttonStyle(PlainButtonStyle())
     }
 }

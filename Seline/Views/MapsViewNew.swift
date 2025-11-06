@@ -8,12 +8,7 @@ struct MapsViewNew: View, Searchable {
 
     @State private var selectedTab: String = "folders" // "folders" or "ranking"
     @State private var selectedCategory: String? = nil
-    @State private var selectedSuggestionCategory: String? = nil
     @State private var showSearchModal = false
-    @State private var selectedTimeMinutes: Int = 10 // Default to 10 mins
-    @State private var nearbyPlaces: [SavedPlace] = []
-    @State private var availableNearbyCategories: [String] = []
-    @State private var isLoadingNearby = false
     @State private var selectedCountry: String? = nil
     @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
@@ -90,62 +85,6 @@ struct MapsViewNew: View, Searchable {
                                 }
                                 .padding(.top, 60)
                             } else {
-                                // Suggestions section - ALWAYS show this section
-                                VStack(spacing: 8) {
-                                    SuggestionsSectionHeader(
-                                        selectedTimeMinutes: $selectedTimeMinutes,
-                                        selectedCategory: $selectedSuggestionCategory,
-                                        availableCategories: availableNearbyCategories
-                                    )
-
-                                    // Nearby places horizontal scroll or empty state
-                                    if nearbyPlaces.isEmpty {
-                                        // Empty state when no nearby places
-                                        VStack(spacing: 12) {
-                                            HStack {
-                                                Image(systemName: "location.slash")
-                                                    .font(.system(size: 16, weight: .medium))
-                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-
-                                                Text("No places nearby within \(selectedTimeMinutes == 120 ? "2 hours" : "\(selectedTimeMinutes) minutes")")
-                                                    .font(.system(size: 14, weight: .regular))
-                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-
-                                                Spacer()
-                                            }
-                                            .padding(.horizontal, 20)
-                                            .padding(.vertical, 12)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .fill(
-                                                        colorScheme == .dark ?
-                                                            Color.white.opacity(0.03) : Color.gray.opacity(0.05)
-                                                    )
-                                            )
-                                            .padding(.horizontal, 20)
-                                        }
-                                    } else {
-                                        // Nearby places horizontal scroll
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 12) {
-                                                ForEach(nearbyPlaces) { place in
-                                                    if let currentLocation = locationService.currentLocation {
-                                                        NearbyPlaceMiniTile(
-                                                            place: place,
-                                                            currentLocation: currentLocation,
-                                                            colorScheme: colorScheme
-                                                        ) {
-                                                            GoogleMapsService.shared.openInGoogleMaps(place: place)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            .padding(.horizontal, 20)
-                                        }
-                                    }
-                                }
-                                .padding(.bottom, 16)
-
                                 // Folders section header
                                 HStack {
                                     Text("Folders")
@@ -154,7 +93,6 @@ struct MapsViewNew: View, Searchable {
                                     Spacer()
                                 }
                                 .padding(.horizontal, 20)
-                                .padding(.top, nearbyPlaces.isEmpty ? 0 : 0)
                                 .padding(.bottom, 12)
 
                                 // Location filters section
@@ -237,19 +175,6 @@ struct MapsViewNew: View, Searchable {
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
-            // Request location permission for nearby suggestions
-            locationService.requestLocationPermission()
-            // Load nearby places with ETA (which will also refresh their opening hours)
-            loadNearbyPlaces()
-        }
-        .onChange(of: selectedTimeMinutes) { _ in
-            loadNearbyPlaces()
-        }
-        .onChange(of: selectedSuggestionCategory) { _ in
-            loadNearbyPlaces()
-        }
-        .onChange(of: locationService.currentLocation) { _ in
-            loadNearbyPlaces()
         }
         .onChange(of: externalSelectedFolder) { newFolder in
             if let folder = newFolder {
@@ -279,40 +204,6 @@ struct MapsViewNew: View, Searchable {
             )
             .zIndex(999)
             .transition(.opacity.combined(with: .scale(scale: 1.1)))
-        }
-    }
-
-    // MARK: - Load Nearby Places with ETA
-
-    private func loadNearbyPlaces() {
-        guard let currentLocation = locationService.currentLocation else {
-            nearbyPlaces = []
-            availableNearbyCategories = []
-            return
-        }
-
-        Task {
-            isLoadingNearby = true
-
-            // Get places filtered by ETA
-            let places = await locationsManager.getNearbyPlacesByETA(
-                from: currentLocation,
-                maxTravelTimeMinutes: selectedTimeMinutes,
-                category: selectedSuggestionCategory
-            )
-
-            // Only refresh opening hours for the nearby places being shown
-            await locationsManager.refreshOpeningHours(for: places)
-
-            await MainActor.run {
-                nearbyPlaces = places
-
-                // Update available categories
-                let categories = Set(places.map { $0.category })
-                availableNearbyCategories = Array(categories).sorted()
-
-                isLoadingNearby = false
-            }
         }
     }
 
@@ -726,11 +617,6 @@ struct FolderOverlayView: View {
         .onAppear {
             // Capture screenshot when view appears
             backgroundImage = captureScreen()
-
-            // Only refresh opening hours for places in this specific folder
-            Task {
-                await locationsManager.refreshOpeningHours(for: places)
-            }
         }
         .alert("Rename Place", isPresented: $showingRenameAlert) {
             TextField("Place name", text: $newPlaceName)
