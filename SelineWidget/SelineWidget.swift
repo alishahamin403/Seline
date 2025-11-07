@@ -274,18 +274,23 @@ struct SelineWidgetEntryView: View {
         }
     }
 
+    @ViewBuilder
     var body: some View {
-        ZStack {
-            widgetBackgroundColor
-                .ignoresSafeArea()
-
-            if widgetFamily == .systemSmall {
-                smallWidgetView
-            } else if widgetFamily == .systemMedium {
-                mediumWidgetView
-            } else if widgetFamily == .systemLarge {
-                largeWidgetView
-            }
+        if widgetFamily == .systemSmall {
+            smallWidgetView
+                .containerBackground(for: .widget) {
+                    widgetBackgroundColor
+                }
+        } else if widgetFamily == .systemMedium {
+            mediumWidgetView
+                .containerBackground(for: .widget) {
+                    widgetBackgroundColor
+                }
+        } else if widgetFamily == .systemLarge {
+            largeWidgetView
+                .containerBackground(for: .widget) {
+                    widgetBackgroundColor
+                }
         }
     }
 
@@ -715,19 +720,5 @@ struct SelineWidget: Widget {
         .configurationDisplayName("Seline")
         .description("Quick access to your Seline information")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-    }
-}
-
-// Extension to support both iOS 16 and 17+
-extension View {
-    @ViewBuilder
-    func widgetBackground(_ color: Color) -> some View {
-        if #available(iOSApplicationExtension 17.0, *) {
-            self.containerBackground(for: .widget) {
-                color
-            }
-        } else {
-            self.background(color)
-        }
     }
 }
