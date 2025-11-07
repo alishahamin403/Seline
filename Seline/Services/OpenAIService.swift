@@ -2995,7 +2995,7 @@ class OpenAIService: ObservableObject {
 
         // Create searchable content from events
         let searchableEvents = events.map { event in
-            (id: event.id.uuidString, text: "\(event.title) \(event.description ?? "")", event: event)
+            (id: event.id, text: "\(event.title) \(event.description ?? "")", event: event)
         }
 
         // Get similarity scores
