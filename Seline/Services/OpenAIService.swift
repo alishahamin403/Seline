@@ -2436,7 +2436,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Filter tasks to only those within the requested date range
-    private func filterTasksByDateRange(_ tasks: [Task], range: (start: Date, end: Date), currentDate: Date) -> [Task] {
+    private func filterTasksByDateRange(_ tasks: [TaskItem], range: (start: Date, end: Date), currentDate: Date) -> [TaskItem] {
         let calendar = Calendar.current
 
         return tasks.filter { task in
