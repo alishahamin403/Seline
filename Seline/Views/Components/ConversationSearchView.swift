@@ -301,7 +301,6 @@ struct ConversationMessageView: View {
                     if hasComplexFormatting && !message.isUser {
                         // Use markdown renderer for AI responses with formatting
                         MarkdownText(markdown: message.text, colorScheme: colorScheme)
-                            .frame(maxWidth: UIScreen.main.bounds.width * 0.80, alignment: message.isUser ? .trailing : .leading)
                     } else {
                         // Simple text for user messages or unformatted AI responses
                         Text(message.text)
@@ -309,10 +308,10 @@ struct ConversationMessageView: View {
                             .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
                             .textSelection(.enabled)
                             .lineLimit(nil)
-                            .frame(maxWidth: UIScreen.main.bounds.width * 0.80, alignment: message.isUser ? .trailing : .leading)
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: UIScreen.main.bounds.width * 0.75)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(

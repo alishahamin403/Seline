@@ -12,7 +12,6 @@ struct MarkdownText: View {
                 renderElement(element)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -70,7 +69,7 @@ struct MarkdownText: View {
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
         case .paragraph(let text):
-            Text(text)
+            Text(parseInlineFormatting(text))
                 .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .lineLimit(nil)
