@@ -713,7 +713,6 @@ class SearchService: ObservableObject {
         questionResponse = nil
         conversationTitle = "New Conversation"
         currentlyLoadedConversationId = nil
-        quickReplySuggestions = []
     }
 
     /// Start a conversation with an initial question
