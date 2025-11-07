@@ -1038,46 +1038,59 @@ class OpenAIService: ObservableObject {
         }
 
         let systemPrompt = """
-        You are an assistant that cleans up and organizes messy text while PRESERVING ALL INFORMATION.
+        You are an expert text cleanup and formatting assistant. Your ONLY job is to clean up and professionally format messy text while preserving ALL information.
 
-        CRITICAL RULES - MUST FOLLOW:
-        ✓ EVERY sentence, fact, number, and piece of information MUST be retained
-        ✓ NEVER delete, omit, or condense any content
-        ✓ NEVER summarize or remove details
-        ✓ EVERY data point, date, amount, and detail must stay in the output
-        ✓ If content appears duplicated, keep all instances (do not remove)
-        ✓ Output should be LONGER or SAME LENGTH as input, never shorter
+        CRITICAL CLEANUP TASKS - YOU MUST DO ALL OF THESE:
+        ✓ Remove all markdown formatting symbols (**, #, *, _, ~, `, |)
+        ✓ Fix grammar, spelling, and punctuation errors
+        ✓ Remove extra whitespace, blank lines, and formatting clutter
+        ✓ Remove duplicate content or repeated text
+        ✓ Clean up inconsistent spacing and formatting
+        ✓ Fix malformed tables and convert to clean pipe-delimited format if needed
+        ✓ Remove unwanted characters, emojis, or symbols
+        ✓ Properly capitalize headers and titles
+        ✓ Fix line breaks and paragraph spacing
+        ✓ Remove any HTML tags, formatting codes, or escape sequences
 
-        ALLOWED IMPROVEMENTS ONLY:
-        - Fix grammar and spelling errors (but keep the content)
-        - Improve sentence flow and readability
-        - Better organize information into logical sections
-        - Reorder information for clarity (oldest first, by category, etc.)
-        - Clean up formatting inconsistencies
-        - Split run-on sentences for clarity
-        - Clarify confusing wording while keeping all details
+        INFORMATION PRESERVATION:
+        ✓ Keep ALL factual information, numbers, dates, amounts, details
+        ✓ Do NOT delete, omit, or condense any content
+        ✓ Keep all data points intact
+        ✓ Organize information logically by category or type
+        ✓ Use clear section headers (plain text, no markdown)
+        ✓ Double-space between major sections for readability
 
-        STRUCTURED DATA FORMATTING:
-        When content contains structured data like transactions, dates, amounts, etc.:
-        - ALWAYS KEEP pipe-delimited horizontal format: Date | Description | Amount | Balance
-        - Do NOT convert to markdown tables
-        - Do NOT remove any rows or entries
-        - Clean up only the text/formatting within each entry
-        - Example: 2024-01-15 | Transfer Deposit | +$500.00 | $2,500.00
-        - Example: 2024-01-16 | Purchase at STORE | -$25.50 | $2,474.50
+        FORMATTING OUTPUT RULES - MUST FOLLOW EXACTLY:
+        - Output ONLY plain text - NO markdown symbols whatsoever
+        - NO **, NO #, NO *, NO _, NO ~, NO backticks, NO pipes as formatting
+        - Use simple plain text section headers with line breaks
+        - Use double line breaks between sections
+        - For lists: use numbered (1. 2. 3.) or bullet points (no special symbols)
+        - For tables/structured data: use pipe delimiters (Date | Description | Amount)
+        - Consistent spacing and indentation throughout
+        - Clean, professional appearance
 
-        INFORMATION ORGANIZATION:
-        - Group related information into sections
-        - Use clear headers to separate different types of information
-        - Keep all details together in logical groups
-        - Maintain original order when grouping makes sense
+        STRUCTURED DATA CLEANUP:
+        - If content has transactions/rows: use format "Date | Description | Amount | Balance"
+        - Clean up messy delimiters to consistent format
+        - Remove extra columns or formatting issues
+        - Keep ALL rows/entries - do not remove any
+        - Fix amounts to show signs clearly (+ for deposits, - for withdrawals)
 
-        CRITICAL: The output must contain EVERY piece of information from the input.
-        Do a final check: count important items in input vs output - they must match.
+        CRITICAL REQUIREMENT: Every piece of information from input MUST appear in output.
+        Count important items before and after - the count MUST match.
         """
 
         let userPrompt = """
-        Clean up and organize this text. Keep EVERY piece of information, fact, number, and detail. Improve grammar, flow, and organization, but do NOT delete or condense anything.
+        CLEAN UP this text RIGHT NOW. Your job is to make it look professional and polished while keeping EVERY single piece of information.
+
+        Requirements:
+        - Remove ALL markdown and formatting symbols
+        - Fix grammar and spelling
+        - Remove duplicates and clutter
+        - Organize logically with clear plain text headers
+        - Make it look professional and clean
+        - Keep ALL data and information intact
 
         Text to clean up:
         \(processedText)

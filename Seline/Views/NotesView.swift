@@ -1553,12 +1553,17 @@ struct NoteEditView: View {
         saveToUndoHistory()
 
         do {
-            let cleanedText = try await openAIService.cleanUpNoteText(content)
+            // Get cleaned text from OpenAI
+            let aiCleanedText = try await openAIService.cleanUpNoteText(content)
+
+            // Apply aggressive local cleanup to remove any remaining markdown/formatting
+            let fullyCleanedText = cleanMarkdownSymbols(aiCleanedText)
+
             await MainActor.run {
-                content = cleanedText
+                content = fullyCleanedText
                 // Parse markdown formatting (bold, italic, headings, etc)
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(cleanedText, fontSize: 14, textColor: textColor)
+                attributedContent = MarkdownParser.shared.parseMarkdown(fullyCleanedText, fontSize: 14, textColor: textColor)
                 isProcessingCleanup = false
                 HapticManager.shared.aiActionComplete()
                 saveToUndoHistory()
@@ -2049,8 +2054,12 @@ struct NoteEditView: View {
         // Remove bold markers (**)
         cleaned = cleaned.replacingOccurrences(of: "\\*\\*", with: "", options: .regularExpression)
 
-        // Remove italic markers (*)
-        cleaned = cleaned.replacingOccurrences(of: "(?<!\\*)\\*(?!\\*)", with: "", options: .regularExpression)
+        // Remove italic markers (*) - but preserve asterisks in bullet lists
+        cleaned = cleaned.replacingOccurrences(of: "\\*([^\\*\\n]+)\\*", with: "$1", options: .regularExpression)
+
+        // Remove underscores used for formatting (__text__ or _text_)
+        cleaned = cleaned.replacingOccurrences(of: "__+(.+?)__+", with: "$1", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "_([^_\\n]+)_", with: "$1", options: .regularExpression)
 
         // Remove heading markers (#) at start of lines
         cleaned = cleaned.split(separator: "\n").map { line in
@@ -2061,14 +2070,26 @@ struct NoteEditView: View {
             return trimmedLine
         }.joined(separator: "\n")
 
-        // Remove horizontal rule markers (multiple dashes on their own line)
+        // Remove horizontal rule markers (multiple dashes/equals on their own line)
         cleaned = cleaned.split(separator: "\n").filter { line in
             let trimmed = String(line).trimmingCharacters(in: .whitespaces)
-            return !trimmed.allSatisfy { $0 == "-" } || trimmed.isEmpty
+            // Filter out lines that are just dashes, equals, or tildes
+            return !(trimmed.allSatisfy { $0 == "-" || $0 == "=" || $0 == "~" } && trimmed.count > 2)
         }.joined(separator: "\n")
 
-        // Remove multiple spaces/cleanups
-        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        // Remove backticks (code formatting)
+        cleaned = cleaned.replacingOccurrences(of: "`", with: "")
+
+        // Remove tilde strikethrough (~~text~~)
+        cleaned = cleaned.replacingOccurrences(of: "~~(.+?)~~", with: "$1", options: .regularExpression)
+
+        // Fix multiple consecutive blank lines (replace 3+ newlines with 2)
+        cleaned = cleaned.replacingOccurrences(of: "\n\n\n+", with: "\n\n", options: .regularExpression)
+
+        // Remove trailing whitespace from each line but preserve single spaces
+        cleaned = cleaned.split(separator: "\n").map { line in
+            String(line).trimmingCharacters(in: .whitespaces)
+        }.joined(separator: "\n")
 
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
