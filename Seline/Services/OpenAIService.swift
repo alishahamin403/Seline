@@ -1895,21 +1895,59 @@ class OpenAIService: ObservableObject {
         )
 
         let systemPrompt = """
-        You are a helpful personal assistant that helps users understand their schedule, notes, emails, weather, locations, and saved places.
-        Based on the provided context about the user's data, answer their question in a clear, concise way.
-        If the user asks about "tomorrow", "today", "next week", etc., use the current date context provided.
-        For location-based queries: You can filter by country, city, category (folder), distance, or duration.
-        For weather queries: Use the provided weather data and forecast.
-        Always be helpful and provide specific details when available.
+        You are a personal assistant that helps users manage their schedule, notes, emails, weather, locations, and travel.
+
+        CRITICAL FILTERING RULES:
+
+        **FOR EVENTS/TASKS:**
+        - ONLY show events for the timeframe the user asked about (today, tomorrow, this week, etc.)
+        - If user asks "show me events today", ONLY show events where date = today. Do NOT show next week's events.
+        - Format events as: "Time - Event Title" (e.g., "9:00 AM - Team Meeting")
+        - Include task completion status (✓ for completed, ○ for pending)
+        - If no events found for requested timeframe, explicitly state "No events for [timeframe]"
+
+        **FOR NOTES:**
+        - Show all available notes unless user specifies a folder/category
+        - If user mentions a specific folder, ONLY show notes from that folder
+        - Include folder name when listing notes
+        - Show note titles and full content
+
+        **FOR EMAILS:**
+        - Show only emails from the specified date range (today, this week, etc.)
+        - If user asks "emails today", only show emails from today. Do NOT show last week's emails.
+        - Include sender name, subject, and date
+        - Mark emails as [Read] or [Unread]
+        - Highlight important details like receipts, action items, or meeting invites
+
+        **FOR LOCATIONS:**
+        - Show all saved locations unless user specifies filters
+        - User can filter by: country, city, category (folder), or rating
+        - Include location name, address, category, and rating if available
+        - If user asks for a specific city or country, ONLY show locations from that area
+
+        **FOR WEATHER:**
+        - Show current weather and forecast when user asks
+        - Include temperature, conditions, sunrise/sunset times
+        - Include 6-day forecast if available
+
+        **FOR NAVIGATION/ETAs:**
+        - Show travel time to saved destinations
+        - If user asks "how far" or "how long", show ETA information
+
+        GENERAL RULES:
+        - Answer what the user asked for, nothing more
+        - If user asks "what are my events today?", don't include emails or notes
+        - Be concise and direct - avoid unnecessary information
+        - Use date context provided to understand "today", "tomorrow", etc.
+        - When filtering by date, be strict: if user asks for today, only show today's items
 
         FORMATTING INSTRUCTIONS:
-        - Use **bold** for important information, dates, times, amounts, and key facts
-        - Use bullet points (- ) for lists of items
-        - Use numbered lists (1. 2. 3.) for steps or prioritized items
-        - Use `code formatting` for technical details or specific values
-        - Use heading style (## or ###) for different sections
-        - Break information into short paragraphs with clear spacing
-        - Never use walls of text - prioritize readability with proper formatting
+        - Use **bold** for dates, times, important information
+        - Use bullet points for lists
+        - Use "Time - Title" format for events
+        - Use `code` for specific values like amounts
+        - Be concise - prefer bullet points over paragraphs
+        - Never show information the user didn't ask for
 
         Context about user's data:
         \(context)
@@ -1979,21 +2017,59 @@ class OpenAIService: ObservableObject {
         )
 
         let systemPrompt = """
-        You are a helpful personal assistant that helps users understand their schedule, notes, emails, weather, locations, and saved places.
-        Based on the provided context about the user's data, answer their question in a clear, concise way.
-        If the user asks about "tomorrow", "today", "next week", etc., use the current date context provided.
-        For location-based queries: You can filter by country, city, category (folder), distance, or duration.
-        For weather queries: Use the provided weather data and forecast.
-        Always be helpful and provide specific details when available.
+        You are a personal assistant that helps users manage their schedule, notes, emails, weather, locations, and travel.
+
+        CRITICAL FILTERING RULES:
+
+        **FOR EVENTS/TASKS:**
+        - ONLY show events for the timeframe the user asked about (today, tomorrow, this week, etc.)
+        - If user asks "show me events today", ONLY show events where date = today. Do NOT show next week's events.
+        - Format events as: "Time - Event Title" (e.g., "9:00 AM - Team Meeting")
+        - Include task completion status (✓ for completed, ○ for pending)
+        - If no events found for requested timeframe, explicitly state "No events for [timeframe]"
+
+        **FOR NOTES:**
+        - Show all available notes unless user specifies a folder/category
+        - If user mentions a specific folder, ONLY show notes from that folder
+        - Include folder name when listing notes
+        - Show note titles and full content
+
+        **FOR EMAILS:**
+        - Show only emails from the specified date range (today, this week, etc.)
+        - If user asks "emails today", only show emails from today. Do NOT show last week's emails.
+        - Include sender name, subject, and date
+        - Mark emails as [Read] or [Unread]
+        - Highlight important details like receipts, action items, or meeting invites
+
+        **FOR LOCATIONS:**
+        - Show all saved locations unless user specifies filters
+        - User can filter by: country, city, category (folder), or rating
+        - Include location name, address, category, and rating if available
+        - If user asks for a specific city or country, ONLY show locations from that area
+
+        **FOR WEATHER:**
+        - Show current weather and forecast when user asks
+        - Include temperature, conditions, sunrise/sunset times
+        - Include 6-day forecast if available
+
+        **FOR NAVIGATION/ETAs:**
+        - Show travel time to saved destinations
+        - If user asks "how far" or "how long", show ETA information
+
+        GENERAL RULES:
+        - Answer what the user asked for, nothing more
+        - If user asks "what are my events today?", don't include emails or notes
+        - Be concise and direct - avoid unnecessary information
+        - Use date context provided to understand "today", "tomorrow", etc.
+        - When filtering by date, be strict: if user asks for today, only show today's items
 
         FORMATTING INSTRUCTIONS:
-        - Use **bold** for important information, dates, times, amounts, and key facts
-        - Use bullet points (- ) for lists of items
-        - Use numbered lists (1. 2. 3.) for steps or prioritized items
-        - Use `code formatting` for technical details or specific values
-        - Use heading style (## or ###) for different sections
-        - Break information into short paragraphs with clear spacing
-        - Never use walls of text - prioritize readability with proper formatting
+        - Use **bold** for dates, times, important information
+        - Use bullet points for lists
+        - Use "Time - Title" format for events
+        - Use `code` for specific values like amounts
+        - Be concise - prefer bullet points over paragraphs
+        - Never show information the user didn't ask for
 
         Context about user's data:
         \(context)
@@ -2102,6 +2178,87 @@ class OpenAIService: ObservableObject {
         }
     }
 
+    // MARK: - Query Intent Detection
+
+    /// Detects what type of data the user is asking about
+    private func detectQueryIntent(query: String) -> (askingAbout: Set<String>, dateRange: String) {
+        let lowerQuery = query.lowercased()
+        var intents = Set<String>()
+        var dateRange = "default"
+
+        // Detect date references
+        if lowerQuery.contains("today") {
+            dateRange = "today"
+        } else if lowerQuery.contains("tomorrow") {
+            dateRange = "tomorrow"
+        } else if lowerQuery.contains("this week") {
+            dateRange = "this week"
+        } else if lowerQuery.contains("next week") {
+            dateRange = "next week"
+        } else if lowerQuery.contains("this month") {
+            dateRange = "this month"
+        } else if lowerQuery.contains("next month") {
+            dateRange = "next month"
+        }
+
+        // Detect what data user is asking about
+        let eventKeywords = ["event", "meeting", "appointment", "calendar", "schedule", "task", "todo"]
+        let noteKeywords = ["note", "notes", "remind", "reminder", "document", "memo"]
+        let emailKeywords = ["email", "emails", "mail", "inbox", "message", "from"]
+        let locationKeywords = ["location", "locations", "place", "places", "where", "saved", "restaurant", "cafe"]
+        let weatherKeywords = ["weather", "temperature", "rain", "sunny", "forecast"]
+        let navigationKeywords = ["eta", "how far", "distance", "how long", "arrive", "travel time"]
+
+        for keyword in eventKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("events")
+                break
+            }
+        }
+
+        for keyword in noteKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("notes")
+                break
+            }
+        }
+
+        for keyword in emailKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("emails")
+                break
+            }
+        }
+
+        for keyword in locationKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("locations")
+                break
+            }
+        }
+
+        for keyword in weatherKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("weather")
+                break
+            }
+        }
+
+        for keyword in navigationKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("navigation")
+                break
+            }
+        }
+
+        // If nothing specific detected, include everything
+        if intents.isEmpty {
+            intents = ["events", "notes", "emails", "locations", "weather", "navigation"]
+        }
+
+        return (intents, dateRange)
+    }
+
     @MainActor
     private func buildContextForQuestion(
         query: String,
@@ -2119,16 +2276,20 @@ class OpenAIService: ObservableObject {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
 
+        // Detect what the user is asking about (smart filtering)
+        let (queryIntents, detectedDateRange) = detectQueryIntent(query: query)
+
         // Detect the date range the user is asking about
         let dateRange = detectDateRange(in: query, from: currentDate)
 
-        // Add current date/time context first
+        // Add current date/time context first (ALWAYS include this)
         let timeFormatter = DateFormatter()
         timeFormatter.timeStyle = .short
-        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n"
+        context += "Date range user asked about: \(detectedDateRange)\n\n"
 
-        // Add weather data if available
-        if let weatherService = weatherService, let weatherData = weatherService.weatherData {
+        // Add weather data only if user asked about weather
+        if queryIntents.contains("weather"), let weatherService = weatherService, let weatherData = weatherService.weatherData {
             context += "=== WEATHER ===\n"
             context += "Location: \(weatherData.locationName)\n"
             context += "Current: \(weatherData.temperature)°C, \(weatherData.description)\n"
@@ -2144,10 +2305,25 @@ class OpenAIService: ObservableObject {
             context += "\n"
         }
 
-        // Add saved locations with filtering options
-        if let locationsManager = locationsManager, !locationsManager.savedPlaces.isEmpty {
+        // Add navigation destinations only if user asked about ETAs or travel time
+        if queryIntents.contains("navigation"), let navigationService = navigationService {
+            context += "=== NAVIGATION DESTINATIONS ===\n"
+            if let location1ETA = navigationService.location1ETA {
+                context += "Location 1: \(location1ETA) away\n"
+            }
+            if let location2ETA = navigationService.location2ETA {
+                context += "Location 2: \(location2ETA) away\n"
+            }
+            if let location3ETA = navigationService.location3ETA {
+                context += "Location 3: \(location3ETA) away\n"
+            }
+            context += "\n"
+        }
+
+        // Add saved locations only if user asked about locations
+        if queryIntents.contains("locations"), let locationsManager = locationsManager, !locationsManager.savedPlaces.isEmpty {
             context += "=== SAVED LOCATIONS ===\n"
-            context += "Available filters: country, city, category (folder), duration (10-120 mins)\n\n"
+            context += "Available filters: country, city, category (folder), distance, rating\n\n"
 
             for place in locationsManager.savedPlaces.sorted(by: { $0.dateCreated > $1.dateCreated }) {
                 let displayName = place.customName ?? place.name
@@ -2184,45 +2360,31 @@ class OpenAIService: ObservableObject {
             }
         }
 
-        // Add navigation destinations
-        if let navigationService = navigationService {
-            context += "=== NAVIGATION DESTINATIONS ===\n"
-            if let location1ETA = navigationService.location1ETA {
-                context += "Location 1: \(location1ETA) away\n"
+        // Add tasks/events only if user asked about events
+        if queryIntents.contains("events") {
+            let allTasks = taskManager.tasks.values.flatMap { $0 }
+            let filteredTasks = filterTasksByDateRange(allTasks, range: dateRange, currentDate: currentDate)
+            if !filteredTasks.isEmpty {
+                context += "=== TASKS/EVENTS ===\n"
+                for task in filteredTasks.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                    let status = task.isCompleted ? "✓" : "○"
+                    let dateStr = task.targetDate.map { dateFormatter.string(from: $0) } ?? "No date"
+                    let timeStr = task.scheduledTime.map { formatTime(date: $0) } ?? "All day"
+                    context += "- \(status) \(task.title) | \(dateStr) at \(timeStr) | \(task.description ?? "")\n"
+                }
+                context += "\n"
+            } else if !allTasks.isEmpty {
+                context += "=== TASKS/EVENTS ===\n"
+                context += "No tasks/events found for the requested timeframe (\(detectedDateRange)).\n\n"
             }
-            if let location2ETA = navigationService.location2ETA {
-                context += "Location 2: \(location2ETA) away\n"
-            }
-            if let location3ETA = navigationService.location3ETA {
-                context += "Location 3: \(location3ETA) away\n"
-            }
-            context += "\n"
         }
 
-        // Add tasks/events filtered by the date range the user asked about
-        let allTasks = taskManager.tasks.values.flatMap { $0 }
-        let filteredTasks = filterTasksByDateRange(allTasks, range: dateRange, currentDate: currentDate)
-        if !filteredTasks.isEmpty {
-            context += "=== TASKS/EVENTS ===\n"
-            for task in filteredTasks.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
-                let status = task.isCompleted ? "✓" : "○"
-                let dateStr = task.targetDate.map { dateFormatter.string(from: $0) } ?? "No date"
-                let timeStr = task.scheduledTime.map { formatTime(date: $0) } ?? "All day"
-                context += "- \(status) \(task.title) | \(dateStr) at \(timeStr) | \(task.description ?? "")\n"
-            }
-            context += "\n"
-        } else if !allTasks.isEmpty {
-            // If no tasks match the specific range, show a note
-            context += "=== TASKS/EVENTS ===\n"
-            context += "No tasks/events found for the requested timeframe.\n\n"
-        }
-
-        // Add ALL notes with folder structure
-        if !notesManager.notes.isEmpty {
-            context += "=== ALL NOTES ===\n"
+        // Add notes only if user asked about notes
+        if queryIntents.contains("notes"), !notesManager.notes.isEmpty {
+            context += "=== NOTES ===\n"
             // Include folder information if available
             if !notesManager.folders.isEmpty {
-                context += "Available Folders (Categories): \(notesManager.folders.map { $0.name }.sorted().joined(separator: ", "))\n\n"
+                context += "Available Folders: \(notesManager.folders.map { $0.name }.sorted().joined(separator: ", "))\n\n"
             }
             for note in notesManager.notes.sorted(by: { $0.dateModified > $1.dateModified }) {
                 let folderInfo = note.folderId.flatMap { id in notesManager.folders.first(where: { $0.id == id })?.name } ?? "Uncategorized"
@@ -2231,17 +2393,37 @@ class OpenAIService: ObservableObject {
             context += "\n"
         }
 
-        // Add ALL emails with full details
-        if !emailService.inboxEmails.isEmpty {
-            context += "=== ALL EMAILS ===\n"
-            for email in emailService.inboxEmails.sorted(by: { $0.timestamp > $1.timestamp }) {
-                let unreadMarker = email.isRead ? "[Read]" : "[Unread]"
-                context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.timestamp))\nBody: \(email.body ?? "")\n---\n"
+        // Add emails only if user asked about emails
+        if queryIntents.contains("emails"), !emailService.inboxEmails.isEmpty {
+            context += "=== EMAILS ===\n"
+            // Filter emails by date if user specified a date range
+            var emailsToShow = emailService.inboxEmails
+            if detectedDateRange != "default" {
+                emailsToShow = filterEmailsByDateRange(emailService.inboxEmails, range: dateRange, currentDate: currentDate)
+            }
+
+            if !emailsToShow.isEmpty {
+                for email in emailsToShow.sorted(by: { $0.timestamp > $1.timestamp }) {
+                    let unreadMarker = email.isRead ? "[Read]" : "[Unread]"
+                    context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.timestamp))\nBody: \(email.body ?? "")\n---\n"
+                }
+            } else {
+                context += "No emails found for the requested timeframe (\(detectedDateRange)).\n"
             }
             context += "\n"
         }
 
         return context.isEmpty ? "No data available in the app." : context
+    }
+
+    /// Filter emails to only those within the requested date range
+    private func filterEmailsByDateRange(_ emails: [Email], range: (start: Date, end: Date), currentDate: Date) -> [Email] {
+        let calendar = Calendar.current
+
+        return emails.filter { email in
+            let emailStartOfDay = calendar.startOfDay(for: email.timestamp)
+            return emailStartOfDay >= range.start && emailStartOfDay < range.end
+        }
     }
 
     /// Builds comprehensive context for action queries (event/note creation) with weather, locations, and destinations
