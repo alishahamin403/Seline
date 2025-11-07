@@ -2523,8 +2523,9 @@ struct EmbeddingData: Codable {
     let index: Int
 }
 
-    /// Generate quick reply suggestions based on the latest conversation messages
-    /// This helps users continue the conversation naturally with AI-suggested follow-up questions
+/// Generate quick reply suggestions based on the latest conversation messages
+/// This helps users continue the conversation naturally with AI-suggested follow-up questions
+extension OpenAIService {
     func generateQuickReplySuggestions(
         for lastUserMessage: String,
         lastAssistantResponse: String,
