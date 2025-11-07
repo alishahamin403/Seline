@@ -283,7 +283,9 @@ struct ConversationMessageView: View {
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
                         .textSelection(.enabled)
+                        .lineLimit(nil)
                 }
+                .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.isUser ? .trailing : .leading)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
