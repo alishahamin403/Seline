@@ -2113,7 +2113,7 @@ struct NoteEditView: View {
             ✗ Contact information, customer service numbers
             ✗ Any introductory or closing sections
 
-            OUTPUT FORMAT (STRICT):
+            OUTPUT FORMAT (EXACT):
 
             STATEMENT SUMMARY
             Period: [start date to end date]
@@ -2127,29 +2127,34 @@ struct NoteEditView: View {
             2024-09-15 | AMAZON.COM | -$45.23 | $2,455.77
             2024-09-16 | Direct Deposit | +$2,000.00 | $4,455.77
 
-            CRITICAL INSTRUCTIONS - NON-NEGOTIABLE:
+            CRITICAL FORMATTING RULES (MUST FOLLOW EXACTLY):
             - EXTRACT EVERY transaction, one per line only
-            - Format: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Format EXACTLY: DATE | DESCRIPTION | AMOUNT | BALANCE
+            - Use pipe character (|) to separate fields - no other delimiters
             - Amount signs: + for deposits/credits, - for withdrawals/charges
-            - NO markdown, NO **, NO #, NO * symbols - PLAIN TEXT ONLY
+            - Use space-pipe-space format: " | " between fields
+            - NO markdown whatsoever - NO **, NO #, NO *, NO _, NO ~, NO `
+            - NO italics, NO bold, NO headers, NO formatting characters
             - Sort chronologically (oldest first)
-            - Keep descriptions SHORT and CLEAR (merchant/source name only)
+            - Keep descriptions SHORT and CLEAR (merchant/source name only, max 30 chars)
             - Do NOT include transaction fees or sub-items separately
             - Do NOT include running balances unless explicitly on statement
             - Output ONLY the two sections above - nothing else
             - NO introductory text, NO explanations, NO extra sections
+            - Preserve exact spacing in output (2 spaces before section names)
 
-            This is a financial document - focus ONLY on numbers and transactions.
+            This is a financial document - focus ONLY on numbers and transactions. Output as plain text - no formatting.
             """
 
         case "invoice":
             return base + """
             FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
             - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - NO underscores, NO tildes, NO backticks, NO formatting characters
             - Use clear section headers with line breaks
             - Double-space between sections for readability
 
-            OUTPUT FORMAT:
+            OUTPUT FORMAT (EXACT):
 
             VENDOR INFORMATION
             [Vendor/seller name and details]
@@ -2179,21 +2184,27 @@ struct NoteEditView: View {
             Payment Methods: [methods]
             Notes: [any special instructions]
 
-            CRITICAL INSTRUCTIONS:
-            - Extract EVERY line item individually
+            CRITICAL FORMATTING RULES (MUST FOLLOW):
+            - Extract EVERY line item individually - no omissions
             - Be specific with descriptions, quantities, and prices
+            - Use dashes (-) for separators within line items, NOT table pipes
             - NO table formatting, NO markdown, NO symbols
+            - NO bold (**), NO italics (*), NO headers (#)
             - Double-space between sections for clarity
+            - Use plain text number format: 1. 2. 3. for line items
+            - Keep descriptions clear and concise (merchant/product name)
+            - Output ONLY the sections above - nothing else
             """
 
         case "receipt":
             return base + """
             FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
             - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - NO underscores, NO tildes, NO backticks, NO formatting characters
             - Use clear section headers with line breaks
             - Double-space between sections for readability
 
-            OUTPUT FORMAT:
+            OUTPUT FORMAT (EXACT):
 
             MERCHANT INFORMATION
             Name: [merchant name]
@@ -2223,17 +2234,23 @@ struct NoteEditView: View {
             Promotions: [if applicable]
             Return Policy: [if available]
 
-            CRITICAL INSTRUCTIONS:
-            - Extract EVERY item purchased individually
+            CRITICAL FORMATTING RULES (MUST FOLLOW):
+            - Extract EVERY item purchased individually - no omissions
             - Include descriptions, quantities, and prices for all items
+            - Use dashes (-) for separators within items, NOT table pipes
             - NO table formatting, NO markdown, NO symbols
+            - NO bold (**), NO italics (*), NO headers (#)
             - Double-space between sections for clarity
+            - Use plain text number format: 1. 2. 3. for items
+            - Keep descriptions clear and concise
+            - Output ONLY the sections above - nothing else
             """
 
         default:
             return base + """
             FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
             - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
+            - NO underscores, NO tildes, NO backticks, NO formatting characters
             - Use clear section headers with line breaks
             - Double-space between sections for readability
             - Maintain document structure with proper spacing
@@ -2243,13 +2260,18 @@ struct NoteEditView: View {
             - All important data, numbers, and values
             - All details and information from the document
             - Proper spacing between sections for readability
+            - Key facts, figures, and information organized by topic
 
-            Format with:
-            - Clear section headers
+            FORMATTING RULES (MUST FOLLOW):
+            - Clear section headers followed by content
             - Line breaks between sections
             - Double spacing between major sections
             - NO table formatting, NO markdown symbols
-            - Simple, clean plain text format
+            - NO bold (**), NO italics (*), NO headers (#)
+            - Simple, clean plain text format ONLY
+            - Use plain text for any lists (line by line, no special formatting)
+            - Keep all important information and context intact
+            - NO introductory or closing text - just the content
             """
         }
     }
