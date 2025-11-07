@@ -633,7 +633,6 @@ class SearchService: ObservableObject {
                     weatherService: WeatherService.shared,
                     locationsManager: LocationsManager.shared,
                     navigationService: NavigationService.shared,
-                    newsService: NewsService.shared,
                     conversationHistory: Array(conversationHistory.dropLast(2)), // All messages except user message and streaming placeholder
                     onChunk: { chunk in
                         fullResponse += chunk

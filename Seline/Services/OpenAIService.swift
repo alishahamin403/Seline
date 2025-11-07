@@ -1873,7 +1873,6 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
         navigationService: NavigationService? = nil,
-        newsService: NewsService? = nil,
         conversationHistory: [ConversationMessage] = []
     ) async throws -> String {
         // Rate limiting
@@ -1892,7 +1891,6 @@ class OpenAIService: ObservableObject {
             weatherService: weatherService,
             locationsManager: locationsManager,
             navigationService: navigationService,
-            newsService: newsService,
             conversationHistory: conversationHistory
         )
 
@@ -1958,7 +1956,6 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
         navigationService: NavigationService? = nil,
-        newsService: NewsService? = nil,
         conversationHistory: [ConversationMessage] = [],
         onChunk: @escaping (String) -> Void
     ) async throws {
@@ -1978,7 +1975,6 @@ class OpenAIService: ObservableObject {
             weatherService: weatherService,
             locationsManager: locationsManager,
             navigationService: navigationService,
-            newsService: newsService,
             conversationHistory: conversationHistory
         )
 
@@ -2115,7 +2111,6 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         locationsManager: LocationsManager? = nil,
         navigationService: NavigationService? = nil,
-        newsService: NewsService? = nil,
         conversationHistory: [ConversationMessage] = []
     ) -> String {
         print("📋 buildContextForQuestion called with query: '\(query)'")
@@ -2244,62 +2239,6 @@ class OpenAIService: ObservableObject {
                 context += "\(unreadMarker) From: \(email.sender.displayName)\nSubject: \(email.subject)\nDate: \(dateFormatter.string(from: email.timestamp))\nBody: \(email.body ?? "")\n---\n"
             }
             context += "\n"
-        }
-
-        // Add news articles if available and relevant to the query
-        if let newsService = newsService {
-            print("✅ NewsService is available")
-            let lowerQuery = query.lowercased()
-
-            // Check if query is about news or contains news-related keywords
-            let newsKeywords = ["news", "tech", "technology", "science", "business", "health", "sports", "entertainment", "headline", "story", "articles"]
-            let queryHasNewsKeywords = newsKeywords.contains { keyword in
-                lowerQuery.contains(keyword)
-            }
-
-            // Also check conversation history for recent news queries (for follow-ups like "try again")
-            let conversationHasNewsContext = !conversationHistory.isEmpty &&
-                conversationHistory.suffix(4).contains { message in
-                    let messageText = message.text.lowercased()
-                    return newsKeywords.contains { keyword in messageText.contains(keyword) }
-                }
-
-            let shouldIncludeNews = queryHasNewsKeywords || conversationHasNewsContext
-            print("🔎 News keyword check: query='\(lowerQuery)' has keywords: \(queryHasNewsKeywords), conversation has context: \(conversationHasNewsContext)")
-
-            if shouldIncludeNews {
-                let allNews = newsService.getAllNews()
-                print("🔍 News context: Found \(allNews.count) categories with \(allNews.flatMap { $0.articles }.count) total articles")
-                for (category, articles) in allNews {
-                    print("  - \(category): \(articles.count) articles")
-                }
-
-                if !allNews.isEmpty {
-                    context += "=== AVAILABLE NEWS ===\n"
-
-                    // Format the date for display
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-
-                    for (category, articles) in allNews {
-                        context += "\n📰 Category: \(category)\n"
-                        for article in articles {
-                            let dateStr = dateFormatter.string(from: article.publishedAt)
-                            context += "- Title: \(article.title)\n"
-                            context += "  Description: \(article.description ?? "No description")\n"
-                            context += "  Source: \(article.source)\n"
-                            context += "  Date: \(dateStr)\n"
-                            context += "  URL: \(article.url)\n"
-                            context += "---\n"
-                        }
-                    }
-                    context += "\n"
-                } else {
-                    print("⚠️  getAllNews() returned empty - no news articles available in LLM context")
-                }
-            }
-        } else {
-            print("❌ NewsService is nil - no news context available")
         }
 
         return context.isEmpty ? "No data available in the app." : context

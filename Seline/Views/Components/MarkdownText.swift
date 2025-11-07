@@ -69,7 +69,7 @@ struct MarkdownText: View {
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
         case .paragraph(let text):
-            Text(parseInlineFormatting(text))
+            Text(buildAttributedString(from: text))
                 .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .lineLimit(nil)
@@ -98,17 +98,17 @@ struct MarkdownText: View {
 
             // Heading 1
             if trimmed.hasPrefix("# ") {
-                let text = parseInlineFormatting(String(trimmed.dropFirst(2)))
+                let text = String(trimmed.dropFirst(2))
                 elements.append(.heading1(text))
             }
             // Heading 2
             else if trimmed.hasPrefix("## ") {
-                let text = parseInlineFormatting(String(trimmed.dropFirst(3)))
+                let text = String(trimmed.dropFirst(3))
                 elements.append(.heading2(text))
             }
             // Heading 3
             else if trimmed.hasPrefix("### ") {
-                let text = parseInlineFormatting(String(trimmed.dropFirst(4)))
+                let text = String(trimmed.dropFirst(4))
                 elements.append(.heading3(text))
             }
             // Numbered list
@@ -147,70 +147,62 @@ struct MarkdownText: View {
         return elements
     }
 
-    // Parse inline formatting like **bold**, *italic*, __underline__
-    private func parseInlineFormatting(_ text: String) -> String {
-        var result = ""
+    // Build attributed string with proper formatting while removing markdown symbols
+    private func buildAttributedString(from text: String) -> AttributedString {
+        var result = AttributedString("")
         var i = text.startIndex
 
         while i < text.endIndex {
-            // Check for underline (__text__)
-            if i < text.index(text.endIndex, offsetBy: -2) {
-                let nextTwo = String(text[i..<text.index(i, offsetBy: 2)])
-                if nextTwo == "__" {
-                    // Find closing __
-                    var searchIdx = text.index(i, offsetBy: 2)
-                    var found = false
-                    while searchIdx < text.index(text.endIndex, offsetBy: -1) {
-                        if text[searchIdx] == "_" && text[text.index(after: searchIdx)] == "_" {
-                            let content = String(text[text.index(i, offsetBy: 2)..<searchIdx])
-                            result += content // Remove markdown syntax
-                            i = text.index(after: text.index(after: searchIdx))
-                            found = true
-                            break
-                        }
-                        searchIdx = text.index(after: searchIdx)
-                    }
-                    if found { continue }
-                }
-            }
-
             // Check for bold (**text**)
-            if i < text.index(text.endIndex, offsetBy: -2) {
-                let nextTwo = String(text[i..<text.index(i, offsetBy: 2)])
-                if nextTwo == "**" {
-                    // Find closing **
-                    var searchIdx = text.index(i, offsetBy: 2)
+            if text[i] == "*" {
+                let nextIdx = text.index(after: i)
+                if nextIdx < text.endIndex && text[nextIdx] == "*" {
+                    // Found ** - look for closing **
+                    var searchIdx = text.index(after: nextIdx)
                     var found = false
-                    while searchIdx < text.index(text.endIndex, offsetBy: -1) {
-                        if text[searchIdx] == "*" && text[text.index(after: searchIdx)] == "*" {
-                            let content = String(text[text.index(i, offsetBy: 2)..<searchIdx])
-                            result += content // Remove markdown syntax
-                            i = text.index(after: text.index(after: searchIdx))
+
+                    while searchIdx < text.endIndex {
+                        if text[searchIdx] == "*" {
+                            let nextSearchIdx = text.index(after: searchIdx)
+                            if nextSearchIdx < text.endIndex && text[nextSearchIdx] == "*" {
+                                // Found closing **
+                                let content = String(text[text.index(after: nextIdx)..<searchIdx])
+                                var boldAttr = AttributedString(content)
+                                boldAttr.font = .system(size: 14, weight: .semibold)
+                                result.append(boldAttr)
+                                i = text.index(after: nextSearchIdx)
+                                found = true
+                                break
+                            }
+                        }
+                        searchIdx = text.index(after: searchIdx)
+                    }
+
+                    if found { continue }
+                } else if nextIdx < text.endIndex && text[nextIdx] != "*" {
+                    // Check for italic (*text*)
+                    var searchIdx = nextIdx
+                    var found = false
+
+                    while searchIdx < text.endIndex {
+                        if text[searchIdx] == "*" {
+                            let content = String(text[nextIdx..<searchIdx])
+                            var italicAttr = AttributedString(content)
+                            italicAttr.font = .system(size: 14, weight: .regular).italic()
+                            result.append(italicAttr)
+                            i = text.index(after: searchIdx)
                             found = true
                             break
                         }
                         searchIdx = text.index(after: searchIdx)
                     }
+
                     if found { continue }
                 }
             }
 
-            // Check for italic (*text*)
-            if text[i] == "*" {
-                if i < text.index(text.endIndex, offsetBy: -1) {
-                    let nextChar = text[text.index(after: i)]
-                    if nextChar != "*" { // Make sure it's not ** (bold)
-                        if let closeIndex = text[text.index(after: i)...].firstIndex(of: "*") {
-                            let content = String(text[text.index(after: i)..<closeIndex])
-                            result += content // Remove markdown syntax
-                            i = text.index(after: closeIndex)
-                            continue
-                        }
-                    }
-                }
-            }
-
-            result.append(text[i])
+            // Regular character
+            result.append(AttributedString(String(text[i])))
             i = text.index(after: i)
         }
 

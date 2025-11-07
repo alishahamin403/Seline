@@ -201,6 +201,7 @@ struct ConversationSearchView: View {
                     .focused($isInputFocused)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .textFieldStyle(PlainTextFieldStyle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(colorScheme == .dark ? Color.black : Color.white)
@@ -321,19 +322,6 @@ struct ConversationMessageView: View {
                 )
 
                 if !message.isUser {
-                    Spacer()
-                }
-            }
-
-            // Message timestamp
-            HStack {
-                if !message.isUser {
-                    Spacer()
-                }
-                Text(message.formattedTime)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                if message.isUser {
                     Spacer()
                 }
             }

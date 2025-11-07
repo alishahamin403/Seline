@@ -736,12 +736,6 @@ struct MainAppView: View {
             return "dollarsign.square.fill"
         }
 
-        // News/Media
-        if sender.contains("newsletter") || sender.contains("substack") || sender.contains("medium") ||
-           sender.contains("nytimes") || sender.contains("news") {
-            return "newspaper.fill"
-        }
-
         // Security/Notifications
         if sender.contains("noreply") || sender.contains("no-reply") ||
            sender.contains("notification") || sender.contains("alert") {
