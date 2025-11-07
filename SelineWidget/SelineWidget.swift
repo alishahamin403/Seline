@@ -256,6 +256,10 @@ struct SelineWidgetEntryView: View {
         colorScheme == .dark ? Color(red: 0.22, green: 0.22, blue: 0.23) : Color.black.opacity(0.08)
     }
 
+    var widgetBackgroundColor: Color {
+        colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.16) : Color(red: 0.98, green: 0.97, blue: 0.95)
+    }
+
     private func getEventColor(for task: TaskForWidget) -> Color {
         // Determine color based on task type (synced, tagged, or personal)
         if task.id.hasPrefix("cal_") {
@@ -271,12 +275,17 @@ struct SelineWidgetEntryView: View {
     }
 
     var body: some View {
-        if widgetFamily == .systemSmall {
-            smallWidgetView
-        } else if widgetFamily == .systemMedium {
-            mediumWidgetView
-        } else if widgetFamily == .systemLarge {
-            largeWidgetView
+        ZStack {
+            widgetBackgroundColor
+                .ignoresSafeArea()
+
+            if widgetFamily == .systemSmall {
+                smallWidgetView
+            } else if widgetFamily == .systemMedium {
+                mediumWidgetView
+            } else if widgetFamily == .systemLarge {
+                largeWidgetView
+            }
         }
     }
 
@@ -702,8 +711,6 @@ struct SelineWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SelineWidgetProvider()) { entry in
             SelineWidgetEntryView(entry: entry)
-                // Gunmetal theme background
-                .widgetBackground(Color(red: 0.15, green: 0.15, blue: 0.16))
         }
         .configurationDisplayName("Seline")
         .description("Quick access to your Seline information")
