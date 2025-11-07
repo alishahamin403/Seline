@@ -1937,6 +1937,14 @@ class OpenAIService: ObservableObject {
         - Show travel time to saved destinations
         - If user asks "how far" or "how long", show ETA information
 
+        **FOR RECEIPTS/EXPENSES:**
+        - Show only receipts from the specified date range (today, this month, this year, etc.)
+        - If user asks "expenses this month", only show receipts from this month
+        - Include receipt name/merchant, amount, date, and category if available
+        - Format as: **$AMOUNT** | Merchant Name | Date
+        - Group receipts by date or merchant for clarity
+        - If user asks about spending/expenses/costs, analyze patterns and totals
+
         GENERAL RULES:
         - Answer what the user asked for, nothing more
         - If user asks "what are my events today?", don't include emails or notes
@@ -1993,6 +2001,14 @@ class OpenAIService: ObservableObject {
         - Location 1: **15 minutes** away
         - Location 2: **25 minutes** away
         - Location 3: **40 minutes** away
+
+        **For Receipt/Expense Queries:**
+        Your receipts for [DATE/TIME PERIOD]:
+        - **$45.99** | Starbucks | Today | Food
+        - **$120.50** | Grocery Store | 2 days ago | Shopping
+        - **$35.00** | Gas Station | 1 week ago | Transportation
+
+        (Or if analyzing spending: "Total spent this month: $450. Top category: Food ($150, 33%)")
 
         ALWAYS follow the template format that matches the query type. Be consistent with spacing, bullets, and bold formatting.
 
@@ -2107,6 +2123,14 @@ class OpenAIService: ObservableObject {
         - Show travel time to saved destinations
         - If user asks "how far" or "how long", show ETA information
 
+        **FOR RECEIPTS/EXPENSES:**
+        - Show only receipts from the specified date range (today, this month, this year, etc.)
+        - If user asks "expenses this month", only show receipts from this month
+        - Include receipt name/merchant, amount, date, and category if available
+        - Format as: **$AMOUNT** | Merchant Name | Date
+        - Group receipts by date or merchant for clarity
+        - If user asks about spending/expenses/costs, analyze patterns and totals
+
         GENERAL RULES:
         - Answer what the user asked for, nothing more
         - If user asks "what are my events today?", don't include emails or notes
@@ -2163,6 +2187,14 @@ class OpenAIService: ObservableObject {
         - Location 1: **15 minutes** away
         - Location 2: **25 minutes** away
         - Location 3: **40 minutes** away
+
+        **For Receipt/Expense Queries:**
+        Your receipts for [DATE/TIME PERIOD]:
+        - **$45.99** | Starbucks | Today | Food
+        - **$120.50** | Grocery Store | 2 days ago | Shopping
+        - **$35.00** | Gas Station | 1 week ago | Transportation
+
+        (Or if analyzing spending: "Total spent this month: $450. Top category: Food ($150, 33%)")
 
         ALWAYS follow the template format that matches the query type. Be consistent with spacing, bullets, and bold formatting.
 
@@ -2295,6 +2327,8 @@ class OpenAIService: ObservableObject {
             dateRange = "this month"
         } else if lowerQuery.contains("next month") {
             dateRange = "next month"
+        } else if lowerQuery.contains("this year") {
+            dateRange = "this year"
         }
 
         // Detect what data user is asking about
@@ -2304,6 +2338,7 @@ class OpenAIService: ObservableObject {
         let locationKeywords = ["location", "locations", "place", "places", "where", "saved", "restaurant", "cafe"]
         let weatherKeywords = ["weather", "temperature", "rain", "sunny", "forecast"]
         let navigationKeywords = ["eta", "how far", "distance", "how long", "arrive", "travel time"]
+        let receiptKeywords = ["receipt", "receipts", "purchase", "transaction", "spent", "spending", "expense", "expenses", "money", "cost", "price", "bought", "merchant", "store", "grocery", "restaurant bill"]
 
         for keyword in eventKeywords {
             if lowerQuery.contains(keyword) {
@@ -2347,9 +2382,16 @@ class OpenAIService: ObservableObject {
             }
         }
 
+        for keyword in receiptKeywords {
+            if lowerQuery.contains(keyword) {
+                intents.insert("receipts")
+                break
+            }
+        }
+
         // If nothing specific detected, include everything
         if intents.isEmpty {
-            intents = ["events", "notes", "emails", "locations", "weather", "navigation"]
+            intents = ["events", "notes", "emails", "locations", "weather", "navigation", "receipts"]
         }
 
         return (intents, dateRange)
@@ -2369,6 +2411,8 @@ class OpenAIService: ObservableObject {
             return "Use this format: Current weather in [City]: Temperature: XX°C, Conditions. 6-Day Forecast: • Tomorrow: XX°C"
         } else if intents.contains("navigation") && intents.count == 1 {
             return "Use this format: Travel times: • Location 1: XX minutes away"
+        } else if intents.contains("receipts") && intents.count == 1 {
+            return "Use this format: Your receipts for [DATE]: • **$AMOUNT** | Merchant | Date | Category"
         }
         return ""
     }
@@ -2548,6 +2592,50 @@ class OpenAIService: ObservableObject {
                 context += "No emails found for the requested timeframe (\(detectedDateRange)).\n"
             }
             context += "\n"
+        }
+
+        // Add receipts only if user asked about receipts, expenses, spending, or purchases
+        if queryIntents.contains("receipts") {
+            let allNotes = notesManager.notes
+            // Filter to only receipts (notes in Receipts folder)
+            let receiptNotes = allNotes.filter { note in
+                // Check if note is in Receipts folder hierarchy
+                if let folderId = note.folderId {
+                    if let folder = notesManager.folders.first(where: { $0.id == folderId }) {
+                        return folder.name.lowercased().contains("receipt")
+                    }
+                }
+                return false
+            }
+
+            if !receiptNotes.isEmpty {
+                context += "=== RECEIPTS/EXPENSES ===\n"
+                // Filter receipts by date if user specified a date range
+                var receiptsToShow = receiptNotes
+                if detectedDateRange != "default" {
+                    receiptsToShow = receiptsToShow.filter { note in
+                        let noteStartOfDay = dateFormatter.calendar.startOfDay(for: note.dateCreated)
+                        return noteStartOfDay >= dateRange.start && noteStartOfDay < dateRange.end
+                    }
+                }
+
+                if !receiptsToShow.isEmpty {
+                    for receipt in receiptsToShow.sorted(by: { $0.dateCreated > $1.dateCreated }) {
+                        let dateStr = dateFormatter.string(from: receipt.dateCreated)
+                        // Try to extract amount from receipt title or content
+                        let contentPreview = String(receipt.content.prefix(100))
+                        context += "Receipt: \(receipt.title)\nDate: \(dateStr)\nDetails: \(contentPreview)\n---\n"
+                    }
+                } else {
+                    context += "No receipts found for the requested timeframe (\(detectedDateRange)).\n"
+                }
+                context += "\n"
+            } else {
+                if !allNotes.isEmpty {
+                    context += "=== RECEIPTS/EXPENSES ===\n"
+                    context += "No receipts found in the app.\n\n"
+                }
+            }
         }
 
         return context.isEmpty ? "No data available in the app." : context
