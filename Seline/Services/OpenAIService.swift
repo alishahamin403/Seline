@@ -2968,21 +2968,20 @@ class OpenAIService: ObservableObject {
 
         // Create searchable content from emails
         let searchableEmails = emails.map { email in
-            (id: email.id.uuidString, text: "\(email.subject) \(email.body ?? "")", email: email)
+            (id: email.id, text: "\(email.subject) \(email.body ?? "")", email: email)
         }
 
         // Get similarity scores
+        let emailContents = searchableEmails.map { ($0.id, $0.text) }
         let scores = try await getSemanticSimilarityScores(
             query: query,
-            contents: searchableEmails.map { ($0.id, $0.text) }
+            contents: emailContents
         )
 
         // Filter by threshold and sort
-        return searchableEmails
-            .filter { scores[$0.id, default: 0] >= similarityThreshold }
-            .sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
-            .prefix(maxResults)
-            .map { $0.email }
+        let filteredEmails = searchableEmails.filter { scores[$0.id, default: 0] >= similarityThreshold }
+        let sortedEmails = filteredEmails.sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
+        return Array(sortedEmails.prefix(maxResults)).map { $0.email }
     }
 
     /// Finds semantically similar events/tasks based on a query
@@ -3000,17 +2999,16 @@ class OpenAIService: ObservableObject {
         }
 
         // Get similarity scores
+        let eventContents = searchableEvents.map { ($0.id, $0.text) }
         let scores = try await getSemanticSimilarityScores(
             query: query,
-            contents: searchableEvents.map { ($0.id, $0.text) }
+            contents: eventContents
         )
 
         // Filter by threshold and sort
-        return searchableEvents
-            .filter { scores[$0.id, default: 0] >= similarityThreshold }
-            .sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
-            .prefix(maxResults)
-            .map { $0.event }
+        let filteredEvents = searchableEvents.filter { scores[$0.id, default: 0] >= similarityThreshold }
+        let sortedEvents = filteredEvents.sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
+        return Array(sortedEvents.prefix(maxResults)).map { $0.event }
     }
 
     /// Enriches context with semantically relevant content
