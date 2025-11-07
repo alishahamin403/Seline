@@ -1885,8 +1885,8 @@ class OpenAIService: ObservableObject {
         // Optimize conversation history to reduce token usage
         let optimizedHistory = optimizeConversationHistory(conversationHistory)
 
-        // Extract context from the query with all available data
-        let context = buildContextForQuestion(
+        // Extract context from the query with all available data (now includes semantic enrichment)
+        let context = await buildContextForQuestion(
             query: query,
             taskManager: taskManager,
             notesManager: notesManager,
@@ -2071,8 +2071,8 @@ class OpenAIService: ObservableObject {
         // Optimize conversation history to reduce token usage
         let optimizedHistory = optimizeConversationHistory(conversationHistory)
 
-        // Extract context from the query with all available data
-        let context = buildContextForQuestion(
+        // Extract context from the query with all available data (now includes semantic enrichment)
+        let context = await buildContextForQuestion(
             query: query,
             taskManager: taskManager,
             notesManager: notesManager,
@@ -2443,7 +2443,7 @@ class OpenAIService: ObservableObject {
         locationsManager: LocationsManager? = nil,
         navigationService: NavigationService? = nil,
         conversationHistory: [ConversationMessage] = []
-    ) -> String {
+    ) async -> String {
         print("📋 buildContextForQuestion called with query: '\(query)'")
         var context = ""
         let currentDate = Date()
@@ -2636,6 +2636,18 @@ class OpenAIService: ObservableObject {
                     context += "No receipts found in the app.\n\n"
                 }
             }
+        }
+
+        // Add semantic enrichment: find related content even without explicit keywords
+        let allEvents = taskManager.tasks.values.flatMap { $0 }
+        let semanticEnrichment = try? await enrichContextWithSemanticMatches(
+            query: query,
+            notes: notesManager.notes,
+            emails: emailService.inboxEmails,
+            events: allEvents
+        )
+        if let enrichment = semanticEnrichment, !enrichment.isEmpty {
+            context += enrichment
         }
 
         return context.isEmpty ? "No data available in the app." : context
@@ -2912,6 +2924,142 @@ class OpenAIService: ObservableObject {
         }
 
         return results
+    }
+
+    // MARK: - Semantic Search for Smart Context
+
+    /// Finds semantically similar notes based on a query
+    /// Returns top N most relevant notes even if keywords don't match exactly
+    func findSemanticallySimilarNotes(
+        query: String,
+        from notes: [Note],
+        maxResults: Int = 5,
+        similarityThreshold: Double = 4.0
+    ) async throws -> [Note] {
+        guard !notes.isEmpty else { return [] }
+
+        // Create searchable content from notes (title + content)
+        let searchableNotes = notes.map { note in
+            (id: note.id.uuidString, text: "\(note.title) \(note.content)", note: note)
+        }
+
+        // Get similarity scores
+        let scores = try await getSemanticSimilarityScores(
+            query: query,
+            contents: searchableNotes.map { ($0.id, $0.text) }
+        )
+
+        // Filter by threshold and sort
+        return searchableNotes
+            .filter { scores[$0.id, default: 0] >= similarityThreshold }
+            .sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
+            .prefix(maxResults)
+            .map { $0.note }
+    }
+
+    /// Finds semantically similar emails based on a query
+    func findSemanticallySimilarEmails(
+        query: String,
+        from emails: [Email],
+        maxResults: Int = 5,
+        similarityThreshold: Double = 4.0
+    ) async throws -> [Email] {
+        guard !emails.isEmpty else { return [] }
+
+        // Create searchable content from emails
+        let searchableEmails = emails.map { email in
+            (id: email.id.uuidString, text: "\(email.subject) \(email.body ?? "")", email: email)
+        }
+
+        // Get similarity scores
+        let scores = try await getSemanticSimilarityScores(
+            query: query,
+            contents: searchableEmails.map { ($0.id, $0.text) }
+        )
+
+        // Filter by threshold and sort
+        return searchableEmails
+            .filter { scores[$0.id, default: 0] >= similarityThreshold }
+            .sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
+            .prefix(maxResults)
+            .map { $0.email }
+    }
+
+    /// Finds semantically similar events/tasks based on a query
+    func findSemanticallySimilarEvents(
+        query: String,
+        from events: [TaskItem],
+        maxResults: Int = 5,
+        similarityThreshold: Double = 4.0
+    ) async throws -> [TaskItem] {
+        guard !events.isEmpty else { return [] }
+
+        // Create searchable content from events
+        let searchableEvents = events.map { event in
+            (id: event.id.uuidString, text: "\(event.title) \(event.description ?? "")", event: event)
+        }
+
+        // Get similarity scores
+        let scores = try await getSemanticSimilarityScores(
+            query: query,
+            contents: searchableEvents.map { ($0.id, $0.text) }
+        )
+
+        // Filter by threshold and sort
+        return searchableEvents
+            .filter { scores[$0.id, default: 0] >= similarityThreshold }
+            .sorted { scores[$0.id, default: 0] > scores[$1.id, default: 0] }
+            .prefix(maxResults)
+            .map { $0.event }
+    }
+
+    /// Enriches context with semantically relevant content
+    /// Finds related notes, emails, events even if user didn't explicitly ask for them
+    func enrichContextWithSemanticMatches(
+        query: String,
+        notes: [Note],
+        emails: [Email],
+        events: [TaskItem]
+    ) async throws -> String {
+        var enrichedContext = ""
+
+        do {
+            // Find semantically similar notes
+            let similarNotes = try await findSemanticallySimilarNotes(query: query, from: notes, maxResults: 3)
+            if !similarNotes.isEmpty {
+                enrichedContext += "=== RELATED NOTES (Semantic Match) ===\n"
+                for note in similarNotes {
+                    let preview = String(note.content.prefix(80))
+                    enrichedContext += "• \(note.title): \(preview)...\n"
+                }
+                enrichedContext += "\n"
+            }
+
+            // Find semantically similar emails
+            let similarEmails = try await findSemanticallySimilarEmails(query: query, from: emails, maxResults: 3)
+            if !similarEmails.isEmpty {
+                enrichedContext += "=== RELATED EMAILS (Semantic Match) ===\n"
+                for email in similarEmails {
+                    enrichedContext += "• From: \(email.sender.displayName), Subject: \(email.subject)\n"
+                }
+                enrichedContext += "\n"
+            }
+
+            // Find semantically similar events
+            let similarEvents = try await findSemanticallySimilarEvents(query: query, from: events, maxResults: 3)
+            if !similarEvents.isEmpty {
+                enrichedContext += "=== RELATED EVENTS (Semantic Match) ===\n"
+                for event in similarEvents {
+                    enrichedContext += "• \(event.title): \(event.description ?? "No description")\n"
+                }
+                enrichedContext += "\n"
+            }
+        } catch {
+            // If semantic search fails, silently continue - it's an enhancement, not critical
+            print("⚠️ Semantic enrichment failed: \(error)")
+        }
+
+        return enrichedContext
     }
 }
 
