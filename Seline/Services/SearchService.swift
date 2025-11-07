@@ -626,7 +626,7 @@ class SearchService: ObservableObject {
                 self.streamingMessageID = streamingMessageID
 
                 // Create initial empty message
-                let assistantMsg = ConversationMessage(isUser: false, text: "", intent: .general, id: streamingMessageID)
+                var assistantMsg = ConversationMessage(id: streamingMessageID, isUser: false, text: "", timestamp: Date(), intent: .general)
                 conversationHistory.append(assistantMsg)
 
                 try await OpenAIService.shared.answerQuestionWithStreaming(
@@ -638,12 +638,20 @@ class SearchService: ObservableObject {
                     locationsManager: LocationsManager.shared,
                     navigationService: NavigationService.shared,
                     newsService: NewsService.shared,
-                    conversationHistory: conversationHistory.dropLast(2), // All messages except user message and streaming placeholder
+                    conversationHistory: Array(conversationHistory.dropLast(2)), // All messages except user message and streaming placeholder
                     onChunk: { chunk in
                         fullResponse += chunk
                         // Update the last message with the accumulated response
                         if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                            self.conversationHistory[lastIndex].text = fullResponse
+                            // Since ConversationMessage is immutable, create a new one
+                            let updatedMsg = ConversationMessage(
+                                id: streamingMessageID,
+                                isUser: false,
+                                text: fullResponse,
+                                timestamp: self.conversationHistory[lastIndex].timestamp,
+                                intent: self.conversationHistory[lastIndex].intent
+                            )
+                            self.conversationHistory[lastIndex] = updatedMsg
                             self.saveConversationLocally()
                         }
                     }
@@ -667,7 +675,7 @@ class SearchService: ObservableObject {
                     conversationHistory: conversationHistory.dropLast() // All messages except the current user message
                 )
 
-                let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
+                let assistantMsg = ConversationMessage(id: UUID(), isUser: false, text: response, timestamp: Date(), intent: .general)
                 conversationHistory.append(assistantMsg)
                 saveConversationLocally()
 
@@ -678,8 +686,10 @@ class SearchService: ObservableObject {
             }
         } catch {
             let errorMsg = ConversationMessage(
+                id: UUID(),
                 isUser: false,
                 text: "I couldn't answer that question. Please try again or rephrase your question.",
+                timestamp: Date(),
                 intent: .general
             )
             conversationHistory.append(errorMsg)
