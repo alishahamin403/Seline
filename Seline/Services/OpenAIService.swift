@@ -1949,6 +1949,7 @@ class OpenAIService: ObservableObject {
 
     /// Stream a response from the LLM with streaming support
     /// This returns chunks of text as they become available from the API
+    @MainActor
     func answerQuestionWithStreaming(
         query: String,
         taskManager: TaskManager,
