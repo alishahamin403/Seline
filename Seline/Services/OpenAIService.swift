@@ -2124,6 +2124,9 @@ class OpenAIService: ObservableObject {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
 
+        // Detect the date range the user is asking about
+        let dateRange = detectDateRange(in: query, from: currentDate)
+
         // Add current date/time context first
         let timeFormatter = DateFormatter()
         timeFormatter.timeStyle = .short
@@ -2201,17 +2204,22 @@ class OpenAIService: ObservableObject {
             context += "\n"
         }
 
-        // Add ALL tasks/events with full details
+        // Add tasks/events filtered by the date range the user asked about
         let allTasks = taskManager.tasks.values.flatMap { $0 }
-        if !allTasks.isEmpty {
-            context += "=== ALL TASKS/EVENTS ===\n"
-            for task in allTasks.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+        let filteredTasks = filterTasksByDateRange(allTasks, range: dateRange, currentDate: currentDate)
+        if !filteredTasks.isEmpty {
+            context += "=== TASKS/EVENTS ===\n"
+            for task in filteredTasks.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
                 let status = task.isCompleted ? "✓" : "○"
                 let dateStr = task.targetDate.map { dateFormatter.string(from: $0) } ?? "No date"
                 let timeStr = task.scheduledTime.map { formatTime(date: $0) } ?? "All day"
                 context += "- \(status) \(task.title) | \(dateStr) at \(timeStr) | \(task.description ?? "")\n"
             }
             context += "\n"
+        } else if !allTasks.isEmpty {
+            // If no tasks match the specific range, show a note
+            context += "=== TASKS/EVENTS ===\n"
+            context += "No tasks/events found for the requested timeframe.\n\n"
         }
 
         // Add ALL notes with folder structure
@@ -2380,6 +2388,67 @@ class OpenAIService: ObservableObject {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+
+    /// Detect the date range the user is asking about
+    /// Returns a tuple of (startDate, endDate) to filter tasks
+    private func detectDateRange(in query: String, from currentDate: Date) -> (start: Date, end: Date) {
+        let lowerQuery = query.lowercased()
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: currentDate)
+
+        // Default: only today
+        var startDate = todayStart
+        var endDate = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+
+        // Tomorrow
+        if lowerQuery.contains("tomorrow") {
+            startDate = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+            endDate = calendar.date(byAdding: .day, value: 2, to: todayStart)!
+        }
+        // Today
+        else if lowerQuery.contains("today") {
+            startDate = todayStart
+            endDate = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+        }
+        // This week
+        else if lowerQuery.contains("this week") || (lowerQuery.contains("week") && !lowerQuery.contains("next")) {
+            startDate = todayStart
+            endDate = calendar.date(byAdding: .day, value: 7, to: todayStart)!
+        }
+        // Next week
+        else if lowerQuery.contains("next week") {
+            startDate = calendar.date(byAdding: .day, value: 7, to: todayStart)!
+            endDate = calendar.date(byAdding: .day, value: 14, to: todayStart)!
+        }
+        // This month
+        else if lowerQuery.contains("this month") || (lowerQuery.contains("month") && !lowerQuery.contains("next")) {
+            startDate = todayStart
+            endDate = calendar.date(byAdding: .month, value: 1, to: todayStart)!
+        }
+        // Next month
+        else if lowerQuery.contains("next month") {
+            startDate = calendar.date(byAdding: .month, value: 1, to: todayStart)!
+            endDate = calendar.date(byAdding: .month, value: 2, to: todayStart)!
+        }
+
+        return (startDate, endDate)
+    }
+
+    /// Filter tasks to only those within the requested date range
+    private func filterTasksByDateRange(_ tasks: [Task], range: (start: Date, end: Date), currentDate: Date) -> [Task] {
+        let calendar = Calendar.current
+
+        return tasks.filter { task in
+            guard let taskDate = task.targetDate else {
+                // Tasks with no date are only included if asking about "all" or general
+                return false
+            }
+
+            // Check if task is within the requested date range
+            let taskStartOfDay = calendar.startOfDay(for: taskDate)
+            return taskStartOfDay >= range.start && taskStartOfDay < range.end
+        }
     }
 
     // MARK: - Semantic Similarity & Embeddings
