@@ -31,15 +31,15 @@ struct MarkdownText: View {
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .bold(let text):
             Text(text)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .italic(let text):
             Text(text)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .underline(let text):
             Text(text)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .code(let text):
             Text(text)
@@ -51,24 +51,24 @@ struct MarkdownText: View {
         case .bulletPoint(let text):
             HStack(alignment: .top, spacing: 8) {
                 Text("•")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 Text(text)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
         case .numberedPoint(let number, let text):
             HStack(alignment: .top, spacing: 8) {
                 Text("\(number).")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 Text(text)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
         case .paragraph(let text):
             Text(stripMarkdownFormatting(text))
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .lineLimit(nil)
         case .empty:
