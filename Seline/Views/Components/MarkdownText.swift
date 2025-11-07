@@ -18,27 +18,27 @@ struct MarkdownText: View {
     private func renderElement(_ element: MarkdownElement) -> some View {
         switch element {
         case .heading1(let text):
-            Text(text)
+            Text(stripMarkdownFormatting(text))
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .heading2(let text):
-            Text(text)
+            Text(stripMarkdownFormatting(text))
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .heading3(let text):
-            Text(text)
+            Text(stripMarkdownFormatting(text))
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .bold(let text):
-            Text(text)
+            Text(stripMarkdownFormatting(text))
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .italic(let text):
-            Text(text)
+            Text(stripMarkdownFormatting(text))
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .underline(let text):
-            Text(text)
+            Text(stripMarkdownFormatting(text))
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         case .code(let text):
@@ -53,7 +53,7 @@ struct MarkdownText: View {
                 Text("•")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                Text(text)
+                Text(stripMarkdownFormatting(text))
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
@@ -62,7 +62,7 @@ struct MarkdownText: View {
                 Text("\(number).")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                Text(text)
+                Text(stripMarkdownFormatting(text))
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
             }
