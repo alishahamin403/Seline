@@ -85,7 +85,7 @@ struct EditTaskView: View {
                 onSave(updatedTask)
             }
             .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(.white)
+            .foregroundColor(isValidInput ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .background(

@@ -440,7 +440,7 @@ struct UnifiedTimePickerSheet: View {
                 }) {
                     Text("Done")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
