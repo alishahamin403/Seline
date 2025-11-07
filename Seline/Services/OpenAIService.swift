@@ -1882,6 +1882,9 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
+        // Optimize conversation history to reduce token usage
+        let optimizedHistory = optimizeConversationHistory(conversationHistory)
+
         // Extract context from the query with all available data
         let context = buildContextForQuestion(
             query: query,
@@ -1891,7 +1894,7 @@ class OpenAIService: ObservableObject {
             weatherService: weatherService,
             locationsManager: locationsManager,
             navigationService: navigationService,
-            conversationHistory: conversationHistory
+            conversationHistory: optimizedHistory
         )
 
         let systemPrompt = """
@@ -2002,8 +2005,9 @@ class OpenAIService: ObservableObject {
             ["role": "system", "content": systemPrompt]
         ]
 
-        // Add previous conversation messages
-        for message in conversationHistory {
+        // Add previous conversation messages (optimized to recent ones only)
+        let optimizedMessages = optimizeConversationHistory(conversationHistory)
+        for message in optimizedMessages {
             messages.append([
                 "role": message.isUser ? "user" : "assistant",
                 "content": message.text
@@ -2048,6 +2052,9 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
+        // Optimize conversation history to reduce token usage
+        let optimizedHistory = optimizeConversationHistory(conversationHistory)
+
         // Extract context from the query with all available data
         let context = buildContextForQuestion(
             query: query,
@@ -2057,7 +2064,7 @@ class OpenAIService: ObservableObject {
             weatherService: weatherService,
             locationsManager: locationsManager,
             navigationService: navigationService,
-            conversationHistory: conversationHistory
+            conversationHistory: optimizedHistory
         )
 
         let systemPrompt = """
@@ -2168,8 +2175,9 @@ class OpenAIService: ObservableObject {
             ["role": "system", "content": systemPrompt]
         ]
 
-        // Add previous conversation messages
-        for message in conversationHistory {
+        // Add previous conversation messages (optimized to recent ones only)
+        let optimizedMessages = optimizeConversationHistory(conversationHistory)
+        for message in optimizedMessages {
             messages.append([
                 "role": message.isUser ? "user" : "assistant",
                 "content": message.text
@@ -2363,6 +2371,22 @@ class OpenAIService: ObservableObject {
             return "Use this format: Travel times: • Location 1: XX minutes away"
         }
         return ""
+    }
+
+    /// Optimizes conversation history by keeping only recent messages
+    /// Keeps last 5-10 messages to maintain context while reducing token usage
+    /// This prevents token bloat and confusion from old conversation context
+    private func optimizeConversationHistory(_ history: [ConversationMessage]) -> [ConversationMessage] {
+        // Keep the last 10 messages for sufficient context but avoid token waste
+        // For most conversations, this is enough to maintain continuity
+        let maxMessages = 10
+
+        if history.count <= maxMessages {
+            return history
+        }
+
+        // Return only the most recent messages
+        return Array(history.suffix(maxMessages))
     }
 
     @MainActor
