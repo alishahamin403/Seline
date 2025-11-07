@@ -201,8 +201,8 @@ struct ConversationSearchView: View {
                     .focused($isInputFocused)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .textFieldStyle(PlainTextFieldStyle())
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .background(colorScheme == .dark ? Color.black : Color.white)
@@ -281,50 +281,47 @@ struct ConversationMessageView: View {
     }
 
     var body: some View {
-        VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if message.isUser {
-                    Spacer()
-                }
+        HStack {
+            if message.isUser {
+                Spacer()
+            }
 
-                VStack(alignment: message.isUser ? .trailing : .leading, spacing: 8) {
-                    if hasComplexFormatting && !message.isUser {
-                        // Use markdown renderer for AI responses with formatting
-                        MarkdownText(markdown: message.text, colorScheme: colorScheme)
-                    } else {
-                        // Simple text for user messages or unformatted AI responses
-                        Text(message.text)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
-                            .textSelection(.enabled)
-                            .lineLimit(nil)
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                if hasComplexFormatting && !message.isUser {
+                    // Use markdown renderer for AI responses with formatting
+                    MarkdownText(markdown: message.text, colorScheme: colorScheme)
+                } else {
+                    // Simple text for user messages or unformatted AI responses
+                    Text(message.text)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
+                        .textSelection(.enabled)
+                        .lineLimit(nil)
                 }
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: UIScreen.main.bounds.width * 0.75)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            message.isUser
-                                ? (colorScheme == .dark ? Color.white : Color.black)
-                                : (colorScheme == .dark
-                                    ? Color.gray.opacity(0.15)
-                                    : Color.gray.opacity(0.15))
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(
-                            message.isUser ? Color.clear : Color.gray.opacity(0.2),
-                            lineWidth: 0.5
-                        )
-                )
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        message.isUser
+                            ? (colorScheme == .dark ? Color.white : Color.black)
+                            : (colorScheme == .dark
+                                ? Color.gray.opacity(0.15)
+                                : Color.gray.opacity(0.15))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        message.isUser ? Color.clear : Color.gray.opacity(0.2),
+                        lineWidth: 0.5
+                    )
+            )
 
-                if !message.isUser {
-                    Spacer()
-                }
+            if !message.isUser {
+                Spacer()
             }
         }
         .padding(.horizontal, 16)

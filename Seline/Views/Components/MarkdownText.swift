@@ -147,53 +147,13 @@ struct MarkdownText: View {
 
     // Strip markdown formatting symbols while keeping plain text
     private func stripMarkdownFormatting(_ text: String) -> String {
-        var result = ""
-        var i = text.startIndex
+        var result = text
 
-        while i < text.endIndex {
-            // Check for ** (bold) or * (italic) markers and skip them
-            if text[i] == "*" {
-                let nextIdx = text.index(after: i)
-                if nextIdx < text.endIndex && text[nextIdx] == "*" {
-                    // Found ** - skip both asterisks and look for closing **
-                    i = text.index(after: nextIdx)
-                    var searchIdx = i
-                    while searchIdx < text.endIndex {
-                        if text[searchIdx] == "*" {
-                            let nextSearchIdx = text.index(after: searchIdx)
-                            if nextSearchIdx < text.endIndex && text[nextSearchIdx] == "*" {
-                                // Found closing ** - continue after them
-                                i = text.index(after: nextSearchIdx)
-                                break
-                            }
-                        }
-                        if searchIdx < text.endIndex {
-                            result.append(text[searchIdx])
-                            searchIdx = text.index(after: searchIdx)
-                        }
-                    }
-                    continue
-                } else if nextIdx < text.endIndex && text[nextIdx] != "*" {
-                    // Found single * - skip it and look for closing *
-                    i = nextIdx
-                    var searchIdx = i
-                    while searchIdx < text.endIndex {
-                        if text[searchIdx] == "*" {
-                            // Found closing * - continue after it
-                            i = text.index(after: searchIdx)
-                            break
-                        }
-                        result.append(text[searchIdx])
-                        searchIdx = text.index(after: searchIdx)
-                    }
-                    continue
-                }
-            }
+        // Remove ** bold markers
+        result = result.replacingOccurrences(of: "**", with: "")
 
-            // Regular character - add it
-            result.append(text[i])
-            i = text.index(after: i)
-        }
+        // Remove * italic markers
+        result = result.replacingOccurrences(of: "*", with: "")
 
         return result
     }
