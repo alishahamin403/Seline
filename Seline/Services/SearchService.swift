@@ -661,7 +661,6 @@ class SearchService: ObservableObject {
                     weatherService: WeatherService.shared,
                     locationsManager: LocationsManager.shared,
                     navigationService: NavigationService.shared,
-                    newsService: NewsService.shared,
                     conversationHistory: conversationHistory.dropLast() // All messages except the current user message
                 )
 
