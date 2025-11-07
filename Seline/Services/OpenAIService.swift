@@ -2597,15 +2597,42 @@ class OpenAIService: ObservableObject {
         // Add receipts only if user asked about receipts, expenses, spending, or purchases
         if queryIntents.contains("receipts") {
             let allNotes = notesManager.notes
-            // Filter to only receipts (notes in Receipts folder)
-            let receiptNotes = allNotes.filter { note in
-                // Check if note is in Receipts folder hierarchy
-                if let folderId = note.folderId {
-                    if let folder = notesManager.folders.first(where: { $0.id == folderId }) {
-                        return folder.name.lowercased().contains("receipt")
+
+            // Helper function to check if a folder is under the Receipts hierarchy
+            func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
+                guard let folderId = folderId else { return false }
+
+                // Find the folder
+                guard let folder = notesManager.folders.first(where: { $0.id == folderId }) else { return false }
+
+                // Check if it's the Receipts folder itself
+                if folder.name == "Receipts" {
+                    return true
+                }
+
+                // Check if parent is Receipts folder (for year/month folders)
+                if let parentId = folder.parentFolderId {
+                    if let parentFolder = notesManager.folders.first(where: { $0.id == parentId }) {
+                        if parentFolder.name == "Receipts" {
+                            return true
+                        }
+                        // Check grandparent (for month under year)
+                        if let grandparentId = parentFolder.parentFolderId {
+                            if let grandparentFolder = notesManager.folders.first(where: { $0.id == grandparentId }) {
+                                if grandparentFolder.name == "Receipts" {
+                                    return true
+                                }
+                            }
+                        }
                     }
                 }
+
                 return false
+            }
+
+            // Filter to only receipts (notes in Receipts folder hierarchy)
+            let receiptNotes = allNotes.filter { note in
+                isUnderReceiptsFolderHierarchy(folderId: note.folderId)
             }
 
             if !receiptNotes.isEmpty {
@@ -2620,11 +2647,40 @@ class OpenAIService: ObservableObject {
                 }
 
                 if !receiptsToShow.isEmpty {
+                    var totalAmount: Double = 0
+                    var receiptDetails: [String] = []
+
                     for receipt in receiptsToShow.sorted(by: { $0.dateCreated > $1.dateCreated }) {
                         let dateStr = dateFormatter.string(from: receipt.dateCreated)
                         // Try to extract amount from receipt title or content
-                        let contentPreview = String(receipt.content.prefix(100))
-                        context += "Receipt: \(receipt.title)\nDate: \(dateStr)\nDetails: \(contentPreview)\n---\n"
+                        let contentPreview = String(receipt.content.prefix(150))
+
+                        // Try to extract dollar amount using regex
+                        let amountPattern = "\\$([0-9]+\\.?[0-9]*)"
+                        if let regex = try? NSRegularExpression(pattern: amountPattern) {
+                            let range = NSRange(receipt.content.startIndex..<receipt.content.endIndex, in: receipt.content)
+                            if let match = regex.firstMatch(in: receipt.content, range: range),
+                               let amountRange = Range(match.range(at: 1), in: receipt.content) {
+                                if let amount = Double(receipt.content[amountRange]) {
+                                    totalAmount += amount
+                                    receiptDetails.append("• \(receipt.title) - $\(String(format: "%.2f", amount)) on \(dateStr)")
+                                } else {
+                                    receiptDetails.append("• \(receipt.title) on \(dateStr)")
+                                }
+                            } else {
+                                receiptDetails.append("• \(receipt.title) on \(dateStr)")
+                            }
+                        } else {
+                            receiptDetails.append("• \(receipt.title) on \(dateStr)")
+                        }
+                    }
+
+                    // Add receipts with total
+                    for detail in receiptDetails {
+                        context += detail + "\n"
+                    }
+                    if totalAmount > 0 {
+                        context += "\nTotal spent: $\(String(format: "%.2f", totalAmount))\n"
                     }
                 } else {
                     context += "No receipts found for the requested timeframe (\(detectedDateRange)).\n"
