@@ -1949,6 +1949,50 @@ class OpenAIService: ObservableObject {
         - Be concise - prefer bullet points over paragraphs
         - Never show information the user didn't ask for
 
+        RESPONSE TEMPLATES (Follow these formats exactly):
+
+        **For Event/Task Queries:**
+        Your events for [DATE]:
+        - **9:00 AM** - Team Meeting | Office
+        - **2:00 PM** - Gym | Home
+        - **6:30 PM** - Dinner with Sarah | Restaurant
+
+        (Or if no events: "You have no events for [DATE].")
+
+        **For Email Queries:**
+        Your emails for [DATE]:
+        - **[Unread]** From: John Smith | Subject: Project Update | 9:30 AM
+        - **[Read]** From: Amazon | Subject: Order Confirmation | 2:15 PM
+
+        (Or if no emails: "No emails for [DATE].")
+
+        **For Notes Queries:**
+        Your notes:
+        - **[Work Folder]** Meeting Notes - Content preview or full content
+        - **[Personal Folder]** Shopping List - Content preview or full content
+
+        **For Location Queries:**
+        Your saved locations:
+        - **Starbucks** | Coffee Shop | Downtown | Rating: 4.5/5
+        - **Mario's Restaurant** | Italian | North Side | Rating: 4.8/5
+
+        **For Weather Queries:**
+        Current weather in [City]:
+        - Temperature: **22°C**, Sunny
+        - Sunrise: 6:30 AM, Sunset: 7:45 PM
+        - 6-Day Forecast:
+          - Tomorrow: 20°C
+          - Thursday: 18°C
+          - Friday: 19°C
+
+        **For Navigation Queries:**
+        Travel times:
+        - Location 1: **15 minutes** away
+        - Location 2: **25 minutes** away
+        - Location 3: **40 minutes** away
+
+        ALWAYS follow the template format that matches the query type. Be consistent with spacing, bullets, and bold formatting.
+
         Context about user's data:
         \(context)
         """
@@ -2070,6 +2114,50 @@ class OpenAIService: ObservableObject {
         - Use `code` for specific values like amounts
         - Be concise - prefer bullet points over paragraphs
         - Never show information the user didn't ask for
+
+        RESPONSE TEMPLATES (Follow these formats exactly):
+
+        **For Event/Task Queries:**
+        Your events for [DATE]:
+        - **9:00 AM** - Team Meeting | Office
+        - **2:00 PM** - Gym | Home
+        - **6:30 PM** - Dinner with Sarah | Restaurant
+
+        (Or if no events: "You have no events for [DATE].")
+
+        **For Email Queries:**
+        Your emails for [DATE]:
+        - **[Unread]** From: John Smith | Subject: Project Update | 9:30 AM
+        - **[Read]** From: Amazon | Subject: Order Confirmation | 2:15 PM
+
+        (Or if no emails: "No emails for [DATE].")
+
+        **For Notes Queries:**
+        Your notes:
+        - **[Work Folder]** Meeting Notes - Content preview or full content
+        - **[Personal Folder]** Shopping List - Content preview or full content
+
+        **For Location Queries:**
+        Your saved locations:
+        - **Starbucks** | Coffee Shop | Downtown | Rating: 4.5/5
+        - **Mario's Restaurant** | Italian | North Side | Rating: 4.8/5
+
+        **For Weather Queries:**
+        Current weather in [City]:
+        - Temperature: **22°C**, Sunny
+        - Sunrise: 6:30 AM, Sunset: 7:45 PM
+        - 6-Day Forecast:
+          - Tomorrow: 20°C
+          - Thursday: 18°C
+          - Friday: 19°C
+
+        **For Navigation Queries:**
+        Travel times:
+        - Location 1: **15 minutes** away
+        - Location 2: **25 minutes** away
+        - Location 3: **40 minutes** away
+
+        ALWAYS follow the template format that matches the query type. Be consistent with spacing, bullets, and bold formatting.
 
         Context about user's data:
         \(context)
@@ -2259,6 +2347,24 @@ class OpenAIService: ObservableObject {
         return (intents, dateRange)
     }
 
+    /// Returns template hint to guide LLM response formatting based on detected intent
+    private func getTemplateHintForIntent(_ intents: Set<String>) -> String {
+        if intents.contains("events") && intents.count == 1 {
+            return "Use this format: Your events for [DATE]: • **TIME** - Title | Location"
+        } else if intents.contains("emails") && intents.count == 1 {
+            return "Use this format: Your emails for [DATE]: • **[Read/Unread]** From: Name | Subject: ... | Time"
+        } else if intents.contains("notes") && intents.count == 1 {
+            return "Use this format: Your notes: • **[Folder]** Title - Content or preview"
+        } else if intents.contains("locations") && intents.count == 1 {
+            return "Use this format: Your saved locations: • **Name** | Category | Location | Rating: X/5"
+        } else if intents.contains("weather") && intents.count == 1 {
+            return "Use this format: Current weather in [City]: Temperature: XX°C, Conditions. 6-Day Forecast: • Tomorrow: XX°C"
+        } else if intents.contains("navigation") && intents.count == 1 {
+            return "Use this format: Travel times: • Location 1: XX minutes away"
+        }
+        return ""
+    }
+
     @MainActor
     private func buildContextForQuestion(
         query: String,
@@ -2286,7 +2392,14 @@ class OpenAIService: ObservableObject {
         let timeFormatter = DateFormatter()
         timeFormatter.timeStyle = .short
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n"
-        context += "Date range user asked about: \(detectedDateRange)\n\n"
+        context += "Date range user asked about: \(detectedDateRange)\n"
+
+        // Add template hint if this is a specific query type
+        let templateHint = getTemplateHintForIntent(queryIntents)
+        if !templateHint.isEmpty {
+            context += "IMPORTANT: \(templateHint)\n"
+        }
+        context += "\n"
 
         // Add weather data only if user asked about weather
         if queryIntents.contains("weather"), let weatherService = weatherService, let weatherData = weatherService.weatherData {
