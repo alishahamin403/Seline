@@ -241,7 +241,7 @@ struct EventFormContent: View {
                                                 .foregroundColor(textColor)
                                         } else {
                                             Circle()
-                                                .fill(Color.gray)
+                                                .fill(Color.gray.opacity(0.5))
                                                 .frame(width: 8, height: 8)
                                             Text("Personal")
                                                 .font(.system(size: 14))
@@ -467,42 +467,38 @@ struct TagSelectionSheet: View {
     @Environment(\.dismiss) var dismiss
 
     private var createNewTagSection: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                TextField("Create new tag...", text: $newTagName)
-                    .font(.system(size: 14))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                    )
+        HStack(spacing: 10) {
+            TextField("Create new tag...", text: $newTagName)
+                .font(.system(size: 14))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                )
 
-                Button(action: {
-                    if !newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        if let newTag = tagManager.createTag(name: newTagName) {
-                            selectedTagId = newTag.id
-                            newTagName = ""
-                            dismiss()
-                        }
+            Button(action: {
+                if !newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let newTag = tagManager.createTag(name: newTagName) {
+                        selectedTagId = newTag.id
+                        newTagName = ""
+                        dismiss()
                     }
-                }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.5) : (colorScheme == .dark ? Color.white : Color.black))
                 }
-                .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .background(colorScheme == .dark ? Color.black : Color.white)
-        .border(Color.gray.opacity(0.2), width: 1)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     private var personalTagSection: some View {
@@ -510,77 +506,89 @@ struct TagSelectionSheet: View {
             selectedTagId = nil
             dismiss()
         }) {
-            HStack {
+            HStack(spacing: 12) {
                 Circle()
-                    .fill(Color.gray)
+                    .fill(Color.gray.opacity(0.5))
                     .frame(width: 12, height: 12)
 
-                Text("Personal (Default)")
-                    .font(.system(size: 15, weight: .medium))
+                Text("Personal")
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                 Spacer()
 
                 if selectedTagId == nil {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color.gray.opacity(0.6))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(selectedTagId == nil ? Color.gray.opacity(0.1) : Color.clear)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(selectedTagId == nil ? Color.gray.opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(selectedTagId == nil ? Color.gray.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
         }
         .buttonStyle(PlainButtonStyle())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     private var userTagsSection: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: 8) {
                 ForEach(tagManager.tags, id: \.id) { tag in
                     Button(action: {
                         selectedTagId = tag.id
                         dismiss()
                     }) {
-                        HStack {
+                        HStack(spacing: 12) {
                             Circle()
                                 .fill(tag.color)
                                 .frame(width: 12, height: 12)
 
                             Text(tag.name)
-                                .font(.system(size: 15, weight: .medium))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
 
                             if selectedTagId == tag.id {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 14, weight: .semibold))
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 16))
                                     .foregroundColor(tag.color)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(selectedTagId == tag.id ? tag.color.opacity(0.1) : Color.clear)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedTagId == tag.id ? tag.color.opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(selectedTagId == tag.id ? tag.color.opacity(0.3) : Color.clear, lineWidth: 1)
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
-
-                    if tag.id != tagManager.tags.last?.id {
-                        Divider()
-                    }
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
     }
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
+            VStack(spacing: 12) {
                 createNewTagSection
 
                 personalTagSection
-
-                Divider()
 
                 userTagsSection
 
