@@ -38,6 +38,14 @@ class SearchService: ObservableObject {
     @Published var currentMultiActionIndex: Int = 0
     private var originalMultiActionQuery: String = ""  // Track original query for context
 
+    // Quick reply suggestions for follow-up questions
+    @Published var quickReplySuggestions: [String] = []
+    @Published var isGeneratingSuggestions: Bool = false
+
+    // Streaming response support
+    @Published var enableStreamingResponses: Bool = true  // Toggle for streaming vs non-streaming
+    private var streamingMessageID: UUID? = nil
+
     // Track recently created items for context in follow-up actions
     private var lastCreatedEventTitle: String? = nil
     private var lastCreatedEventDate: String? = nil
@@ -611,21 +619,63 @@ class SearchService: ObservableObject {
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
         do {
-            let response = try await OpenAIService.shared.answerQuestion(
-                query: trimmed,
-                taskManager: TaskManager.shared,
-                notesManager: NotesManager.shared,
-                emailService: EmailService.shared,
-                weatherService: WeatherService.shared,
-                locationsManager: LocationsManager.shared,
-                navigationService: NavigationService.shared,
-                newsService: NewsService.shared,
-                conversationHistory: conversationHistory.dropLast() // All messages except the current user message
-            )
+            if enableStreamingResponses {
+                // Use streaming response
+                var fullResponse = ""
+                let streamingMessageID = UUID()
+                self.streamingMessageID = streamingMessageID
 
-            let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
-            conversationHistory.append(assistantMsg)
-            saveConversationLocally()
+                // Create initial empty message
+                let assistantMsg = ConversationMessage(isUser: false, text: "", intent: .general, id: streamingMessageID)
+                conversationHistory.append(assistantMsg)
+
+                try await OpenAIService.shared.answerQuestionWithStreaming(
+                    query: trimmed,
+                    taskManager: TaskManager.shared,
+                    notesManager: NotesManager.shared,
+                    emailService: EmailService.shared,
+                    weatherService: WeatherService.shared,
+                    locationsManager: LocationsManager.shared,
+                    navigationService: NavigationService.shared,
+                    newsService: NewsService.shared,
+                    conversationHistory: conversationHistory.dropLast(2), // All messages except user message and streaming placeholder
+                    onChunk: { chunk in
+                        fullResponse += chunk
+                        // Update the last message with the accumulated response
+                        if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                            self.conversationHistory[lastIndex].text = fullResponse
+                            self.saveConversationLocally()
+                        }
+                    }
+                )
+
+                // Generate quick reply suggestions asynchronously
+                Task {
+                    await generateQuickReplySuggestions(userMessage: trimmed, assistantResponse: fullResponse)
+                }
+            } else {
+                // Non-streaming response
+                let response = try await OpenAIService.shared.answerQuestion(
+                    query: trimmed,
+                    taskManager: TaskManager.shared,
+                    notesManager: NotesManager.shared,
+                    emailService: EmailService.shared,
+                    weatherService: WeatherService.shared,
+                    locationsManager: LocationsManager.shared,
+                    navigationService: NavigationService.shared,
+                    newsService: NewsService.shared,
+                    conversationHistory: conversationHistory.dropLast() // All messages except the current user message
+                )
+
+                let assistantMsg = ConversationMessage(isUser: false, text: response, intent: .general)
+                conversationHistory.append(assistantMsg)
+                saveConversationLocally()
+
+                // Generate quick reply suggestions asynchronously
+                Task {
+                    await generateQuickReplySuggestions(userMessage: trimmed, assistantResponse: response)
+                }
+            }
         } catch {
             let errorMsg = ConversationMessage(
                 isUser: false,
@@ -637,6 +687,23 @@ class SearchService: ObservableObject {
         }
 
         isLoadingQuestionResponse = false
+    }
+
+    /// Generate quick reply suggestions for follow-up questions
+    private func generateQuickReplySuggestions(userMessage: String, assistantResponse: String) async {
+        isGeneratingSuggestions = true
+        defer { isGeneratingSuggestions = false }
+
+        do {
+            let suggestions = try await OpenAIService.shared.generateQuickReplySuggestions(
+                for: userMessage,
+                lastAssistantResponse: assistantResponse
+            )
+            quickReplySuggestions = suggestions
+        } catch {
+            // Fail silently - suggestions are not critical
+            quickReplySuggestions = []
+        }
     }
 
     /// Clear conversation state completely (called when user dismisses conversation modal)
@@ -666,6 +733,7 @@ class SearchService: ObservableObject {
         questionResponse = nil
         conversationTitle = "New Conversation"
         currentlyLoadedConversationId = nil
+        quickReplySuggestions = []
     }
 
     /// Start a conversation with an initial question

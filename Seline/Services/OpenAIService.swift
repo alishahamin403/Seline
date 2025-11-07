@@ -1904,6 +1904,15 @@ class OpenAIService: ObservableObject {
         For weather queries: Use the provided weather data and forecast.
         Always be helpful and provide specific details when available.
 
+        FORMATTING INSTRUCTIONS:
+        - Use **bold** for important information, dates, times, amounts, and key facts
+        - Use bullet points (- ) for lists of items
+        - Use numbered lists (1. 2. 3.) for steps or prioritized items
+        - Use `code formatting` for technical details or specific values
+        - Use heading style (## or ###) for different sections
+        - Break information into short paragraphs with clear spacing
+        - Never use walls of text - prioritize readability with proper formatting
+
         Context about user's data:
         \(context)
         """
@@ -1935,15 +1944,165 @@ class OpenAIService: ObservableObject {
         ]
 
         let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
-        // Remove markdown formatting
-        var cleanedResponse = response
-        cleanedResponse = cleanedResponse.replacingOccurrences(of: "##", with: "")  // Remove ## headers
-        cleanedResponse = cleanedResponse.replacingOccurrences(of: "###", with: "") // Remove ### headers
-        cleanedResponse = cleanedResponse.replacingOccurrences(of: "**", with: "")  // Remove bold
-        cleanedResponse = cleanedResponse.replacingOccurrences(of: "__", with: "")  // Remove bold (alt)
-        cleanedResponse = cleanedResponse.replacingOccurrences(of: "*", with: "")   // Remove italic/list
-        cleanedResponse = cleanedResponse.replacingOccurrences(of: "_", with: "")   // Remove italic (alt)
-        return cleanedResponse
+        return response
+    }
+
+    /// Stream a response from the LLM with streaming support
+    /// This returns chunks of text as they become available from the API
+    func answerQuestionWithStreaming(
+        query: String,
+        taskManager: TaskManager,
+        notesManager: NotesManager,
+        emailService: EmailService,
+        weatherService: WeatherService? = nil,
+        locationsManager: LocationsManager? = nil,
+        navigationService: NavigationService? = nil,
+        newsService: NewsService? = nil,
+        conversationHistory: [ConversationMessage] = [],
+        onChunk: @escaping (String) -> Void
+    ) async throws {
+        // Rate limiting
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        // Extract context from the query with all available data
+        let context = buildContextForQuestion(
+            query: query,
+            taskManager: taskManager,
+            notesManager: notesManager,
+            emailService: emailService,
+            weatherService: weatherService,
+            locationsManager: locationsManager,
+            navigationService: navigationService,
+            newsService: newsService,
+            conversationHistory: conversationHistory
+        )
+
+        let systemPrompt = """
+        You are a helpful personal assistant that helps users understand their schedule, notes, emails, weather, locations, and saved places.
+        Based on the provided context about the user's data, answer their question in a clear, concise way.
+        If the user asks about "tomorrow", "today", "next week", etc., use the current date context provided.
+        For location-based queries: You can filter by country, city, category (folder), distance, or duration.
+        For weather queries: Use the provided weather data and forecast.
+        Always be helpful and provide specific details when available.
+
+        FORMATTING INSTRUCTIONS:
+        - Use **bold** for important information, dates, times, amounts, and key facts
+        - Use bullet points (- ) for lists of items
+        - Use numbered lists (1. 2. 3.) for steps or prioritized items
+        - Use `code formatting` for technical details or specific values
+        - Use heading style (## or ###) for different sections
+        - Break information into short paragraphs with clear spacing
+        - Never use walls of text - prioritize readability with proper formatting
+
+        Context about user's data:
+        \(context)
+        """
+
+        // Build messages array with conversation history
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+
+        // Add previous conversation messages
+        for message in conversationHistory {
+            messages.append([
+                "role": message.isUser ? "user" : "assistant",
+                "content": message.text
+            ])
+        }
+
+        // Add current query
+        messages.append([
+            "role": "user",
+            "content": query
+        ])
+
+        var requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 500
+        ]
+
+        // Add stream flag for streaming requests
+        requestBody["stream"] = true
+
+        // Make streaming request
+        try await makeOpenAIStreamingRequest(url: url, requestBody: requestBody, onChunk: onChunk)
+    }
+
+    /// Make a streaming request to the OpenAI API
+    private func makeOpenAIStreamingRequest(
+        url: URL,
+        requestBody: [String: Any],
+        onChunk: @escaping (String) -> Void
+    ) async throws {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SummaryError.noData
+        }
+
+        if httpResponse.statusCode != 200 {
+            throw SummaryError.apiError("HTTP \(httpResponse.statusCode)")
+        }
+
+        // Process streaming response
+        var buffer = ""
+        for try await line in bytes.lines {
+            let line = line.trimmingCharacters(in: .whitespaces)
+
+            // Skip empty lines and keep-alive comments
+            if line.isEmpty || line.hasPrefix(":") {
+                continue
+            }
+
+            // Parse SSE format: data: {json}
+            if line.hasPrefix("data: ") {
+                let jsonString = String(line.dropFirst(6))
+
+                // Check for stream end
+                if jsonString == "[DONE]" {
+                    if !buffer.isEmpty {
+                        onChunk(buffer)
+                        buffer = ""
+                    }
+                    continue
+                }
+
+                // Parse JSON chunk
+                if let jsonData = jsonString.data(using: .utf8),
+                   let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                   let choices = json["choices"] as? [[String: Any]],
+                   let firstChoice = choices.first,
+                   let delta = firstChoice["delta"] as? [String: Any],
+                   let content = delta["content"] as? String {
+                    buffer += content
+
+                    // Send content when we have a complete word or punctuation
+                    if content.last?.isWhitespace ?? false || content.last?.isPunctuation ?? false {
+                        onChunk(buffer)
+                        buffer = ""
+                    }
+                }
+            }
+        }
+
+        // Send any remaining content
+        if !buffer.isEmpty {
+            onChunk(buffer)
+        }
     }
 
     @MainActor
@@ -2362,6 +2521,65 @@ struct EmbeddingResponse: Codable {
 struct EmbeddingData: Codable {
     let embedding: [Float]
     let index: Int
+}
+
+    /// Generate quick reply suggestions based on the latest conversation messages
+    /// This helps users continue the conversation naturally with AI-suggested follow-up questions
+    func generateQuickReplySuggestions(
+        for lastUserMessage: String,
+        lastAssistantResponse: String,
+        conversationHistory: [ConversationMessage] = []
+    ) async throws -> [String] {
+        // Rate limiting
+        await enforceRateLimit()
+
+        guard let url = URL(string: baseURL) else {
+            throw SummaryError.invalidURL
+        }
+
+        let systemPrompt = """
+        You are a helpful assistant that generates natural follow-up questions for conversations.
+        Generate 3 diverse, relevant follow-up questions that:
+        1. Continue the conversation naturally
+        2. Explore different angles of the topic
+        3. Ask for clarification or more details
+        4. Are concise (under 10 words each)
+
+        Return ONLY 3 follow-up questions, one per line. Do not include numbering or bullets.
+        Do not include markdown formatting. Just plain text questions.
+
+        Examples:
+        Can you tell me more details?
+        What about next week?
+        How does this compare to last month?
+        """
+
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": lastUserMessage],
+            ["role": "assistant", "content": lastAssistantResponse],
+            ["role": "user", "content": "Generate 3 follow-up questions"]
+        ]
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 100
+        ]
+
+        let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
+
+        // Parse the response into individual suggestions
+        let suggestions = response
+            .split(separator: "\n")
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+            .map { String($0) }
+
+        return Array(suggestions)
+    }
 }
 
 // MARK: - String Extension for Pattern Matching

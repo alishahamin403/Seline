@@ -190,6 +190,18 @@ struct ConversationSearchView: View {
                 }
             }
 
+            // Quick reply suggestions
+            if !searchService.quickReplySuggestions.isEmpty && !searchService.isWaitingForActionResponse {
+                QuickReplySuggestions(
+                    suggestions: searchService.quickReplySuggestions,
+                    onSuggestionTapped: { suggestion in
+                        HapticManager.shared.selection()
+                        messageText = suggestion
+                        isInputFocused = true
+                    }
+                )
+            }
+
             // Input area - show appropriate input based on context
             VStack(spacing: 12) {
                 HStack(spacing: 12) {
@@ -271,27 +283,54 @@ struct ConversationMessageView: View {
     let message: ConversationMessage
     @Environment(\.colorScheme) var colorScheme
 
+    // Determine if message has complex formatting
+    private var hasComplexFormatting: Bool {
+        message.text.contains("**") || message.text.contains("*") ||
+            message.text.contains("`") || message.text.contains("- ") ||
+            message.text.contains("• ") || message.text.contains("\n")
+    }
+
     var body: some View {
         VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
-            HStack {
+            HStack(alignment: .top, spacing: 8) {
                 if message.isUser {
                     Spacer()
                 }
 
-                VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
-                    Text(message.text)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
-                        .textSelection(.enabled)
-                        .lineLimit(nil)
+                VStack(alignment: message.isUser ? .trailing : .leading, spacing: 8) {
+                    if hasComplexFormatting && !message.isUser {
+                        // Use markdown renderer for AI responses with formatting
+                        MarkdownText(markdown: message.text, colorScheme: colorScheme)
+                            .frame(maxWidth: UIScreen.main.bounds.width * 0.80)
+                    } else {
+                        // Simple text for user messages or unformatted AI responses
+                        Text(message.text)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
+                            .textSelection(.enabled)
+                            .lineLimit(nil)
+                            .frame(maxWidth: UIScreen.main.bounds.width * 0.80, alignment: message.isUser ? .trailing : .leading)
+                    }
                 }
-                .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.isUser ? .trailing : .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(message.isUser ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray.opacity(0.2))
+                        .fill(
+                            message.isUser
+                                ? (colorScheme == .dark ? Color.white : Color.black)
+                                : (colorScheme == .dark
+                                    ? Color.gray.opacity(0.15)
+                                    : Color.gray.opacity(0.15))
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(
+                            message.isUser ? Color.clear : Color.gray.opacity(0.2),
+                            lineWidth: 0.5
+                        )
                 )
 
                 if !message.isUser {
@@ -299,10 +338,18 @@ struct ConversationMessageView: View {
                 }
             }
 
-            Text(message.formattedTime)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .padding(.horizontal, 12)
+            // Message timestamp
+            HStack {
+                if !message.isUser {
+                    Spacer()
+                }
+                Text(message.formattedTime)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                if message.isUser {
+                    Spacer()
+                }
+            }
         }
         .padding(.horizontal, 16)
     }
