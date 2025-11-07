@@ -38,10 +38,6 @@ class SearchService: ObservableObject {
     @Published var currentMultiActionIndex: Int = 0
     private var originalMultiActionQuery: String = ""  // Track original query for context
 
-    // Quick reply suggestions for follow-up questions
-    @Published var quickReplySuggestions: [String] = []
-    @Published var isGeneratingSuggestions: Bool = false
-
     // Streaming response support
     @Published var enableStreamingResponses: Bool = true  // Toggle for streaming vs non-streaming
     private var streamingMessageID: UUID? = nil
@@ -656,11 +652,6 @@ class SearchService: ObservableObject {
                         }
                     }
                 )
-
-                // Generate quick reply suggestions asynchronously
-                Task {
-                    await generateQuickReplySuggestions(userMessage: trimmed, assistantResponse: fullResponse)
-                }
             } else {
                 // Non-streaming response
                 let response = try await OpenAIService.shared.answerQuestion(
@@ -678,11 +669,6 @@ class SearchService: ObservableObject {
                 let assistantMsg = ConversationMessage(id: UUID(), isUser: false, text: response, timestamp: Date(), intent: .general)
                 conversationHistory.append(assistantMsg)
                 saveConversationLocally()
-
-                // Generate quick reply suggestions asynchronously
-                Task {
-                    await generateQuickReplySuggestions(userMessage: trimmed, assistantResponse: response)
-                }
             }
         } catch {
             let errorMsg = ConversationMessage(
@@ -700,22 +686,6 @@ class SearchService: ObservableObject {
     }
 
     /// Generate quick reply suggestions for follow-up questions
-    private func generateQuickReplySuggestions(userMessage: String, assistantResponse: String) async {
-        isGeneratingSuggestions = true
-        defer { isGeneratingSuggestions = false }
-
-        do {
-            let suggestions = try await OpenAIService.shared.generateQuickReplySuggestions(
-                for: userMessage,
-                lastAssistantResponse: assistantResponse
-            )
-            quickReplySuggestions = suggestions
-        } catch {
-            // Fail silently - suggestions are not critical
-            quickReplySuggestions = []
-        }
-    }
-
     /// Clear conversation state completely (called when user dismisses conversation modal)
     func clearConversation() {
         // Save to history before clearing (if there's content)

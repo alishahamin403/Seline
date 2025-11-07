@@ -190,18 +190,6 @@ struct ConversationSearchView: View {
                 }
             }
 
-            // Quick reply suggestions
-            if !searchService.quickReplySuggestions.isEmpty && !searchService.isWaitingForActionResponse {
-                QuickReplySuggestions(
-                    suggestions: searchService.quickReplySuggestions,
-                    onSuggestionTapped: { suggestion in
-                        HapticManager.shared.selection()
-                        messageText = suggestion
-                        isInputFocused = true
-                    }
-                )
-            }
-
             // Input area - show appropriate input based on context
             VStack(spacing: 12) {
                 HStack(spacing: 12) {

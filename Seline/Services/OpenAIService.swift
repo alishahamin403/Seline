@@ -2593,66 +2593,6 @@ struct EmbeddingData: Codable {
     let index: Int
 }
 
-/// Generate quick reply suggestions based on the latest conversation messages
-/// This helps users continue the conversation naturally with AI-suggested follow-up questions
-extension OpenAIService {
-    func generateQuickReplySuggestions(
-        for lastUserMessage: String,
-        lastAssistantResponse: String,
-        conversationHistory: [ConversationMessage] = []
-    ) async throws -> [String] {
-        // Rate limiting
-        await enforceRateLimit()
-
-        guard let url = URL(string: baseURL) else {
-            throw SummaryError.invalidURL
-        }
-
-        let systemPrompt = """
-        You are a helpful assistant that generates natural follow-up questions for conversations.
-        Generate 3 diverse, relevant follow-up questions that:
-        1. Continue the conversation naturally
-        2. Explore different angles of the topic
-        3. Ask for clarification or more details
-        4. Are concise (under 10 words each)
-
-        Return ONLY 3 follow-up questions, one per line. Do not include numbering or bullets.
-        Do not include markdown formatting. Just plain text questions.
-
-        Examples:
-        Can you tell me more details?
-        What about next week?
-        How does this compare to last month?
-        """
-
-        var messages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt],
-            ["role": "user", "content": lastUserMessage],
-            ["role": "assistant", "content": lastAssistantResponse],
-            ["role": "user", "content": "Generate 3 follow-up questions"]
-        ]
-
-        let requestBody: [String: Any] = [
-            "model": "gpt-4o-mini",
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 100
-        ]
-
-        let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
-
-        // Parse the response into individual suggestions
-        let suggestions = response
-            .split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .prefix(3)
-            .map { String($0) }
-
-        return Array(suggestions)
-    }
-}
-
 // MARK: - String Extension for Pattern Matching
 extension String {
     func matches(_ pattern: String) -> Bool {

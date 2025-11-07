@@ -1,0 +1,310 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        SELINE LLM CHAT ARCHITECTURE                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                              USER INTERFACE LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          ConversationSearchView                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │ Header: Title + History/Close Buttons                               │  │
+│  ├──────────────────────────────────────────────────────────────────────┤  │
+│  │ ScrollView: ConversationMessageView (repeated)                      │  │
+│  │ ┌──────────────────────────────┐  ┌──────────────────────────────┐ │  │
+│  │ │ User Message (right-aligned) │  │ Assistant Message (left)     │ │  │
+│  │ │ Dark bubble, timestamp       │  │ Light gray, timestamp        │ │  │
+│  │ └──────────────────────────────┘  └──────────────────────────────┘ │  │
+│  ├──────────────────────────────────────────────────────────────────────┤  │
+│  │ ActionConfirmationView (when action pending)                        │  │
+│  │ ┌──────────────────────────────────────────────────────────────┐   │  │
+│  │ │ Event/Note Title                                             │   │  │
+│  │ │ Details (date/time/content)                                  │   │  │
+│  │ │ [Cancel Button] [Confirm Button]                             │   │  │
+│  │ └──────────────────────────────────────────────────────────────┘   │  │
+│  ├──────────────────────────────────────────────────────────────────────┤  │
+│  │ Input Area: TextField + Send Button                                 │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│                      ConversationHistoryView (Modal)                        │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │ List of SavedConversation objects                                    │  │
+│  │ - Title, Date Created, Message Count, First Message Preview         │  │
+│  │ - Edit mode for bulk deletion                                        │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      ↑
+                                      │
+                  ┌───────────────────┴───────────────────┐
+                  │                                       │
+            ┌─────▼──────┐                          ┌─────▼──────┐
+            │   Display  │                          │   Manage   │
+            │ Conversation│                          │ Persistence│
+            └──────────────┘                         └──────────────┘
+
+
+                          STATE MANAGEMENT LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          SearchService (Singleton)                           │
+│ @Published Properties:                                                       │
+│  • conversationHistory: [ConversationMessage]                               │
+│  • isInConversationMode: Bool                                               │
+│  • conversationTitle: String                                                │
+│  • savedConversations: [SavedConversation]                                  │
+│  • currentInteractiveAction: InteractiveAction?                             │
+│  • actionPrompt: String?                                                    │
+│  • isWaitingForActionResponse: Bool                                         │
+│  • pendingMultiActions: [(ActionType, String)]                              │
+│  • pendingEventCreation: EventCreationData?                                 │
+│  • pendingNoteCreation: NoteCreationData?                                   │
+│                                                                              │
+│ Key Methods:                                                                 │
+│  • performSearch(query) → Routes to appropriate handler                     │
+│  • addConversationMessage(message) → Processes non-action queries           │
+│  • startConversationalAction(message, actionType) → Action flow             │
+│  • continueConversationalAction(message) → Multi-turn action building      │
+│  • confirmEventCreation() / confirmNoteCreation() → Save to app             │
+└──────────────────────────────────────────────────────────────────────────────┘
+                           ↓                      ↓
+                ┌──────────┴──────────┐  ┌────────────────────┐
+                │                     │  │                    │
+           ┌────▼─────┐         ┌─────▼──▼────┐      ┌────────▼───────┐
+           │ Detects  │         │ Classifies  │      │ Handles Multi  │
+           │ Questions│         │ Query Type  │      │ Actions        │
+           └──────────┘         └─────────────┘      └────────────────┘
+
+
+                    QUERY CLASSIFICATION & ROUTING LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              QueryRouter                                     │
+│  Query Input                                                                 │
+│    │                                                                         │
+│    ├─ Contains "?" or Question Keywords (why, how, what, when, where, who)  │
+│    │   → QueryType.question → SearchService.startConversation()             │
+│    │                                                                         │
+│    ├─ Contains Action Keywords (create, add, delete, update)                │
+│    │   → QueryType.action(ActionType) → startConversationalAction()         │
+│    │   └─ Semantic fallback: classifyIntentWithLLM()                        │
+│    │                                                                         │
+│    └─ Content Search Query                                                   │
+│        → QueryType.search → SearchService.searchContent()                    │
+│                                                                              │
+│  ActionType: createEvent | updateEvent | deleteEvent                        │
+│              createNote  | updateNote  | deleteNote                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                    CONVERSATIONAL ACTION BUILDING LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│              ConversationActionHandler (Singleton, @MainActor)               │
+│                                                                              │
+│  User Message Input                                                          │
+│    │                                                                         │
+│    ├─ startAction()                                                          │
+│    │   └─ InformationExtractor.extractFromMessage()                         │
+│    │       → Returns InteractiveAction with extracted fields                │
+│    │                                                                         │
+│    ├─ getNextPrompt()                                                        │
+│    │   ├─ For events: Event-specific prompt logic                           │
+│    │   ├─ For notes: Note-specific prompt logic                             │
+│    │   └─ Handles: Extraction → Clarification → Confirmation → Save         │
+│    │                                                                         │
+│    ├─ continueConversationalAction()                                        │
+│    │   ├─ Extract additional fields from response                           │
+│    │   ├─ Check if action is ready to save                                  │
+│    │   └─ Return next prompt if more info needed                            │
+│    │                                                                         │
+│    └─ compileData() Methods                                                  │
+│        ├─ compileEventData() → EventCreationData                            │
+│        ├─ compileNoteData() → NoteCreationData                              │
+│        └─ compileDeletionData() → DeletionData                              │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  InteractiveAction (State Container)                                 │  │
+│  │  ┌────────────────────────────────────────────────────────────────┐ │  │
+│  │  │  ExtractedActionInfo:                   ExtractionState:      │ │  │
+│  │  │  • eventTitle/Description               • isExtracting        │ │  │
+│  │  │  • eventDate/Time/Reminders/Recurrence • isConfirming        │ │  │
+│  │  │  • noteTitle/Content                    • requiredFields     │ │  │
+│  │  │  • targetItemTitle                      • confirmedFields    │ │  │
+│  │  │  • isComplete() → Check all fields      • nextFieldToConfirm │ │  │
+│  │  │  • missingRequiredFields()              • isReadyToSave()   │ │  │
+│  │  └────────────────────────────────────────────────────────────────┘ │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  Related Services:                                                           │
+│  • InteractiveEventBuilder → Event-specific flow                            │
+│  • InteractiveNoteBuilder → Note-specific flow                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                        INFORMATION EXTRACTION LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         InformationExtractor                                 │
+│                                                                              │
+│  Input: User Message + Existing Action + Conversation Context               │
+│    │                                                                         │
+│    └─ LLM Call (OpenAI gpt-4o-mini)                                         │
+│       └─ Detailed Extraction Prompt                                         │
+│           ├─ Extract: Title, Date (natural language), Time                  │
+│           ├─ Extract: Description, Recurrence Pattern                       │
+│           ├─ Parse: "tomorrow", "next Friday", "2 weeks from now"           │
+│           └─ Context-Aware: Handle pronouns ("add to that event")           │
+│                                                                              │
+│  Output: Updated InteractiveAction with extracted fields                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                          LLM INTEGRATION LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           OpenAIService                                      │
+│                                                                              │
+│  answerQuestion()                                                            │
+│  ├─ Input: Query + Full App Context                                        │
+│  ├─ Context Building:                                                       │
+│  │  ├─ Current Date/Time (for "tomorrow", "next week")                     │
+│  │  ├─ Weather Data & Forecast                                             │
+│  │  ├─ All Tasks/Events with Completion Status                            │
+│  │  ├─ All Notes with Folder Structure                                    │
+│  │  ├─ All Emails (Recent First)                                          │
+│  │  ├─ Saved Locations with Filters                                       │
+│  │  ├─ Navigation ETAs                                                     │
+│  │  └─ News Articles (if query mentions news)                             │
+│  ├─ Model: gpt-4o-mini, Temperature: 0.7, Max Tokens: 500                 │
+│  └─ Output: Formatted response without markdown                            │
+│                                                                              │
+│  getEmbedding()                                                              │
+│  ├─ Model: text-embedding-3-small                                          │
+│  ├─ Caching: Stores embeddings to avoid repeated API calls                │
+│  └─ Output: Float vector for semantic similarity                           │
+│                                                                              │
+│  getSemanticSimilarityScore(query, content)                                 │
+│  ├─ Get embeddings for both query and content                              │
+│  ├─ Calculate cosine similarity                                            │
+│  └─ Return score 0-10 for search ranking                                   │
+│                                                                              │
+│  Rate Limiting: 2-second minimum between requests                           │
+│  Error Handling: apiError, rateLimitExceeded, networkError, etc.           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                      CONTEXT MANAGEMENT LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                     ConversationContextService                               │
+│                                                                              │
+│  Purpose: Track conversation context to improve search and suggestions       │
+│                                                                              │
+│  Maintains:                                                                  │
+│  • recentSearches: Last 20 queries with topics and results                  │
+│  • currentTopics: Active discussion topics                                   │
+│  • conversationHistory: Last 100 conversation items                          │
+│                                                                              │
+│  Key Operations:                                                             │
+│  • trackSearch(query, topics, resultCount)                                   │
+│  • extractTopicsFromQuery() → Hashtags & category keywords                  │
+│  • getRelatedSearchSuggestions() → Top 5 topics                             │
+│  • isPossibleFollowUp() → Detect query refinements                          │
+│  • getContextBoost() → Boost scoring for related items                      │
+│  • getContextualSearchBoost() → Expand query with topics                    │
+│                                                                              │
+│  String Similarity: Levenshtein distance for fuzzy matching                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                        DATA PERSISTENCE LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  Local Storage (UserDefaults):                                               │
+│  └─ SavedConversation (JSON encoded)                                        │
+│     ├─ id: UUID                                                             │
+│     ├─ title: String (auto-generated by LLM)                                │
+│     ├─ messages: [ConversationMessage]                                      │
+│     └─ createdAt: Date                                                      │
+│                                                                              │
+│  Cloud Storage (Supabase):                                                   │
+│  └─ Conversation table                                                      │
+│     └─ Called on app background / dismissal                                 │
+│                                                                              │
+│  Auto-Save: Every new message                                                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                        APP INTEGRATION LAYER
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  TaskManager.shared.addTask()                                                │
+│  └─ Called from confirmEventCreation()                                      │
+│     └─ Passes: title, date, time, description, recurrence, reminders       │
+│                                                                              │
+│  NotesManager.shared.addNote() / updateNote()                               │
+│  └─ Called from confirmNoteCreation() / confirmNoteUpdate()                 │
+│     └─ Passes: title, content                                               │
+│                                                                              │
+│  WeatherService.shared.weatherData                                          │
+│  └─ Included in OpenAI context for queries                                  │
+│                                                                              │
+│  LocationsManager.shared.savedPlaces                                        │
+│  └─ Included in OpenAI context for location queries                         │
+│                                                                              │
+│  EmailService.shared.inboxEmails                                            │
+│  └─ Included in OpenAI context for email queries                            │
+│                                                                              │
+│  NewsService.shared.getAllNews()                                            │
+│  └─ Included in OpenAI context (if query mentions news)                     │
+│                                                                              │
+│  NavigationService.shared (ETAs)                                            │
+│  └─ Included in OpenAI context                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                           MAIN DATA FLOW
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  User Types Message                                                          │
+│  │                                                                           │
+│  ├─ ConversationSearchView captures input                                   │
+│  │                                                                           │
+│  └─ SearchService.performSearch(query)                                      │
+│     │                                                                        │
+│     ├─ Is Question? → startConversation()                                   │
+│     │   └─ addConversationMessage() with user message                       │
+│     │   └─ OpenAIService.answerQuestion() [with full context]              │
+│     │   └─ Display assistant response in ConversationMessageView            │
+│     │   └─ Save to UserDefaults                                             │
+│     │                                                                        │
+│     ├─ Is Action? → startConversationalAction()                             │
+│     │   └─ Create InteractiveAction                                         │
+│     │   └─ Add user message to history                                      │
+│     │   └─ ConversationActionHandler.getNextPrompt()                        │
+│     │   └─ Display prompt in ConversationMessageView                        │
+│     │   └─ Set isWaitingForActionResponse = true                            │
+│     │   │                                                                    │
+│     │   └─ User Responds to Prompt                                          │
+│     │       └─ continueConversationalAction()                               │
+│     │       └─ InformationExtractor parses response                         │
+│     │       └─ Check if all required fields present                         │
+│     │       │                                                                │
+│     │       ├─ If Complete → executeConversationalAction()                  │
+│     │       │   └─ compileData() → EventCreationData/NoteCreationData      │
+│     │       │   └─ Show ActionConfirmationView                              │
+│     │       │   └─ User Confirms                                            │
+│     │       │   └─ confirmEventCreation() → TaskManager.addTask()           │
+│     │       │   └─ Add success message to history                           │
+│     │       │   └─ Process next multi-action if any                         │
+│     │       │                                                                │
+│     │       └─ If Incomplete → Get Next Prompt                              │
+│     │           └─ ConversationActionHandler.getNextPrompt()                │
+│     │           └─ Display new prompt                                       │
+│     │           └─ Loop until complete                                      │
+│     │                                                                        │
+│     └─ Is Search? → searchContent()                                         │
+│         └─ Normal keyword + semantic search                                 │
+│         └─ Display SearchResults                                            │
+│                                                                              │
+│  On Conversation Close                                                       │
+│  └─ generateFinalConversationTitle() [LLM summarizes conversation]          │
+│  └─ saveConversationToSupabase()                                            │
+│  └─ clearConversation()                                                     │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
