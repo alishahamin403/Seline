@@ -301,7 +301,7 @@ struct ConversationMessageView: View {
                     if hasComplexFormatting && !message.isUser {
                         // Use markdown renderer for AI responses with formatting
                         MarkdownText(markdown: message.text, colorScheme: colorScheme)
-                            .frame(maxWidth: UIScreen.main.bounds.width * 0.80)
+                            .frame(maxWidth: UIScreen.main.bounds.width * 0.80, alignment: message.isUser ? .trailing : .leading)
                     } else {
                         // Simple text for user messages or unformatted AI responses
                         Text(message.text)
