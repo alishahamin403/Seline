@@ -1024,8 +1024,9 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
-        // Support up to 24000 characters (more realistic for cleanup)
-        let maxContentLength = 24000
+        // Support up to 48000 characters (~12000 tokens) for cleanup
+        // 8-10 pages of text typically requires ~48000 characters max
+        let maxContentLength = 48000
         let processedText: String
 
         if text.count > maxContentLength {
@@ -1088,7 +1089,7 @@ class OpenAIService: ObservableObject {
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userPrompt]
             ],
-            "max_tokens": 3000,
+            "max_tokens": 12000,
             "temperature": 0.2
         ]
 
