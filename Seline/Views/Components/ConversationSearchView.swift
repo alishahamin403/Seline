@@ -286,6 +286,7 @@ struct ConversationMessageView: View {
                         .lineLimit(nil)
                 }
                 .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.isUser ? .trailing : .leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
