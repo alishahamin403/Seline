@@ -146,7 +146,7 @@ class MetadataBuilderService {
     private static func buildLocationMetadata(from locationsManager: LocationsManager) -> [LocationMetadata] {
         return locationsManager.savedPlaces.map { location in
             let (city, province, country) = extractLocationParts(from: location.address)
-            let (folderCity, folderProvince, folderCountry) = extractLocationPartsFromFolder(location.category)
+            let (folderCity, folderProvince, folderCountry) = extractLocationPartsFromFolder(from: location.category)
 
             print("📍 Location: \(location.name)")
             print("   Address: \(location.address) → City: \(city ?? "N/A"), Province: \(province ?? "N/A")")
