@@ -3101,24 +3101,30 @@ class OpenAIService: ObservableObject {
         let systemPrompt = """
         You are a data analyst. Given the user's question and metadata about available data, determine which specific items are relevant.
 
+        CRITICAL: Use EXACT ID values from the metadata provided. Do NOT generate or modify IDs.
+
         Return ONLY a JSON object with these fields:
         {
-            "receiptIds": ["id1", "id2"] or null,
-            "eventIds": ["id1", "id2"] or null,
-            "locationIds": ["id1", "id2"] or null,
-            "noteIds": ["id1", "id2"] or null,
-            "emailIds": ["id1", "id2"] or null,
+            "receiptIds": ["exact-uuid-from-metadata"] or null,
+            "eventIds": ["exact-uuid-from-metadata"] or null,
+            "locationIds": ["exact-uuid-from-metadata"] or null,
+            "noteIds": ["exact-uuid-from-metadata"] or null,
+            "emailIds": ["exact-email-id-from-metadata"] or null,
             "reasoning": "Brief explanation of your selection"
         }
+
+        IMPORTANT: All IDs must be copied EXACTLY as they appear in the metadata. Do not modify, shorten, or reconstruct IDs.
 
         Selection rules:
         - For date-based questions like "this week" or "this month", select items within that timeframe
         - For location questions:
-          * If user asks for "locations in [city]" or "saved locations in [city]", return ALL locations in that city (all categories)
-          * If user asks for "restaurants in [city]" or "restaurants near [place]", return only restaurant-type locations
-          * If user asks for "cafes in [city]", return only cafe-type locations
-          * Match by city/address first, then optionally by category if specified
-          * If query is ambiguous (e.g., "places in Hamilton"), include all location categories
+          * CRITICAL: Always check the "City" field in metadata to match requested city/location
+          * If user asks for "locations in [city]" or "saved locations in [city]", return ALL locations where City matches [city] (all categories)
+          * If user asks for "restaurants in [city]" or "restaurants near [place]", return only locations where City matches [city] AND category is restaurant/food
+          * If user asks for "cafes in [city]", return only locations where City matches [city] AND category is cafe/coffee
+          * EXACT MATCHING: If user asks for "Hamilton", look for City field containing "Hamilton"
+          * Return ALL matching locations, not just a few - if user asks for "all locations", return EVERY location in that city
+          * If query is ambiguous (e.g., "places in Hamilton"), include all location categories but filter by city
         - For expense questions, select receipts matching the category or date range
         - For event/activity questions (gym, workout, exercise, meeting, etc.):
           * CRITICAL: Only select events where isRecurring=true for recurring activity patterns
@@ -3378,6 +3384,16 @@ class OpenAIService: ObservableObject {
                 formatted += "- ID: \(location.id.uuidString)\n"
                 formatted += "  Name: \(location.displayName)\n"
                 formatted += "  Category: \(location.category)\n"
+                formatted += "  Address: \(location.address)\n"
+                if let city = location.city {
+                    formatted += "  City: \(city)\n"
+                }
+                if let province = location.province {
+                    formatted += "  Province/State: \(province)\n"
+                }
+                if let country = location.country {
+                    formatted += "  Country: \(country)\n"
+                }
                 if let rating = location.userRating {
                     formatted += "  Rating: \(rating)/10\n"
                 }

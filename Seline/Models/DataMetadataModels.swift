@@ -108,6 +108,9 @@ struct LocationMetadata: Codable, Identifiable {
     let customName: String?
     let category: String // cuisine/category type
     let address: String
+    let city: String? // City/Town name for geographic filtering
+    let province: String? // Province/State name for geographic filtering
+    let country: String? // Country name
     let userRating: Int? // 1-10 user rating
     let notes: String? // user's notes about the restaurant
     let cuisine: String? // user's cuisine classification

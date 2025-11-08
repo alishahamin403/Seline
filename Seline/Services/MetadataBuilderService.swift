@@ -145,12 +145,18 @@ class MetadataBuilderService {
     @MainActor
     private static func buildLocationMetadata(from locationsManager: LocationsManager) -> [LocationMetadata] {
         return locationsManager.savedPlaces.map { location in
-            LocationMetadata(
+            let (city, province, country) = extractLocationParts(from: location.address)
+            print("📍 Location: \(location.name) | Address: \(location.address) | City: \(city ?? "N/A") | Province: \(province ?? "N/A")")
+
+            return LocationMetadata(
                 id: location.id,
                 name: location.name,
                 customName: location.customName,
                 category: location.category,
                 address: location.address,
+                city: city,
+                province: province,
+                country: country,
                 userRating: location.userRating,
                 notes: location.userNotes, // This is the description field
                 cuisine: location.userCuisine,
@@ -161,6 +167,45 @@ class MetadataBuilderService {
                 isFrequent: nil // TODO: Determine from visitCount
             )
         }
+    }
+
+    /// Extract city, province/state, and country from an address string
+    /// Handles formats like: "Street, City, Province, Country" or "Street, City, State"
+    private static func extractLocationParts(from address: String) -> (city: String?, province: String?, country: String?) {
+        let parts = address.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+
+        // Common Canadian provinces/territories
+        let canadianProvinces = ["ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "PE", "NL", "YT", "NT", "NU",
+                                "Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba", "Saskatchewan",
+                                "Nova Scotia", "New Brunswick", "Prince Edward Island", "Newfoundland and Labrador",
+                                "Yukon", "Northwest Territories", "Nunavut"]
+
+        // Common US states
+        let usStates = ["CA", "NY", "TX", "FL", "IL", "PA", "OH", "GA", "NC", "MI", "NJ", "VA", "WA", "AZ", "MA", "TN", "IN", "MD", "MO", "WI", "CO", "MN", "SC", "AL", "LA", "KY", "OR", "OK", "CT", "UT", "IA", "NV", "AR", "KS", "MS", "NM", "NE", "ID", "HI", "NH", "ME", "MT", "RI", "DE", "SD", "ND", "VT", "AK", "WY", "DC",
+                            "California", "New York", "Texas", "Florida", "Illinois", "Pennsylvania", "Ohio", "Georgia", "North Carolina", "Michigan", "New Jersey", "Virginia", "Washington", "Arizona", "Massachusetts", "Tennessee", "Indiana", "Maryland", "Missouri", "Wisconsin", "Colorado", "Minnesota", "South Carolina", "Alabama", "Louisiana", "Kentucky", "Oregon", "Oklahoma", "Connecticut", "Utah", "Iowa", "Nevada", "Arkansas", "Kansas", "Mississippi", "New Mexico", "Nebraska", "Idaho", "Hawaii", "New Hampshire", "Maine", "Montana", "Rhode Island", "Delaware", "South Dakota", "North Dakota", "Vermont", "Alaska", "Wyoming", "District of Columbia"]
+
+        var city: String? = nil
+        var province: String? = nil
+        var country: String? = nil
+
+        if parts.count >= 2 {
+            city = parts[parts.count - 2]  // Second to last is usually city
+            let lastPart = parts.last ?? ""
+
+            // Check if last part is a province/state or country
+            if canadianProvinces.contains(lastPart) {
+                province = lastPart
+                country = "Canada"
+            } else if usStates.contains(lastPart) {
+                province = lastPart
+                country = "USA"
+            } else {
+                // Could be country name
+                country = lastPart
+            }
+        }
+
+        return (city, province, country)
     }
 
     // MARK: - Note Metadata Builder
