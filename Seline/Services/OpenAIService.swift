@@ -1885,16 +1885,16 @@ class OpenAIService: ObservableObject {
         // Optimize conversation history to reduce token usage
         let optimizedHistory = optimizeConversationHistory(conversationHistory)
 
-        // Extract context from the query with all available data (now includes semantic enrichment)
-        let context = await buildContextForQuestion(
+        // Extract context using intelligent metadata-first approach
+        // LLM analyzes metadata and identifies which data is relevant
+        let context = await buildSmartContextForQuestion(
             query: query,
             taskManager: taskManager,
             notesManager: notesManager,
             emailService: emailService,
-            weatherService: weatherService,
             locationsManager: locationsManager,
-            navigationService: navigationService,
-            conversationHistory: optimizedHistory
+            weatherService: weatherService,
+            navigationService: navigationService
         )
 
         let systemPrompt = """
@@ -2187,16 +2187,16 @@ class OpenAIService: ObservableObject {
         // Optimize conversation history to reduce token usage
         let optimizedHistory = optimizeConversationHistory(conversationHistory)
 
-        // Extract context from the query with all available data (now includes semantic enrichment)
-        let context = await buildContextForQuestion(
+        // Extract context using intelligent metadata-first approach
+        // LLM analyzes metadata and identifies which data is relevant
+        let context = await buildSmartContextForQuestion(
             query: query,
             taskManager: taskManager,
             notesManager: notesManager,
             emailService: emailService,
-            weatherService: weatherService,
             locationsManager: locationsManager,
-            navigationService: navigationService,
-            conversationHistory: optimizedHistory
+            weatherService: weatherService,
+            navigationService: navigationService
         )
 
         let systemPrompt = """
@@ -2941,6 +2941,261 @@ class OpenAIService: ObservableObject {
         }
 
         return context.isEmpty ? "No data available in the app." : context
+    }
+
+    // MARK: - New Intelligent Context Building (Metadata-First Approach)
+
+    /// NEW APPROACH: Build context by letting LLM intelligently filter metadata
+    /// Instead of pre-filtering in backend, send all metadata to LLM
+    /// LLM identifies which items are relevant and we fetch only those
+    @MainActor
+    func buildSmartContextForQuestion(
+        query: String,
+        taskManager: TaskManager,
+        notesManager: NotesManager,
+        emailService: EmailService,
+        locationsManager: LocationsManager? = nil,
+        weatherService: WeatherService? = nil,
+        navigationService: NavigationService? = nil
+    ) async -> String {
+        print("🧠 buildSmartContextForQuestion with query: '\(query)'")
+        let currentDate = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+
+        var context = ""
+
+        // Add current context
+        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+
+        // Step 1: Compile lightweight metadata from all data sources
+        let metadata = MetadataBuilderService.buildAppMetadata(
+            taskManager: taskManager,
+            notesManager: notesManager,
+            emailService: emailService,
+            locationsManager: locationsManager ?? LocationsManager.shared
+        )
+
+        // Step 2: Ask LLM which items are relevant based on metadata
+        let relevantItemIds = await getRelevantDataIds(
+            forQuestion: query,
+            metadata: metadata,
+            currentDate: currentDate
+        )
+
+        // Step 3: Fetch full details of relevant items
+        let fullData = await fetchFullDataForIds(
+            relevantItemIds: relevantItemIds,
+            taskManager: taskManager,
+            notesManager: notesManager,
+            emailService: emailService,
+            locationsManager: locationsManager ?? LocationsManager.shared
+        )
+
+        // Step 4: Add full data context to be sent to LLM
+        context += "=== AVAILABLE DATA ===\n\n"
+
+        // Add receipts
+        if !fullData.receipts.isEmpty {
+            context += "=== RECEIPTS/EXPENSES ===\n"
+            var totalAmount: Double = 0
+            for receipt in fullData.receipts.sorted(by: { $0.dateCreated > $1.dateCreated }) {
+                let dateStr = dateFormatter.string(from: receipt.dateCreated)
+                if let amount = MetadataBuilderService.extractAmountFromNote(receipt.content) {
+                    context += "• \(receipt.title) - $\(String(format: "%.2f", amount)) on \(dateStr)\n"
+                    totalAmount += amount
+                } else {
+                    context += "• \(receipt.title) on \(dateStr)\n"
+                }
+            }
+            if totalAmount > 0 {
+                context += "\nTotal: $\(String(format: "%.2f", totalAmount))\n"
+            }
+            context += "\n"
+        }
+
+        // Add events
+        if !fullData.events.isEmpty {
+            context += "=== EVENTS ===\n"
+            for event in fullData.events.sorted(by: { ($0.targetDate ?? Date()) > ($1.targetDate ?? Date()) }) {
+                let dateStr = event.targetDate.map { dateFormatter.string(from: $0) } ?? "No date"
+                let timeStr = event.scheduledTime.map { timeFormatter.string(from: $0) } ?? "All day"
+                let status = event.isCompleted ? "✓ Completed" : "○ Pending"
+                context += "• \(event.title) - \(dateStr) at \(timeStr) [\(status)]\n"
+                if let description = event.description {
+                    context += "  Description: \(description)\n"
+                }
+            }
+            context += "\n"
+        }
+
+        // Add locations
+        if !fullData.locations.isEmpty {
+            context += "=== SAVED LOCATIONS ===\n"
+            for location in fullData.locations {
+                var locStr = "• \(location.displayName) - \(location.category)"
+                if let rating = location.userRating {
+                    locStr += " (Rating: \(rating)/10)"
+                }
+                context += locStr + "\n"
+                if let notes = location.userNotes {
+                    context += "  Notes: \(notes)\n"
+                }
+            }
+            context += "\n"
+        }
+
+        // Add notes
+        if !fullData.notes.isEmpty {
+            context += "=== NOTES ===\n"
+            for note in fullData.notes.sorted(by: { $0.dateModified > $1.dateModified }) {
+                context += "• \(note.title) - \(dateFormatter.string(from: note.dateModified))\n"
+                context += "  \(note.content)\n\n"
+            }
+            context += "\n"
+        }
+
+        // Add emails
+        if !fullData.emails.isEmpty {
+            context += "=== EMAILS ===\n"
+            for email in fullData.emails.sorted(by: { $0.timestamp > $1.timestamp }) {
+                context += "• From: \(email.sender.displayName) - \(email.subject)\n"
+                context += "  \(email.snippet)\n"
+                context += "  \(timeFormatter.string(from: email.timestamp))\n\n"
+            }
+            context += "\n"
+        }
+
+        // Add weather if requested
+        if query.lowercased().contains("weather"), let weatherService = weatherService, let weatherData = weatherService.weatherData {
+            context += "=== WEATHER ===\n"
+            context += "Location: \(weatherData.locationName)\n"
+            context += "Current: \(weatherData.temperature)°C, \(weatherData.description)\n"
+        }
+
+        return context.isEmpty ? "No relevant data found for your question." : context
+    }
+
+    /// Ask LLM which items from metadata are relevant to the user's question
+    private func getRelevantDataIds(
+        forQuestion question: String,
+        metadata: AppDataMetadata,
+        currentDate: Date
+    ) async -> DataFilteringResponse {
+        let metadataJson = try? JSONEncoder().encode(metadata)
+        let metadataStr = metadataJson.flatMap { String(data: $0, encoding: .utf8) } ?? "No metadata available"
+
+        let systemPrompt = """
+        You are a data analyst. Given the user's question and metadata about available data, determine which specific items are relevant.
+
+        Return ONLY a JSON object with these fields:
+        {
+            "receiptIds": ["id1", "id2"] or null,
+            "eventIds": ["id1", "id2"] or null,
+            "locationIds": ["id1", "id2"] or null,
+            "noteIds": ["id1", "id2"] or null,
+            "emailIds": ["id1", "id2"] or null,
+            "reasoning": "Brief explanation of your selection"
+        }
+
+        Selection rules:
+        - For date-based questions like "this week" or "this month", select items within that timeframe
+        - For restaurant questions, select locations matching the cuisine/category
+        - For expense questions, select receipts matching the category or date range
+        - For event questions, select tasks/events matching the criteria
+        - Be inclusive - if unsure, include the item
+        - Return null for categories with no relevant items
+        """
+
+        let prompt = """
+        User's question: "\(question)"
+
+        Available metadata:
+        \(metadataStr)
+
+        Current date: \(DateFormatter().string(from: currentDate))
+
+        Which items should I fetch and analyze?
+        """
+
+        do {
+            let response = try await callOpenAIAPI(
+                systemPrompt: systemPrompt,
+                userMessage: prompt,
+                model: "gpt-4o-mini", // Cheaper model for filtering
+                temperature: 0.3
+            )
+
+            // Extract JSON from response
+            let jsonData = response.data(using: .utf8) ?? Data()
+            let filteringResponse = try JSONDecoder().decode(DataFilteringResponse.self, from: jsonData)
+            print("🎯 LLM selected data: \(filteringResponse.reasoning ?? "No reasoning")")
+            return filteringResponse
+        } catch {
+            print("❌ Error getting relevant data IDs: \(error)")
+            // Return empty response on error
+            return DataFilteringResponse(
+                receiptIds: nil,
+                eventIds: nil,
+                locationIds: nil,
+                noteIds: nil,
+                emailIds: nil,
+                reasoning: "Error filtering data"
+            )
+        }
+    }
+
+    /// Fetch full details of items identified as relevant by LLM
+    private func fetchFullDataForIds(
+        relevantItemIds: DataFilteringResponse,
+        taskManager: TaskManager,
+        notesManager: NotesManager,
+        emailService: EmailService,
+        locationsManager: LocationsManager
+    ) async -> (
+        receipts: [Note],
+        events: [TaskItem],
+        locations: [SavedPlace],
+        notes: [Note],
+        emails: [Email]
+    ) {
+        var receipts: [Note] = []
+        var events: [TaskItem] = []
+        var locations: [SavedPlace] = []
+        var notes: [Note] = []
+        var emails: [Email] = []
+
+        // Fetch receipts
+        if let receiptIds = relevantItemIds.receiptIds, !receiptIds.isEmpty {
+            receipts = notesManager.notes.filter { receiptIds.contains($0.id) }
+        }
+
+        // Fetch events
+        if let eventIds = relevantItemIds.eventIds, !eventIds.isEmpty {
+            for (_, tasks) in taskManager.tasks {
+                let matching = tasks.filter { eventIds.contains($0.id) }
+                events.append(contentsOf: matching)
+            }
+        }
+
+        // Fetch locations
+        if let locationIds = relevantItemIds.locationIds, !locationIds.isEmpty {
+            locations = locationsManager.savedPlaces.filter { locationIds.contains($0.id) }
+        }
+
+        // Fetch notes
+        if let noteIds = relevantItemIds.noteIds, !noteIds.isEmpty {
+            notes = notesManager.notes.filter { noteIds.contains($0.id) }
+        }
+
+        // Fetch emails
+        if let emailIds = relevantItemIds.emailIds, !emailIds.isEmpty {
+            emails = emailService.emails.filter { emailIds.contains($0.id) }
+        }
+
+        return (receipts, events, locations, notes, emails)
     }
 
     /// Filter emails to only those within the requested date range
