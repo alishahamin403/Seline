@@ -76,7 +76,8 @@ class ConversationStateAnalyzerService {
     private static func extractContext(from text: String) -> String {
         // Extract first sentence as context
         let sentences = text.split(separator: ".")
-        return String(sentences.first ?? "").prefix(100)
+        let context = String(sentences.first ?? "")
+        return String(context.prefix(100))
     }
 
     // MARK: - Follow-up Detection
