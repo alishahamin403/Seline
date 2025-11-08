@@ -93,6 +93,7 @@ class MetadataBuilderService {
             for task in tasks {
                 let recurrencePattern = task.recurrenceFrequency?.rawValue
                 let completedDates = task.completedDates.isEmpty ? nil : task.completedDates
+                let eventType = inferEventType(from: task.title, description: task.description)
 
                 let metadata = EventMetadata(
                     id: task.id,
@@ -106,13 +107,31 @@ class MetadataBuilderService {
                     isRecurring: task.isRecurring,
                     recurrencePattern: recurrencePattern,
                     isCompleted: task.isCompleted,
-                    completedDates: completedDates
+                    completedDates: completedDates,
+                    eventType: eventType,
+                    priority: nil // TODO: extract from TaskItem if available
                 )
                 eventMetadata.append(metadata)
             }
         }
 
         return eventMetadata
+    }
+
+    private static func inferEventType(from title: String, description: String?) -> String? {
+        let combined = (title + " " + (description ?? "")).lowercased()
+
+        if combined.contains("gym") || combined.contains("workout") || combined.contains("exercise") || combined.contains("fitness") {
+            return "fitness"
+        } else if combined.contains("meeting") || combined.contains("call") || combined.contains("standup") || combined.contains("sync") {
+            return "work"
+        } else if combined.contains("birthday") || combined.contains("dinner") || combined.contains("lunch") || combined.contains("party") {
+            return "personal"
+        } else if combined.contains("doctor") || combined.contains("appointment") || combined.contains("dentist") {
+            return "health"
+        }
+
+        return nil
     }
 
     // MARK: - Location Metadata Builder
@@ -130,7 +149,10 @@ class MetadataBuilderService {
                 notes: location.userNotes, // This is the description field
                 cuisine: location.userCuisine,
                 dateCreated: location.dateCreated,
-                dateModified: location.dateModified
+                dateModified: location.dateModified,
+                visitCount: nil, // TODO: Count from receipts or notes mentioning this location
+                lastVisited: nil, // TODO: Track from recent receipts/notes
+                isFrequent: nil // TODO: Determine from visitCount
             )
         }
     }

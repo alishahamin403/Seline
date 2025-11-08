@@ -181,24 +181,13 @@ struct QueryAnalysis {
 
 // MARK: - Enriched Metadata with Aggregations
 
-/// Summary metadata for complex queries - includes aggregated data
-struct EnrichedMetadata: Codable {
-    let baseMetadata: AppDataMetadata
-
-    // Expense aggregations
-    let expenseByCategory: [String: (count: Int, total: Double)]?
-    let expenseByMonth: [String: (count: Int, total: Double)]?
-    let topExpenseCategory: (name: String, total: Double)?
-
-    // Event aggregations
-    let eventsByType: [String: Int]?
-    let recurringEventCounts: [String: (title: String, thisMonth: Int, lastMonth: Int)]?
-    let completionRates: [String: Double]?
-
-    // Location aggregations
-    let locationVisitCounts: [String: Int]?
-    let topLocations: [String]?
-    let visitFrequency: [String: String]? // "restaurant name" → "visited 5 times"
+/// Preprocessing results - context strings built from metadata for complex queries
+struct PreprocessedContext {
+    let originalQuery: String
+    let aggregationContext: String?
+    let comparisonContext: String?
+    let frequencyContext: String?
+    let rankingContext: String?
 }
 
 // MARK: - Query-Specific Context Builders
