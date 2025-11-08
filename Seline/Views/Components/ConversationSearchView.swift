@@ -11,18 +11,6 @@ struct ConversationSearchView: View {
     @State private var thinkingElapsedTime: Int = 0
     @State private var thinkingTimer: Timer?
 
-    private var eventConfirmationDetails: String {
-        guard let eventData = searchService.pendingEventCreation else { return "" }
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        let targetDate = ISO8601DateFormatter().date(from: eventData.date) ?? Date()
-
-        let dateStr = dateFormatter.string(from: targetDate)
-        let timeStr = eventData.time ?? "all day"
-
-        return "Date: \(dateStr)\nTime: \(timeStr)"
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             // Header with title and buttons
@@ -110,101 +98,14 @@ struct ConversationSearchView: View {
                 )
             }
 
-            // Action confirmation area (shown when pending action exists)
-            if searchService.pendingEventCreation != nil {
-                VStack(spacing: 0) {
-                    // Multi-action progress indicator
-                    if !searchService.pendingMultiActions.isEmpty && searchService.currentMultiActionIndex < searchService.pendingMultiActions.count - 1 {
-                        HStack(spacing: 8) {
-                            Text("Action \(searchService.currentMultiActionIndex + 1) of \(searchService.pendingMultiActions.count)")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
-                    }
-
-                    ActionConfirmationView(
-                        title: searchService.pendingEventCreation?.title ?? "Event",
-                        details: eventConfirmationDetails,
-                        onConfirm: {
-                            HapticManager.shared.selection()
-                            searchService.confirmEventCreation()
-                        },
-                        onCancel: {
-                            HapticManager.shared.selection()
-                            searchService.cancelAction()
-                        },
-                        colorScheme: colorScheme
-                    )
-                }
-            } else if searchService.pendingNoteCreation != nil {
-                VStack(spacing: 0) {
-                    // Multi-action progress indicator
-                    if !searchService.pendingMultiActions.isEmpty && searchService.currentMultiActionIndex < searchService.pendingMultiActions.count - 1 {
-                        HStack(spacing: 8) {
-                            Text("Action \(searchService.currentMultiActionIndex + 1) of \(searchService.pendingMultiActions.count)")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
-                    }
-
-                    ActionConfirmationView(
-                        title: searchService.pendingNoteCreation?.title ?? "Note",
-                        details: "Content: \(searchService.pendingNoteCreation?.content ?? "")",
-                        onConfirm: {
-                            HapticManager.shared.selection()
-                            searchService.confirmNoteCreation()
-                        },
-                        onCancel: {
-                            HapticManager.shared.selection()
-                            searchService.cancelAction()
-                        },
-                        colorScheme: colorScheme
-                    )
-                }
-            } else if searchService.pendingNoteUpdate != nil {
-                VStack(spacing: 0) {
-                    // Multi-action progress indicator
-                    if !searchService.pendingMultiActions.isEmpty && searchService.currentMultiActionIndex < searchService.pendingMultiActions.count - 1 {
-                        HStack(spacing: 8) {
-                            Text("Action \(searchService.currentMultiActionIndex + 1) of \(searchService.pendingMultiActions.count)")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(colorScheme == .dark ? Color.black : Color(UIColor.systemGray6))
-                    }
-
-                    ActionConfirmationView(
-                        title: searchService.pendingNoteUpdate?.noteTitle ?? "Note",
-                        details: "Adding: \(searchService.pendingNoteUpdate?.contentToAdd ?? "")",
-                        onConfirm: {
-                            HapticManager.shared.selection()
-                            searchService.confirmNoteUpdate()
-                        },
-                        onCancel: {
-                            HapticManager.shared.selection()
-                            searchService.cancelAction()
-                        },
-                        colorScheme: colorScheme
-                    )
-                }
-            }
+            // Action confirmation area disabled - action creation feature removed
+            // All queries now route directly to conversation mode
 
             // Input area - show appropriate input based on context
             VStack(spacing: 12) {
                 HStack(spacing: 12) {
                     TextField(
-                        searchService.isWaitingForActionResponse ? "Your response..." : "Ask a follow-up question...",
+                        "Ask a follow-up question...",
                         text: $messageText
                     )
                     .font(.system(size: 13, weight: .regular))
@@ -219,32 +120,23 @@ struct ConversationSearchView: View {
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(searchService.isWaitingForActionResponse ? Color.gray.opacity(0.5) : Color.gray.opacity(0.3), lineWidth: 1)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                     )
 
                     Button(action: {
                         if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             HapticManager.shared.selection()
-                            if searchService.isWaitingForActionResponse {
-                                // Send action response
-                                let response = messageText
-                                messageText = ""
-                                Task {
-                                    await searchService.continueConversationalAction(userMessage: response)
-                                }
-                            } else {
-                                // Send conversation message
-                                let query = messageText
-                                messageText = ""
-                                Task {
-                                    await searchService.addConversationMessage(query)
-                                }
+                            // Send conversation message
+                            let query = messageText
+                            messageText = ""
+                            Task {
+                                await searchService.addConversationMessage(query)
                             }
                         }
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (searchService.isWaitingForActionResponse ? Color.gray : (colorScheme == .dark ? Color.white : Color.black)))
+                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
@@ -368,59 +260,6 @@ struct ConversationMessageView: View {
             }
         }
         .padding(.horizontal, 16)
-    }
-}
-
-struct ActionConfirmationView: View {
-    let title: String
-    let details: String
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                Text(details)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .lineLimit(4)
-            }
-            .padding(12)
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(8)
-
-            HStack(spacing: 10) {
-                Button(action: onCancel) {
-                    Text("Cancel")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.gray.opacity(0.15))
-                        .cornerRadius(6)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                Button(action: onConfirm) {
-                    Text("Confirm")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(colorScheme == .dark ? Color.white : Color.black)
-                        .cornerRadius(6)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
     }
 }
 

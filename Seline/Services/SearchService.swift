@@ -435,20 +435,9 @@ class SearchService: ObservableObject {
             }
         }
 
-        if case .action(let actionType) = queryType {
-            // Handle action query with new conversational system
-            if currentInteractiveAction != nil {
-                // Continue existing action - message will be added in continueConversationalAction
-                await continueConversationalAction(userMessage: trimmed)
-            } else {
-                // Start new action - message will be added in startConversationalAction
-                await startConversationalAction(userMessage: trimmed, actionType: actionType)
-            }
-            saveConversationLocally()
-            return
-        }
+        // DISABLED: Action creation from chat - all queries go to conversation mode
 
-        // Not an action - add user message to history for normal conversation
+        // Add user message to history for conversation
         addMessageToHistory(trimmed, isUser: true, intent: .general)
 
         // Update title based on conversation context
