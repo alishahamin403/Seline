@@ -1897,8 +1897,13 @@ class OpenAIService: ObservableObject {
             navigationService: navigationService
         )
 
+        // Build system prompt with user profile context if available
+        let profileContext = userProfile.map { UserProfilePersistenceService.formatProfileForLLM($0) } ?? ""
+
         let systemPrompt = """
         You are a personal assistant that helps users manage their schedule, notes, emails, weather, locations, and travel.
+
+        \(profileContext)
 
         CRITICAL FILTERING RULES:
 
@@ -2136,6 +2141,12 @@ class OpenAIService: ObservableObject {
         )
         print("🎯 Conversation state: \(conversationState.isProbablyFollowUp ? "Follow-up" : "New topic") | Topics: \(conversationState.topicsDiscussed.map { $0.topic }.joined(separator: ", "))")
 
+        // Load persistent user profile (learns across sessions)
+        let userProfile = UserProfilePersistenceService.loadUserProfile()
+        if let profile = userProfile {
+            print("👤 User profile: \(profile.totalSessionsAnalyzed) sessions, avg spending $\(String(format: "%.0f", profile.historicalAverageMonthlySpending))")
+        }
+
         // Extract context using intelligent metadata-first approach
         // LLM analyzes metadata and identifies which data is relevant
         let context = await buildSmartContextForQuestion(
@@ -2148,8 +2159,13 @@ class OpenAIService: ObservableObject {
             navigationService: navigationService
         )
 
+        // Build system prompt with user profile context if available
+        let profileContext = userProfile.map { UserProfilePersistenceService.formatProfileForLLM($0) } ?? ""
+
         let systemPrompt = """
         You are a personal assistant that helps users manage their schedule, notes, emails, weather, locations, and travel.
+
+        \(profileContext)
 
         CRITICAL FILTERING RULES:
 
@@ -2543,6 +2559,20 @@ class OpenAIService: ObservableObject {
     /// Optimizes conversation history by keeping only recent messages
     /// Keeps last 5-10 messages to maintain context while reducing token usage
     /// This prevents token bloat and confusion from old conversation context
+    /// Update user profile with learnings from current patterns
+    @MainActor
+    func updateUserProfileFromCurrentSession(
+        metadata: AppDataMetadata
+    ) {
+        let currentPatterns = UserPatternAnalysisService.analyzeUserPatterns(from: metadata)
+        let existingProfile = UserProfilePersistenceService.loadUserProfile()
+        let updatedProfile = UserProfilePersistenceService.updateProfileFromPatterns(
+            currentPatterns,
+            existingProfile: existingProfile
+        )
+        print("👤 User profile updated: \(updatedProfile.totalSessionsAnalyzed) total sessions")
+    }
+
     /// Summarize a message into key points for memory efficiency
     private func summarizeMessage(_ message: ConversationMessage) -> String {
         guard !message.isUser else { return message.text }

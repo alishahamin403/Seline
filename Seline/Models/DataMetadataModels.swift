@@ -249,3 +249,89 @@ struct LocationVisit: Codable {
     let category: String
     let lastVisited: Date?
 }
+
+// MARK: - Persistent User Profile (cross-session learning)
+
+/// Spending range for user profile
+struct SpendingRange: Codable {
+    let min: Double
+    let max: Double
+}
+
+/// Rich user profile that persists across sessions and learns over time
+struct UserProfile: Codable {
+    // Profile metadata
+    let createdDate: Date
+    let lastUpdated: Date
+    let totalSessionsAnalyzed: Int  // How many conversation sessions have we learned from?
+
+    // Learned preferences
+    let preferredCategories: [String]  // Top spending categories
+    let favoriteLocations: [String]
+    let frequentActivities: [String]
+    let preferredCuisines: [String]
+
+    // Historical patterns
+    let historicalAverageMonthlySpending: Double
+    let spendingRange: SpendingRange
+    let typicalEventsPerMonth: Double
+    let busySeasons: [String]  // Months they spend more
+    let quietSeasons: [String]  // Months they spend less
+
+    // Behavioral insights
+    let responsePreferences: [String]  // "detailed", "concise", "comparisons", etc.
+    let queryTopics: [String: Int]  // Topic frequency tracking
+    let notablePreferences: [String]  // Special preferences we've learned
+
+    // Version tracking (for migration if profile format changes)
+    let profileVersion: Int = 1
+}
+
+/// User profile that's actively being built/updated
+struct UserProfileBuilder {
+    var createdDate: Date = Date()
+    var totalSessionsAnalyzed: Int = 0
+
+    var preferredCategories: [String] = []
+    var favoriteLocations: [String] = []
+    var frequentActivities: [String] = []
+    var preferredCuisines: [String] = []
+
+    var historicalAverageMonthlySpending: Double = 0
+    var spendingRecords: [Double] = []
+    var typicalEventsPerMonth: Double = 0
+    var eventRecords: [Double] = []
+
+    var busySeasons: [String] = []
+    var quietSeasons: [String] = []
+    var responsePreferences: [String] = []
+    var queryTopics: [String: Int] = [:]
+    var notablePreferences: [String] = []
+
+    mutating func build() -> UserProfile {
+        // Calculate ranges and averages
+        let spendingMin = spendingRecords.min() ?? 0
+        let spendingMax = spendingRecords.max() ?? 0
+        let spendingAvg = spendingRecords.isEmpty ? 0 : spendingRecords.reduce(0, +) / Double(spendingRecords.count)
+
+        let eventsAvg = eventRecords.isEmpty ? 0 : eventRecords.reduce(0, +) / Double(eventRecords.count)
+
+        return UserProfile(
+            createdDate: createdDate,
+            lastUpdated: Date(),
+            totalSessionsAnalyzed: totalSessionsAnalyzed,
+            preferredCategories: preferredCategories,
+            favoriteLocations: favoriteLocations,
+            frequentActivities: frequentActivities,
+            preferredCuisines: preferredCuisines,
+            historicalAverageMonthlySpending: spendingAvg,
+            spendingRange: SpendingRange(min: spendingMin, max: spendingMax),
+            typicalEventsPerMonth: eventsAvg,
+            busySeasons: busySeasons,
+            quietSeasons: quietSeasons,
+            responsePreferences: responsePreferences,
+            queryTopics: queryTopics,
+            notablePreferences: notablePreferences
+        )
+    }
+}
