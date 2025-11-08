@@ -103,71 +103,39 @@ class SearchService: ObservableObject {
 
         isSearching = true
 
-        // Classify the query
-        currentQueryType = queryRouter.classifyQuery(trimmedQuery)
+        // DISABLED: Action creation behavior (create note/event from chat)
+        // All queries now go to analysis/conversation mode only
+        // No automatic note/event creation from chat responses
 
-        // Handle based on query type
-        switch currentQueryType {
-        case .action(let actionType):
-            // Use new conversational action system
-            isInConversationMode = true
-            await startConversationalAction(userMessage: trimmedQuery, actionType: actionType)
-        case .search:
-            let results = await searchContent(query: trimmedQuery.lowercased())
-            searchResults = results.sorted { $0.relevanceScore > $1.relevanceScore }
-        case .question:
-            // This should rarely happen now since questions are caught above
-            // But if it does, send to conversation
-            await startConversation(with: trimmedQuery)
-            isSearching = false
-            return
-        }
-
+        // Treat all queries as questions/analysis - no action mode
+        await startConversation(with: trimmedQuery)
         isSearching = false
     }
 
     // MARK: - Action Query Handling
 
-    // MARK: - Multi-Action Helper
+    // MARK: - Multi-Action Helper (DISABLED)
+
+    // Action creation behavior has been disabled
+    // This method is no longer called
 
     private func processNextMultiAction() async {
-        // Check if there are more actions to process
-        let nextIndex = currentMultiActionIndex + 1
-        if nextIndex < pendingMultiActions.count {
-            currentMultiActionIndex = nextIndex
-            let nextAction = pendingMultiActions[nextIndex]
-
-            // Add a separator message
-            let separatorMsg = ConversationMessage(
-                isUser: false,
-                text: "Processing next action...",
-                intent: .general
-            )
-            conversationHistory.append(separatorMsg)
-
-            // Process the next action with new conversational system
-            await startConversationalAction(userMessage: nextAction.query, actionType: nextAction.actionType)
-            saveConversationLocally()
-        } else {
-            // All actions completed
-            let completionMsg = ConversationMessage(
-                isUser: false,
-                text: "✓ All actions completed!",
-                intent: .general
-            )
-            conversationHistory.append(completionMsg)
-
-            // Clear multi-action state
-            pendingMultiActions = []
-            currentMultiActionIndex = 0
-            originalMultiActionQuery = ""
-            saveConversationLocally()
-        }
+        // DISABLED: No longer processing multi-actions
+        print("⚠️ Action creation disabled - multi-action processing skipped")
+        return
     }
 
-    // MARK: - Action Confirmation Methods
+    // MARK: - Action Confirmation Methods (DISABLED)
+
+    // Action creation has been disabled
+    // These methods are no longer called and do nothing
 
     func confirmEventCreation() {
+        // DISABLED: Event creation from chat disabled
+        print("⚠️ Action creation disabled - event creation skipped")
+        return
+
+        /* Original code removed - kept only for reference if re-enabling later
         guard let eventData = pendingEventCreation else { return }
 
         let taskManager = TaskManager.shared
@@ -260,32 +228,22 @@ class SearchService: ObservableObject {
     }
 
     func confirmNoteCreation() {
-        guard let noteData = pendingNoteCreation else { return }
-
-        let notesManager = NotesManager.shared
-        let note = Note(title: noteData.title, content: noteData.content)
-        notesManager.addNote(note)
-
-        // Store context for follow-up actions
-        lastCreatedNoteTitle = noteData.title
-
-        // Clear pending data
-        pendingNoteCreation = nil
-
-        // Check if there are more multi-actions to process
-        Task {
-            await processNextMultiAction()
-        }
+        // DISABLED: Note creation from chat disabled
+        print("⚠️ Action creation disabled - note creation skipped")
+        return
     }
 
     func confirmNoteUpdate() {
-        Task {
-            await confirmNoteUpdateAsync()
-        }
+        // DISABLED: Note updates from chat disabled
+        print("⚠️ Action creation disabled - note update skipped")
+        return
     }
 
     /// Async version of confirmNoteUpdate that waits for sync to complete
     private func confirmNoteUpdateAsync() async {
+        // DISABLED: No note updates from chat
+        return
+        /* Original code removed
         guard let updateData = pendingNoteUpdate else { return }
 
         let notesManager = NotesManager.shared
@@ -766,6 +724,12 @@ class SearchService: ObservableObject {
         userMessage: String,
         actionType: ActionType
     ) async {
+        // DISABLED: Action creation from chat is disabled
+        // This function no longer does anything
+        print("⚠️ Action creation disabled - cannot start conversational action")
+        return
+
+        /* Original code removed - kept for reference only
         // Add user message directly to history without reprocessing
         let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         addMessageToHistory(trimmed, isUser: true)
@@ -805,6 +769,11 @@ class SearchService: ObservableObject {
 
     /// Process a user's response to an action prompt
     func continueConversationalAction(userMessage: String) async {
+        // DISABLED: Action continuation disabled
+        print("⚠️ Action creation disabled - action continuation skipped")
+        return
+
+        /* Original code removed
         guard var action = currentInteractiveAction else { return }
 
         // Add user message directly to history without reprocessing
