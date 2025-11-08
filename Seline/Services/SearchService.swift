@@ -614,6 +614,7 @@ class SearchService: ObservableObject {
 
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
+        let thinkStartTime = Date()  // Track when LLM starts thinking
         do {
             if enableStreamingResponses {
                 // Use streaming response
@@ -636,7 +637,14 @@ class SearchService: ObservableObject {
 
                         // Add message on first chunk (don't show empty box)
                         if !messageAdded {
-                            let assistantMsg = ConversationMessage(id: streamingMessageID, isUser: false, text: fullResponse, timestamp: Date(), intent: .general)
+                            let assistantMsg = ConversationMessage(
+                                id: streamingMessageID,
+                                isUser: false,
+                                text: fullResponse,
+                                timestamp: Date(),
+                                intent: .general,
+                                timeStarted: thinkStartTime
+                            )
                             self.conversationHistory.append(assistantMsg)
                             messageAdded = true
                         } else {
@@ -648,7 +656,8 @@ class SearchService: ObservableObject {
                                     isUser: false,
                                     text: fullResponse,
                                     timestamp: self.conversationHistory[lastIndex].timestamp,
-                                    intent: self.conversationHistory[lastIndex].intent
+                                    intent: self.conversationHistory[lastIndex].intent,
+                                    timeStarted: self.conversationHistory[lastIndex].timeStarted
                                 )
                                 self.conversationHistory[lastIndex] = updatedMsg
                             }
@@ -656,6 +665,21 @@ class SearchService: ObservableObject {
                         }
                     }
                 )
+
+                // Mark when LLM finishes thinking (after streaming completes)
+                if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                    let finalMsg = ConversationMessage(
+                        id: streamingMessageID,
+                        isUser: false,
+                        text: self.conversationHistory[lastIndex].text,
+                        timestamp: self.conversationHistory[lastIndex].timestamp,
+                        intent: self.conversationHistory[lastIndex].intent,
+                        timeStarted: self.conversationHistory[lastIndex].timeStarted,
+                        timeFinished: Date()
+                    )
+                    self.conversationHistory[lastIndex] = finalMsg
+                    self.saveConversationLocally()
+                }
             } else {
                 // Non-streaming response
                 let response = try await OpenAIService.shared.answerQuestion(
@@ -669,7 +693,15 @@ class SearchService: ObservableObject {
                     conversationHistory: conversationHistory.dropLast() // All messages except the current user message
                 )
 
-                let assistantMsg = ConversationMessage(id: UUID(), isUser: false, text: response, timestamp: Date(), intent: .general)
+                let assistantMsg = ConversationMessage(
+                    id: UUID(),
+                    isUser: false,
+                    text: response,
+                    timestamp: Date(),
+                    intent: .general,
+                    timeStarted: thinkStartTime,
+                    timeFinished: Date()
+                )
                 conversationHistory.append(assistantMsg)
                 saveConversationLocally()
             }

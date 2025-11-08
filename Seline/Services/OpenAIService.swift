@@ -3059,25 +3059,68 @@ class OpenAIService: ObservableObject {
             startDate = todayStart
             endDate = calendar.date(byAdding: .day, value: 1, to: todayStart)!
         }
-        // This week
-        else if lowerQuery.contains("this week") || (lowerQuery.contains("week") && !lowerQuery.contains("next")) {
-            startDate = todayStart
-            endDate = calendar.date(byAdding: .day, value: 7, to: todayStart)!
+        // This week - properly calculate Monday to Sunday of current week
+        else if lowerQuery.contains("this week") || (lowerQuery.contains("week") && !lowerQuery.contains("next") && !lowerQuery.contains("last")) {
+            // Find the Monday of the current week
+            let weekday = calendar.component(.weekday, from: todayStart)
+            // weekday: 1=Sunday, 2=Monday, ..., 7=Saturday
+            let daysToMonday = (weekday == 1) ? -6 : -(weekday - 2)
+            let mondayStart = calendar.date(byAdding: .day, value: daysToMonday, to: todayStart)!
+            startDate = mondayStart
+            endDate = calendar.date(byAdding: .day, value: 7, to: mondayStart)!
+        }
+        // Last week
+        else if lowerQuery.contains("last week") {
+            let weekday = calendar.component(.weekday, from: todayStart)
+            let daysToMonday = (weekday == 1) ? -6 : -(weekday - 2)
+            let thisMonday = calendar.date(byAdding: .day, value: daysToMonday, to: todayStart)!
+            startDate = calendar.date(byAdding: .day, value: -7, to: thisMonday)!
+            endDate = thisMonday
         }
         // Next week
         else if lowerQuery.contains("next week") {
-            startDate = calendar.date(byAdding: .day, value: 7, to: todayStart)!
-            endDate = calendar.date(byAdding: .day, value: 14, to: todayStart)!
+            let weekday = calendar.component(.weekday, from: todayStart)
+            let daysToMonday = (weekday == 1) ? -6 : -(weekday - 2)
+            let thisMonday = calendar.date(byAdding: .day, value: daysToMonday, to: todayStart)!
+            startDate = calendar.date(byAdding: .day, value: 7, to: thisMonday)!
+            endDate = calendar.date(byAdding: .day, value: 14, to: thisMonday)!
         }
-        // This month
-        else if lowerQuery.contains("this month") || (lowerQuery.contains("month") && !lowerQuery.contains("next")) {
-            startDate = todayStart
-            endDate = calendar.date(byAdding: .month, value: 1, to: todayStart)!
+        // This month - properly calculate from 1st to last day of month
+        else if lowerQuery.contains("this month") || (lowerQuery.contains("month") && !lowerQuery.contains("next") && !lowerQuery.contains("last")) {
+            // Get the first day of this month
+            if let firstOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: todayStart)) {
+                startDate = firstOfMonth
+                endDate = calendar.date(byAdding: .month, value: 1, to: firstOfMonth)!
+            }
+        }
+        // Last month
+        else if lowerQuery.contains("last month") {
+            if let firstOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: todayStart)) {
+                startDate = calendar.date(byAdding: .month, value: -1, to: firstOfMonth)!
+                endDate = firstOfMonth
+            }
         }
         // Next month
         else if lowerQuery.contains("next month") {
-            startDate = calendar.date(byAdding: .month, value: 1, to: todayStart)!
-            endDate = calendar.date(byAdding: .month, value: 2, to: todayStart)!
+            if let firstOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: todayStart)) {
+                startDate = calendar.date(byAdding: .month, value: 1, to: firstOfMonth)!
+                endDate = calendar.date(byAdding: .month, value: 2, to: firstOfMonth)!
+            }
+        }
+        // This year
+        else if lowerQuery.contains("this year") || (lowerQuery.contains("year") && !lowerQuery.contains("next") && !lowerQuery.contains("last")) {
+            // Get Jan 1st of current year
+            if let firstOfYear = calendar.date(from: calendar.dateComponents([.year], from: todayStart)) {
+                startDate = firstOfYear
+                endDate = calendar.date(byAdding: .year, value: 1, to: firstOfYear)!
+            }
+        }
+        // Last year
+        else if lowerQuery.contains("last year") {
+            if let firstOfYear = calendar.date(from: calendar.dateComponents([.year], from: todayStart)) {
+                startDate = calendar.date(byAdding: .year, value: -1, to: firstOfYear)!
+                endDate = firstOfYear
+            }
         }
 
         return (startDate, endDate)

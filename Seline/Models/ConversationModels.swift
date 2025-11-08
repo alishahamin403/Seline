@@ -10,20 +10,46 @@ struct ConversationMessage: Identifiable, Codable {
     let timestamp: Date
     let intent: QueryIntent?
     let relatedData: [RelatedDataItem]?
+    let timeStarted: Date?      // When LLM started thinking
+    let timeFinished: Date?     // When LLM finished thinking
 
-    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil) {
+    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil) {
         self.id = id
         self.isUser = isUser
         self.text = text
         self.timestamp = timestamp
         self.intent = intent
         self.relatedData = relatedData
+        self.timeStarted = timeStarted
+        self.timeFinished = timeFinished
     }
 
     var formattedTime: String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: timestamp)
+    }
+
+    /// Time taken by LLM to generate response in seconds
+    var timeTakenSeconds: Int? {
+        guard !isUser, let started = timeStarted, let finished = timeFinished else { return nil }
+        return Int(finished.timeIntervalSince(started).rounded())
+    }
+
+    /// Formatted time taken string (e.g., "2 seconds", "1 minute 30 seconds")
+    var timeTakenFormatted: String? {
+        guard let seconds = timeTakenSeconds else { return nil }
+        if seconds < 60 {
+            return "\(seconds) second\(seconds == 1 ? "" : "s")"
+        } else {
+            let minutes = seconds / 60
+            let remainingSeconds = seconds % 60
+            if remainingSeconds == 0 {
+                return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+            } else {
+                return "\(minutes) minute\(minutes == 1 ? "" : "s") \(remainingSeconds) second\(remainingSeconds == 1 ? "" : "s")"
+            }
+        }
     }
 }
 
