@@ -53,10 +53,16 @@ class MetadataBuilderService {
             isUnderReceiptsFolderHierarchy(folderId: note.folderId)
         }
 
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM yyyy"
+        let calendar = Calendar.current
+
         return receiptNotes.map { receipt in
             let amount = extractAmountFromReceipt(receipt.content)
             let category = extractCategoryFromReceipt(receipt.title, content: receipt.content)
             let preview = String(receipt.content.prefix(50))
+            let monthYear = dateFormatter.string(from: receipt.dateCreated)
+            let dayOfWeek = getDayOfWeekName(receipt.dateCreated)
 
             return ReceiptMetadata(
                 id: receipt.id,
@@ -64,9 +70,17 @@ class MetadataBuilderService {
                 amount: amount ?? 0.0,
                 date: receipt.dateCreated,
                 category: category,
-                preview: preview
+                preview: preview,
+                monthYear: monthYear,
+                dayOfWeek: dayOfWeek
             )
         }
+    }
+
+    private static func getDayOfWeekName(_ date: Date) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE"
+        return dateFormatter.string(from: date)
     }
 
     // MARK: - Event Metadata Builder

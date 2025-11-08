@@ -24,9 +24,17 @@ struct ReceiptMetadata: Codable, Identifiable {
     let date: Date
     let category: String? // food, gas, etc
     let preview: String? // First 50 chars of content
+    let monthYear: String? // "November 2025" for grouping
+    let dayOfWeek: String? // "Monday", "Tuesday" etc
 
     var formattedAmount: String {
         String(format: "$%.2f", amount)
+    }
+
+    var isRecent: Bool {
+        let calendar = Calendar.current
+        let daysAgo = calendar.dateComponents([.day], from: date, to: Date()).day ?? Int.max
+        return daysAgo <= 30
     }
 }
 
@@ -45,6 +53,8 @@ struct EventMetadata: Codable, Identifiable {
     let recurrencePattern: String? // "daily", "weekly", "monthly"
     let isCompleted: Bool
     let completedDates: [Date]? // for recurring: which instances were completed
+    let eventType: String? // "work", "personal", "fitness", "meeting", etc
+    let priority: Int? // 1-5 priority level if available
 
     var formattedDateTime: String {
         let dateFormatter = DateFormatter()
@@ -53,6 +63,40 @@ struct EventMetadata: Codable, Identifiable {
 
         guard let eventDate = date else { return "No date" }
         return dateFormatter.string(from: eventDate)
+    }
+
+    var completionCount: Int {
+        completedDates?.count ?? 0
+    }
+
+    var completionCountThisMonth: Int {
+        guard let completedDates = completedDates else { return 0 }
+        let calendar = Calendar.current
+        let now = Date()
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
+
+        return completedDates.filter { date in
+            let month = calendar.component(.month, from: date)
+            let year = calendar.component(.year, from: date)
+            return month == currentMonth && year == currentYear
+        }.count
+    }
+
+    var completionCountLastMonth: Int {
+        guard let completedDates = completedDates else { return 0 }
+        let calendar = Calendar.current
+        let now = Date()
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
+        let lastMonth = currentMonth == 1 ? 12 : currentMonth - 1
+        let lastYear = currentMonth == 1 ? currentYear - 1 : currentYear
+
+        return completedDates.filter { date in
+            let month = calendar.component(.month, from: date)
+            let year = calendar.component(.year, from: date)
+            return month == lastMonth && year == lastYear
+        }.count
     }
 }
 
@@ -69,6 +113,9 @@ struct LocationMetadata: Codable, Identifiable {
     let cuisine: String? // user's cuisine classification
     let dateCreated: Date
     let dateModified: Date
+    let visitCount: Int? // Total number of visits/mentions
+    let lastVisited: Date? // Last time visited
+    let isFrequent: Bool? // True if visited more than once
 
     var displayName: String {
         customName ?? name
@@ -76,6 +123,23 @@ struct LocationMetadata: Codable, Identifiable {
 
     var hasNotes: Bool {
         notes?.isEmpty == false
+    }
+
+    var visitFrequencyLabel: String {
+        guard let count = visitCount else { return "Not tracked" }
+        switch count {
+        case 0: return "Not visited"
+        case 1: return "Once"
+        case 2...5: return "\(count) times (occasional)"
+        case 6...: return "\(count) times (frequent)"
+        default: return "\(count) times"
+        }
+    }
+
+    var daysSinceVisit: Int? {
+        guard let lastVisited = lastVisited else { return nil }
+        let calendar = Calendar.current
+        return calendar.dateComponents([.day], from: lastVisited, to: Date()).day
     }
 }
 
