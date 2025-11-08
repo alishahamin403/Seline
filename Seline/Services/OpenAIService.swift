@@ -2695,12 +2695,14 @@ class OpenAIService: ObservableObject {
         }
 
         // Add semantic enrichment: find related content even without explicit keywords
+        // (skipped for simple queries for better performance)
         let allEvents = taskManager.tasks.values.flatMap { $0 }
         let semanticEnrichment = try? await enrichContextWithSemanticMatches(
             query: query,
             notes: notesManager.notes,
             emails: emailService.inboxEmails,
-            events: allEvents
+            events: allEvents,
+            queryIntents: queryIntents
         )
         if let enrichment = semanticEnrichment, !enrichment.isEmpty {
             context += enrichment
@@ -3067,15 +3069,67 @@ class OpenAIService: ObservableObject {
         return Array(sortedEvents.prefix(maxResults)).map { $0.event }
     }
 
+    /// Determines if a query is "simple" and doesn't need semantic enrichment
+    /// Simple queries are those asking for specific data types with date filters
+    private func isSimpleQuery(_ query: String, intents: Set<String>) -> Bool {
+        let lowerQuery = query.lowercased()
+
+        // Single-intent queries with date/time filters are simple (don't need semantic search)
+        if intents.count == 1 {
+            let intent = intents.first ?? ""
+
+            // Receipts/expenses queries are simple - user knows what they want
+            if intent == "receipts" {
+                return true
+            }
+
+            // Events/tasks with date filter are simple
+            if intent == "events" && (lowerQuery.contains("today") || lowerQuery.contains("week") || lowerQuery.contains("month")) {
+                return true
+            }
+
+            // Emails with date filter are simple
+            if intent == "emails" && (lowerQuery.contains("today") || lowerQuery.contains("week") || lowerQuery.contains("month")) {
+                return true
+            }
+
+            // Notes in specific folder are simple
+            if intent == "notes" && lowerQuery.split(separator: " ").count <= 5 {
+                return true
+            }
+
+            // Navigation queries are simple
+            if intent == "navigation" {
+                return true
+            }
+
+            // Weather queries are simple
+            if intent == "weather" {
+                return true
+            }
+        }
+
+        // Multi-intent or complex queries need semantic search
+        return false
+    }
+
     /// Enriches context with semantically relevant content
     /// Finds related notes, emails, events even if user didn't explicitly ask for them
+    /// Skips semantic search for simple queries to improve performance
     func enrichContextWithSemanticMatches(
         query: String,
         notes: [Note],
         emails: [Email],
-        events: [TaskItem]
+        events: [TaskItem],
+        queryIntents: Set<String>
     ) async throws -> String {
         var enrichedContext = ""
+
+        // Skip semantic search for simple queries (performance optimization)
+        if isSimpleQuery(query, intents: queryIntents) {
+            print("⏭️ Skipping semantic search for simple query")
+            return enrichedContext
+        }
 
         do {
             // Find semantically similar notes
