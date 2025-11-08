@@ -200,3 +200,52 @@ struct DataFilteringResponse: Codable {
         (emailIds?.isEmpty ?? true)
     }
 }
+
+// MARK: - User Patterns (for predictive intelligence)
+
+/// Learned patterns about user behavior for smarter LLM responses
+struct UserPatterns: Codable {
+    // Spending patterns
+    let topExpenseCategories: [CategorySpending]  // Top spending categories by amount
+    let averageMonthlySpending: Double
+    let spendingTrend: String  // "increasing", "decreasing", "stable"
+
+    // Event/activity patterns
+    let mostFrequentEvents: [EventFrequency]  // Events they do most often
+    let averageEventsPerWeek: Double
+    let favoriteEventTypes: [String]  // "gym", "work", "personal", etc.
+
+    // Location patterns
+    let mostVisitedLocations: [LocationVisit]  // Places they visit most
+    let favoriteRestaurantTypes: [String]  // Cuisines they prefer
+
+    // Time patterns
+    let mostActiveTimeOfDay: String  // "morning", "afternoon", "evening"
+    let busyDays: [String]  // "Monday", "Tuesday", etc.
+
+    // General preferences
+    let averageExpenseAmount: Double  // Average transaction size
+    let totalTransactions: Int
+    let dataPoints: Int  // How many items we analyzed
+}
+
+struct CategorySpending: Codable {
+    let category: String
+    let totalAmount: Double
+    let percentage: Double
+    let transactionCount: Int
+}
+
+struct EventFrequency: Codable {
+    let title: String
+    let timesPerMonth: Double
+    let eventType: String?
+    let averageDaysApart: Double?
+}
+
+struct LocationVisit: Codable {
+    let name: String
+    let visitCount: Int
+    let category: String
+    let lastVisited: Date?
+}

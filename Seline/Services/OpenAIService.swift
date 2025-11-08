@@ -3014,8 +3014,13 @@ class OpenAIService: ObservableObject {
         // Format metadata as human-readable text for better LLM understanding
         let metadataStr = formatMetadataForLLM(metadata, currentDate: currentDate)
 
+        // Analyze user behavior patterns for predictive intelligence
+        let userPatterns = UserPatternAnalysisService.analyzeUserPatterns(from: metadata)
+        let patternsStr = formatUserPatterns(userPatterns)
+
         // Log what metadata is available
         print("📊 Metadata compiled: \(metadata.receipts.count) receipts, \(metadata.events.count) events, \(metadata.locations.count) locations, \(metadata.notes.count) notes, \(metadata.emails.count) emails")
+        print("🎯 User patterns: \(userPatterns.topExpenseCategories.map { $0.category }.joined(separator: ", "))")
 
         let systemPrompt = """
         You are a data analyst. Given the user's question and metadata about available data, determine which specific items are relevant.
@@ -3070,6 +3075,9 @@ class OpenAIService: ObservableObject {
         let prompt = """
         User's question: "\(question)"
 
+        USER BEHAVIOR PATTERNS (what we know about this user):
+        \(patternsStr)
+
         Available metadata:
         \(metadataStr)
 
@@ -3079,6 +3087,13 @@ class OpenAIService: ObservableObject {
 
         IMPORTANT: When user asks about "this month", they mean \(currentMonthName).
         When user asks about "last month", they mean \(lastMonthName).
+
+        USE USER PATTERNS TO MAKE SMARTER SELECTIONS:
+        - If user asks about spending and their top category is 'food', prioritize food expenses
+        - If user asks about activities and they do 'gym' frequently, prefer gym-related events
+        - If user asks about restaurants and they like 'Italian', look for Italian restaurants
+        - Use spending patterns to understand if amounts are typical or unusual
+        - Use activity frequency to determine if "often" means their usual frequency
 
         Which items should I fetch and analyze?
         """
@@ -3128,6 +3143,51 @@ class OpenAIService: ObservableObject {
                 reasoning: "Error filtering data"
             )
         }
+    }
+
+    /// Format user behavior patterns into readable text for LLM context
+    private func formatUserPatterns(_ patterns: UserPatterns) -> String {
+        var formatted = ""
+
+        formatted += "## USER BEHAVIOR PATTERNS\n\n"
+
+        formatted += "SPENDING HABITS:\n"
+        formatted += "• Monthly Average: $\(String(format: "%.2f", patterns.averageMonthlySpending))\n"
+        formatted += "• Trend: \(patterns.spendingTrend.capitalized)\n"
+        formatted += "• Top Categories:\n"
+        for category in patterns.topExpenseCategories.prefix(3) {
+            formatted += "  - \(category.category.capitalized): $\(String(format: "%.2f", category.totalAmount)) (\(String(format: "%.0f", category.percentage))%)\n"
+        }
+        formatted += "\n"
+
+        formatted += "ACTIVITY PATTERNS:\n"
+        formatted += "• Events per Week: \(String(format: "%.1f", patterns.averageEventsPerWeek))\n"
+        formatted += "• Favorite Activities: \(patterns.favoriteEventTypes.joined(separator: ", "))\n"
+        if !patterns.mostFrequentEvents.isEmpty {
+            formatted += "• Most Frequent Events:\n"
+            for event in patterns.mostFrequentEvents.prefix(3) {
+                formatted += "  - \(event.title): \(String(format: "%.1f", event.timesPerMonth))x/month\n"
+            }
+        }
+        formatted += "\n"
+
+        formatted += "LOCATION PREFERENCES:\n"
+        if !patterns.mostVisitedLocations.isEmpty {
+            formatted += "• Most Visited:\n"
+            for location in patterns.mostVisitedLocations.prefix(3) {
+                formatted += "  - \(location.name) (\(location.visitCount) visits)\n"
+            }
+        }
+        if !patterns.favoriteRestaurantTypes.isEmpty {
+            formatted += "• Favorite Cuisines: \(patterns.favoriteRestaurantTypes.joined(separator: ", "))\n"
+        }
+        formatted += "\n"
+
+        formatted += "TIME PATTERNS:\n"
+        formatted += "• Most Active: \(patterns.mostActiveTimeOfDay.capitalized)\n"
+        formatted += "• Busiest Days: \(patterns.busyDays.joined(separator: ", "))\n\n"
+
+        return formatted
     }
 
     /// Format metadata as human-readable text for better LLM comprehension
