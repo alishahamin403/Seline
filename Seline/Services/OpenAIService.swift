@@ -3118,13 +3118,17 @@ class OpenAIService: ObservableObject {
         Selection rules:
         - For date-based questions like "this week" or "this month", select items within that timeframe
         - For location questions:
-          * CRITICAL: Always check the "City" field in metadata to match requested city/location
-          * If user asks for "locations in [city]" or "saved locations in [city]", return ALL locations where City matches [city] (all categories)
-          * If user asks for "restaurants in [city]" or "restaurants near [place]", return only locations where City matches [city] AND category is restaurant/food
-          * If user asks for "cafes in [city]", return only locations where City matches [city] AND category is cafe/coffee
-          * EXACT MATCHING: If user asks for "Hamilton", look for City field containing "Hamilton"
+          * CRITICAL: Check BOTH address City AND Folder City fields to match requested location
+          * If user asks for "locations in [city]" or "saved locations in [city]", return ALL locations where:
+            - Address City matches [city] OR Folder City matches [city] (all categories)
+          * If user asks for "restaurants in [city]" or "restaurants near [place]", return locations where:
+            - (Address City matches [city] OR Folder City matches [city]) AND category is restaurant/food
+          * If user asks for "cafes in [city]", return locations where:
+            - (Address City matches [city] OR Folder City matches [city]) AND category is cafe/coffee
+          * EXACT MATCHING: If user asks for "Hamilton", look for BOTH "City" and "Folder City" fields containing "Hamilton"
           * Return ALL matching locations, not just a few - if user asks for "all locations", return EVERY location in that city
-          * If query is ambiguous (e.g., "places in Hamilton"), include all location categories but filter by city
+          * Folder context is important: "Hamilton Restaurants" folder means user organized those restaurants for Hamilton, so treat as Hamilton locations
+          * If query is ambiguous (e.g., "places in Hamilton"), include all location categories but filter by city (address or folder)
         - For expense questions, select receipts matching the category or date range
         - For event/activity questions (gym, workout, exercise, meeting, etc.):
           * CRITICAL: Only select events where isRecurring=true for recurring activity patterns
@@ -3383,7 +3387,19 @@ class OpenAIService: ObservableObject {
             for location in metadata.locations {
                 formatted += "- ID: \(location.id.uuidString)\n"
                 formatted += "  Name: \(location.displayName)\n"
-                formatted += "  Category: \(location.category)\n"
+                formatted += "  Folder: \(location.category)\n"
+
+                // Show folder's geographic context
+                if let folderCity = location.folderCity {
+                    formatted += "  Folder City: \(folderCity)\n"
+                }
+                if let folderProvince = location.folderProvince {
+                    formatted += "  Folder Province: \(folderProvince)\n"
+                }
+                if let folderCountry = location.folderCountry {
+                    formatted += "  Folder Country: \(folderCountry)\n"
+                }
+
                 formatted += "  Address: \(location.address)\n"
                 if let city = location.city {
                     formatted += "  City: \(city)\n"

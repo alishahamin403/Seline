@@ -146,7 +146,11 @@ class MetadataBuilderService {
     private static func buildLocationMetadata(from locationsManager: LocationsManager) -> [LocationMetadata] {
         return locationsManager.savedPlaces.map { location in
             let (city, province, country) = extractLocationParts(from: location.address)
-            print("📍 Location: \(location.name) | Address: \(location.address) | City: \(city ?? "N/A") | Province: \(province ?? "N/A")")
+            let (folderCity, folderProvince, folderCountry) = extractLocationPartsFromFolder(location.category)
+
+            print("📍 Location: \(location.name)")
+            print("   Address: \(location.address) → City: \(city ?? "N/A"), Province: \(province ?? "N/A")")
+            print("   Folder: \(location.category) → FolderCity: \(folderCity ?? "N/A"), FolderProvince: \(folderProvince ?? "N/A")")
 
             return LocationMetadata(
                 id: location.id,
@@ -157,14 +161,17 @@ class MetadataBuilderService {
                 city: city,
                 province: province,
                 country: country,
+                folderCity: folderCity,
+                folderProvince: folderProvince,
+                folderCountry: folderCountry,
                 userRating: location.userRating,
-                notes: location.userNotes, // This is the description field
+                notes: location.userNotes,
                 cuisine: location.userCuisine,
                 dateCreated: location.dateCreated,
                 dateModified: location.dateModified,
-                visitCount: nil, // TODO: Count from receipts or notes mentioning this location
-                lastVisited: nil, // TODO: Track from recent receipts/notes
-                isFrequent: nil // TODO: Determine from visitCount
+                visitCount: nil,
+                lastVisited: nil,
+                isFrequent: nil
             )
         }
     }
@@ -202,6 +209,59 @@ class MetadataBuilderService {
             } else {
                 // Could be country name
                 country = lastPart
+            }
+        }
+
+        return (city, province, country)
+    }
+
+    /// Extract city, province/state, and country from a folder/category name
+    /// Handles formats like: "Hamilton Restaurants", "Toronto Ontario", "Vancouver BC Canada"
+    private static func extractLocationPartsFromFolder(from folder: String) -> (city: String?, province: String?, country: String?) {
+        let canadianProvinces = ["ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "PE", "NL", "YT", "NT", "NU",
+                                "Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba", "Saskatchewan",
+                                "Nova Scotia", "New Brunswick", "Prince Edward Island", "Newfoundland and Labrador",
+                                "Yukon", "Northwest Territories", "Nunavut"]
+
+        let usStates = ["CA", "NY", "TX", "FL", "IL", "PA", "OH", "GA", "NC", "MI", "NJ", "VA", "WA", "AZ", "MA", "TN", "IN", "MD", "MO", "WI", "CO", "MN", "SC", "AL", "LA", "KY", "OR", "OK", "CT", "UT", "IA", "NV", "AR", "KS", "MS", "NM", "NE", "ID", "HI", "NH", "ME", "MT", "RI", "DE", "SD", "ND", "VT", "AK", "WY", "DC",
+                            "California", "New York", "Texas", "Florida", "Illinois", "Pennsylvania", "Ohio", "Georgia", "North Carolina", "Michigan", "New Jersey", "Virginia", "Washington", "Arizona", "Massachusetts", "Tennessee", "Indiana", "Maryland", "Missouri", "Wisconsin", "Colorado", "Minnesota", "South Carolina", "Alabama", "Louisiana", "Kentucky", "Oregon", "Oklahoma", "Connecticut", "Utah", "Iowa", "Nevada", "Arkansas", "Kansas", "Mississippi", "New Mexico", "Nebraska", "Idaho", "Hawaii", "New Hampshire", "Maine", "Montana", "Rhode Island", "Delaware", "South Dakota", "North Dakota", "Vermont", "Alaska", "Wyoming", "District of Columbia"]
+
+        let commonCountries = ["Canada", "USA", "United States", "Mexico", "UK", "England", "France", "Germany", "Spain", "Italy", "Australia", "New Zealand", "Japan", "China", "India"]
+
+        // Parse folder name - split by common separators
+        let parts = folder.split(separator: " ").map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: ",-")) }
+
+        var city: String? = nil
+        var province: String? = nil
+        var country: String? = nil
+
+        // Try to identify country, province, and city in order
+        for (index, part) in parts.enumerated() {
+            // Check if this part is a country
+            if commonCountries.contains(part) {
+                country = part
+            }
+            // Check if this part is a Canadian province
+            else if canadianProvinces.contains(part) {
+                province = part
+                if country == nil {
+                    country = "Canada"
+                }
+            }
+            // Check if this part is a US state
+            else if usStates.contains(part) {
+                province = part
+                if country == nil {
+                    country = "USA"
+                }
+            }
+            // Otherwise, assume it's a city if we haven't found one yet
+            else if city == nil && index < parts.count - 1 {
+                // Only consider as city if it's not a category keyword (like "Restaurants", "Cafes", etc.)
+                let categoryKeywords = ["restaurant", "restaurants", "cafe", "cafes", "coffee", "coffee shops", "bar", "bars", "gym", "gyms", "fitness", "park", "parks", "shop", "shops", "store", "stores", "location", "locations", "place", "places"]
+                if !categoryKeywords.contains(part.lowercased()) {
+                    city = part
+                }
             }
         }
 
