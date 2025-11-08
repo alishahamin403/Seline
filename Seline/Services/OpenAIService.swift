@@ -3113,7 +3113,12 @@ class OpenAIService: ObservableObject {
 
         Selection rules:
         - For date-based questions like "this week" or "this month", select items within that timeframe
-        - For restaurant questions, select locations matching the cuisine/category
+        - For location questions:
+          * If user asks for "locations in [city]" or "saved locations in [city]", return ALL locations in that city (all categories)
+          * If user asks for "restaurants in [city]" or "restaurants near [place]", return only restaurant-type locations
+          * If user asks for "cafes in [city]", return only cafe-type locations
+          * Match by city/address first, then optionally by category if specified
+          * If query is ambiguous (e.g., "places in Hamilton"), include all location categories
         - For expense questions, select receipts matching the category or date range
         - For event/activity questions (gym, workout, exercise, meeting, etc.):
           * CRITICAL: Only select events where isRecurring=true for recurring activity patterns
@@ -3132,6 +3137,7 @@ class OpenAIService: ObservableObject {
           * Third: Filter to shortest name if multiple matches
           * Fourth: Use completedDates to verify the event has activity in requested timeframe
         - Return null for categories with no relevant items
+        - If query is ambiguous and you need clarification (e.g., user asks for "places" but doesn't specify category or location), include a note in "reasoning" like: "Query is ambiguous - user may want [option 1] or [option 2]. Selecting [most likely option]. Please ask for clarification if needed."
         """
 
         // Get current date components for better context
