@@ -1885,6 +1885,19 @@ class OpenAIService: ObservableObject {
         // Optimize conversation history to reduce token usage
         let optimizedHistory = optimizeConversationHistory(conversationHistory)
 
+        // Analyze conversation state to avoid redundancy and enable smarter follow-ups
+        let conversationState = ConversationStateAnalyzerService.analyzeConversationState(
+            currentQuery: query,
+            conversationHistory: conversationHistory
+        )
+        print("🎯 Conversation state: \(conversationState.isProbablyFollowUp ? "Follow-up" : "New topic") | Topics: \(conversationState.topicsDiscussed.map { $0.topic }.joined(separator: ", "))")
+
+        // Load persistent user profile (learns across sessions)
+        let userProfile = UserProfilePersistenceService.loadUserProfile()
+        if let profile = userProfile {
+            print("👤 User profile: \(profile.totalSessionsAnalyzed) sessions, avg spending $\(String(format: "%.0f", profile.historicalAverageMonthlySpending))")
+        }
+
         // Extract context using intelligent metadata-first approach
         // LLM analyzes metadata and identifies which data is relevant
         let context = await buildSmartContextForQuestion(
