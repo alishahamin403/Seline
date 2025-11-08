@@ -466,50 +466,56 @@ class SearchService: ObservableObject {
                     onChunk: { chunk in
                         fullResponse += chunk
 
-                        // Add message on first chunk (don't show empty box)
-                        if !messageAdded {
-                            let assistantMsg = ConversationMessage(
-                                id: streamingMessageID,
-                                isUser: false,
-                                text: fullResponse,
-                                timestamp: Date(),
-                                intent: .general,
-                                timeStarted: thinkStartTime
-                            )
-                            self.conversationHistory.append(assistantMsg)
-                            messageAdded = true
-                        } else {
-                            // Update the last message with the accumulated response
-                            if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                                // Since ConversationMessage is immutable, create a new one
-                                let updatedMsg = ConversationMessage(
+                        // MUST dispatch to main thread - streaming chunks come from background thread
+                        DispatchQueue.main.async {
+                            // Add message on first chunk (don't show empty box)
+                            if !messageAdded {
+                                let assistantMsg = ConversationMessage(
                                     id: streamingMessageID,
                                     isUser: false,
                                     text: fullResponse,
-                                    timestamp: self.conversationHistory[lastIndex].timestamp,
-                                    intent: self.conversationHistory[lastIndex].intent,
-                                    timeStarted: self.conversationHistory[lastIndex].timeStarted
+                                    timestamp: Date(),
+                                    intent: .general,
+                                    timeStarted: thinkStartTime
                                 )
-                                self.conversationHistory[lastIndex] = updatedMsg
+                                self.conversationHistory.append(assistantMsg)
+                                messageAdded = true
+                            } else {
+                                // Update the last message with the accumulated response
+                                if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                                    // Since ConversationMessage is immutable, create a new one
+                                    let updatedMsg = ConversationMessage(
+                                        id: streamingMessageID,
+                                        isUser: false,
+                                        text: fullResponse,
+                                        timestamp: self.conversationHistory[lastIndex].timestamp,
+                                        intent: self.conversationHistory[lastIndex].intent,
+                                        timeStarted: self.conversationHistory[lastIndex].timeStarted
+                                    )
+                                    self.conversationHistory[lastIndex] = updatedMsg
+                                }
+                                self.saveConversationLocally()
                             }
-                            self.saveConversationLocally()
                         }
                     }
                 )
 
                 // Mark when LLM finishes thinking (after streaming completes)
-                if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                    let finalMsg = ConversationMessage(
-                        id: streamingMessageID,
-                        isUser: false,
-                        text: self.conversationHistory[lastIndex].text,
-                        timestamp: self.conversationHistory[lastIndex].timestamp,
-                        intent: self.conversationHistory[lastIndex].intent,
-                        timeStarted: self.conversationHistory[lastIndex].timeStarted,
-                        timeFinished: Date()
-                    )
-                    self.conversationHistory[lastIndex] = finalMsg
-                    self.saveConversationLocally()
+                // Dispatch to main thread to ensure UI updates happen on main thread
+                DispatchQueue.main.async {
+                    if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                        let finalMsg = ConversationMessage(
+                            id: streamingMessageID,
+                            isUser: false,
+                            text: self.conversationHistory[lastIndex].text,
+                            timestamp: self.conversationHistory[lastIndex].timestamp,
+                            intent: self.conversationHistory[lastIndex].intent,
+                            timeStarted: self.conversationHistory[lastIndex].timeStarted,
+                            timeFinished: Date()
+                        )
+                        self.conversationHistory[lastIndex] = finalMsg
+                        self.saveConversationLocally()
+                    }
                 }
             } else {
                 // Non-streaming response
