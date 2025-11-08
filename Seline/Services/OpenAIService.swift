@@ -1972,7 +1972,7 @@ class OpenAIService: ObservableObject {
         • ├─ or • = List items (indent for hierarchy)
         • ✓ = Completion/success status
         • 💡 = Key insights or next actions
-        • Markdown formatting for code values: \`$105.42\`, \`12:30 PM\`
+        • Code formatting: Use monospace for amounts and times like $105.42 or 12:30 PM
 
         SPECIFIC FORMATS BY DATA TYPE:
         ────────────────────────────────────────────
@@ -2274,7 +2274,7 @@ class OpenAIService: ObservableObject {
         • ├─ or • = List items (indent for hierarchy)
         • ✓ = Completion/success status
         • 💡 = Key insights or next actions
-        • Markdown formatting for code values: \`$105.42\`, \`12:30 PM\`
+        • Code formatting: Use monospace for amounts and times like $105.42 or 12:30 PM
 
         SPECIFIC FORMATS BY DATA TYPE:
         ────────────────────────────────────────────

@@ -651,6 +651,7 @@ class SearchService: ObservableObject {
                                     intent: self.conversationHistory[lastIndex].intent
                                 )
                                 self.conversationHistory[lastIndex] = updatedMsg
+                            }
                             self.saveConversationLocally()
                         }
                     }
