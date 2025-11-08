@@ -2530,17 +2530,72 @@ class OpenAIService: ObservableObject {
     /// Optimizes conversation history by keeping only recent messages
     /// Keeps last 5-10 messages to maintain context while reducing token usage
     /// This prevents token bloat and confusion from old conversation context
-    private func optimizeConversationHistory(_ history: [ConversationMessage]) -> [ConversationMessage] {
-        // Keep the last 10 messages for sufficient context but avoid token waste
-        // For most conversations, this is enough to maintain continuity
-        let maxMessages = 10
+    /// Summarize a message into key points for memory efficiency
+    private func summarizeMessage(_ message: ConversationMessage) -> String {
+        guard !message.isUser else { return message.text }
 
-        if history.count <= maxMessages {
+        // Extract key points from AI response (truncate long responses)
+        let lines = message.text.split(separator: "\n")
+        var keyPoints: [String] = []
+
+        // Take first few lines and any lines with key indicators
+        for (index, line) in lines.enumerated() {
+            let lineStr = String(line)
+            if index < 3 || // First 3 lines
+               lineStr.contains("💡") || lineStr.contains("Total:") ||
+               lineStr.contains("$") || lineStr.contains("Summary") {
+                keyPoints.append(lineStr)
+            }
+        }
+
+        // If too many key points, truncate
+        let summarized = keyPoints.prefix(4).joined(separator: " | ")
+        return summarized.isEmpty ? "Summary: \(message.text.prefix(100))" : summarized
+    }
+
+    private func optimizeConversationHistory(_ history: [ConversationMessage]) -> [ConversationMessage] {
+        // SMART HISTORY PRUNING:
+        // - Keep ALL user messages (they're short and important context)
+        // - Keep last 7 AI responses in FULL (for recent context)
+        // - Summarize older AI responses into single lines with key points
+        // This preserves context while reducing token usage significantly
+
+        if history.count <= 14 { // 7 pairs of user/ai messages
             return history
         }
 
-        // Return only the most recent messages
-        return Array(history.suffix(maxMessages))
+        var optimized: [ConversationMessage] = []
+        let splitPoint = history.count - 14 // Messages to summarize
+
+        // Process older messages (before splitPoint)
+        for i in 0..<splitPoint {
+            let message = history[i]
+
+            if message.isUser {
+                // ALWAYS keep user messages (they're short context)
+                optimized.append(message)
+            } else {
+                // Summarize older AI responses
+                let summary = summarizeMessage(message)
+                // Create a new message with summarized text
+                let summarizedMessage = ConversationMessage(
+                    id: message.id,
+                    isUser: false,
+                    text: "[SUMMARY] \(summary)",
+                    timestamp: message.timestamp,
+                    intent: message.intent,
+                    relatedData: nil,
+                    timeStarted: message.timeStarted,
+                    timeFinished: message.timeFinished
+                )
+                optimized.append(summarizedMessage)
+            }
+        }
+
+        // Keep all recent messages in full
+        optimized.append(contentsOf: history.suffix(14))
+
+        return optimized
     }
 
     @MainActor

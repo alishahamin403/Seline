@@ -104,3 +104,20 @@ struct RelatedDataItem: Identifiable, Codable {
     }
 }
 
+// MARK: - Conversation Summary (for smart memory)
+
+/// Summarized version of a conversation message for older context
+struct ConversationSummary: Codable {
+    let originalMessageId: UUID
+    let userQuestion: String  // What the user asked
+    let keyPoints: [String]   // Key facts from the response
+    let dataTypes: [String]   // What types of data were discussed
+    let timestamp: Date
+}
+
+/// Extended conversation message with optional summary
+struct ConversationMessageWithSummary {
+    let message: ConversationMessage
+    let summary: ConversationSummary?  // Non-nil if this is a summarized message
+}
+
