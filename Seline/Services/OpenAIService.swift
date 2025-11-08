@@ -3079,6 +3079,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Ask LLM which items from metadata are relevant to the user's question
+    @MainActor
     private func getRelevantDataIds(
         forQuestion question: String,
         metadata: AppDataMetadata,
@@ -3120,13 +3121,29 @@ class OpenAIService: ObservableObject {
         Which items should I fetch and analyze?
         """
 
-        do {
-            let response = try await callOpenAIAPI(
-                systemPrompt: systemPrompt,
-                userMessage: prompt,
-                model: "gpt-4o-mini", // Cheaper model for filtering
-                temperature: 0.3
+        guard let url = URL(string: baseURL) else {
+            print("❌ Invalid OpenAI URL")
+            return DataFilteringResponse(
+                receiptIds: nil,
+                eventIds: nil,
+                locationIds: nil,
+                noteIds: nil,
+                emailIds: nil,
+                reasoning: "Invalid API URL"
             )
+        }
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": prompt]
+            ],
+            "temperature": 0.3
+        ]
+
+        do {
+            let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
 
             // Extract JSON from response
             let jsonData = response.data(using: .utf8) ?? Data()
@@ -3148,6 +3165,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Fetch full details of items identified as relevant by LLM
+    @MainActor
     private func fetchFullDataForIds(
         relevantItemIds: DataFilteringResponse,
         taskManager: TaskManager,
@@ -3192,7 +3210,8 @@ class OpenAIService: ObservableObject {
 
         // Fetch emails
         if let emailIds = relevantItemIds.emailIds, !emailIds.isEmpty {
-            emails = emailService.emails.filter { emailIds.contains($0.id) }
+            let allEmails = emailService.inboxEmails + emailService.sentEmails
+            emails = allEmails.filter { emailIds.contains($0.id) }
         }
 
         return (receipts, events, locations, notes, emails)
