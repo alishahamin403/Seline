@@ -121,3 +121,20 @@ struct ConversationMessageWithSummary {
     let summary: ConversationSummary?  // Non-nil if this is a summarized message
 }
 
+// MARK: - Conversation State Tracking
+
+/// Tracks the current state of a conversation to avoid redundancy
+struct ConversationState {
+    let topicsDiscussed: [ConversationTopic]  // What's been talked about
+    let lastQuestionType: String?  // Type of last question (spending, events, etc.)
+    let isProbablyFollowUp: Bool  // Is this likely a follow-up to the last question?
+    let suggestedApproach: String  // How should LLM approach this response?
+}
+
+struct ConversationTopic {
+    let topic: String  // "spending", "restaurants", "events", etc.
+    let context: String  // Brief context of what was discussed
+    let messageCount: Int  // How many messages about this topic
+    let lastMentionedIndex: Int  // Index of last mention in conversation
+}
+

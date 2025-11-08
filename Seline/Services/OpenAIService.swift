@@ -1962,6 +1962,9 @@ class OpenAIService: ObservableObject {
         • NO markdown heading underlines
         • Clean, simple formatting with just text and emojis
 
+        CONVERSATION STATE & FOLLOW-UP RULES:
+        \(conversationState.suggestedApproach)
+
         SPECIFIC FORMATS BY DATA TYPE:
 
         EVENTS/SCHEDULE:
@@ -2126,6 +2129,13 @@ class OpenAIService: ObservableObject {
         // Optimize conversation history to reduce token usage
         let optimizedHistory = optimizeConversationHistory(conversationHistory)
 
+        // Analyze conversation state to avoid redundancy and enable smarter follow-ups
+        let conversationState = ConversationStateAnalyzerService.analyzeConversationState(
+            currentQuery: query,
+            conversationHistory: conversationHistory
+        )
+        print("🎯 Conversation state: \(conversationState.isProbablyFollowUp ? "Follow-up" : "New topic") | Topics: \(conversationState.topicsDiscussed.map { $0.topic }.joined(separator: ", "))")
+
         // Extract context using intelligent metadata-first approach
         // LLM analyzes metadata and identifies which data is relevant
         let context = await buildSmartContextForQuestion(
@@ -2202,6 +2212,9 @@ class OpenAIService: ObservableObject {
         • NO horizontal lines with ═════ or ─────
         • NO markdown heading underlines
         • Clean, simple formatting with just text and emojis
+
+        CONVERSATION STATE & FOLLOW-UP RULES:
+        \(conversationState.suggestedApproach)
 
         SPECIFIC FORMATS BY DATA TYPE:
 
