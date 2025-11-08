@@ -89,8 +89,12 @@ class MetadataBuilderService {
     private static func buildEventMetadata(from taskManager: TaskManager) -> [EventMetadata] {
         var eventMetadata: [EventMetadata] = []
 
-        for (_, tasks) in taskManager.tasks {
+        print("📅 Task categories available: \(taskManager.tasks.keys.joined(separator: ", "))")
+
+        for (category, tasks) in taskManager.tasks {
+            print("📅 Processing category '\(category)' with \(tasks.count) events")
             for task in tasks {
+                print("  - Event: \(task.title)")
                 let recurrencePattern = task.recurrenceFrequency?.rawValue
                 let completedDates = task.completedDates.isEmpty ? nil : task.completedDates
                 let eventType = inferEventType(from: task.title, description: task.description)
@@ -115,6 +119,7 @@ class MetadataBuilderService {
             }
         }
 
+        print("📅 Total events compiled: \(eventMetadata.count)")
         return eventMetadata
     }
 
@@ -201,6 +206,11 @@ class MetadataBuilderService {
     @MainActor
     private static func buildEmailMetadata(from emailService: EmailService) -> [EmailMetadata] {
         let allEmails = emailService.inboxEmails + emailService.sentEmails
+        print("📧 Building email metadata - Inbox: \(emailService.inboxEmails.count), Sent: \(emailService.sentEmails.count)")
+        for email in allEmails {
+            print("  📧 Email ID: \(email.id) | From: \(email.sender.displayName) | Subject: \(email.subject)")
+        }
+
         return allEmails.map { email in
             EmailMetadata(
                 id: email.id,
