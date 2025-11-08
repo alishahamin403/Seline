@@ -3105,12 +3105,38 @@ class OpenAIService: ObservableObject {
         - For date-based questions like "this week" or "this month", select items within that timeframe
         - For restaurant questions, select locations matching the cuisine/category
         - For expense questions, select receipts matching the category or date range
-        - For event/activity questions (gym, workout, exercise, meetings, etc.), select tasks/events matching the criteria, INCLUDING RECURRING EVENTS with completion history
-        - For recurring events, check the completedDates field - if user asks "how many times", include events that have completedDates in the requested timeframe
-        - Match event titles loosely (e.g., "gym" matches "Gym", "workout" matches events with those keywords)
-        - Be inclusive - if unsure, include the item
+        - For event/activity questions (gym, workout, exercise, meeting, etc.):
+          * CRITICAL: Only select events where isRecurring=true for recurring activity patterns
+          * For "gym" queries: Find events with "gym" in the title and isRecurring=true
+          * If multiple similar recurring events exist (e.g., "Go gym", "Go gym pussy"), select the SHORTEST/CLEANEST name
+          * Use completedDates field to count occurrences in the requested timeframe
+          * Each date in completedDates represents one completion of that recurring event
+        - For month/timeframe analysis:
+          * For "this month": Only include completedDates that fall in the CURRENT month
+          * For "last month": Only include completedDates that fall in the PREVIOUS month
+          * Check each date in completedDates against the month specified in the question
+          * Do NOT include events from October when user asks about November
+        - Matching strategy:
+          * First: Match by keyword (gym → contains "gym")
+          * Second: Verify isRecurring=true (ignore one-time events)
+          * Third: Filter to shortest name if multiple matches
+          * Fourth: Use completedDates to verify the event has activity in requested timeframe
         - Return null for categories with no relevant items
         """
+
+        // Get current date components for better context
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day], from: currentDate)
+        let currentMonth = components.month ?? 1
+        let currentYear = components.year ?? 2025
+        let lastMonth = currentMonth == 1 ? 12 : currentMonth - 1
+        let lastYear = currentMonth == 1 ? currentYear - 1 : currentYear
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM yyyy"
+        let currentMonthName = dateFormatter.string(from: currentDate)
+        let lastMonthDate = calendar.date(byAdding: .month, value: -1, to: currentDate) ?? currentDate
+        let lastMonthName = dateFormatter.string(from: lastMonthDate)
 
         let prompt = """
         User's question: "\(question)"
@@ -3119,6 +3145,11 @@ class OpenAIService: ObservableObject {
         \(metadataStr)
 
         Current date: \(DateFormatter().string(from: currentDate))
+        Current month: \(currentMonthName) (month \(currentMonth) of year \(currentYear))
+        Last month: \(lastMonthName) (month \(lastMonth) of year \(lastYear))
+
+        IMPORTANT: When user asks about "this month", they mean \(currentMonthName).
+        When user asks about "last month", they mean \(lastMonthName).
 
         Which items should I fetch and analyze?
         """
