@@ -3085,8 +3085,11 @@ class OpenAIService: ObservableObject {
         metadata: AppDataMetadata,
         currentDate: Date
     ) async -> DataFilteringResponse {
-        let metadataJson = try? JSONEncoder().encode(metadata)
-        let metadataStr = metadataJson.flatMap { String(data: $0, encoding: .utf8) } ?? "No metadata available"
+        // Format metadata as human-readable text for better LLM understanding
+        let metadataStr = formatMetadataForLLM(metadata, currentDate: currentDate)
+
+        // Log what metadata is available
+        print("📊 Metadata compiled: \(metadata.receipts.count) receipts, \(metadata.events.count) events, \(metadata.locations.count) locations, \(metadata.notes.count) notes, \(metadata.emails.count) emails")
 
         let systemPrompt = """
         You are a data analyst. Given the user's question and metadata about available data, determine which specific items are relevant.
@@ -3199,6 +3202,140 @@ class OpenAIService: ObservableObject {
                 reasoning: "Error filtering data"
             )
         }
+    }
+
+    /// Format metadata as human-readable text for better LLM comprehension
+    private func formatMetadataForLLM(_ metadata: AppDataMetadata, currentDate: Date) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        let calendar = Calendar.current
+
+        var formatted = ""
+
+        // Receipts
+        if !metadata.receipts.isEmpty {
+            formatted += "## RECEIPTS/EXPENSES\n"
+            for receipt in metadata.receipts.sorted(by: { $0.date > $1.date }) {
+                let dateStr = dateFormatter.string(from: receipt.date)
+                let categoryStr = receipt.category ?? "uncategorized"
+                formatted += "- ID: \(receipt.id.uuidString)\n"
+                formatted += "  Merchant: \(receipt.merchant)\n"
+                formatted += "  Amount: $\(String(format: "%.2f", receipt.amount))\n"
+                formatted += "  Date: \(dateStr) (\(receipt.dayOfWeek ?? ""))\n"
+                formatted += "  Category: \(categoryStr)\n"
+                if let monthYear = receipt.monthYear {
+                    formatted += "  Month/Year: \(monthYear)\n"
+                }
+                if let preview = receipt.preview, !preview.isEmpty {
+                    formatted += "  Preview: \(preview)\n"
+                }
+                formatted += "\n"
+            }
+        } else {
+            formatted += "## RECEIPTS/EXPENSES\nNo receipts found.\n\n"
+        }
+
+        // Events
+        if !metadata.events.isEmpty {
+            formatted += "## EVENTS/TASKS\n"
+            for event in metadata.events.sorted(by: { ($0.date ?? Date.distantFuture) > ($1.date ?? Date.distantFuture) }) {
+                let dateStr = event.date.map { dateFormatter.string(from: $0) } ?? "No date"
+                formatted += "- ID: \(event.id)\n"
+                formatted += "  Title: \(event.title)\n"
+                formatted += "  Date: \(dateStr)\n"
+                formatted += "  Recurring: \(event.isRecurring)\n"
+                if event.isRecurring, let pattern = event.recurrencePattern {
+                    formatted += "  Pattern: \(pattern)\n"
+                }
+                if let completedDates = event.completedDates, !completedDates.isEmpty {
+                    let thisMonthCount = completedDates.filter { date in
+                        let month = calendar.component(.month, from: date)
+                        let year = calendar.component(.year, from: date)
+                        let currentMonth = calendar.component(.month, from: currentDate)
+                        let currentYear = calendar.component(.year, from: currentDate)
+                        return month == currentMonth && year == currentYear
+                    }.count
+                    let lastMonthCount = completedDates.filter { date in
+                        let month = calendar.component(.month, from: date)
+                        let year = calendar.component(.year, from: date)
+                        let lastMonth = currentDate.addingTimeInterval(-86400 * 30)
+                        let compareMonth = calendar.component(.month, from: lastMonth)
+                        let compareYear = calendar.component(.year, from: lastMonth)
+                        return month == compareMonth && year == compareYear
+                    }.count
+                    formatted += "  Total Completions: \(completedDates.count)\n"
+                    formatted += "  This Month: \(thisMonthCount) times\n"
+                    formatted += "  Last Month: \(lastMonthCount) times\n"
+                }
+                if let eventType = event.eventType {
+                    formatted += "  Type: \(eventType)\n"
+                }
+                if let description = event.description {
+                    formatted += "  Description: \(description)\n"
+                }
+                formatted += "\n"
+            }
+        } else {
+            formatted += "## EVENTS/TASKS\nNo events found.\n\n"
+        }
+
+        // Locations
+        if !metadata.locations.isEmpty {
+            formatted += "## SAVED LOCATIONS\n"
+            for location in metadata.locations {
+                formatted += "- ID: \(location.id.uuidString)\n"
+                formatted += "  Name: \(location.displayName)\n"
+                formatted += "  Category: \(location.category)\n"
+                if let rating = location.userRating {
+                    formatted += "  Rating: \(rating)/10\n"
+                }
+                if let cuisine = location.cuisine {
+                    formatted += "  Cuisine: \(cuisine)\n"
+                }
+                if let notes = location.notes {
+                    formatted += "  Notes: \(notes)\n"
+                }
+                formatted += "\n"
+            }
+        } else {
+            formatted += "## SAVED LOCATIONS\nNo locations found.\n\n"
+        }
+
+        // Notes
+        if !metadata.notes.isEmpty {
+            formatted += "## NOTES\n"
+            for note in metadata.notes.sorted(by: { $0.dateModified > $1.dateModified }) {
+                let dateStr = dateFormatter.string(from: note.dateModified)
+                formatted += "- ID: \(note.id.uuidString)\n"
+                formatted += "  Title: \(note.title)\n"
+                formatted += "  Date: \(dateStr)\n"
+                if let folder = note.folder {
+                    formatted += "  Folder: \(folder)\n"
+                }
+                formatted += "  Preview: \(note.preview)\n"
+                formatted += "\n"
+            }
+        } else {
+            formatted += "## NOTES\nNo notes found.\n\n"
+        }
+
+        // Emails
+        if !metadata.emails.isEmpty {
+            formatted += "## EMAILS\n"
+            for email in metadata.emails.sorted(by: { $0.date > $1.date }) {
+                let dateStr = dateFormatter.string(from: email.date)
+                formatted += "- ID: \(email.id)\n"
+                formatted += "  From: \(email.from)\n"
+                formatted += "  Subject: \(email.subject)\n"
+                formatted += "  Date: \(dateStr)\n"
+                formatted += "  Preview: \(email.snippet)\n"
+                formatted += "\n"
+            }
+        } else {
+            formatted += "## EMAILS\nNo emails found.\n\n"
+        }
+
+        return formatted
     }
 
     /// Fetch full details of items identified as relevant by LLM
