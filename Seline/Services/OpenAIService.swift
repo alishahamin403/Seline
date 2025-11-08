@@ -1952,13 +1952,129 @@ class OpenAIService: ObservableObject {
         - Use date context provided to understand "today", "tomorrow", etc.
         - When filtering by date, be strict: if user asks for today, only show today's items
 
-        FORMATTING INSTRUCTIONS:
-        - Use **bold** for dates, times, important information
-        - Use bullet points for lists
-        - Use "Time - Title" format for events
-        - Use `code` for specific values like amounts
-        - Be concise - prefer bullet points over paragraphs
-        - Never show information the user didn't ask for
+        UNIVERSAL FORMATTING SYSTEM (Apply to ALL responses):
+        ════════════════════════════════════════════════════════════════
+
+        STRUCTURE: Use this pattern for every response
+        ────────────────────────────────────────────
+        1. HEADLINE (1-2 lines, bold key info)
+        2. Divider line (═════)
+        3. SECTIONS with emoji headers (🔹 SECTION NAME)
+        4. List items with visual hierarchy
+        5. KEY INSIGHT or action (💡)
+
+        TYPOGRAPHY & VISUAL ELEMENTS:
+        ────────────────────────────────────────────
+        • **Bold** = Key information (names, amounts, times, key facts)
+        • ═══════ = Major section dividers (use at top/bottom)
+        • ─────── = Subsection breaks (between groups)
+        • 📌📅💰 = Category emojis (identify what type of info)
+        • ├─ or • = List items (indent for hierarchy)
+        • ✓ = Completion/success status
+        • 💡 = Key insights or next actions
+        • Markdown formatting for code values: \`$105.42\`, \`12:30 PM\`
+
+        SPECIFIC FORMATS BY DATA TYPE:
+        ────────────────────────────────────────────
+
+        EVENTS/SCHEDULE:
+        📅 YOUR SCHEDULE - [Date]
+        ═════════════════════════════════════════════
+
+        🌅 ALL DAY
+        ├─ Event Title
+        ├─ Event Title
+
+        🕐 [TIME]
+        ├─ Event Title (duration if known)
+        ├─ Location: [Place]
+        ├─ With: [Person]
+
+        💡 [Key insight about day/schedule]
+
+        EMAILS:
+        📬 YOUR INBOX - [Count] Messages
+        ═════════════════════════════════════════════
+
+        ⚠️  ACTION NEEDED ([count])
+        ├─ **[Sender Name]**
+          Subject: [Subject line]
+
+        💰 FINANCIAL ([count])
+        ├─ **[Sender Name]** - [Amount] [Status]
+        ├─ **[Sender Name]** - [Amount] [Status]
+
+        🛒 ORDERS ([count])
+        ├─ **[Sender Name]** - [Description]
+
+        💡 [Summary or action needed]
+
+        EXPENSES/RECEIPTS:
+        💰 YOUR SPENDING - [Time Period]
+        ═════════════════════════════════════════════
+
+        📊 TOTAL: **$[Amount]**
+
+        🍔 CATEGORY ([count])
+        ├─ **[Merchant]** - **$[Amount]** on [Date]
+        ├─ **[Merchant]** - **$[Amount]** on [Date]
+
+        📈 TOP CATEGORY: [Category] ([Percentage]%)
+
+        💡 [Spending insight or comparison]
+
+        NOTES:
+        📝 YOUR NOTES - [Folder]
+        ═════════════════════════════════════════════
+
+        📌 **[Note Title]**
+        └─ Key points: [Summary]
+           Last updated: [When]
+
+        📌 **[Note Title]**
+        └─ Key points: [Summary]
+           Last updated: [When]
+
+        💡 [Summary or action items]
+
+        LOCATIONS:
+        📍 YOUR SAVED LOCATIONS
+        ═════════════════════════════════════════════
+
+        ☕ CAFES ([count])
+        ├─ **[Location Name]** - [Area]
+          Rating: **[Rating]/5** | [Distance] away
+
+        🍽️  RESTAURANTS ([count])
+        ├─ **[Location Name]** - [Cuisine]
+          Rating: **[Rating]/5** | [Distance] away
+
+        💡 [Closest option or recommendation]
+
+        WEATHER:
+        🌤️  WEATHER - [City]
+        ═════════════════════════════════════════════
+
+        Current: **[Temp]°C** - [Conditions]
+        Sunrise: [Time] | Sunset: [Time]
+
+        📅 6-DAY FORECAST
+        ├─ Tomorrow: **[Temp]°C** [Conditions]
+        ├─ [Day]: **[Temp]°C** [Conditions]
+
+        💡 [Relevant weather note]
+
+        GENERAL RULES FOR ALL FORMATS:
+        ────────────────────────────────────────────
+        • Start with a summary/headline
+        • Use section dividers to separate major sections
+        • Use emoji to identify category/type
+        • Bold all key information (numbers, names, times, decisions)
+        • Indent sub-items for visual hierarchy
+        • End with 💡 insight or action
+        • Keep lines concise and scannable
+        • Remove unnecessary words
+        • Ensure easy visual scanning in 2-3 seconds
 
         RESPONSE TEMPLATES (Follow these formats exactly):
 
@@ -2138,13 +2254,129 @@ class OpenAIService: ObservableObject {
         - Use date context provided to understand "today", "tomorrow", etc.
         - When filtering by date, be strict: if user asks for today, only show today's items
 
-        FORMATTING INSTRUCTIONS:
-        - Use **bold** for dates, times, important information
-        - Use bullet points for lists
-        - Use "Time - Title" format for events
-        - Use `code` for specific values like amounts
-        - Be concise - prefer bullet points over paragraphs
-        - Never show information the user didn't ask for
+        UNIVERSAL FORMATTING SYSTEM (Apply to ALL responses):
+        ════════════════════════════════════════════════════════════════
+
+        STRUCTURE: Use this pattern for every response
+        ────────────────────────────────────────────
+        1. HEADLINE (1-2 lines, bold key info)
+        2. Divider line (═════)
+        3. SECTIONS with emoji headers (🔹 SECTION NAME)
+        4. List items with visual hierarchy
+        5. KEY INSIGHT or action (💡)
+
+        TYPOGRAPHY & VISUAL ELEMENTS:
+        ────────────────────────────────────────────
+        • **Bold** = Key information (names, amounts, times, key facts)
+        • ═══════ = Major section dividers (use at top/bottom)
+        • ─────── = Subsection breaks (between groups)
+        • 📌📅💰 = Category emojis (identify what type of info)
+        • ├─ or • = List items (indent for hierarchy)
+        • ✓ = Completion/success status
+        • 💡 = Key insights or next actions
+        • Markdown formatting for code values: \`$105.42\`, \`12:30 PM\`
+
+        SPECIFIC FORMATS BY DATA TYPE:
+        ────────────────────────────────────────────
+
+        EVENTS/SCHEDULE:
+        📅 YOUR SCHEDULE - [Date]
+        ═════════════════════════════════════════════
+
+        🌅 ALL DAY
+        ├─ Event Title
+        ├─ Event Title
+
+        🕐 [TIME]
+        ├─ Event Title (duration if known)
+        ├─ Location: [Place]
+        ├─ With: [Person]
+
+        💡 [Key insight about day/schedule]
+
+        EMAILS:
+        📬 YOUR INBOX - [Count] Messages
+        ═════════════════════════════════════════════
+
+        ⚠️  ACTION NEEDED ([count])
+        ├─ **[Sender Name]**
+          Subject: [Subject line]
+
+        💰 FINANCIAL ([count])
+        ├─ **[Sender Name]** - [Amount] [Status]
+        ├─ **[Sender Name]** - [Amount] [Status]
+
+        🛒 ORDERS ([count])
+        ├─ **[Sender Name]** - [Description]
+
+        💡 [Summary or action needed]
+
+        EXPENSES/RECEIPTS:
+        💰 YOUR SPENDING - [Time Period]
+        ═════════════════════════════════════════════
+
+        📊 TOTAL: **$[Amount]**
+
+        🍔 CATEGORY ([count])
+        ├─ **[Merchant]** - **$[Amount]** on [Date]
+        ├─ **[Merchant]** - **$[Amount]** on [Date]
+
+        📈 TOP CATEGORY: [Category] ([Percentage]%)
+
+        💡 [Spending insight or comparison]
+
+        NOTES:
+        📝 YOUR NOTES - [Folder]
+        ═════════════════════════════════════════════
+
+        📌 **[Note Title]**
+        └─ Key points: [Summary]
+           Last updated: [When]
+
+        📌 **[Note Title]**
+        └─ Key points: [Summary]
+           Last updated: [When]
+
+        💡 [Summary or action items]
+
+        LOCATIONS:
+        📍 YOUR SAVED LOCATIONS
+        ═════════════════════════════════════════════
+
+        ☕ CAFES ([count])
+        ├─ **[Location Name]** - [Area]
+          Rating: **[Rating]/5** | [Distance] away
+
+        🍽️  RESTAURANTS ([count])
+        ├─ **[Location Name]** - [Cuisine]
+          Rating: **[Rating]/5** | [Distance] away
+
+        💡 [Closest option or recommendation]
+
+        WEATHER:
+        🌤️  WEATHER - [City]
+        ═════════════════════════════════════════════
+
+        Current: **[Temp]°C** - [Conditions]
+        Sunrise: [Time] | Sunset: [Time]
+
+        📅 6-DAY FORECAST
+        ├─ Tomorrow: **[Temp]°C** [Conditions]
+        ├─ [Day]: **[Temp]°C** [Conditions]
+
+        💡 [Relevant weather note]
+
+        GENERAL RULES FOR ALL FORMATS:
+        ────────────────────────────────────────────
+        • Start with a summary/headline
+        • Use section dividers to separate major sections
+        • Use emoji to identify category/type
+        • Bold all key information (numbers, names, times, decisions)
+        • Indent sub-items for visual hierarchy
+        • End with 💡 insight or action
+        • Keep lines concise and scannable
+        • Remove unnecessary words
+        • Ensure easy visual scanning in 2-3 seconds
 
         RESPONSE TEMPLATES (Follow these formats exactly):
 
