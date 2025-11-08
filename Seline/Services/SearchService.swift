@@ -620,10 +620,7 @@ class SearchService: ObservableObject {
                 var fullResponse = ""
                 let streamingMessageID = UUID()
                 self.streamingMessageID = streamingMessageID
-
-                // Create initial empty message
-                var assistantMsg = ConversationMessage(id: streamingMessageID, isUser: false, text: "", timestamp: Date(), intent: .general)
-                conversationHistory.append(assistantMsg)
+                var messageAdded = false
 
                 try await OpenAIService.shared.answerQuestionWithStreaming(
                     query: trimmed,
@@ -633,20 +630,27 @@ class SearchService: ObservableObject {
                     weatherService: WeatherService.shared,
                     locationsManager: LocationsManager.shared,
                     navigationService: NavigationService.shared,
-                    conversationHistory: Array(conversationHistory.dropLast(2)), // All messages except user message and streaming placeholder
+                    conversationHistory: Array(conversationHistory.dropLast(1)), // All messages except user message
                     onChunk: { chunk in
                         fullResponse += chunk
-                        // Update the last message with the accumulated response
-                        if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                            // Since ConversationMessage is immutable, create a new one
-                            let updatedMsg = ConversationMessage(
-                                id: streamingMessageID,
-                                isUser: false,
-                                text: fullResponse,
-                                timestamp: self.conversationHistory[lastIndex].timestamp,
-                                intent: self.conversationHistory[lastIndex].intent
-                            )
-                            self.conversationHistory[lastIndex] = updatedMsg
+
+                        // Add message on first chunk (don't show empty box)
+                        if !messageAdded {
+                            let assistantMsg = ConversationMessage(id: streamingMessageID, isUser: false, text: fullResponse, timestamp: Date(), intent: .general)
+                            self.conversationHistory.append(assistantMsg)
+                            messageAdded = true
+                        } else {
+                            // Update the last message with the accumulated response
+                            if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                                // Since ConversationMessage is immutable, create a new one
+                                let updatedMsg = ConversationMessage(
+                                    id: streamingMessageID,
+                                    isUser: false,
+                                    text: fullResponse,
+                                    timestamp: self.conversationHistory[lastIndex].timestamp,
+                                    intent: self.conversationHistory[lastIndex].intent
+                                )
+                                self.conversationHistory[lastIndex] = updatedMsg
                             self.saveConversationLocally()
                         }
                     }
