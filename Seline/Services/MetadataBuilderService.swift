@@ -29,8 +29,9 @@ class MetadataBuilderService {
 
     // MARK: - Receipt Metadata Builder
 
+    @MainActor
     private static func buildReceiptMetadata(from notesManager: NotesManager) -> [ReceiptMetadata] {
-        let receiptsFolderId = notesManager.getFolderIdByName("Receipts")
+        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
 
         func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
             guard let folderId = folderId else { return false }
@@ -70,6 +71,7 @@ class MetadataBuilderService {
 
     // MARK: - Event Metadata Builder
 
+    @MainActor
     private static func buildEventMetadata(from taskManager: TaskManager) -> [EventMetadata] {
         var eventMetadata: [EventMetadata] = []
 
@@ -101,6 +103,7 @@ class MetadataBuilderService {
 
     // MARK: - Location Metadata Builder
 
+    @MainActor
     private static func buildLocationMetadata(from locationsManager: LocationsManager) -> [LocationMetadata] {
         return locationsManager.savedPlaces.map { location in
             LocationMetadata(
@@ -120,9 +123,10 @@ class MetadataBuilderService {
 
     // MARK: - Note Metadata Builder
 
+    @MainActor
     private static func buildNoteMetadata(from notesManager: NotesManager) -> [NoteMetadata] {
         // Exclude receipts folder notes
-        let receiptsFolderId = notesManager.getFolderIdByName("Receipts")
+        let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
 
         func isUnderReceiptsFolderHierarchy(folderId: UUID?) -> Bool {
             guard let folderId = folderId else { return false }
@@ -158,8 +162,10 @@ class MetadataBuilderService {
 
     // MARK: - Email Metadata Builder
 
+    @MainActor
     private static func buildEmailMetadata(from emailService: EmailService) -> [EmailMetadata] {
-        return emailService.emails.map { email in
+        let allEmails = emailService.inboxEmails + emailService.sentEmails
+        return allEmails.map { email in
             EmailMetadata(
                 id: email.id,
                 from: email.sender.displayName,
