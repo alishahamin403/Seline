@@ -3105,7 +3105,9 @@ class OpenAIService: ObservableObject {
         - For date-based questions like "this week" or "this month", select items within that timeframe
         - For restaurant questions, select locations matching the cuisine/category
         - For expense questions, select receipts matching the category or date range
-        - For event questions, select tasks/events matching the criteria
+        - For event/activity questions (gym, workout, exercise, meetings, etc.), select tasks/events matching the criteria, INCLUDING RECURRING EVENTS with completion history
+        - For recurring events, check the completedDates field - if user asks "how many times", include events that have completedDates in the requested timeframe
+        - Match event titles loosely (e.g., "gym" matches "Gym", "workout" matches events with those keywords)
         - Be inclusive - if unsure, include the item
         - Return null for categories with no relevant items
         """
@@ -3145,8 +3147,12 @@ class OpenAIService: ObservableObject {
         do {
             let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
 
-            // Extract JSON from response
-            let jsonData = response.data(using: .utf8) ?? Data()
+            // Extract JSON from response (handle markdown-wrapped JSON)
+            let cleanedResponse = extractJSONFromResponse(response)
+            guard let jsonData = cleanedResponse.data(using: .utf8) else {
+                throw SummaryError.decodingError
+            }
+
             let filteringResponse = try JSONDecoder().decode(DataFilteringResponse.self, from: jsonData)
             print("🎯 LLM selected data: \(filteringResponse.reasoning ?? "No reasoning")")
             return filteringResponse
@@ -3225,6 +3231,29 @@ class OpenAIService: ObservableObject {
             let emailStartOfDay = calendar.startOfDay(for: email.timestamp)
             return emailStartOfDay >= range.start && emailStartOfDay < range.end
         }
+    }
+
+    /// Extract JSON from markdown-wrapped response
+    /// Handles cases where LLM returns ```json { ... } ```
+    private func extractJSONFromResponse(_ response: String) -> String {
+        var cleanedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Remove markdown code block markers
+        // Case 1: ```json ... ```
+        if cleanedResponse.hasPrefix("```json") {
+            cleanedResponse = String(cleanedResponse.dropFirst(7)) // Remove ```json
+        } else if cleanedResponse.hasPrefix("```") {
+            cleanedResponse = String(cleanedResponse.dropFirst(3)) // Remove ```
+        }
+
+        if cleanedResponse.hasSuffix("```") {
+            cleanedResponse = String(cleanedResponse.dropLast(3)) // Remove trailing ```
+        }
+
+        // Trim again after removing markdown
+        cleanedResponse = cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return cleanedResponse
     }
 
     /// Builds comprehensive context for action queries (event/note creation) with weather, locations, and destinations
