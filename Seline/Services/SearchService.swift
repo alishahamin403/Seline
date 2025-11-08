@@ -134,97 +134,6 @@ class SearchService: ObservableObject {
         // DISABLED: Event creation from chat disabled
         print("⚠️ Action creation disabled - event creation skipped")
         return
-
-        /* Original code removed - kept only for reference if re-enabling later
-        guard let eventData = pendingEventCreation else { return }
-
-        let taskManager = TaskManager.shared
-
-        // Parse the date and time
-        let dateFormatter = ISO8601DateFormatter()
-        let targetDate = dateFormatter.date(from: eventData.date) ?? Date()
-
-        // Parse the time properly - extract hours and minutes from time string
-        let calendar = Calendar.current
-        var scheduledTime: Date? = nil
-        if let timeStr = eventData.time, !timeStr.isEmpty {
-            // Try multiple time format parsers
-            let timeFormatters: [DateFormatter] = {
-                let f1 = DateFormatter()
-                f1.dateFormat = "HH:mm"  // 24-hour format (15:00)
-
-                let f2 = DateFormatter()
-                f2.dateFormat = "h:mm a" // 12-hour format (3:00 PM)
-
-                let f3 = DateFormatter()
-                f3.timeStyle = .short    // System short time
-                f3.dateStyle = .none
-
-                return [f1, f2, f3]
-            }()
-
-            // Try each formatter until one succeeds
-            for formatter in timeFormatters {
-                if let parsedTime = formatter.date(from: timeStr) {
-                    // Extract hour and minute from parsed time
-                    let timeComponents = calendar.dateComponents([.hour, .minute], from: parsedTime)
-
-                    // Create a new date with the target date but the parsed time
-                    if let scheduledDate = calendar.date(
-                        bySettingHour: timeComponents.hour ?? 0,
-                        minute: timeComponents.minute ?? 0,
-                        second: 0,
-                        of: targetDate
-                    ) {
-                        scheduledTime = scheduledDate
-                        break
-                    }
-                }
-            }
-        }
-
-        // Determine the weekday from the date
-        let weekdayIndex = calendar.component(.weekday, from: targetDate)
-
-        let weekday: WeekDay
-        switch weekdayIndex {
-        case 1: weekday = .sunday
-        case 2: weekday = .monday
-        case 3: weekday = .tuesday
-        case 4: weekday = .wednesday
-        case 5: weekday = .thursday
-        case 6: weekday = .friday
-        case 7: weekday = .saturday
-        default: weekday = .monday
-        }
-
-        // Create the task
-        taskManager.addTask(
-            title: eventData.title,
-            to: weekday,
-            description: eventData.description,
-            scheduledTime: scheduledTime,
-            endTime: nil,
-            targetDate: targetDate,
-            reminderTime: .none,
-            isRecurring: false,
-            recurrenceFrequency: nil,
-            tagId: nil
-        )
-
-        // Store context for follow-up actions (e.g., "move the event to today")
-        lastCreatedEventTitle = eventData.title
-        let displayDateFormatter = DateFormatter()
-        displayDateFormatter.dateStyle = .medium
-        lastCreatedEventDate = displayDateFormatter.string(from: targetDate)
-
-        // Clear pending data
-        pendingEventCreation = nil
-
-        // Check if there are more multi-actions to process
-        Task {
-            await processNextMultiAction()
-        }
     }
 
     func confirmNoteCreation() {
@@ -243,31 +152,6 @@ class SearchService: ObservableObject {
     private func confirmNoteUpdateAsync() async {
         // DISABLED: No note updates from chat
         return
-        /* Original code removed
-        guard let updateData = pendingNoteUpdate else { return }
-
-        let notesManager = NotesManager.shared
-
-        // Find the note to update
-        if let index = notesManager.notes.firstIndex(where: { $0.title == updateData.noteTitle }) {
-            var note = notesManager.notes[index]
-            // Append the new content to existing content
-            if !note.content.isEmpty {
-                note.content += "\n\n" + updateData.contentToAdd
-            } else {
-                note.content = updateData.contentToAdd
-            }
-            note.dateModified = Date()
-
-            // CRITICAL: Wait for sync to complete before showing success message
-            let updateSuccess = await notesManager.updateNoteAndWaitForSync(note)
-        }
-
-        // Clear pending data
-        pendingNoteUpdate = nil
-
-        // Check if there are more multi-actions to process
-        await processNextMultiAction()
     }
 
     func cancelAction() {
@@ -728,43 +612,6 @@ class SearchService: ObservableObject {
         // This function no longer does anything
         print("⚠️ Action creation disabled - cannot start conversational action")
         return
-
-        /* Original code removed - kept for reference only
-        // Add user message directly to history without reprocessing
-        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        addMessageToHistory(trimmed, isUser: true)
-
-        // Initialize new interactive action
-        let conversationContext = ConversationActionContext(
-            conversationHistory: conversationHistory,
-            recentTopics: [],
-            lastNoteCreated: lastCreatedNoteTitle,
-            lastEventCreated: lastCreatedEventTitle
-        )
-
-        var action = await conversationActionHandler.startAction(
-            from: userMessage,
-            actionType: actionType,
-            conversationContext: conversationContext
-        )
-
-        // Store the action
-        currentInteractiveAction = action
-
-        // Get next prompt
-        let prompt = await conversationActionHandler.getNextPrompt(
-            for: action,
-            conversationContext: conversationContext
-        )
-
-        // Add the initial prompt to conversation history so user can see it
-        if !prompt.isEmpty {
-            let promptMsg = ConversationMessage(isUser: false, text: prompt, intent: .general)
-            conversationHistory.append(promptMsg)
-        }
-
-        actionPrompt = prompt
-        isWaitingForActionResponse = true
     }
 
     /// Process a user's response to an action prompt
@@ -772,49 +619,6 @@ class SearchService: ObservableObject {
         // DISABLED: Action continuation disabled
         print("⚠️ Action creation disabled - action continuation skipped")
         return
-
-        /* Original code removed
-        guard var action = currentInteractiveAction else { return }
-
-        // Add user message directly to history without reprocessing
-        let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        addMessageToHistory(trimmed, isUser: true)
-
-        // Build conversation context
-        let conversationContext = ConversationActionContext(
-            conversationHistory: conversationHistory,
-            recentTopics: [],
-            lastNoteCreated: lastCreatedNoteTitle,
-            lastEventCreated: lastCreatedEventTitle
-        )
-
-        // Process the response
-        action = await conversationActionHandler.processUserResponse(
-            userMessage,
-            to: action,
-            currentStep: actionPrompt ?? "",
-            conversationContext: conversationContext
-        )
-
-        currentInteractiveAction = action
-
-        // Check if ready to save
-        if conversationActionHandler.isReadyToSave(action) {
-            await executeConversationalAction(action)
-            return
-        }
-
-        // Get next prompt
-        actionPrompt = await conversationActionHandler.getNextPrompt(
-            for: action,
-            conversationContext: conversationContext
-        )
-
-        // Add assistant response
-        if let prompt = actionPrompt {
-            let assistantMsg = ConversationMessage(isUser: false, text: prompt, intent: .general)
-            conversationHistory.append(assistantMsg)
-        }
     }
 
     /// Execute the built action (save to database)
