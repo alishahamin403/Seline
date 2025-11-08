@@ -3001,6 +3001,8 @@ class OpenAIService: ObservableObject {
             locationsManager: locationsManager ?? LocationsManager.shared
         )
 
+        print("📥 Fetched full data: \(fullData.receipts.count) receipts, \(fullData.events.count) events, \(fullData.locations.count) locations, \(fullData.notes.count) notes, \(fullData.emails.count) emails")
+
         // Step 4: Add full data context to be sent to LLM
         context += "=== AVAILABLE DATA ===\n\n"
 
@@ -3458,8 +3460,13 @@ class OpenAIService: ObservableObject {
 
         // Fetch emails
         if let emailIds = relevantItemIds.emailIds, !emailIds.isEmpty {
+            print("📧 Looking for email IDs: \(emailIds)")
             let allEmails = emailService.inboxEmails + emailService.sentEmails
+            print("📧 Total emails available: \(allEmails.count)")
+            let allEmailIds = allEmails.map { $0.id }
+            print("📧 Available email IDs: \(allEmailIds)")
             emails = allEmails.filter { emailIds.contains($0.id) }
+            print("📧 Matched emails: \(emails.count)")
         }
 
         return (receipts, events, locations, notes, emails)
