@@ -89,12 +89,13 @@ class MetadataBuilderService {
     private static func buildEventMetadata(from taskManager: TaskManager) -> [EventMetadata] {
         var eventMetadata: [EventMetadata] = []
 
-        print("📅 Task categories available: \(taskManager.tasks.keys.joined(separator: ", "))")
+        print("📅 Task categories available: \(taskManager.tasks.keys.map { $0.rawValue }.joined(separator: ", "))")
 
         for (category, tasks) in taskManager.tasks {
-            print("📅 Processing category '\(category)' with \(tasks.count) events")
+            print("📅 Processing category '\(category.rawValue)' with \(tasks.count) events")
             for task in tasks {
-                print("  - Event: \(task.title)")
+                let dateStr = task.targetDate.map { DateFormatter().string(from: $0) } ?? "No date"
+                print("  - Event: \(task.title) | Date: \(dateStr)")
                 let recurrencePattern = task.recurrenceFrequency?.rawValue
                 let completedDates = task.completedDates.isEmpty ? nil : task.completedDates
                 let eventType = inferEventType(from: task.title, description: task.description)
