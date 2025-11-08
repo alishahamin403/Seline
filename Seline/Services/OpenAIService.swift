@@ -3198,14 +3198,24 @@ class OpenAIService: ObservableObject {
         do {
             let response = try await makeOpenAIRequest(url: url, requestBody: requestBody)
 
+            print("🔍 Raw LLM response: \(response)")
+
             // Extract JSON from response (handle markdown-wrapped JSON)
             let cleanedResponse = extractJSONFromResponse(response)
+            print("🔍 Cleaned response: \(cleanedResponse)")
+
             guard let jsonData = cleanedResponse.data(using: .utf8) else {
                 throw SummaryError.decodingError
             }
 
             let filteringResponse = try JSONDecoder().decode(DataFilteringResponse.self, from: jsonData)
             print("🎯 LLM selected data: \(filteringResponse.reasoning ?? "No reasoning")")
+            print("📋 Filtered IDs - Receipts: \(filteringResponse.receiptIds?.count ?? 0), Events: \(filteringResponse.eventIds?.count ?? 0), Locations: \(filteringResponse.locationIds?.count ?? 0), Notes: \(filteringResponse.noteIds?.count ?? 0), Emails: \(filteringResponse.emailIds?.count ?? 0)")
+            if let emailIds = filteringResponse.emailIds {
+                print("📧 Email IDs returned: \(emailIds)")
+            } else {
+                print("📧 Email IDs: nil")
+            }
             return filteringResponse
         } catch {
             print("❌ Error getting relevant data IDs: \(error)")
