@@ -2137,6 +2137,8 @@ class OpenAIService: ObservableObject {
         conversationHistory: [ConversationMessage] = [],
         onChunk: @escaping (String) -> Void
     ) async throws {
+        print("🎬 answerQuestionWithStreaming started for query: '\(query)'")
+
         // Rate limiting
         await enforceRateLimit()
 
@@ -2385,7 +2387,9 @@ class OpenAIService: ObservableObject {
         requestBody["stream"] = true
 
         // Make streaming request
+        print("📨 Making OpenAI streaming request...")
         try await makeOpenAIStreamingRequest(url: url, requestBody: requestBody, onChunk: onChunk)
+        print("✨ Streaming request completed successfully")
     }
 
     /// Make a streaming request to the OpenAI API
@@ -2407,12 +2411,23 @@ class OpenAIService: ObservableObject {
             throw SummaryError.noData
         }
 
+        print("📡 OpenAI Streaming Response - Status Code: \(httpResponse.statusCode)")
+
         if httpResponse.statusCode != 200 {
-            throw SummaryError.apiError("HTTP \(httpResponse.statusCode)")
+            // Try to read error message from response
+            var errorBody = ""
+            for try await line in bytes.lines {
+                errorBody += line + "\n"
+            }
+            print("❌ OpenAI API Error: \(errorBody)")
+            throw SummaryError.apiError("HTTP \(httpResponse.statusCode): \(errorBody)")
         }
 
         // Process streaming response
         var buffer = ""
+        var chunkCount = 0
+        print("🔄 Starting to process streaming response...")
+
         for try await line in bytes.lines {
             let line = line.trimmingCharacters(in: .whitespaces)
 
@@ -2431,6 +2446,7 @@ class OpenAIService: ObservableObject {
                         onChunk(buffer)
                         buffer = ""
                     }
+                    print("✅ Stream completed - \(chunkCount) chunks received")
                     continue
                 }
 
@@ -2442,6 +2458,7 @@ class OpenAIService: ObservableObject {
                    let delta = firstChoice["delta"] as? [String: Any],
                    let content = delta["content"] as? String {
                     buffer += content
+                    chunkCount += 1
 
                     // Send content when we have a complete word or punctuation
                     if content.last?.isWhitespace ?? false || content.last?.isPunctuation ?? false {
@@ -2454,6 +2471,7 @@ class OpenAIService: ObservableObject {
 
         // Send any remaining content
         if !buffer.isEmpty {
+            print("📤 Sending final buffer chunk...")
             onChunk(buffer)
         }
     }

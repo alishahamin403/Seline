@@ -537,6 +537,8 @@ class SearchService: ObservableObject {
                 saveConversationLocally()
             }
         } catch {
+            print("❌ Error in addConversationMessage: \(error)")
+            print("❌ Error description: \(error.localizedDescription)")
             let errorMsg = ConversationMessage(
                 id: UUID(),
                 isUser: false,
