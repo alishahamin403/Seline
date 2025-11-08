@@ -3000,18 +3000,11 @@ class OpenAIService: ObservableObject {
         // Add receipts
         if !fullData.receipts.isEmpty {
             context += "=== RECEIPTS/EXPENSES ===\n"
-            var totalAmount: Double = 0
             for receipt in fullData.receipts.sorted(by: { $0.dateCreated > $1.dateCreated }) {
                 let dateStr = dateFormatter.string(from: receipt.dateCreated)
-                if let amount = MetadataBuilderService.extractAmountFromNote(receipt.content) {
-                    context += "• \(receipt.title) - $\(String(format: "%.2f", amount)) on \(dateStr)\n"
-                    totalAmount += amount
-                } else {
-                    context += "• \(receipt.title) on \(dateStr)\n"
-                }
-            }
-            if totalAmount > 0 {
-                context += "\nTotal: $\(String(format: "%.2f", totalAmount))\n"
+                context += "• \(receipt.title) - \(dateStr)\n"
+                // Include full content for detailed receipts (e.g., American Express statements with multiple transactions)
+                context += receipt.content + "\n\n"
             }
             context += "\n"
         }
@@ -3212,24 +3205,38 @@ class OpenAIService: ObservableObject {
 
         var formatted = ""
 
-        // Receipts
+        // Receipts - grouped by month for easier analysis
         if !metadata.receipts.isEmpty {
             formatted += "## RECEIPTS/EXPENSES\n"
-            for receipt in metadata.receipts.sorted(by: { $0.date > $1.date }) {
-                let dateStr = dateFormatter.string(from: receipt.date)
-                let categoryStr = receipt.category ?? "uncategorized"
-                formatted += "- ID: \(receipt.id.uuidString)\n"
-                formatted += "  Merchant: \(receipt.merchant)\n"
-                formatted += "  Amount: $\(String(format: "%.2f", receipt.amount))\n"
-                formatted += "  Date: \(dateStr) (\(receipt.dayOfWeek ?? ""))\n"
-                formatted += "  Category: \(categoryStr)\n"
-                if let monthYear = receipt.monthYear {
-                    formatted += "  Month/Year: \(monthYear)\n"
+
+            // Group receipts by month
+            var receiptsByMonth: [String: [ReceiptMetadata]] = [:]
+            for receipt in metadata.receipts {
+                let monthKey = receipt.monthYear ?? "Unknown Month"
+                if receiptsByMonth[monthKey] == nil {
+                    receiptsByMonth[monthKey] = []
                 }
-                if let preview = receipt.preview, !preview.isEmpty {
-                    formatted += "  Preview: \(preview)\n"
+                receiptsByMonth[monthKey]?.append(receipt)
+            }
+
+            // Display grouped by month (newest first)
+            let sortedMonths = receiptsByMonth.keys.sorted().reversed()
+            for month in sortedMonths {
+                guard let receipts = receiptsByMonth[month] else { continue }
+                let monthTotal = receipts.reduce(0) { $0 + $1.amount }
+                formatted += "\n### \(month)\n"
+                formatted += "Total: $\(String(format: "%.2f", monthTotal)) across \(receipts.count) transactions\n\n"
+
+                for receipt in receipts.sorted(by: { $0.date > $1.date }) {
+                    let dateStr = dateFormatter.string(from: receipt.date)
+                    let categoryStr = receipt.category ?? "uncategorized"
+                    formatted += "- ID: \(receipt.id.uuidString)\n"
+                    formatted += "  Merchant: \(receipt.merchant)\n"
+                    formatted += "  Amount: $\(String(format: "%.2f", receipt.amount))\n"
+                    formatted += "  Date: \(dateStr) (\(receipt.dayOfWeek ?? ""))\n"
+                    formatted += "  Category: \(categoryStr)\n"
+                    formatted += "\n"
                 }
-                formatted += "\n"
             }
         } else {
             formatted += "## RECEIPTS/EXPENSES\nNo receipts found.\n\n"
