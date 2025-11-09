@@ -305,7 +305,7 @@ struct SpendingAndETAWidget: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color(red: 0.98, green: 0.97, blue: 0.95))
+                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.03))
                 .cornerRadius(6)
             }
         }
@@ -413,7 +413,7 @@ struct SpendingAndETAWidget: View {
             .frame(height: 40)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color(red: 0.98, green: 0.97, blue: 0.95))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.03))
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -517,7 +517,7 @@ struct SpendingAndETAWidget: View {
         .frame(width: width)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color(red: 0.98, green: 0.97, blue: 0.95))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
         )
     }
 }
