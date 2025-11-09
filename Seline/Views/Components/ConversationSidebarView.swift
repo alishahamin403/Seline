@@ -73,6 +73,18 @@ struct ConversationSidebarView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
+
+                // Close button
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isPresented = false
+                    }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -126,9 +138,19 @@ struct ConversationSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(searchService.savedConversations) { conversation in
-                            conversationRow(conversation)
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Recent Conversations section header
+                        Text("Recent Conversations")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .textCase(.uppercase)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+
+                        VStack(spacing: 0) {
+                            ForEach(searchService.savedConversations) { conversation in
+                                conversationRow(conversation)
+                            }
                         }
                     }
                 }
@@ -153,7 +175,7 @@ struct ConversationSidebarView: View {
                 }
             }
         }) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     if isEditMode {
                         Image(systemName: selectedConversationIds.contains(conversation.id) ? "checkmark.circle.fill" : "circle")
@@ -162,15 +184,15 @@ struct ConversationSidebarView: View {
                             .frame(width: 18)
                     }
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(conversation.title)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             .lineLimit(2)
 
                         Text(conversation.formattedDate)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                             .lineLimit(1)
                     }
 
@@ -178,14 +200,21 @@ struct ConversationSidebarView: View {
 
                     if !isEditMode {
                         Text("\(conversation.messages.count)")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                // Subtle divider
+                if conversation != searchService.savedConversations.last {
+                    Divider()
+                        .padding(.horizontal, 16)
+                        .opacity(0.3)
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(selectedConversationIds.contains(conversation.id) ? Color.gray.opacity(0.1) : Color.clear)
+            .background(selectedConversationIds.contains(conversation.id) ? Color.gray.opacity(0.15) : Color.clear)
         }
         .buttonStyle(PlainButtonStyle())
         .contextMenu {
