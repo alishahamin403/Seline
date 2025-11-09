@@ -594,13 +594,18 @@ class SearchService: ObservableObject {
         isNewConversation = false
     }
 
-    /// Start a conversation with an initial question
-    func startConversation(with initialQuestion: String) async {
+    /// Start a new blank conversation (user will type first message)
+    func startNewConversation() {
         clearConversation()
         currentlyLoadedConversationId = nil  // Ensure we're not treating this as an existing conversation
         isInConversationMode = true
         isNewConversation = true  // Mark as new conversation (will hide title until finalized)
         updateConversationTitle()
+    }
+
+    /// Start a conversation with an initial question
+    func startConversation(with initialQuestion: String) async {
+        startNewConversation()
         await addConversationMessage(initialQuestion)
     }
 

@@ -80,7 +80,7 @@ struct ConversationSidebarView: View {
             // New Chat button
             Button(action: {
                 HapticManager.shared.selection()
-                searchService.startConversation()
+                searchService.startNewConversation()
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isPresented = false
                 }
