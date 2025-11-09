@@ -3028,17 +3028,20 @@ class OpenAIService: ObservableObject {
         }.sorted { $0.dateModified > $1.dateModified }
 
         print("💰 Found \(receiptsInRange.count) receipts in date range")
+        print("💰 Date filter: \(dateFormatter.string(from: startDate)) to \(dateFormatter.string(from: endDate))")
 
         // Format receipts for LLM
         context += "=== EXPENSES FOR REQUESTED PERIOD ===\n\n"
 
         if !receiptsInRange.isEmpty {
             var totalAmount: Double = 0
+            var amountDetails: [(title: String, amount: Double)] = []
 
             context += "**All Receipts:**\n\n"
             for (index, note) in receiptsInRange.enumerated() {
                 let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
                 totalAmount += amount
+                amountDetails.append((title: note.title, amount: amount))
 
                 let dateStr = dateFormatter.string(from: note.dateModified)
                 context += "\(index + 1). \(note.title)\n"
@@ -3046,6 +3049,13 @@ class OpenAIService: ObservableObject {
                 context += "   Date: \(dateStr)\n"
                 context += "   Details: \(String(note.content.prefix(100)))\n\n"
             }
+
+            // Debug logging for each receipt
+            print("💰 Receipt Amounts Extracted:")
+            for (title, amount) in amountDetails {
+                print("   - \(title): $\(String(format: "%.2f", amount))")
+            }
+            print("💰 TOTAL CALCULATED: $\(String(format: "%.2f", totalAmount))")
 
             // Summary
             let avgAmount = totalAmount / Double(receiptsInRange.count)
