@@ -16,8 +16,8 @@ struct ConversationSidebarView: View {
             headerView
             conversationsListView
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-        .frame(minWidth: 300, idealWidth: 380, maxWidth: 380)
+        .background(colorScheme == .dark ? Color(UIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1.0)) : Color(UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)))
+        .frame(minWidth: 300, idealWidth: UIScreen.main.bounds.width * 0.75, maxWidth: UIScreen.main.bounds.width * 0.75)
     }
 
     private var headerView: some View {
@@ -73,18 +73,6 @@ struct ConversationSidebarView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
-
-                // Close button
-                Button(action: {
-                    HapticManager.shared.selection()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isPresented = false
-                    }
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -116,7 +104,7 @@ struct ConversationSidebarView: View {
             .padding(.bottom, 12)
         }
         .padding(.vertical, 12)
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .background(colorScheme == .dark ? Color(UIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1.0)) : Color(UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)))
     }
 
     private var conversationsListView: some View {
@@ -206,13 +194,6 @@ struct ConversationSidebarView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-
-                // Subtle divider
-                if conversation.id != searchService.savedConversations.last?.id {
-                    Divider()
-                        .padding(.horizontal, 16)
-                        .opacity(0.3)
-                }
             }
             .background(selectedConversationIds.contains(conversation.id) ? Color.gray.opacity(0.15) : Color.clear)
         }

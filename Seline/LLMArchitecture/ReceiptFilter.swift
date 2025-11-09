@@ -6,6 +6,8 @@ struct ReceiptWithRelevance: Codable {
     let relevanceScore: Double  // 0.0 - 1.0
     let matchType: MatchType
     let categoryMatch: Bool
+    let merchantType: String?  // NEW: What kind of merchant (Pizzeria, Coffee Shop, etc)
+    let merchantProducts: [String]?  // NEW: What products they sell
 
     enum MatchType: String, Codable {
         case date_range_match
@@ -25,10 +27,11 @@ class ReceiptFilter {
     // MARK: - Main Filtering
 
     /// Filter receipts based on intent and date range
+    /// Now includes merchant intelligence for better product identification
     func filterReceiptsForQuery(
         intent: IntentContext,
         receipts: [ReceiptStat]
-    ) -> [ReceiptWithRelevance] {
+    ) async -> [ReceiptWithRelevance] {
         var scored: [ReceiptWithRelevance] = []
 
         // Only process if expense intent detected
@@ -36,10 +39,22 @@ class ReceiptFilter {
             return []
         }
 
+        // Get merchant intelligence for all unique merchants
+        let uniqueMerchants = Array(Set(receipts.map { $0.title }))
+        let merchantInfo = await MerchantIntelligenceLayer.shared.getMerchantTypes(uniqueMerchants)
+
         for receipt in receipts {
             var score: Double = 0
             var matchType: ReceiptWithRelevance.MatchType = .date_range_match
             var categoryMatch = false
+            var merchantType: String? = nil
+            var merchantProducts: [String]? = nil
+
+            // Get merchant intelligence
+            if let info = merchantInfo[receipt.title] {
+                merchantType = info.type
+                merchantProducts = info.products
+            }
 
             // Date range filtering
             if let dateRange = intent.dateRange {
@@ -62,14 +77,28 @@ class ReceiptFilter {
                 }
             }
 
-            // Merchant matching
+            // Enhanced merchant matching: keyword + merchant intelligence
             let lowerMerchant = receipt.title.lowercased()
+            var merchantKeywordMatch = false
+
             for entity in intent.entities {
                 let lowerEntity = entity.lowercased()
 
+                // Keyword match in merchant name
                 if lowerMerchant.contains(lowerEntity) {
                     score += 2.0
                     matchType = .merchant_match
+                    merchantKeywordMatch = true
+                }
+
+                // Semantic match via merchant intelligence
+                // (e.g., user asked for "pizza" and merchant type is "Pizzeria")
+                if let info = merchantInfo[receipt.title] {
+                    if MerchantIntelligenceLayer.shared.likelyToSell(info, product: lowerEntity) {
+                        score += 1.5  // Slightly lower confidence than explicit match
+                        matchType = .merchant_match
+                        merchantKeywordMatch = true
+                    }
                 }
             }
 
@@ -92,7 +121,9 @@ class ReceiptFilter {
                     receipt: receipt,
                     relevanceScore: min(score / 5.0, 1.0),
                     matchType: matchType,
-                    categoryMatch: categoryMatch
+                    categoryMatch: categoryMatch,
+                    merchantType: merchantType,
+                    merchantProducts: merchantProducts
                 ))
             }
         }

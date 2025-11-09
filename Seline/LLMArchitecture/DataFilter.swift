@@ -94,6 +94,7 @@ class DataFilter {
     // MARK: - Main Filtering Function
 
     /// Filter data based on intent and create a ranked result set
+    /// Now async to support merchant intelligence lookups
     func filterDataForQuery(
         intent: IntentContext,
         notes: [Note],
@@ -102,7 +103,7 @@ class DataFilter {
         emails: [Email],
         receipts: [ReceiptStat],
         weather: WeatherData?
-    ) -> FilteredContext {
+    ) async -> FilteredContext {
         var filteredNotes: [NoteWithRelevance]? = nil
         var filteredLocations: [SavedPlaceWithRelevance]? = nil
         var filteredTasks: [TaskItemWithRelevance]? = nil
@@ -133,7 +134,7 @@ class DataFilter {
             filteredLocations = filterLocations(locations, intent: intent, forNavigation: true)
 
         case .expenses:
-            filteredReceipts = ReceiptFilter.shared.filterReceiptsForQuery(
+            filteredReceipts = await ReceiptFilter.shared.filterReceiptsForQuery(
                 intent: intent,
                 receipts: receipts
             )
@@ -156,7 +157,7 @@ class DataFilter {
                 filteredEmails = filterEmails(emails, intent: intent)
             }
             if intent.subIntents.contains(.expenses) {
-                filteredReceipts = ReceiptFilter.shared.filterReceiptsForQuery(
+                filteredReceipts = await ReceiptFilter.shared.filterReceiptsForQuery(
                     intent: intent,
                     receipts: receipts
                 )

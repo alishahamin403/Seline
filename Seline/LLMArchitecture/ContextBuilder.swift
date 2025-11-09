@@ -75,6 +75,8 @@ struct StructuredLLMContext: Encodable {
             let year: Int
             let relevanceScore: Double
             let matchType: String
+            let merchantType: String?  // NEW: Type of merchant (Pizzeria, Coffee Shop, etc)
+            let merchantProducts: [String]?  // NEW: What products they sell
         }
 
         struct ReceiptSummaryJSON: Encodable {
@@ -256,7 +258,7 @@ class ContextBuilder {
         }
     }
 
-    /// Build receipts JSON from filtered receipts
+    /// Build receipts JSON from filtered receipts (includes merchant intelligence)
     private func buildReceiptsJSON(from receipts: [ReceiptWithRelevance]?) -> [StructuredLLMContext.ContextData.ReceiptJSON]? {
         guard let receipts = receipts, !receipts.isEmpty else { return nil }
 
@@ -276,7 +278,9 @@ class ContextBuilder {
                 month: month,
                 year: year,
                 relevanceScore: receiptWithRelevance.relevanceScore,
-                matchType: receiptWithRelevance.matchType.rawValue
+                matchType: receiptWithRelevance.matchType.rawValue,
+                merchantType: receiptWithRelevance.merchantType,  // NEW: Merchant intelligence
+                merchantProducts: receiptWithRelevance.merchantProducts  // NEW: What they sell
             )
         }
     }

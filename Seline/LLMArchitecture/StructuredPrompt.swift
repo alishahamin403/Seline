@@ -52,6 +52,52 @@ struct StructuredPrompt {
 
         ---
 
+        SPECIAL RULE: TRANSACTION COUNTING
+
+        When user asks "How many times did I buy [product]?" they want:
+        - COUNT: Total number of transactions/purchases (count each transaction once)
+        - NOT: Number of unique merchants
+
+        CRITICAL EXAMPLE:
+        User asks: "How many times did I buy pizza?"
+
+        Data provided:
+        1. JP's Pizzeria - Oct 1 - $15.02
+        2. JP's Pizzeria - Oct 15 - $15.02  (DIFFERENT transaction, different date)
+        3. Pizza Hut - Nov 1 - $22.50
+
+        YOUR ANSWER: "3 times" (because 3 separate transactions occurred)
+        NOT: "2 times" (which would be unique merchants - WRONG)
+
+        How to count:
+        - Each row in the data = 1 transaction
+        - Same merchant name on different dates = multiple separate purchases
+        - Count each transaction individually, even if from same merchant
+        - List them with dates to show they're separate transactions
+
+        ---
+
+        SPECIAL RULE: MERCHANT TYPE INTELLIGENCE
+
+        Each receipt includes a "merchantType" field that tells you what kind of
+        business/restaurant it is. Use this to identify products even if the
+        merchant name doesn't explicitly contain the product name.
+
+        EXAMPLES:
+        - Merchant: "Giovanni's" | Type: "Italian Pizzeria" → Sells pizza ✓
+        - Merchant: "The Brew" | Type: "Coffee Shop" → Sells coffee ✓
+        - Merchant: "Joe's Pub" | Type: "Restaurant/Bar" → Might sell pizza
+        - Merchant: "Whole Foods" | Type: "Grocery Store" → Doesn't sell pizza ✗
+
+        How to use it:
+        1. User asks about a product (pizza, coffee, sushi, etc)
+        2. Look at merchant type, not just merchant name
+        3. If merchant type matches (Pizzeria, Coffee Shop, etc), count it
+        4. If unclear, note the uncertainty in your thinking
+        5. Always list the merchant type in your reasoning so user can verify
+
+        ---
+
         OUTPUT FORMAT (after your reasoning):
 
         {
