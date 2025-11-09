@@ -3330,30 +3330,43 @@ class OpenAIService: ObservableObject {
     private func filterReceiptsBySemanticSimilarity(
         _ receipts: [Note],
         products: [String],
-        similarityThreshold: Double = 0.65
+        similarityThreshold: Double = 0.45
     ) async -> [Note] {
         guard !products.isEmpty else { return receipts }
 
         var filteredReceipts: [Note] = []
 
         for receipt in receipts {
-            let receiptText = receipt.title + " " + receipt.content
+            // Extract merchant name from receipt title
+            // Usually format is "Merchant Name - Date" so take everything before first dash
+            let merchantName = receipt.title.split(separator: "-").first.map(String.init) ?? receipt.title
+
+            // Also search in receipt content in case merchant isn't in title
+            let searchTexts = [merchantName, receipt.content]
+
             var maxSimilarity: Double = 0.0
 
-            // Find the best similarity score across all products
+            // Find the best similarity score across all products and search texts
             for product in products {
-                let similarity = await semanticSimilarity(text1: product, text2: receiptText)
-                maxSimilarity = max(maxSimilarity, similarity)
-                print("   Similarity: '\(product)' vs '\(receipt.title)' = \(String(format: "%.2f", similarity))")
+                for searchText in searchTexts {
+                    let similarity = await semanticSimilarity(text1: product, text2: searchText.trimmingCharacters(in: .whitespaces))
+                    maxSimilarity = max(maxSimilarity, similarity)
+
+                    // Log the best match for this product
+                    if similarity > maxSimilarity - 0.01 { // Only log top results
+                        print("   Similarity: '\(product)' vs '\(merchantName)' = \(String(format: "%.2f", similarity))")
+                    }
+                }
             }
 
             // Include receipt if it exceeds similarity threshold
             if maxSimilarity >= similarityThreshold {
+                print("   ✅ MATCH: '\(merchantName)' (score: \(String(format: "%.2f", maxSimilarity)))")
                 filteredReceipts.append(receipt)
             }
         }
 
-        print("🔍 Semantic filtering complete: Found \(filteredReceipts.count) semantically similar receipts")
+        print("🔍 Semantic filtering complete: Found \(filteredReceipts.count) semantically similar receipts (threshold: \(similarityThreshold))")
         return filteredReceipts
     }
 
