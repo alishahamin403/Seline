@@ -54,8 +54,8 @@ class ReceiptFilter {
 
             // Category filtering
             if let locationFilter = intent.locationFilter, let filterCategory = locationFilter.category {
-                if let receiptCategory = receipt.category?.lowercased(),
-                   receiptCategory.contains(filterCategory.lowercased()) {
+                let receiptCategory = receipt.category.lowercased()
+                if receiptCategory.contains(filterCategory.lowercased()) {
                     score += 3.0
                     matchType = .category_match
                     categoryMatch = true
