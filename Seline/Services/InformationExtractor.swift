@@ -47,9 +47,9 @@ class InformationExtractor {
         let lastEventContext = context.lastEventCreated.map { "LAST EVENT CREATED: \($0)" } ?? ""
 
         let prompt = """
-        Extract event information from this user message. Consider the conversation history for context.
+        The user wants to create an event. Extract the event details from their message.
+
         TODAY'S DATE: \(today)
-        Use this to convert relative dates like "tomorrow", "next Monday", "tom", etc to ISO8601 format.
         \(lastEventContext)
 
         Conversation history:
@@ -57,29 +57,45 @@ class InformationExtractor {
 
         Current user message: "\(message)"
 
-        Extract the following fields if present:
-        - title: Event title/name (if user refers to "the event" or "it", use the last created event title if available)
-        - date: Date in ISO8601 format (YYYY-MM-DD), or null if not mentioned. Convert relative dates like "tomorrow", "tom", "next Monday", "today" etc using today's date.
-        - startTime: Start time in HH:mm format (24-hour), or null
-        - endTime: End time in HH:mm format, or null
+        PROCESS:
+        1. READ: What is the user describing? (event name, date, time, etc.)
+        2. DISCOVER: What details are explicitly mentioned vs. implied?
+        3. REASON: Explain what you found and what's missing
+        4. EXTRACT: Provide the structured data
+
+        Example reasoning:
+        "User said 'schedule a meeting with John about Q4 budget on Friday at 2pm'.
+        - Title: Meeting with John (or 'Q4 Budget Meeting')
+        - Date: Friday = November 14, 2025
+        - Start time: 14:00 (2pm in 24-hour format)
+        - End time: Not specified
+        - Duration hint: 'meeting' typically 1 hour
+        - Description: About Q4 budget discussion with John"
+
+        Extract these fields if present:
+        - title: Event title/name (what is this event called?)
+        - date: Date in ISO8601 format (YYYY-MM-DD). Convert relative dates using today's date.
+        - startTime: Start time in HH:mm format (24-hour). Infer from context if needed.
+        - endTime: End time in HH:mm format, or null if not specified
         - isAllDay: true/false
         - reminder: Minutes before event for reminder, or null
         - recurrence: "daily", "weekly", "biweekly", "monthly", "yearly", or null
-        - description: Any additional details
+        - description: Additional context (people involved, purpose, notes)
 
         Return ONLY valid JSON with these fields. Use null for missing fields.
-        Example: {"title":"Dog walk","date":"2024-11-04","startTime":"18:00","endTime":null,"isAllDay":false,"reminder":60,"recurrence":null,"description":"Take my dog for a poop"}
+        Example: {"title":"Meeting with John - Q4 Budget","date":"2025-11-14","startTime":"14:00","endTime":"15:00","isAllDay":false,"reminder":15,"recurrence":null,"description":"Discuss Q4 budget planning with John"}
         """
 
         do {
             let response = try await OpenAIService.shared.generateText(
-                systemPrompt: "You are an information extractor. Return ONLY valid JSON.",
+                systemPrompt: "You are an event information extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
-                maxTokens: 300,
+                maxTokens: 400,
                 temperature: 0.0
             )
 
-            if let jsonData = response.data(using: .utf8),
+            // Try to parse JSON from the response (it might have reasoning before the JSON)
+            if let jsonData = extractJSON(from: response)?.data(using: .utf8),
                let extracted = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
 
                 // Update extracted info
@@ -140,7 +156,7 @@ class InformationExtractor {
         let lastEventContext = context.lastEventCreated.map { "LAST CREATED EVENT TO UPDATE: \($0)" } ?? ""
 
         let prompt = """
-        The user wants to UPDATE an existing event. Extract what needs to be changed.
+        The user wants to UPDATE an existing event. Extract what changes they want to make.
         TODAY'S DATE: \(today)
         \(lastEventContext)
 
@@ -149,9 +165,15 @@ class InformationExtractor {
 
         User message: "\(message)"
 
-        Extract:
-        - title: The event title to update (if not specified, use the last created event or the event mentioned in the message)
-        - newDate: New date in ISO8601 format (YYYY-MM-DD) if changing date. Convert relative dates like "today", "tomorrow", "tom" using today's date.
+        PROCESS:
+        1. READ: What event are they updating? (which one from the conversation?)
+        2. DISCOVER: What specifically do they want to change? (date, time, title, description?)
+        3. REASON: Explain what changes are requested
+        4. EXTRACT: Provide the updated fields
+
+        Extract only fields that are being changed:
+        - title: The event title to update (if not specified, use the last created event)
+        - newDate: New date in ISO8601 format (YYYY-MM-DD) if changing date. Convert relative dates using today's date.
         - newStartTime: New start time in HH:mm format if changing time
         - newDescription: Any new description or notes
 
@@ -160,13 +182,13 @@ class InformationExtractor {
 
         do {
             let response = try await OpenAIService.shared.generateText(
-                systemPrompt: "You are an update event extractor. Return ONLY valid JSON.",
+                systemPrompt: "You are an update event extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
-                maxTokens: 300,
+                maxTokens: 400,
                 temperature: 0.0
             )
 
-            if let jsonData = response.data(using: .utf8),
+            if let jsonData = extractJSON(from: response)?.data(using: .utf8),
                let extracted = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
 
                 // Update event title
@@ -214,23 +236,35 @@ class InformationExtractor {
 
         Current user message: "\(message)"
 
-        Extract:
-        - title: Note title (if creating new note or referenced in message)
-        - content: The note content/body
-        - isAddingMore: true if user said something like "yes add more" or "add this too", false otherwise
+        PROCESS:
+        1. READ: What is the user writing about? (topic, subject)
+        2. DISCOVER: Is this a new note or adding to existing? What's the main content?
+        3. REASON: Explain what you found and what the note should be about
+        4. EXTRACT: Provide the structured note data
 
-        Return JSON: {"title":"title or null","content":"content here","isAddingMore":false}
+        Example:
+        "User said 'add a note about my project timeline - Q4 goals are: increase revenue by 20%, launch new feature by Dec 15'.
+        - Title: Project Timeline / Q4 Goals
+        - Content: Increase revenue by 20%, launch new feature by Dec 15
+        - Creating new note"
+
+        Extract:
+        - title: Note title (what is this note about? if creating new, suggest a title)
+        - content: The full note content/body (preserve all the details the user provided)
+        - isAddingMore: true if user said something like "yes add more" or "add this too", false if creating new
+
+        Return JSON: {"title":"title here","content":"full content here","isAddingMore":false}
         """
 
         do {
             let response = try await OpenAIService.shared.generateText(
-                systemPrompt: "You are a note information extractor. Return ONLY valid JSON.",
+                systemPrompt: "You are a note information extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
-                maxTokens: 300,
+                maxTokens: 400,
                 temperature: 0.0
             )
 
-            if let jsonData = response.data(using: .utf8),
+            if let jsonData = extractJSON(from: response)?.data(using: .utf8),
                let extracted = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
 
                 if let title = extracted["title"] as? String, !title.isEmpty {
@@ -256,29 +290,35 @@ class InformationExtractor {
         action: inout InteractiveAction
     ) async {
         let prompt = """
-        Extract deletion target from user message.
+        The user wants to delete something. Extract what they want to delete.
 
         Conversation history:
         \(context.historyText)
 
         User message: "\(message)"
 
+        PROCESS:
+        1. READ: What does the user want to delete? (which event, note, or item?)
+        2. DISCOVER: Is it a one-time item or recurring? Should they delete all occurrences?
+        3. REASON: Explain what you understand about what they want to delete
+        4. EXTRACT: Provide the deletion target
+
         Extract:
-        - targetTitle: What item to delete (event/note name)
-        - deleteAll: For recurring events, true if "delete all occurrences", false for just this one
+        - targetTitle: What item to delete (event/note name) - reference from conversation if available
+        - deleteAll: For recurring events, true if "delete all occurrences", false if "delete just this one"
 
         Return JSON: {"targetTitle":"name","deleteAll":false}
         """
 
         do {
             let response = try await OpenAIService.shared.generateText(
-                systemPrompt: "You are an information extractor. Return ONLY valid JSON.",
+                systemPrompt: "You are an information extractor. Show your reasoning, then return ONLY valid JSON.",
                 userPrompt: prompt,
-                maxTokens: 100,
+                maxTokens: 200,
                 temperature: 0.0
             )
 
-            if let jsonData = response.data(using: .utf8),
+            if let jsonData = extractJSON(from: response)?.data(using: .utf8),
                let extracted = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
 
                 if let targetTitle = extracted["targetTitle"] as? String, !targetTitle.isEmpty {
@@ -322,6 +362,39 @@ class InformationExtractor {
         }
 
         return nil
+    }
+
+    // MARK: - JSON Extraction Helper
+
+    /// Extract JSON object from text that may contain reasoning before the JSON
+    private func extractJSON(from text: String) -> String? {
+        // Look for the first '{' and find the matching '}'
+        guard let startIndex = text.firstIndex(of: "{") else {
+            // If no JSON found, try to return the text as-is (might be valid JSON)
+            return text.trimmingCharacters(in: .whitespaces)
+        }
+
+        var braceCount = 0
+        var endIndex: String.Index? = nil
+
+        for index in startIndex..<text.endIndex {
+            let char = text[index]
+            if char == "{" {
+                braceCount += 1
+            } else if char == "}" {
+                braceCount -= 1
+                if braceCount == 0 {
+                    endIndex = text.index(after: index)
+                    break
+                }
+            }
+        }
+
+        guard let end = endIndex else {
+            return nil
+        }
+
+        return String(text[startIndex..<end])
     }
 
 // MARK: - Title Generation (Fallback)

@@ -111,6 +111,8 @@ class ContextBuilder {
     // MARK: - Main Context Building
 
     /// Build structured context from filtered data and conversation history
+    /// NOTE: This includes some pre-filtered data, but the LLM will do the final discovery
+    /// of what's actually relevant, so we're not too aggressive with filtering
     func buildStructuredContext(
         from filteredContext: FilteredContext,
         conversationHistory: [ConversationMessage]
@@ -124,7 +126,8 @@ class ContextBuilder {
             dateRangeQueried: filteredContext.metadata.dateRangeQueried
         )
 
-        // Build context data
+        // Build context data - LLM will discover what's relevant
+        // We provide data with relevance scores, but the LLM doesn't rely on them for discovery
         let contextData = StructuredLLMContext.ContextData(
             notes: buildNotesJSON(from: filteredContext.notes),
             locations: buildLocationsJSON(from: filteredContext.locations),
@@ -134,7 +137,7 @@ class ContextBuilder {
             receiptSummary: buildReceiptSummaryJSON(from: filteredContext.receiptStatistics)
         )
 
-        // Build conversation history
+        // Build conversation history - LLM uses this for context
         let conversationJSON = buildConversationHistoryJSON(from: conversationHistory)
 
         return StructuredLLMContext(

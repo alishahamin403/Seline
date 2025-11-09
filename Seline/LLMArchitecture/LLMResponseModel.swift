@@ -2,6 +2,7 @@ import Foundation
 
 /// Structured response format returned by LLM
 struct LLMResponse: Decodable {
+    let thinking: String?         // Chain-of-thought reasoning (why did you choose this data?)
     let response: String          // Natural language answer
     let dataUsed: [String]        // IDs or types of data referenced
     let confidence: Double        // 0.0 - 1.0, how certain is the LLM?
@@ -17,6 +18,7 @@ struct LLMResponse: Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case thinking
         case response
         case dataUsed = "data_used"
         case confidence
