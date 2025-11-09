@@ -17,7 +17,7 @@ struct ConversationSidebarView: View {
             conversationsListView
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-        .frame(maxWidth: 320)
+        .frame(minWidth: 300, idealWidth: 380, maxWidth: 380)
     }
 
     private var headerView: some View {
@@ -166,11 +166,12 @@ struct ConversationSidebarView: View {
                         Text(conversation.title)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                            .lineLimit(1)
+                            .lineLimit(2)
 
                         Text(conversation.formattedDate)
                             .font(.system(size: 11, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .lineLimit(1)
                     }
 
                     Spacer()
@@ -186,7 +187,7 @@ struct ConversationSidebarView: View {
                     Text(firstUserMessage.text)
                         .font(.system(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, isEditMode ? 0 : 24)
                 }
