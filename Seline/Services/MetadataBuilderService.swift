@@ -49,19 +49,44 @@ class MetadataBuilderService {
             return false
         }
 
+        /// Extract year and month from folder hierarchy (Receipts/YYYY/MonthName/Note)
+        func extractYearAndMonthFromFolders(_ folderId: UUID?) -> (year: String?, month: String?) {
+            guard let folderId = folderId else { return (nil, nil) }
+
+            // Get the month folder (first level - direct parent)
+            guard let monthFolder = notesManager.folders.first(where: { $0.id == folderId }) else {
+                return (nil, nil)
+            }
+
+            let monthName = monthFolder.name
+
+            // Get the year folder (second level - parent of month folder)
+            guard let yearFolder = notesManager.folders.first(where: { $0.id == monthFolder.parentFolderId }) else {
+                return (nil, monthName)
+            }
+
+            let yearString = yearFolder.name
+            return (yearString, monthName)
+        }
+
         let receiptNotes = notesManager.notes.filter { note in
             isUnderReceiptsFolderHierarchy(folderId: note.folderId)
         }
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMMM yyyy"
-        let calendar = Calendar.current
 
         return receiptNotes.map { receipt in
             let amount = extractAmountFromReceipt(receipt.content)
             let category = extractCategoryFromReceipt(receipt.title, content: receipt.content)
             let preview = String(receipt.content.prefix(50))
-            let monthYear = dateFormatter.string(from: receipt.dateCreated)
+
+            // Extract month/year from folder hierarchy, fallback to dateCreated if not found
+            let (folderYear, folderMonth) = extractYearAndMonthFromFolders(receipt.folderId)
+            let monthYear = folderMonth.map { month in
+                folderYear.map { "\($0) \(month)" } ?? month
+            } ?? dateFormatter.string(from: receipt.dateCreated)
+
             let dayOfWeek = getDayOfWeekName(receipt.dateCreated)
 
             return ReceiptMetadata(
