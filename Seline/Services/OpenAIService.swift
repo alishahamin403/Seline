@@ -2952,6 +2952,42 @@ class OpenAIService: ObservableObject {
 
     // MARK: - New Intelligent Context Building (Metadata-First Approach)
 
+    /// Extract date from receipt text (e.g., "November 08, 2025" or "Nov 08, 2025")
+    private func extractDateFromReceiptText(_ text: String) -> Date? {
+        let dateFormatter = DateFormatter()
+
+        // Try full month names first (e.g., "November 08, 2025")
+        dateFormatter.dateFormat = "MMMM dd, yyyy"
+        if let date = dateFormatter.date(from: text) {
+            return date
+        }
+
+        // Try abbreviated month names (e.g., "Nov 08, 2025")
+        dateFormatter.dateFormat = "MMM dd, yyyy"
+        if let date = dateFormatter.date(from: text) {
+            return date
+        }
+
+        // Try with dashes (e.g., "November 08-2025" or "November-08-2025")
+        dateFormatter.dateFormat = "MMMM dd-yyyy"
+        if let date = dateFormatter.date(from: text) {
+            return date
+        }
+
+        // Try slash format (e.g., "11/08/2025" or "2025/11/08")
+        dateFormatter.dateFormat = "MM/dd/yyyy"
+        if let date = dateFormatter.date(from: text) {
+            return date
+        }
+
+        dateFormatter.dateFormat = "yyyy/MM/dd"
+        if let date = dateFormatter.date(from: text) {
+            return date
+        }
+
+        return nil
+    }
+
     /// Build context for expense queries by directly fetching all receipts
     /// Bypasses LLM ID selection (which corrupts UUIDs) for expense queries
     @MainActor
@@ -3021,11 +3057,33 @@ class OpenAIService: ObservableObject {
         }
 
         // Get all receipts in date range
+        // IMPORTANT: Filter by actual receipt transaction date, not note.dateModified
+        // (Notes might be modified after creation, e.g., when reorganizing folders)
+        // Try to extract date from receipt title/content first, fall back to dateCreated
+
+        let dateRangeStart = calendar.startOfDay(for: startDate)
+        let dateRangeEnd = calendar.date(byAdding: DateComponents(day: 1), to: calendar.startOfDay(for: endDate))!
+
         let receiptsInRange = notesManager.notes.filter { note in
-            isInReceiptsFolderHierarchy(note) &&
-            note.dateModified >= startDate &&
-            note.dateModified <= endDate
-        }.sorted { $0.dateModified > $1.dateModified }
+            guard isInReceiptsFolderHierarchy(note) else { return false }
+
+            // Extract transaction date from receipt
+            var transactionDate = note.dateCreated
+
+            // Try to extract date from title (e.g., "Store Name - November 08, 2025")
+            if let extractedDate = extractDateFromReceiptText(note.title) {
+                transactionDate = extractedDate
+            } else if let extractedDate = extractDateFromReceiptText(note.content) {
+                transactionDate = extractedDate
+            }
+
+            return transactionDate >= dateRangeStart && transactionDate < dateRangeEnd
+        }.sorted { note1, note2 in
+            // Extract dates for sorting
+            let date1 = extractDateFromReceiptText(note1.title) ?? extractDateFromReceiptText(note1.content) ?? note1.dateCreated
+            let date2 = extractDateFromReceiptText(note2.title) ?? extractDateFromReceiptText(note2.content) ?? note2.dateCreated
+            return date1 > date2
+        }
 
         print("💰 Found \(receiptsInRange.count) receipts in date range")
         print("💰 Date filter: \(dateFormatter.string(from: startDate)) to \(dateFormatter.string(from: endDate))")
