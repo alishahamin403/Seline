@@ -208,7 +208,7 @@ struct ConversationSidebarView: View {
                 .padding(.vertical, 12)
 
                 // Subtle divider
-                if conversation != searchService.savedConversations.last {
+                if conversation.id != searchService.savedConversations.last?.id {
                     Divider()
                         .padding(.horizontal, 16)
                         .opacity(0.3)
