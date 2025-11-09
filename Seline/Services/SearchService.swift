@@ -711,34 +711,10 @@ class SearchService: ObservableObject {
 
     /// Update conversation title based on conversation context
     /// Updates as conversation progresses to better reflect the topic
+    /// NOTE: Currently set to blank - titles are not helpful
     private func updateConversationTitle() {
-        guard !conversationHistory.isEmpty else {
-            conversationTitle = "New Conversation"
-            return
-        }
-
-        // If we have multiple messages, use recent context for better title
-        if conversationHistory.count >= 4 {
-            // Get the last user message for context
-            if let lastUserMessage = conversationHistory.reversed().first(where: { $0.isUser }) {
-                let words = lastUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
-                let newTitle = String(words.isEmpty ? "Conversation" : words)
-
-                // Only update if it's meaningfully different
-                if newTitle != conversationTitle {
-                    conversationTitle = newTitle
-                }
-                return
-            }
-        }
-
-        // Fall back to first user message for new conversations
-        if let firstUserMessage = conversationHistory.first(where: { $0.isUser }) {
-            let words = firstUserMessage.text.split(separator: " ").prefix(4).joined(separator: " ")
-            conversationTitle = String(words.isEmpty ? "New Conversation" : words)
-        } else {
-            conversationTitle = "New Conversation"
-        }
+        // Keep title blank - user finds truncated titles unhelpful
+        conversationTitle = ""
     }
 
     /// Generate a conversation title based on the full conversation summary

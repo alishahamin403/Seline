@@ -223,26 +223,58 @@ class TemporalUnderstandingService {
             "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
         ]
 
+        let lowerQuery = query.lowercased()
+        var foundMonths: [Int] = []
+
+        // Find ALL months mentioned in the query (handles "oct and nov", "nov and oct", etc)
         for (monthName, monthNum) in monthNames {
-            if query.contains(monthName) {
-                let year = extractYear(from: query) ?? currentYear
-                let calendar = Calendar.current
-                let startDate = calendar.date(from: DateComponents(year: year, month: monthNum, day: 1))!
-                let endDate = calendar.date(from: DateComponents(year: year, month: monthNum, day: daysInMonth(monthNum, year: year)))!
-
-                let formatter = DateFormatter()
-                formatter.dateFormat = "MMMM"
-                let monthStr = formatter.string(from: startDate)
-
-                return DateRange(
-                    startDate: startDate,
-                    endDate: endDate,
-                    description: "\(monthStr) \(year)"
-                )
+            if lowerQuery.contains(monthName) {
+                foundMonths.append(monthNum)
             }
         }
 
-        return nil
+        guard !foundMonths.isEmpty else { return nil }
+
+        let year = extractYear(from: query) ?? currentYear
+        let calendar = Calendar.current
+
+        // If multiple months found, span from earliest to latest
+        if foundMonths.count > 1 {
+            let minMonth = foundMonths.min() ?? 1
+            let maxMonth = foundMonths.max() ?? 12
+
+            let startDate = calendar.date(from: DateComponents(year: year, month: minMonth, day: 1))!
+            let endDate = calendar.date(from: DateComponents(year: year, month: maxMonth, day: daysInMonth(maxMonth, year: year)))!
+
+            let monthFormatter = DateFormatter()
+            monthFormatter.dateFormat = "MMMM"
+
+            let startMonthStr = monthFormatter.string(from: startDate)
+            let endMonthStr = monthFormatter.string(from: endDate)
+
+            let description = minMonth == maxMonth ? "\(startMonthStr) \(year)" : "\(startMonthStr)-\(endMonthStr) \(year)"
+
+            return DateRange(
+                startDate: startDate,
+                endDate: endDate,
+                description: description
+            )
+        }
+
+        // Single month case
+        let monthNum = foundMonths[0]
+        let startDate = calendar.date(from: DateComponents(year: year, month: monthNum, day: 1))!
+        let endDate = calendar.date(from: DateComponents(year: year, month: monthNum, day: daysInMonth(monthNum, year: year)))!
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+        let monthStr = formatter.string(from: startDate)
+
+        return DateRange(
+            startDate: startDate,
+            endDate: endDate,
+            description: "\(monthStr) \(year)"
+        )
     }
 
     private func parseYearPattern(_ query: String, currentYear: Int) -> DateRange? {
