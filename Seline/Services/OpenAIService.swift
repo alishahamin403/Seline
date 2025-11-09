@@ -3120,18 +3120,38 @@ class OpenAIService: ObservableObject {
         if !receiptsInRange.isEmpty {
             var totalAmount: Double = 0
             var amountDetails: [(title: String, amount: Double)] = []
+            var merchantBreakdown: [String: (count: Int, total: Double)] = [:]
 
-            context += "**All Receipts:**\n\n"
-            for (index, note) in receiptsInRange.enumerated() {
+            // Calculate totals and build merchant breakdown
+            for note in receiptsInRange {
                 let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
                 totalAmount += amount
                 amountDetails.append((title: note.title, amount: amount))
 
-                let dateStr = dateFormatter.string(from: note.dateModified)
-                context += "\(index + 1). \(note.title)\n"
-                context += "   Amount: $\(String(format: "%.2f", amount))\n"
-                context += "   Date: \(dateStr)\n"
-                context += "   Details: \(String(note.content.prefix(100)))\n\n"
+                // Extract merchant name
+                let merchant = note.title.split(separator: "-").first.map(String.init) ?? note.title
+                if merchantBreakdown[merchant] != nil {
+                    merchantBreakdown[merchant]?.count += 1
+                    merchantBreakdown[merchant]?.total += amount
+                } else {
+                    merchantBreakdown[merchant] = (count: 1, total: amount)
+                }
+            }
+
+            // Only list individual receipts if there are 10 or fewer
+            // For larger lists, just show summary (avoids LLM picking and choosing which to list)
+            if receiptsInRange.count <= 10 {
+                context += "**All Receipts:**\n\n"
+                for (index, note) in receiptsInRange.enumerated() {
+                    let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+                    let dateStr = dateFormatter.string(from: note.dateModified)
+                    context += "\(index + 1). \(note.title)\n"
+                    context += "   Amount: $\(String(format: "%.2f", amount))\n"
+                    context += "   Date: \(dateStr)\n"
+                    context += "   Details: \(String(note.content.prefix(100)))\n\n"
+                }
+            } else {
+                context += "Found \(receiptsInRange.count) receipts. Showing breakdown by merchant:\n\n"
             }
 
             // Debug logging for each receipt
@@ -3151,6 +3171,15 @@ class OpenAIService: ObservableObject {
             context += "📈 Average per Transaction: $\(String(format: "%.2f", avgAmount))\n"
             context += "📌 Highest Transaction: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.max() ?? 0))\n"
             context += "📌 Lowest Transaction: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.min() ?? 0))\n"
+
+            // Show merchant breakdown for large receipt lists
+            if receiptsInRange.count > 10 && merchantBreakdown.count > 1 {
+                context += "\n📍 **Spending by Merchant:**\n"
+                for (merchant, data) in merchantBreakdown.sorted(by: { $0.value.total > $1.value.total }) {
+                    context += "   - \(merchant): \(data.count) transaction(s), $\(String(format: "%.2f", data.total))\n"
+                }
+            }
+
             context += "════════════════════════════════════════════════════════\n"
         } else {
             context += "No receipts found for the requested period.\n"
@@ -3447,9 +3476,8 @@ class OpenAIService: ObservableObject {
             var totalAmount: Double = 0
             var merchantBreakdown: [String: (count: Int, total: Double)] = [:]
 
-            context += "=== MATCHING RECEIPTS ===\n\n"
-
-            for (index, note) in filteredReceipts.enumerated() {
+            // Calculate totals and merchant breakdown
+            for note in filteredReceipts {
                 let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
                 totalAmount += amount
 
@@ -3462,11 +3490,22 @@ class OpenAIService: ObservableObject {
                 } else {
                     merchantBreakdown[merchant] = (count: 1, total: amount)
                 }
+            }
 
-                let dateStr = dateFormatter.string(from: note.dateModified)
-                context += "\(index + 1). **\(note.title)** - **$\(String(format: "%.2f", amount))**\n"
-                context += "   Date: \(dateStr)\n"
-                context += "   Details: \(String(note.content.prefix(150)))\n\n"
+            // For product-specific queries, list all matching receipts
+            // For general queries, just show summary (avoids LLM picking and choosing which to list)
+            if expenseQuery.hasFilters && filteredReceipts.count <= 20 {
+                context += "=== MATCHING RECEIPTS ===\n\n"
+                for (index, note) in filteredReceipts.enumerated() {
+                    let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+                    let dateStr = dateFormatter.string(from: note.dateModified)
+                    context += "\(index + 1). **\(note.title)** - **$\(String(format: "%.2f", amount))**\n"
+                    context += "   Date: \(dateStr)\n"
+                    context += "   Details: \(String(note.content.prefix(150)))\n\n"
+                }
+            } else if expenseQuery.hasFilters && filteredReceipts.count > 20 {
+                // Too many receipts, just show summary + breakdown
+                context += "Found \(filteredReceipts.count) matching receipts. Showing summary breakdown:\n\n"
             }
 
             // Summary with breakdown by merchant
