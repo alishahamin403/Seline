@@ -2952,6 +2952,116 @@ class OpenAIService: ObservableObject {
 
     // MARK: - New Intelligent Context Building (Metadata-First Approach)
 
+    /// Build context for expense queries by directly fetching all receipts
+    /// Bypasses LLM ID selection (which corrupts UUIDs) for expense queries
+    @MainActor
+    private func buildExpenseQueryContext(
+        query: String,
+        notesManager: NotesManager,
+        currentDate: Date,
+        dateFormatter: DateFormatter,
+        timeFormatter: DateFormatter
+    ) async -> String {
+        var context = ""
+        context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+
+        // Parse date range from query
+        let lowerQuery = query.lowercased()
+        let calendar = Calendar.current
+
+        var startDate: Date
+        var endDate: Date
+
+        // Determine date range
+        if lowerQuery.contains("this month") {
+            let components = calendar.dateComponents([.year, .month], from: currentDate)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("last month") {
+            let lastMonth = calendar.date(byAdding: .month, value: -1, to: currentDate)!
+            let components = calendar.dateComponents([.year, .month], from: lastMonth)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("this year") {
+            let components = calendar.dateComponents([.year], from: currentDate)
+            startDate = calendar.date(from: DateComponents(year: components.year, month: 1, day: 1))!
+            endDate = calendar.date(from: DateComponents(year: (components.year ?? 0) + 1, month: 1, day: 1))!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("today") {
+            startDate = calendar.startOfDay(for: currentDate)
+            endDate = calendar.date(byAdding: DateComponents(day: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else {
+            // Default to this month
+            let components = calendar.dateComponents([.year, .month], from: currentDate)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        }
+
+        print("💰 Expense query date range: \(dateFormatter.string(from: startDate)) to \(dateFormatter.string(from: endDate))")
+
+        // Get ALL receipts for the date range - no filtering, no ID selection
+        let receiptsFolder = notesManager.getOrCreateReceiptsFolder()
+
+        // Helper to check if note is in receipts hierarchy
+        func isInReceiptsFolderHierarchy(_ note: Note) -> Bool {
+            var currentFolderId = note.folderId
+            while let folderId = currentFolderId {
+                if folderId == receiptsFolder { return true }
+                if let folder = notesManager.folders.first(where: { $0.id == folderId }) {
+                    currentFolderId = folder.parentFolderId
+                } else {
+                    break
+                }
+            }
+            return false
+        }
+
+        // Get all receipts in date range
+        let receiptsInRange = notesManager.notes.filter { note in
+            isInReceiptsFolderHierarchy(note) &&
+            note.dateModified >= startDate &&
+            note.dateModified <= endDate
+        }.sorted { $0.dateModified > $1.dateModified }
+
+        print("💰 Found \(receiptsInRange.count) receipts in date range")
+
+        // Format receipts for LLM
+        context += "=== EXPENSES FOR REQUESTED PERIOD ===\n\n"
+
+        if !receiptsInRange.isEmpty {
+            var totalAmount: Double = 0
+
+            context += "**All Receipts:**\n\n"
+            for (index, note) in receiptsInRange.enumerated() {
+                let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+                totalAmount += amount
+
+                let dateStr = dateFormatter.string(from: note.dateModified)
+                context += "\(index + 1). \(note.title)\n"
+                context += "   Amount: $\(String(format: "%.2f", amount))\n"
+                context += "   Date: \(dateStr)\n"
+                context += "   Details: \(String(note.content.prefix(100)))\n\n"
+            }
+
+            // Summary
+            let avgAmount = totalAmount / Double(receiptsInRange.count)
+            context += "\n**Summary:**\n"
+            context += "- Total Spending: **$\(String(format: "%.2f", totalAmount))**\n"
+            context += "- Number of Transactions: \(receiptsInRange.count)\n"
+            context += "- Average per Transaction: $\(String(format: "%.2f", avgAmount))\n"
+            context += "- Highest: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.max() ?? 0))\n"
+            context += "- Lowest: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.min() ?? 0))\n"
+        } else {
+            context += "No receipts found for the requested period.\n"
+        }
+
+        return context
+    }
+
     /// NEW APPROACH: Build context by letting LLM intelligently filter metadata
     /// Instead of pre-filtering in backend, send all metadata to LLM
     /// LLM identifies which items are relevant and we fetch only those
@@ -2976,6 +3086,24 @@ class OpenAIService: ObservableObject {
 
         // Add current context
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
+
+        // SPECIAL HANDLING FOR EXPENSE QUERIES
+        // Bypass LLM ID selection (which corrupts UUIDs) and directly get all receipts for the requested period
+        let lowerQuery = query.lowercased()
+        let isExpenseQuery = lowerQuery.contains("spend") || lowerQuery.contains("expense") ||
+                           lowerQuery.contains("cost") || lowerQuery.contains("receipt") ||
+                           lowerQuery.contains("month") || lowerQuery.contains("budget")
+
+        if isExpenseQuery {
+            print("💰 Detected expense query - using direct receipt retrieval (bypassing LLM ID selection)")
+            return await buildExpenseQueryContext(
+                query: query,
+                notesManager: notesManager,
+                currentDate: currentDate,
+                dateFormatter: dateFormatter,
+                timeFormatter: timeFormatter
+            )
+        }
 
         // Step 1: Compile lightweight metadata from all data sources
         let metadata = MetadataBuilderService.buildAppMetadata(
