@@ -54,7 +54,13 @@ struct StructuredPrompt {
             c) YOU MUST use the TOTAL SPENDING from the summary - DO NOT recalculate by adding individual receipts
             d) If you see "Total Spending: $XXX" in the summary, that is THE ANSWER
             e) DO NOT perform your own math on the individual items
-        12. FOR EXPENSE QUERIES: Always include all receipts in the date range (don't limit to N receipts)
+        12. FOR SMART FILTERED EXPENSE QUERIES (product-specific):
+            a) Backend intelligently filters receipts by product/merchant keywords
+            b) You receive ONLY matching receipts (not all receipts)
+            c) Use the counts and totals from the FILTERED SUMMARY section
+            d) If you see "FILTERED SUMMARY", use that for your answer (not the general summary)
+            e) For product queries like "pizza", the filtered results show exactly what you need
+        13. FOR EXPENSE QUERIES: Always include all receipts in the date range (don't limit to N receipts)
 
         CONFIDENCE SCORING GUIDELINES:
         - Set confidence HIGH (0.85+) only if:
@@ -114,11 +120,21 @@ struct StructuredPrompt {
           }
         }
 
-        Example 4 - Expense Query:
+        Example 4 - Expense Query (General):
         {
           "response": "You spent **$523.45** this month across 12 transactions.\n\n**By Category:**\n• Groceries: **$245.50** (6 transactions, 47%)\n• Restaurants: **$180.95** (4 transactions, 35%)\n• Gas: **$97.00** (2 transactions, 18%)\n\n**Average per transaction:** $43.62",
           "data_used": ["expenses"],
           "confidence": 0.99,
+          "needs_clarification": false,
+          "clarifying_questions": [],
+          "data_references": null
+        }
+
+        Example 5 - Smart Product-Filtered Expense Query:
+        {
+          "response": "You bought pizza **4 times** over the two months:\n\n**November 2025:**\n1. JP's Pizzeria - $15.02\n2. JP's Pizzeria - $15.02\n\n**October 2025:**\n1. Chucks Roadhouse - $61.30 (includes pizza)\n2. Osmow's Shawarma - $29.35\n\nYou specifically purchased from JP's Pizzeria 2 times ($30.04 total). When including all pizza-related purchases from different merchants, the total is 4 purchases ($120.67).",
+          "data_used": ["expenses"],
+          "confidence": 0.95,
           "needs_clarification": false,
           "clarifying_questions": [],
           "data_references": null

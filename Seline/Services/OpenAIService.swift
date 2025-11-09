@@ -2,6 +2,25 @@ import Foundation
 import UIKit
 import CoreLocation
 
+// MARK: - Expense Query Models
+
+/// Represents a parsed expense query with intent and filters
+struct ExpenseQuery {
+    let type: QueryType
+    let keywords: [String]  // e.g., ["pizza"], ["coffee"], ["costco"]
+    let dateRange: (start: Date, end: Date)
+    let hasFilters: Bool  // Whether query asks for specific product/merchant
+
+    enum QueryType {
+        case countByProduct      // "how many times did I buy pizza?"
+        case amountByProduct     // "how much did I spend on coffee?"
+        case listByProduct       // "show me all pizza purchases"
+        case comparison          // "did I spend more on pizza or coffee?"
+        case general             // "how much did I spend this month?"
+        case unsure              // Query too ambiguous
+    }
+}
+
 class OpenAIService: ObservableObject {
     static let shared = OpenAIService()
 
@@ -3140,6 +3159,247 @@ class OpenAIService: ObservableObject {
         return context
     }
 
+    // MARK: - Smart Expense Query Analysis
+
+    /// Analyze expense query to extract intent, keywords, and filters
+    /// Examples:
+    /// - "how many times did I buy pizza?" → countByProduct with keywords ["pizza"]
+    /// - "how much did I spend on coffee?" → amountByProduct with keywords ["coffee"]
+    /// - "how much did I spend?" → general with no keywords
+    private func parseExpenseQuery(_ query: String) -> ExpenseQuery {
+        let lowerQuery = query.lowercased()
+        var keywords: [String] = []
+        var queryType: ExpenseQuery.QueryType = .general
+
+        // List of common product/merchant keywords to search for
+        let productKeywords = [
+            "pizza", "coffee", "starbucks", "costco", "whole foods", "trader joe",
+            "burger", "mcdonald", "amazon", "uber", "lyft", "gas", "grocery",
+            "restaurant", "cafe", "fast food", "food delivery", "doordash", "ubereats",
+            "chipotle", "subway", "popeyes", "kfc", "taco bell", "wendy", "burger king",
+            "sushi", "thai", "chinese", "italian", "mexican", "indian", "vietnamese",
+            "walmart", "target", "cvs", "walgreens", "home depot", "lowes",
+            "petco", "petsmart", "whole foods", "safeway", "kroger", "sprouts"
+        ]
+
+        // Extract keywords from query
+        for keyword in productKeywords {
+            if lowerQuery.contains(keyword) {
+                keywords.append(keyword)
+            }
+        }
+
+        // Determine query type based on keywords and question structure
+        if !keywords.isEmpty {
+            if lowerQuery.contains("how many") || lowerQuery.contains("times") || lowerQuery.contains("count") {
+                queryType = .countByProduct
+            } else if lowerQuery.contains("how much") || lowerQuery.contains("spent") || lowerQuery.contains("cost") {
+                queryType = .amountByProduct
+            } else if lowerQuery.contains("show") || lowerQuery.contains("list") {
+                queryType = .listByProduct
+            } else {
+                queryType = .countByProduct  // Default for product queries
+            }
+        }
+
+        // Parse date range (same logic as buildExpenseQueryContext)
+        let calendar = Calendar.current
+        let currentDate = Date()
+
+        var startDate: Date
+        var endDate: Date
+
+        if lowerQuery.contains("this month") {
+            let components = calendar.dateComponents([.year, .month], from: currentDate)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("last month") {
+            let lastMonth = calendar.date(byAdding: .month, value: -1, to: currentDate)!
+            let components = calendar.dateComponents([.year, .month], from: lastMonth)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("two months") {
+            let twoMonthsAgo = calendar.date(byAdding: .month, value: -2, to: currentDate)!
+            let components = calendar.dateComponents([.year, .month], from: twoMonthsAgo)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 2), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("this year") {
+            let components = calendar.dateComponents([.year], from: currentDate)
+            startDate = calendar.date(from: DateComponents(year: components.year, month: 1, day: 1))!
+            endDate = calendar.date(from: DateComponents(year: (components.year ?? 0) + 1, month: 1, day: 1))!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else if lowerQuery.contains("today") {
+            startDate = calendar.startOfDay(for: currentDate)
+            endDate = calendar.date(byAdding: DateComponents(day: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        } else {
+            // Default to this month
+            let components = calendar.dateComponents([.year, .month], from: currentDate)
+            startDate = calendar.date(from: components)!
+            endDate = calendar.date(byAdding: DateComponents(month: 1), to: startDate)!
+            endDate = calendar.date(byAdding: DateComponents(second: -1), to: endDate)!
+        }
+
+        print("🔍 Expense Query Analysis:")
+        print("   Type: \(queryType)")
+        print("   Keywords: \(keywords)")
+        print("   Has Filters: \(!keywords.isEmpty)")
+
+        return ExpenseQuery(
+            type: queryType,
+            keywords: keywords,
+            dateRange: (startDate, endDate),
+            hasFilters: !keywords.isEmpty
+        )
+    }
+
+    /// Filter receipts by keywords in title and content
+    /// Smart matching: searches for merchant name, product name, and description
+    private func filterReceiptsByKeywords(
+        _ receipts: [Note],
+        keywords: [String],
+        merchantNameExtractor: (String) -> String = { $0 }
+    ) -> [Note] {
+        guard !keywords.isEmpty else { return receipts }
+
+        return receipts.filter { receipt in
+            let searchableText = (receipt.title + " " + receipt.content).lowercased()
+
+            // Check if any keyword matches in title or content
+            return keywords.contains { keyword in
+                // Direct match
+                searchableText.contains(keyword) ||
+                // Partial match (e.g., "pizza" matches "pizzeria")
+                searchableText.contains(keyword.dropLast()) ||
+                // Check merchant name (first part of title often contains merchant)
+                receipt.title.lowercased().contains(keyword)
+            }
+        }
+    }
+
+    /// Build smart expense context with filtered receipts and detailed analysis
+    private func buildSmartExpenseContext(
+        query: String,
+        notesManager: NotesManager,
+        dateFormatter: DateFormatter,
+        timeFormatter: DateFormatter
+    ) async -> String {
+        let expenseQuery = parseExpenseQuery(query)
+
+        // If no filters detected, use the standard context
+        if !expenseQuery.hasFilters {
+            return await buildExpenseQueryContext(
+                query: query,
+                notesManager: notesManager,
+                currentDate: Date(),
+                dateFormatter: dateFormatter,
+                timeFormatter: timeFormatter
+            )
+        }
+
+        var context = ""
+        context += "Current date/time: \(dateFormatter.string(from: Date())) at \(timeFormatter.string(from: Date()))\n\n"
+
+        // Explain what filtering is being done
+        context += "🔍 SMART SEARCH ANALYSIS:\n"
+        context += "Looking for receipts matching: \(expenseQuery.keywords.joined(separator: ", "))\n"
+        context += "Date range: \(dateFormatter.string(from: expenseQuery.dateRange.start)) to \(dateFormatter.string(from: expenseQuery.dateRange.end))\n\n"
+
+        // Get all receipts in the date range
+        let receiptsFolder = notesManager.getOrCreateReceiptsFolder()
+
+        func isInReceiptsFolderHierarchy(_ note: Note) -> Bool {
+            var currentFolderId = note.folderId
+            while let folderId = currentFolderId {
+                if folderId == receiptsFolder { return true }
+                if let folder = notesManager.folders.first(where: { $0.id == folderId }) {
+                    currentFolderId = folder.parentFolderId
+                } else {
+                    break
+                }
+            }
+            return false
+        }
+
+        let calendar = Calendar.current
+        let dateRangeStart = calendar.startOfDay(for: expenseQuery.dateRange.start)
+        let dateRangeEnd = calendar.date(byAdding: DateComponents(day: 1), to: calendar.startOfDay(for: expenseQuery.dateRange.end))!
+
+        // Get all receipts in date range, then filter by keywords
+        let allReceiptsInRange = notesManager.notes.filter { note in
+            guard isInReceiptsFolderHierarchy(note) else { return false }
+            var transactionDate = note.dateCreated
+            if let extractedDate = extractDateFromReceiptText(note.title) {
+                transactionDate = extractedDate
+            } else if let extractedDate = extractDateFromReceiptText(note.content) {
+                transactionDate = extractedDate
+            }
+            return transactionDate >= dateRangeStart && transactionDate < dateRangeEnd
+        }
+
+        let filteredReceipts = filterReceiptsByKeywords(allReceiptsInRange, keywords: expenseQuery.keywords)
+            .sorted { note1, note2 in
+                let date1 = extractDateFromReceiptText(note1.title) ?? extractDateFromReceiptText(note1.content) ?? note1.dateCreated
+                let date2 = extractDateFromReceiptText(note2.title) ?? extractDateFromReceiptText(note2.content) ?? note2.dateCreated
+                return date1 > date2
+            }
+
+        print("🔍 Filtered Results: Found \(filteredReceipts.count) matching receipts (out of \(allReceiptsInRange.count) total)")
+
+        if !filteredReceipts.isEmpty {
+            var totalAmount: Double = 0
+            var merchantBreakdown: [String: (count: Int, total: Double)] = [:]
+
+            context += "=== MATCHING RECEIPTS ===\n\n"
+
+            for (index, note) in filteredReceipts.enumerated() {
+                let amount = CurrencyParser.extractAmount(from: note.content.isEmpty ? note.title : note.content)
+                totalAmount += amount
+
+                // Extract merchant name (usually first part of title)
+                let merchant = note.title.split(separator: "-").first.map(String.init) ?? note.title
+
+                if merchantBreakdown[merchant] != nil {
+                    merchantBreakdown[merchant]?.count += 1
+                    merchantBreakdown[merchant]?.total += amount
+                } else {
+                    merchantBreakdown[merchant] = (count: 1, total: amount)
+                }
+
+                let dateStr = dateFormatter.string(from: note.dateModified)
+                context += "\(index + 1). **\(note.title)** - **$\(String(format: "%.2f", amount))**\n"
+                context += "   Date: \(dateStr)\n"
+                context += "   Details: \(String(note.content.prefix(150)))\n\n"
+            }
+
+            // Summary with breakdown by merchant
+            let avgAmount = totalAmount / Double(filteredReceipts.count)
+            context += "\n════════════════════════════════════════════════════════\n"
+            context += "🔍 **FILTERED SUMMARY** - USE THIS FOR YOUR ANSWER:\n"
+            context += "════════════════════════════════════════════════════════\n"
+            context += "💰 **TOTAL SPENDING ON \(expenseQuery.keywords.joined(separator: "/").uppercased()): $\(String(format: "%.2f", totalAmount))** ← THIS IS THE ANSWER\n"
+            context += "📊 **Total Purchases: \(filteredReceipts.count) times**\n"
+            context += "📈 Average per Transaction: $\(String(format: "%.2f", avgAmount))\n"
+
+            if merchantBreakdown.count > 1 {
+                context += "\n📍 **Breakdown by Merchant:**\n"
+                for (merchant, data) in merchantBreakdown.sorted(by: { $0.value.total > $1.value.total }) {
+                    context += "   - \(merchant): \(data.count) time(s), $\(String(format: "%.2f", data.total))\n"
+                }
+            }
+
+            context += "════════════════════════════════════════════════════════\n"
+        } else {
+            context += "❌ No receipts found matching '\(expenseQuery.keywords.joined(separator: ", "))'.\n"
+            context += "Total receipts in date range: \(allReceiptsInRange.count)\n"
+        }
+
+        return context
+    }
+
     /// NEW APPROACH: Build context by letting LLM intelligently filter metadata
     /// Instead of pre-filtering in backend, send all metadata to LLM
     /// LLM identifies which items are relevant and we fetch only those
@@ -3168,16 +3428,27 @@ class OpenAIService: ObservableObject {
         // SPECIAL HANDLING FOR EXPENSE QUERIES
         // Bypass LLM ID selection (which corrupts UUIDs) and directly get all receipts for the requested period
         let lowerQuery = query.lowercased()
-        let isExpenseQuery = lowerQuery.contains("spend") || lowerQuery.contains("expense") ||
-                           lowerQuery.contains("cost") || lowerQuery.contains("receipt") ||
-                           lowerQuery.contains("month") || lowerQuery.contains("budget")
+
+        // Detect expense queries by keywords OR by product mentions with purchase/count verbs
+        let expenseKeywords = ["spend", "expense", "cost", "receipt", "month", "budget"]
+        let productKeywords = ["pizza", "coffee", "starbucks", "costco", "whole foods", "burger",
+                               "amazon", "uber", "lyft", "restaurant", "cafe", "grocery", "walmart",
+                               "target", "mcdonalds", "chipotle", "doordash", "ubereats"]
+        let purchaseVerbs = ["buy", "bought", "purchase", "times", "count", "spent"]
+
+        let hasExpenseKeyword = expenseKeywords.contains { lowerQuery.contains($0) }
+        let hasProductAndPurchaseVerb = productKeywords.contains { product in
+            lowerQuery.contains(product) && purchaseVerbs.contains { verb in
+                lowerQuery.contains(verb)
+            }
+        }
+        let isExpenseQuery = hasExpenseKeyword || hasProductAndPurchaseVerb
 
         if isExpenseQuery {
-            print("💰 Detected expense query - using direct receipt retrieval (bypassing LLM ID selection)")
-            return await buildExpenseQueryContext(
+            print("💰 Detected expense query - using smart receipt retrieval with keyword filtering")
+            return await buildSmartExpenseContext(
                 query: query,
                 notesManager: notesManager,
-                currentDate: currentDate,
                 dateFormatter: dateFormatter,
                 timeFormatter: timeFormatter
             )
