@@ -376,18 +376,20 @@ class InformationExtractor {
 
         var braceCount = 0
         var endIndex: String.Index? = nil
+        var currentIndex = startIndex
 
-        for index in startIndex..<text.endIndex {
-            let char = text[index]
+        while currentIndex < text.endIndex {
+            let char = text[currentIndex]
             if char == "{" {
                 braceCount += 1
             } else if char == "}" {
                 braceCount -= 1
                 if braceCount == 0 {
-                    endIndex = text.index(after: index)
+                    endIndex = text.index(after: currentIndex)
                     break
                 }
             }
+            currentIndex = text.index(after: currentIndex)
         }
 
         guard let end = endIndex else {
