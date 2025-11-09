@@ -15,7 +15,18 @@ struct ConversationSearchView: View {
     @State private var isGeneratingTitle = false
 
     var body: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .topLeading) {
+            // Dismiss overlay (tap to close sidebar)
+            if showingSidebar {
+                Color.black.opacity(0.001)
+                    .onTapGesture {
+                        HapticManager.shared.selection()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingSidebar = false
+                        }
+                    }
+            }
+
             // Main conversation view
             VStack(spacing: 0) {
                 // Header with title and close button only
@@ -32,6 +43,7 @@ struct ConversationSearchView: View {
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .zIndex(10)
 
                     // Only show title if this is NOT a new conversation
                     if !searchService.isNewConversation {
@@ -169,6 +181,7 @@ struct ConversationSearchView: View {
             if showingSidebar {
                 ConversationSidebarView(isPresented: $showingSidebar)
                     .transition(.move(edge: .leading))
+                    .zIndex(20)
             }
         }
         // ZStack with sidebar overlay
