@@ -73,12 +73,16 @@ class MetadataBuilderService {
             isUnderReceiptsFolderHierarchy(folderId: note.folderId)
         }
 
+        print("📦 ReceiptMetadata: Found \(receiptNotes.count) receipts under Receipts folder")
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMMM yyyy"
 
-        return receiptNotes.map { receipt in
+        var totalAmount = 0.0
+        let result = receiptNotes.map { receipt in
             // Use CurrencyParser for robust amount extraction (finds largest amount, handles multiple formats)
             let amount = CurrencyParser.extractAmount(from: receipt.content.isEmpty ? receipt.title : receipt.content)
+            totalAmount += amount
             let category = extractCategoryFromReceipt(receipt.title, content: receipt.content)
             let preview = String(receipt.content.prefix(50))
 
@@ -89,6 +93,11 @@ class MetadataBuilderService {
             } ?? dateFormatter.string(from: receipt.dateCreated)
 
             let dayOfWeek = getDayOfWeekName(receipt.dateCreated)
+
+            // Debug log for each receipt
+            if folderMonth == nil {
+                print("⚠️ Receipt '\(receipt.title)' ($\(String(format: "%.2f", amount))) - folder extraction failed, using dateCreated")
+            }
 
             return ReceiptMetadata(
                 id: receipt.id,
@@ -101,6 +110,21 @@ class MetadataBuilderService {
                 dayOfWeek: dayOfWeek
             )
         }
+
+        // Group by month for summary logging
+        var byMonth: [String: Double] = [:]
+        for metadata in result {
+            let key = metadata.monthYear ?? "Unknown"
+            byMonth[key, default: 0.0] += metadata.amount
+        }
+
+        print("📦 ReceiptMetadata: Total amount across all receipts: $\(String(format: "%.2f", totalAmount))")
+        print("📦 ReceiptMetadata: Breakdown by month:")
+        for (month, amount) in byMonth.sorted(by: { $0.key > $1.key }) {
+            print("   - \(month): $\(String(format: "%.2f", amount))")
+        }
+
+        return result
     }
 
     private static func getDayOfWeekName(_ date: Date) -> String {
