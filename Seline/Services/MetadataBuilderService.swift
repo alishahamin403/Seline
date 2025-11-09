@@ -77,7 +77,8 @@ class MetadataBuilderService {
         dateFormatter.dateFormat = "MMMM yyyy"
 
         return receiptNotes.map { receipt in
-            let amount = extractAmountFromReceipt(receipt.content)
+            // Use CurrencyParser for robust amount extraction (finds largest amount, handles multiple formats)
+            let amount = CurrencyParser.extractAmount(from: receipt.content.isEmpty ? receipt.title : receipt.content)
             let category = extractCategoryFromReceipt(receipt.title, content: receipt.content)
             let preview = String(receipt.content.prefix(50))
 
@@ -92,7 +93,7 @@ class MetadataBuilderService {
             return ReceiptMetadata(
                 id: receipt.id,
                 merchant: receipt.title,
-                amount: amount ?? 0.0,
+                amount: amount,
                 date: receipt.dateCreated,
                 category: category,
                 preview: preview,
@@ -359,18 +360,6 @@ class MetadataBuilderService {
     // MARK: - Helper Functions
 
     static func extractAmountFromNote(_ content: String) -> Double? {
-        let pattern = "\\$([0-9]+\\.?[0-9]*)"
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            let range = NSRange(content.startIndex..<content.endIndex, in: content)
-            if let match = regex.firstMatch(in: content, range: range),
-               let amountRange = Range(match.range(at: 1), in: content) {
-                return Double(content[amountRange])
-            }
-        }
-        return nil
-    }
-
-    private static func extractAmountFromReceipt(_ content: String) -> Double? {
         let pattern = "\\$([0-9]+\\.?[0-9]*)"
         if let regex = try? NSRegularExpression(pattern: pattern) {
             let range = NSRange(content.startIndex..<content.endIndex, in: content)
