@@ -3303,6 +3303,7 @@ class OpenAIService: ObservableObject {
         // Receipts - grouped by month for easier analysis
         if !metadata.receipts.isEmpty {
             formatted += "## RECEIPTS/EXPENSES\n"
+            print("📊 FormatMetadata: Processing \(metadata.receipts.count) receipts for LLM context")
 
             // Group receipts by month
             var receiptsByMonth: [String: [ReceiptMetadata]] = [:]
@@ -3319,6 +3320,7 @@ class OpenAIService: ObservableObject {
             for month in sortedMonths {
                 guard let receipts = receiptsByMonth[month] else { continue }
                 let monthTotal = receipts.reduce(0) { $0 + $1.amount }
+                print("📊 FormatMetadata: \(month) has \(receipts.count) receipts totaling $\(String(format: "%.2f", monthTotal))")
                 formatted += "\n### \(month)\n"
                 formatted += "Total: $\(String(format: "%.2f", monthTotal)) across \(receipts.count) transactions\n\n"
 
@@ -3483,9 +3485,12 @@ class OpenAIService: ObservableObject {
         var notes: [Note] = []
         var emails: [Email] = []
 
-        // Fetch receipts
+        // Fetch receipts (deduplicate IDs first to avoid duplicates)
         if let receiptIds = relevantItemIds.receiptIds, !receiptIds.isEmpty {
-            receipts = notesManager.notes.filter { receiptIds.contains($0.id) }
+            let uniqueIds = Array(Set(receiptIds))  // Remove duplicates
+            print("📦 Fetch: LLM selected \(receiptIds.count) receipt IDs (\(uniqueIds.count) unique)")
+            receipts = notesManager.notes.filter { uniqueIds.contains($0.id) }
+            print("📦 Fetch: Found \(receipts.count) matching notes in notesManager")
         }
 
         // Fetch events

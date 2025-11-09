@@ -441,8 +441,11 @@ class SearchService: ObservableObject {
         // Add user message to history for conversation
         addMessageToHistory(trimmed, isUser: true, intent: .general)
 
-        // Update title based on conversation context
-        updateConversationTitle()
+        // Don't update title during new conversations - keep it hidden until saved
+        // Only update title for existing conversations
+        if !isNewConversation {
+            updateConversationTitle()
+        }
 
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
