@@ -192,8 +192,8 @@ struct ConversationSidebarView: View {
                         .padding(.leading, isEditMode ? 0 : 24)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .background(selectedConversationIds.contains(conversation.id) ? Color.gray.opacity(0.1) : Color.clear)
         }
         .buttonStyle(PlainButtonStyle())

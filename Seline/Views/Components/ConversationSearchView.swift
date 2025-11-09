@@ -15,13 +15,7 @@ struct ConversationSearchView: View {
     @State private var isGeneratingTitle = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Chat history sidebar
-            if showingSidebar {
-                ConversationSidebarView(isPresented: $showingSidebar)
-                    .transition(.move(edge: .leading))
-            }
-
+        ZStack(alignment: .leading) {
             // Main conversation view
             VStack(spacing: 0) {
                 // Header with title and close button only
@@ -170,8 +164,14 @@ struct ConversationSearchView: View {
             }
             // Main VStack
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+
+            // Chat history sidebar overlay
+            if showingSidebar {
+                ConversationSidebarView(isPresented: $showingSidebar)
+                    .transition(.move(edge: .leading))
+            }
         }
-        // HStack with sidebar
+        // ZStack with sidebar overlay
         .onAppear {
             isInputFocused = true
         }
