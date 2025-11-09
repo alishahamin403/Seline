@@ -182,15 +182,6 @@ struct ConversationSidebarView: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                 }
-
-                if !isEditMode, let firstUserMessage = conversation.messages.first(where: { $0.isUser }) {
-                    Text(firstUserMessage.text)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, isEditMode ? 0 : 24)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
