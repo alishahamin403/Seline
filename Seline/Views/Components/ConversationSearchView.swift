@@ -7,7 +7,7 @@ struct ConversationSearchView: View {
     @State private var messageText = ""
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
-    @State private var showingHistory = false
+    @State private var showingSidebar = false
     @State private var thinkingElapsedTime: Int = 0
     @State private var thinkingTimer: Timer?
     @State private var showingFinalSummary = false
@@ -15,7 +15,15 @@ struct ConversationSearchView: View {
     @State private var isGeneratingTitle = false
 
     var body: some View {
-        VStack(spacing: 0) {
+        HStack(spacing: 0) {
+            // Chat history sidebar
+            if showingSidebar {
+                ConversationSidebarView(isPresented: $showingSidebar)
+                    .transition(.move(edge: .leading))
+            }
+
+            // Main conversation view
+            VStack(spacing: 0) {
             // Header with title and buttons
             HStack(spacing: 12) {
                 // Only show title if this is NOT a new conversation
@@ -36,9 +44,11 @@ struct ConversationSearchView: View {
 
                 Button(action: {
                     HapticManager.shared.selection()
-                    showingHistory = true
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingSidebar.toggle()
+                    }
                 }) {
-                    Image(systemName: "clock.fill")
+                    Image(systemName: "sidebar.leading")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
@@ -162,8 +172,11 @@ struct ConversationSearchView: View {
                 .padding(.vertical, 12)
             }
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            }
+            // Main VStack
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        // HStack with sidebar
         .onAppear {
             isInputFocused = true
         }
@@ -181,9 +194,6 @@ struct ConversationSearchView: View {
                     searchService.clearConversation()
                 }
             }
-        }
-        .sheet(isPresented: $showingHistory) {
-            ConversationHistoryView()
         }
         .sheet(isPresented: $showingFinalSummary) {
             VStack(spacing: 0) {
