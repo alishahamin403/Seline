@@ -137,6 +137,7 @@ struct ConversationSearchView: View {
                     .font(.system(size: 13, weight: .regular))
                     .focused($isInputFocused)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .accentColor(colorScheme == .dark ? Color.white : Color.black)
                     .textFieldStyle(PlainTextFieldStyle())
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
@@ -146,7 +147,7 @@ struct ConversationSearchView: View {
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2), lineWidth: 1)
                     )
 
                     Button(action: {

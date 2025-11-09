@@ -79,12 +79,12 @@ struct ConversationSidebarView: View {
                     }) {
                         Text(selectedConversationIds.count == searchService.savedConversations.count ? "Deselect All" : "Select All")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                 } else {
                     Text("Chats")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
 
                 Spacer()
@@ -117,7 +117,7 @@ struct ConversationSidebarView: View {
                 }) {
                     Text(isEditMode ? "Done" : "Edit")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
             }
             .padding(.horizontal, 16)
