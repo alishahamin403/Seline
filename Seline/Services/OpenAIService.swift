@@ -3225,55 +3225,22 @@ class OpenAIService: ObservableObject {
     /// Calculate semantic similarity between two texts using embeddings
     /// Returns score between 0.0 and 1.0
     private func semanticSimilarity(text1: String, text2: String) async -> Double {
-        guard let embedding1 = await getEmbedding(for: text1),
-              let embedding2 = await getEmbedding(for: text2) else {
+        do {
+            let embedding1 = try await getEmbedding(for: text1)
+            let embedding2 = try await getEmbedding(for: text2)
+
+            // Cosine similarity
+            let dotProduct = zip(embedding1, embedding2).map(*).reduce(0, +)
+            let magnitude1 = sqrt(embedding1.map { $0 * $0 }.reduce(0, +))
+            let magnitude2 = sqrt(embedding2.map { $0 * $0 }.reduce(0, +))
+
+            guard magnitude1 > 0, magnitude2 > 0 else { return 0.0 }
+
+            return Double(dotProduct / (magnitude1 * magnitude2))
+        } catch {
+            print("❌ Error calculating semantic similarity: \(error)")
             return 0.0
         }
-
-        // Cosine similarity
-        let dotProduct = zip(embedding1, embedding2).map(*).reduce(0, +)
-        let magnitude1 = sqrt(embedding1.map { $0 * $0 }.reduce(0, +))
-        let magnitude2 = sqrt(embedding2.map { $0 * $0 }.reduce(0, +))
-
-        guard magnitude1 > 0, magnitude2 > 0 else { return 0.0 }
-
-        return Double(dotProduct / (magnitude1 * magnitude2))
-    }
-
-    /// Get embedding for text using OpenAI embeddings API
-    /// Cached to avoid repeated API calls
-    private func getEmbedding(for text: String) async -> [Float]? {
-        // Check cache first
-        if let cached = embeddingCache[text] {
-            return cached
-        }
-
-        do {
-            guard let url = URL(string: embeddingsBaseURL) else { return nil }
-
-            let requestBody = [
-                "model": embeddingModel,
-                "input": text
-            ] as [String: Any]
-
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let response = try JSONDecoder().decode(EmbeddingResponse.self, from: data)
-
-            if let embedding = response.data.first?.embedding {
-                embeddingCache[text] = embedding
-                return embedding
-            }
-        } catch {
-            print("❌ Error getting embedding: \(error)")
-        }
-
-        return nil
     }
 
     /// Analyze expense query to extract intent and determine query type
