@@ -48,7 +48,12 @@ struct StructuredPrompt {
         8. Format numbers/amounts correctly with symbols ($, etc.)
         9. List items in order of relevance
         10. For calendar/date queries, always verify you're showing the right date range
-        11. FOR EXPENSE QUERIES: If receiptSummary is provided, use those totals - DO NOT recalculate
+        11. 🚨 FOR EXPENSE QUERIES - CRITICAL 🚨:
+            a) There is a **Summary:** section in the data
+            b) This summary contains the TOTAL SPENDING (the correct final total)
+            c) YOU MUST use the TOTAL SPENDING from the summary - DO NOT recalculate by adding individual receipts
+            d) If you see "Total Spending: $XXX" in the summary, that is THE ANSWER
+            e) DO NOT perform your own math on the individual items
         12. FOR EXPENSE QUERIES: Always include all receipts in the date range (don't limit to N receipts)
 
         CONFIDENCE SCORING GUIDELINES:

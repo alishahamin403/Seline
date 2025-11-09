@@ -3001,6 +3001,13 @@ class OpenAIService: ObservableObject {
         var context = ""
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
 
+        // Add critical instruction at the top
+        context += "⚠️ CRITICAL INSTRUCTION FOR EXPENSE SUMMARY:\n"
+        context += "Look at the **Summary:** section at the bottom for the final totals.\n"
+        context += "DO NOT add up the individual receipt amounts yourself.\n"
+        context += "The summary already has the correct TOTAL SPENDING calculated.\n"
+        context += "Simply use and report the **Total Spending** value from the summary.\n\n"
+
         // Parse date range from query
         let lowerQuery = query.lowercased()
         let calendar = Calendar.current
@@ -3115,14 +3122,17 @@ class OpenAIService: ObservableObject {
             }
             print("💰 TOTAL CALCULATED: $\(String(format: "%.2f", totalAmount))")
 
-            // Summary
+            // Summary - Make it stand out with visual emphasis
             let avgAmount = totalAmount / Double(receiptsInRange.count)
-            context += "\n**Summary:**\n"
-            context += "- Total Spending: **$\(String(format: "%.2f", totalAmount))**\n"
-            context += "- Number of Transactions: \(receiptsInRange.count)\n"
-            context += "- Average per Transaction: $\(String(format: "%.2f", avgAmount))\n"
-            context += "- Highest: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.max() ?? 0))\n"
-            context += "- Lowest: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.min() ?? 0))\n"
+            context += "\n════════════════════════════════════════════════════════\n"
+            context += "🔍 **FINAL SUMMARY** - USE THIS FOR YOUR ANSWER:\n"
+            context += "════════════════════════════════════════════════════════\n"
+            context += "💰 **TOTAL SPENDING: $\(String(format: "%.2f", totalAmount))** ← THIS IS THE ANSWER\n"
+            context += "📊 Number of Transactions: \(receiptsInRange.count)\n"
+            context += "📈 Average per Transaction: $\(String(format: "%.2f", avgAmount))\n"
+            context += "📌 Highest Transaction: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.max() ?? 0))\n"
+            context += "📌 Lowest Transaction: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.min() ?? 0))\n"
+            context += "════════════════════════════════════════════════════════\n"
         } else {
             context += "No receipts found for the requested period.\n"
         }
