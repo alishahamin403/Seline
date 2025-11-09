@@ -3159,38 +3159,138 @@ class OpenAIService: ObservableObject {
         return context
     }
 
-    // MARK: - Smart Expense Query Analysis
+    // MARK: - Smart Expense Query Analysis with Semantic Understanding
 
-    /// Analyze expense query to extract intent, keywords, and filters
+    /// Use LLM to intelligently extract product intent from user query
+    /// This removes the need for hardcoded keywords
     /// Examples:
-    /// - "how many times did I buy pizza?" → countByProduct with keywords ["pizza"]
-    /// - "how much did I spend on coffee?" → amountByProduct with keywords ["coffee"]
-    /// - "how much did I spend?" → general with no keywords
-    private func parseExpenseQuery(_ query: String) -> ExpenseQuery {
-        let lowerQuery = query.lowercased()
-        var keywords: [String] = []
-        var queryType: ExpenseQuery.QueryType = .general
+    /// - "how many times did I buy pizza?" → "pizza"
+    /// - "show me my Starbucks spending" → "Starbucks"
+    /// - "did I spend more on coffee or tea?" → ["coffee", "tea"]
+    private func extractProductIntentFromQuery(_ query: String) async -> [String] {
+        let prompt = """
+        The user asked: "\(query)"
 
-        // List of common product/merchant keywords to search for
-        let productKeywords = [
-            "pizza", "coffee", "starbucks", "costco", "whole foods", "trader joe",
-            "burger", "mcdonald", "amazon", "uber", "lyft", "gas", "grocery",
-            "restaurant", "cafe", "fast food", "food delivery", "doordash", "ubereats",
-            "chipotle", "subway", "popeyes", "kfc", "taco bell", "wendy", "burger king",
-            "sushi", "thai", "chinese", "italian", "mexican", "indian", "vietnamese",
-            "walmart", "target", "cvs", "walgreens", "home depot", "lowes",
-            "petco", "petsmart", "whole foods", "safeway", "kroger", "sprouts"
-        ]
+        Extract ONLY the products or merchants the user is asking about.
+        Return a comma-separated list of product/merchant names.
+        Return ONLY the products/merchants, nothing else.
 
-        // Extract keywords from query
-        for keyword in productKeywords {
-            if lowerQuery.contains(keyword) {
-                keywords.append(keyword)
+        Examples:
+        - "how many times did I buy pizza?" → pizza
+        - "show me Starbucks spending" → Starbucks
+        - "did I spend more on coffee or burgers?" → coffee, burgers
+        - "how much on groceries this month?" → groceries
+
+        If the query doesn't mention a specific product (e.g., "how much did I spend?"), return: GENERAL
+        """
+
+        do {
+            guard let url = URL(string: baseURL) else { return [] }
+
+            let requestBody = [
+                "model": "gpt-4o-mini",
+                "messages": [[
+                    "role": "user",
+                    "content": prompt
+                ]],
+                "temperature": 0.3,
+                "max_tokens": 100
+            ] as [String: Any]
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+
+            if let content = response.choices.first?.message.content {
+                if content.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "GENERAL" {
+                    return []
+                }
+                // Parse comma-separated products
+                let products = content.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                print("🎯 Extracted product intent: \(products)")
+                return products
             }
+        } catch {
+            print("❌ Error extracting product intent: \(error)")
         }
 
-        // Determine query type based on keywords and question structure
-        if !keywords.isEmpty {
+        return []
+    }
+
+    /// Calculate semantic similarity between two texts using embeddings
+    /// Returns score between 0.0 and 1.0
+    private func semanticSimilarity(text1: String, text2: String) async -> Double {
+        guard let embedding1 = await getEmbedding(for: text1),
+              let embedding2 = await getEmbedding(for: text2) else {
+            return 0.0
+        }
+
+        // Cosine similarity
+        let dotProduct = zip(embedding1, embedding2).map(*).reduce(0, +)
+        let magnitude1 = sqrt(embedding1.map { $0 * $0 }.reduce(0, +))
+        let magnitude2 = sqrt(embedding2.map { $0 * $0 }.reduce(0, +))
+
+        guard magnitude1 > 0, magnitude2 > 0 else { return 0.0 }
+
+        return Double(dotProduct / (magnitude1 * magnitude2))
+    }
+
+    /// Get embedding for text using OpenAI embeddings API
+    /// Cached to avoid repeated API calls
+    private func getEmbedding(for text: String) async -> [Float]? {
+        // Check cache first
+        if let cached = embeddingCache[text] {
+            return cached
+        }
+
+        do {
+            guard let url = URL(string: embeddingsBaseURL) else { return nil }
+
+            let requestBody = [
+                "model": embeddingModel,
+                "input": text
+            ] as [String: Any]
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(EmbeddingResponse.self, from: data)
+
+            if let embedding = response.data.first?.embedding {
+                embeddingCache[text] = embedding
+                return embedding
+            }
+        } catch {
+            print("❌ Error getting embedding: \(error)")
+        }
+
+        return nil
+    }
+
+    /// Analyze expense query to extract intent and determine query type
+    /// Uses LLM to extract product intent (no hardcoded keywords!)
+    /// Examples:
+    /// - "how many times did I buy pizza?" → countByProduct with products ["pizza"]
+    /// - "how much did I spend on coffee?" → amountByProduct with products ["coffee"]
+    /// - "how much did I spend?" → general with no products
+    private func parseExpenseQuery(_ query: String) async -> ExpenseQuery {
+        let lowerQuery = query.lowercased()
+        var queryType: ExpenseQuery.QueryType = .general
+
+        // Use LLM to extract product intent (no hardcoding!)
+        let products = await extractProductIntentFromQuery(query)
+
+        // Determine query type based on question structure
+        if !products.isEmpty {
             if lowerQuery.contains("how many") || lowerQuery.contains("times") || lowerQuery.contains("count") {
                 queryType = .countByProduct
             } else if lowerQuery.contains("how much") || lowerQuery.contains("spent") || lowerQuery.contains("cost") {
@@ -3245,49 +3345,61 @@ class OpenAIService: ObservableObject {
 
         print("🔍 Expense Query Analysis:")
         print("   Type: \(queryType)")
-        print("   Keywords: \(keywords)")
-        print("   Has Filters: \(!keywords.isEmpty)")
+        print("   Products: \(products)")
+        print("   Has Filters: \(!products.isEmpty)")
 
         return ExpenseQuery(
             type: queryType,
-            keywords: keywords,
+            keywords: products,
             dateRange: (startDate, endDate),
-            hasFilters: !keywords.isEmpty
+            hasFilters: !products.isEmpty
         )
     }
 
-    /// Filter receipts by keywords in title and content
-    /// Smart matching: searches for merchant name, product name, and description
-    private func filterReceiptsByKeywords(
+    /// Filter receipts by semantic similarity to product keywords
+    /// Uses embeddings to find semantically similar receipts (no hardcoded keywords!)
+    /// This handles misspellings, variations, and new merchants automatically
+    /// Example: "pizza" matches Domino's, JP's Pizzeria, Pizza Hut, etc.
+    private func filterReceiptsBySemanticSimilarity(
         _ receipts: [Note],
-        keywords: [String],
-        merchantNameExtractor: (String) -> String = { $0 }
-    ) -> [Note] {
-        guard !keywords.isEmpty else { return receipts }
+        products: [String],
+        similarityThreshold: Double = 0.65
+    ) async -> [Note] {
+        guard !products.isEmpty else { return receipts }
 
-        return receipts.filter { receipt in
-            let searchableText = (receipt.title + " " + receipt.content).lowercased()
+        var filteredReceipts: [Note] = []
 
-            // Check if any keyword matches in title or content
-            return keywords.contains { keyword in
-                // Direct match
-                searchableText.contains(keyword) ||
-                // Partial match (e.g., "pizza" matches "pizzeria")
-                searchableText.contains(keyword.dropLast()) ||
-                // Check merchant name (first part of title often contains merchant)
-                receipt.title.lowercased().contains(keyword)
+        for receipt in receipts {
+            let receiptText = receipt.title + " " + receipt.content
+            var maxSimilarity: Double = 0.0
+
+            // Find the best similarity score across all products
+            for product in products {
+                let similarity = await semanticSimilarity(text1: product, text2: receiptText)
+                maxSimilarity = max(maxSimilarity, similarity)
+                print("   Similarity: '\(product)' vs '\(receipt.title)' = \(String(format: "%.2f", similarity))")
+            }
+
+            // Include receipt if it exceeds similarity threshold
+            if maxSimilarity >= similarityThreshold {
+                filteredReceipts.append(receipt)
             }
         }
+
+        print("🔍 Semantic filtering complete: Found \(filteredReceipts.count) semantically similar receipts")
+        return filteredReceipts
     }
 
     /// Build smart expense context with filtered receipts and detailed analysis
+    /// Uses LLM to extract product intent + semantic embeddings to find matches
     private func buildSmartExpenseContext(
         query: String,
         notesManager: NotesManager,
         dateFormatter: DateFormatter,
         timeFormatter: DateFormatter
     ) async -> String {
-        let expenseQuery = parseExpenseQuery(query)
+        // LLM extracts what product the user is asking about (no hardcoded keywords!)
+        let expenseQuery = await parseExpenseQuery(query)
 
         // If no filters detected, use the standard context
         if !expenseQuery.hasFilters {
@@ -3304,8 +3416,9 @@ class OpenAIService: ObservableObject {
         context += "Current date/time: \(dateFormatter.string(from: Date())) at \(timeFormatter.string(from: Date()))\n\n"
 
         // Explain what filtering is being done
-        context += "🔍 SMART SEARCH ANALYSIS:\n"
-        context += "Looking for receipts matching: \(expenseQuery.keywords.joined(separator: ", "))\n"
+        context += "🔍 SMART SEMANTIC SEARCH:\n"
+        context += "LLM extracted product intent: \(expenseQuery.keywords.joined(separator: ", "))\n"
+        context += "Using embeddings to find semantically similar receipts (no hardcoded keywords!)\n"
         context += "Date range: \(dateFormatter.string(from: expenseQuery.dateRange.start)) to \(dateFormatter.string(from: expenseQuery.dateRange.end))\n\n"
 
         // Get all receipts in the date range
@@ -3328,7 +3441,7 @@ class OpenAIService: ObservableObject {
         let dateRangeStart = calendar.startOfDay(for: expenseQuery.dateRange.start)
         let dateRangeEnd = calendar.date(byAdding: DateComponents(day: 1), to: calendar.startOfDay(for: expenseQuery.dateRange.end))!
 
-        // Get all receipts in date range, then filter by keywords
+        // Get all receipts in date range, then filter by semantic similarity
         let allReceiptsInRange = notesManager.notes.filter { note in
             guard isInReceiptsFolderHierarchy(note) else { return false }
             var transactionDate = note.dateCreated
@@ -3340,7 +3453,8 @@ class OpenAIService: ObservableObject {
             return transactionDate >= dateRangeStart && transactionDate < dateRangeEnd
         }
 
-        let filteredReceipts = filterReceiptsByKeywords(allReceiptsInRange, keywords: expenseQuery.keywords)
+        print("📊 Semantic filtering: comparing \(expenseQuery.keywords) against \(allReceiptsInRange.count) receipts...")
+        let filteredReceipts = await filterReceiptsBySemanticSimilarity(allReceiptsInRange, products: expenseQuery.keywords)
             .sorted { note1, note2 in
                 let date1 = extractDateFromReceiptText(note1.title) ?? extractDateFromReceiptText(note1.content) ?? note1.dateCreated
                 let date2 = extractDateFromReceiptText(note2.title) ?? extractDateFromReceiptText(note2.content) ?? note2.dateCreated
