@@ -17,7 +17,7 @@ struct ConversationSidebarView: View {
             conversationsListView
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-        .frame(maxWidth: 280)
+        .frame(maxWidth: 320)
     }
 
     private var headerView: some View {
@@ -95,17 +95,16 @@ struct ConversationSidebarView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.blue)
-                .foregroundColor(.white)
+                .background(Color.gray.opacity(0.15))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 .cornerRadius(8)
             }
             .buttonStyle(PlainButtonStyle())
             .padding(.horizontal, 12)
-            .padding(.bottom, 4)
+            .padding(.bottom, 12)
         }
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-        .border(Color.gray.opacity(0.2), width: 0.5)
     }
 
     private var conversationsListView: some View {

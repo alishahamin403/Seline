@@ -24,54 +24,49 @@ struct ConversationSearchView: View {
 
             // Main conversation view
             VStack(spacing: 0) {
-            // Header with title and buttons
-            HStack(spacing: 12) {
-                // Only show title if this is NOT a new conversation
-                if !searchService.isNewConversation {
-                    Text(searchService.conversationTitle)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .lineLimit(1)
-                } else {
-                    // For new conversations, show a placeholder or conversation indicator
-                    Text("Conversation")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Button(action: {
-                    HapticManager.shared.selection()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showingSidebar.toggle()
+                // Header with title and close button only
+                HStack(spacing: 12) {
+                    // Sidebar toggle button on the left
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingSidebar.toggle()
+                        }
+                    }) {
+                        Image(systemName: "sidebar.leading")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
-                }) {
-                    Image(systemName: "sidebar.leading")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                }
-                .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(PlainButtonStyle())
 
-                Button(action: {
-                    HapticManager.shared.selection()
-                    // If this is a new conversation, show summary before closing
-                    if searchService.isNewConversation && !searchService.conversationHistory.isEmpty {
-                        showingFinalSummary = true
-                    } else {
-                        dismiss()
+                    // Only show title if this is NOT a new conversation
+                    if !searchService.isNewConversation {
+                        Text(searchService.conversationTitle)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                            .lineLimit(1)
                     }
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                    Spacer()
+
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        // If this is a new conversation, show summary before closing
+                        if searchService.isNewConversation && !searchService.conversationHistory.isEmpty {
+                            showingFinalSummary = true
+                        } else {
+                            dismiss()
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
 
             // Conversation thread
             ScrollViewReader { proxy in
