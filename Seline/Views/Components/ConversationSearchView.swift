@@ -10,15 +10,27 @@ struct ConversationSearchView: View {
     @State private var showingHistory = false
     @State private var thinkingElapsedTime: Int = 0
     @State private var thinkingTimer: Timer?
+    @State private var showingFinalSummary = false
+    @State private var generatedTitle = ""
+    @State private var isGeneratingTitle = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Header with title and buttons
             HStack(spacing: 12) {
-                Text(searchService.conversationTitle)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .lineLimit(1)
+                // Only show title if this is NOT a new conversation
+                if !searchService.isNewConversation {
+                    Text(searchService.conversationTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .lineLimit(1)
+                } else {
+                    // For new conversations, show a placeholder or conversation indicator
+                    Text("Conversation")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.gray : Color.gray)
+                        .lineLimit(1)
+                }
 
                 Spacer()
 
@@ -34,7 +46,12 @@ struct ConversationSearchView: View {
 
                 Button(action: {
                     HapticManager.shared.selection()
-                    dismiss()
+                    // If this is a new conversation, show summary before closing
+                    if searchService.isNewConversation && !searchService.conversationHistory.isEmpty {
+                        showingFinalSummary = true
+                    } else {
+                        dismiss()
+                    }
                 }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))
@@ -167,6 +184,137 @@ struct ConversationSearchView: View {
         }
         .sheet(isPresented: $showingHistory) {
             ConversationHistoryView()
+        }
+        .sheet(isPresented: $showingFinalSummary) {
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("Save Conversation")
+                        .font(.system(size: 18, weight: .semibold))
+                    Spacer()
+                    Button(action: { showingFinalSummary = false }) {
+                        Image(systemName: "xmark")
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    }
+                }
+                .padding(16)
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .border(Color.gray.opacity(0.2), width: 0.5)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Generate title section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Generated Title")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                            if isGeneratingTitle {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Generating title...")
+                                        .font(.system(size: 13, weight: .regular))
+                                        .foregroundColor(Color.gray)
+                                }
+                            } else {
+                                // Display generated title or let user edit
+                                TextField(
+                                    "Enter title or use generated one",
+                                    text: Binding(
+                                        get: { generatedTitle.isEmpty ? searchService.conversationTitle : generatedTitle },
+                                        set: { generatedTitle = $0 }
+                                    )
+                                )
+                                .font(.system(size: 14, weight: .regular))
+                                .padding(12)
+                                .background(colorScheme == .dark ? Color.gray.opacity(0.1) : Color.gray.opacity(0.1))
+                                .cornerRadius(8)
+                                .padding(.top, 4)
+                            }
+                        }
+
+                        // Summary of conversation
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Conversation Summary")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("\(searchService.conversationHistory.count) messages")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(Color.gray)
+
+                                // Show first and last user messages as preview
+                                if let firstUserMsg = searchService.conversationHistory.first(where: { $0.isUser }) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Started with:")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(Color.gray)
+                                        Text(firstUserMsg.text.prefix(100) + (firstUserMsg.text.count > 100 ? "..." : ""))
+                                            .font(.system(size: 12, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                            .lineLimit(2)
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(colorScheme == .dark ? Color.gray.opacity(0.1) : Color.gray.opacity(0.05))
+                            .cornerRadius(8)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(16)
+                }
+
+                // Action buttons
+                HStack(spacing: 12) {
+                    Button(action: {
+                        showingFinalSummary = false
+                    }) {
+                        Text("Continue Conversation")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(12)
+                            .background(Color.gray.opacity(0.2))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                            .cornerRadius(8)
+                    }
+
+                    Button(action: {
+                        // Use generated title if provided, otherwise use current
+                        if !generatedTitle.isEmpty {
+                            searchService.conversationTitle = generatedTitle
+                        }
+                        showingFinalSummary = false
+                        dismiss()
+                    }) {
+                        Text("Save & Close")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(12)
+                            .background(Color.blue)
+                            .foregroundColor(Color.white)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(16)
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .border(Color.gray.opacity(0.2), width: 0.5)
+            }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            .onAppear {
+                // Generate final title when summary sheet appears
+                isGeneratingTitle = true
+                Task {
+                    await searchService.generateFinalConversationTitle()
+                    DispatchQueue.main.async {
+                        generatedTitle = searchService.conversationTitle
+                        isGeneratingTitle = false
+                    }
+                }
+            }
         }
     }
 

@@ -20,6 +20,7 @@ class SearchService: ObservableObject {
     @Published var isInConversationMode: Bool = false
     @Published var conversationTitle: String = "New Conversation"
     @Published var savedConversations: [SavedConversation] = []
+    @Published var isNewConversation: Bool = false  // Track if this is a new conversation (not loaded from history)
     private var currentlyLoadedConversationId: UUID? = nil
 
     // NEW: Conversational action system
@@ -587,6 +588,7 @@ class SearchService: ObservableObject {
         questionResponse = nil
         conversationTitle = "New Conversation"
         currentlyLoadedConversationId = nil
+        isNewConversation = false
     }
 
     /// Start a conversation with an initial question
@@ -594,6 +596,7 @@ class SearchService: ObservableObject {
         clearConversation()
         currentlyLoadedConversationId = nil  // Ensure we're not treating this as an existing conversation
         isInConversationMode = true
+        isNewConversation = true  // Mark as new conversation (will hide title until finalized)
         updateConversationTitle()
         await addConversationMessage(initialQuestion)
     }
@@ -927,6 +930,7 @@ class SearchService: ObservableObject {
             conversationHistory = saved.messages
             conversationTitle = saved.title
             isInConversationMode = true
+            isNewConversation = false  // This is a loaded conversation, show title immediately
             currentlyLoadedConversationId = id  // Track which conversation is loaded
 
             // Restore the note being edited from conversation context
