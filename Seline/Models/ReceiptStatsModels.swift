@@ -6,7 +6,7 @@ import Foundation
 // The Note struct is defined in NoteModels.swift
 
 /// Represents a single receipt with parsed amount
-struct ReceiptStat: Identifiable, Hashable {
+struct ReceiptStat: Identifiable, Hashable, Codable {
     let id: UUID
     let title: String
     let amount: Double
