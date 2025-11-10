@@ -106,15 +106,15 @@ struct MapsViewNew: View, Searchable {
                                         }
                                         .padding(.horizontal, 20)
 
-                                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                             ForEach(favourites, id: \.id) { place in
-                                                VStack(spacing: 6) {
+                                                VStack(spacing: 4) {
                                                     // Location photo or initials with favourite button
                                                     ZStack(alignment: .topTrailing) {
                                                         PlaceImageView(
                                                             place: place,
-                                                            size: 80,
-                                                            cornerRadius: 18
+                                                            size: 60,
+                                                            cornerRadius: 12
                                                         )
                                                         .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
 
@@ -124,25 +124,25 @@ struct MapsViewNew: View, Searchable {
                                                             HapticManager.shared.selection()
                                                         }) {
                                                             Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                                .font(.system(size: 16, weight: .semibold))
+                                                                .font(.system(size: 12, weight: .semibold))
                                                                 .foregroundColor(.yellow)
-                                                                .padding(8)
+                                                                .padding(6)
                                                                 .background(
                                                                     Circle()
                                                                         .fill(Color.black.opacity(0.7))
                                                                 )
                                                         }
-                                                        .offset(x: 8, y: -8)
+                                                        .offset(x: 6, y: -6)
                                                     }
 
                                                     // Place name
                                                     Text(place.displayName)
-                                                        .font(.system(size: 12, weight: .regular))
+                                                        .font(.system(size: 10, weight: .regular))
                                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                                         .lineLimit(2)
                                                         .multilineTextAlignment(.center)
                                                         .minimumScaleFactor(0.8)
-                                                        .frame(height: 28)
+                                                        .frame(height: 20)
                                                 }
                                                 .contextMenu {
                                                     Button(role: .destructive, action: {
