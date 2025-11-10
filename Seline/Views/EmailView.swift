@@ -9,19 +9,22 @@ struct EmailView: View, Searchable {
     @State private var lastRefreshTime: Date? = nil
 
     var currentEmails: [Email] {
-        return emailService.getEmails(for: selectedTab.folder)
+        guard let folder = selectedTab.folder else { return [] }
+        return emailService.getEmails(for: folder)
     }
 
     var currentLoadingState: EmailLoadingState {
-        return emailService.getLoadingState(for: selectedTab.folder)
+        guard let folder = selectedTab.folder else { return .idle }
+        return emailService.getLoadingState(for: folder)
     }
 
     var currentSections: [EmailSection] {
+        guard let folder = selectedTab.folder else { return [] }
         if let selectedCategory = selectedCategory {
-            return emailService.getCategorizedEmails(for: selectedTab.folder, category: selectedCategory, unreadOnly: showUnreadOnly)
+            return emailService.getCategorizedEmails(for: folder, category: selectedCategory, unreadOnly: showUnreadOnly)
         } else {
             // Show all emails when no category is selected
-            return emailService.getCategorizedEmails(for: selectedTab.folder, unreadOnly: showUnreadOnly)
+            return emailService.getCategorizedEmails(for: folder, unreadOnly: showUnreadOnly)
         }
     }
 
