@@ -585,47 +585,51 @@ struct FolderOverlayView: View {
                                 GridItem(.flexible())
                             ], spacing: 32) {
                                 ForEach(places) { place in
-                                    Button(action: {
-                                        HapticManager.shared.selection()
-                                        GoogleMapsService.shared.openInGoogleMaps(place: place)
-                                        onClose()
-                                    }) {
-                                        VStack(spacing: 6) {
-                                            // Location photo or initials with favourite badge
-                                            ZStack(alignment: .topTrailing) {
+                                    VStack(spacing: 6) {
+                                        // Location photo or initials with favourite button
+                                        ZStack(alignment: .topTrailing) {
+                                            Button(action: {
+                                                HapticManager.shared.selection()
+                                                GoogleMapsService.shared.openInGoogleMaps(place: place)
+                                                onClose()
+                                            }) {
                                                 PlaceImageView(
                                                     place: place,
                                                     size: 80,
                                                     cornerRadius: 18
                                                 )
                                                 .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-
-                                                // Favourite star badge
-                                                if place.isFavourite {
-                                                    Image(systemName: "star.fill")
-                                                        .font(.system(size: 14, weight: .semibold))
-                                                        .foregroundColor(.yellow)
-                                                        .padding(6)
-                                                        .background(
-                                                            Circle()
-                                                                .fill(Color.black.opacity(0.6))
-                                                        )
-                                                        .offset(x: 8, y: -8)
-                                                }
                                             }
+                                            .buttonStyle(PlainButtonStyle())
 
-                                            // Place name
-                                            Text(place.displayName)
-                                                .font(.system(size: 12, weight: .regular))
-                                                .foregroundColor(.white)
-                                                .lineLimit(2)
-                                                .multilineTextAlignment(.center)
-                                                .minimumScaleFactor(0.8)
-                                                .frame(height: 28)
-
-                                            // Open/Closed status
-                                            FolderPlaceStatusView(place: place)
+                                            // Favourite star button - always visible
+                                            Button(action: {
+                                                locationsManager.toggleFavourite(for: place.id)
+                                                HapticManager.shared.selection()
+                                            }) {
+                                                Image(systemName: place.isFavourite ? "star.fill" : "star")
+                                                    .font(.system(size: 16, weight: .semibold))
+                                                    .foregroundColor(.yellow)
+                                                    .padding(8)
+                                                    .background(
+                                                        Circle()
+                                                            .fill(Color.black.opacity(0.7))
+                                                    )
+                                            }
+                                            .offset(x: 8, y: -8)
                                         }
+
+                                        // Place name
+                                        Text(place.displayName)
+                                            .font(.system(size: 12, weight: .regular))
+                                            .foregroundColor(.white)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.center)
+                                            .minimumScaleFactor(0.8)
+                                            .frame(height: 28)
+
+                                        // Open/Closed status
+                                        FolderPlaceStatusView(place: place)
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                     .contextMenu {
