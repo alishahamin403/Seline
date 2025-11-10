@@ -106,17 +106,54 @@ struct MapsViewNew: View, Searchable {
                                         }
                                         .padding(.horizontal, 20)
 
-                                        VStack(spacing: 8) {
+                                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                                             ForEach(favourites, id: \.id) { place in
-                                                SavedPlaceRow(
-                                                    place: place,
-                                                    onTap: { _ in },
-                                                    onDelete: { deletedPlace in
-                                                        locationsManager.deletePlace(deletedPlace)
+                                                VStack(spacing: 6) {
+                                                    // Location photo or initials with favourite button
+                                                    ZStack(alignment: .topTrailing) {
+                                                        PlaceImageView(
+                                                            place: place,
+                                                            size: 80,
+                                                            cornerRadius: 18
+                                                        )
+                                                        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+
+                                                        // Favourite star button - always visible
+                                                        Button(action: {
+                                                            locationsManager.toggleFavourite(for: place.id)
+                                                            HapticManager.shared.selection()
+                                                        }) {
+                                                            Image(systemName: place.isFavourite ? "star.fill" : "star")
+                                                                .font(.system(size: 16, weight: .semibold))
+                                                                .foregroundColor(.yellow)
+                                                                .padding(8)
+                                                                .background(
+                                                                    Circle()
+                                                                        .fill(Color.black.opacity(0.7))
+                                                                )
+                                                        }
+                                                        .offset(x: 8, y: -8)
                                                     }
-                                                )
+
+                                                    // Place name
+                                                    Text(place.displayName)
+                                                        .font(.system(size: 12, weight: .regular))
+                                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                        .lineLimit(2)
+                                                        .multilineTextAlignment(.center)
+                                                        .minimumScaleFactor(0.8)
+                                                        .frame(height: 28)
+                                                }
+                                                .contextMenu {
+                                                    Button(role: .destructive, action: {
+                                                        locationsManager.deletePlace(place)
+                                                    }) {
+                                                        Label("Delete", systemImage: "trash")
+                                                    }
+                                                }
                                             }
                                         }
+                                        .padding(.horizontal, 20)
                                     }
                                     .padding(.top, 8)
                                     .padding(.bottom, 20)
@@ -585,60 +622,57 @@ struct FolderOverlayView: View {
                                 GridItem(.flexible())
                             ], spacing: 32) {
                                 ForEach(places) { place in
-                                    VStack(spacing: 6) {
-                                        // Location photo or initials with favourite button
-                                        ZStack(alignment: .topTrailing) {
-                                            Button(action: {
-                                                HapticManager.shared.selection()
-                                                GoogleMapsService.shared.openInGoogleMaps(place: place)
-                                                onClose()
-                                            }) {
-                                                PlaceImageView(
-                                                    place: place,
-                                                    size: 80,
-                                                    cornerRadius: 18
-                                                )
-                                                .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-                                            }
-                                            .buttonStyle(PlainButtonStyle())
-
-                                            // Favourite star button - always visible
-                                            Button(action: {
-                                                locationsManager.toggleFavourite(for: place.id)
-                                                HapticManager.shared.selection()
-                                            }) {
-                                                Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                    .font(.system(size: 16, weight: .semibold))
-                                                    .foregroundColor(.yellow)
-                                                    .padding(8)
-                                                    .background(
-                                                        Circle()
-                                                            .fill(Color.black.opacity(0.7))
+                                    ZStack {
+                                        VStack(spacing: 6) {
+                                            // Location photo or initials with favourite button
+                                            ZStack(alignment: .topTrailing) {
+                                                Button(action: {
+                                                    HapticManager.shared.selection()
+                                                    GoogleMapsService.shared.openInGoogleMaps(place: place)
+                                                    onClose()
+                                                }) {
+                                                    PlaceImageView(
+                                                        place: place,
+                                                        size: 80,
+                                                        cornerRadius: 18
                                                     )
+                                                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                                }
+                                                .buttonStyle(PlainButtonStyle())
+
+                                                // Favourite star button - always visible and interactive
+                                                Button(action: {
+                                                    locationsManager.toggleFavourite(for: place.id)
+                                                    HapticManager.shared.selection()
+                                                }) {
+                                                    Image(systemName: place.isFavourite ? "star.fill" : "star")
+                                                        .font(.system(size: 16, weight: .semibold))
+                                                        .foregroundColor(.yellow)
+                                                        .padding(8)
+                                                        .background(
+                                                            Circle()
+                                                                .fill(Color.black.opacity(0.7))
+                                                        )
+                                                }
+                                                .offset(x: 8, y: -8)
+                                                .zIndex(1)
                                             }
-                                            .offset(x: 8, y: -8)
+
+                                            // Place name
+                                            Text(place.displayName)
+                                                .font(.system(size: 12, weight: .regular))
+                                                .foregroundColor(.white)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.center)
+                                                .minimumScaleFactor(0.8)
+                                                .frame(height: 28)
+
+                                            // Open/Closed status
+                                            FolderPlaceStatusView(place: place)
                                         }
-
-                                        // Place name
-                                        Text(place.displayName)
-                                            .font(.system(size: 12, weight: .regular))
-                                            .foregroundColor(.white)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.center)
-                                            .minimumScaleFactor(0.8)
-                                            .frame(height: 28)
-
-                                        // Open/Closed status
-                                        FolderPlaceStatusView(place: place)
+                                        .contentShape(Rectangle())
                                     }
-                                    .buttonStyle(PlainButtonStyle())
                                     .contextMenu {
-                                        Button(action: {
-                                            locationsManager.toggleFavourite(for: place.id)
-                                        }) {
-                                            Label(place.isFavourite ? "Remove from Favourites" : "Add to Favourites", systemImage: place.isFavourite ? "star.fill" : "star")
-                                        }
-
                                         Button(action: {
                                             selectedPlace = place
                                             newPlaceName = place.customName ?? place.name
