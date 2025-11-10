@@ -38,73 +38,83 @@ struct EmailView: View, Searchable {
                             .onChange(of: selectedTab) { newTab in
                                 // Load emails for the selected folder - cache will be respected
                                 // This will show cached content immediately if available
-                                Task {
-                                    await emailService.loadEmailsForFolder(newTab.folder)
+                                if let folder = newTab.folder {
+                                    Task {
+                                        await emailService.loadEmailsForFolder(folder)
+                                    }
                                 }
                             }
 
-                        // Unread filter button
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showUnreadOnly.toggle()
+                        // Unread filter button (hide for folders tab)
+                        if selectedTab != .folders {
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showUnreadOnly.toggle()
+                                }
+                            }) {
+                                Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(
+                                        showUnreadOnly ?
+                                            (colorScheme == .dark ? .white : .black) :
+                                            Color.gray
+                                    )
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(
+                                                showUnreadOnly ?
+                                                    (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
+                                                    (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
+                                            )
+                                    )
                             }
-                        }) {
-                            Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(
-                                    showUnreadOnly ?
-                                        (colorScheme == .dark ? .white : .black) :
-                                        Color.gray
-                                )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(
-                                            showUnreadOnly ?
-                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
-                                                (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
-                                        )
-                                )
+                            .buttonStyle(PlainButtonStyle())
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, topPadding)
                     .padding(.bottom, 12)
 
-                    // Category filter slider - Gmail style
-                    EmailCategoryFilterView(selectedCategory: $selectedCategory)
-                        .onChange(of: selectedCategory) { _ in
-                            // Category change doesn't require reloading data, just filtering
-                            // The currentSections computed property will handle the filtering
-                        }
+                    // Category filter slider - Gmail style (hide for folders tab)
+                    if selectedTab != .folders {
+                        EmailCategoryFilterView(selectedCategory: $selectedCategory)
+                            .onChange(of: selectedCategory) { _ in
+                                // Category change doesn't require reloading data, just filtering
+                                // The currentSections computed property will handle the filtering
+                            }
+                    }
                 }
                 .background(
                     (colorScheme == .dark ? Color.black : Color.white)
                 )
 
-                // Email list - only categorized view, no search results
-                EmailListWithCategories(
-                    sections: currentSections,
-                    loadingState: currentLoadingState,
-                    onRefresh: {
-                        await refreshCurrentFolder()
-                    },
-                    onDeleteEmail: { email in
-                        Task {
-                            do {
-                                try await emailService.deleteEmail(email)
-                            } catch {
-                                print("Failed to delete email: \(error.localizedDescription)")
-                                // You could show an alert here if needed
+                // Email list or Folders list
+                if selectedTab == .folders {
+                    EmailFolderListView()
+                } else {
+                    EmailListWithCategories(
+                        sections: currentSections,
+                        loadingState: currentLoadingState,
+                        onRefresh: {
+                            await refreshCurrentFolder()
+                        },
+                        onDeleteEmail: { email in
+                            Task {
+                                do {
+                                    try await emailService.deleteEmail(email)
+                                } catch {
+                                    print("Failed to delete email: \(error.localizedDescription)")
+                                    // You could show an alert here if needed
+                                }
                             }
+                        },
+                        onMarkAsUnread: { email in
+                            emailService.markAsUnread(email)
                         }
-                    },
-                    onMarkAsUnread: { email in
-                        emailService.markAsUnread(email)
-                    }
-                )
+                    )
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(
@@ -146,18 +156,22 @@ struct EmailView: View, Searchable {
                 emailService.notificationService.clearEmailNotifications()
 
                 // Load emails for current tab - will show cached content immediately
-                await emailService.loadEmailsForFolder(selectedTab.folder)
+                if let folder = selectedTab.folder {
+                    await emailService.loadEmailsForFolder(folder)
 
-                // Update app badge to reflect current unread count
-                let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
-                emailService.notificationService.updateAppBadge(count: unreadCount)
+                    // Update app badge to reflect current unread count
+                    let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
+                    emailService.notificationService.updateAppBadge(count: unreadCount)
+                }
             }
         }
     }
 
     private func refreshCurrentFolder() async {
         lastRefreshTime = Date()
-        await emailService.loadEmailsForFolder(selectedTab.folder, forceRefresh: true)
+        if let folder = selectedTab.folder {
+            await emailService.loadEmailsForFolder(folder, forceRefresh: true)
+        }
     }
 
     private func openGmailCompose() {

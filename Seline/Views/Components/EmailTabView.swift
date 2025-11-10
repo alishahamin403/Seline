@@ -3,18 +3,21 @@ import SwiftUI
 enum EmailTab: String, CaseIterable {
     case inbox = "Inbox"
     case sent = "Sent"
+    case folders = "Folders"
 
     var icon: String {
         switch self {
         case .inbox: return "tray"
         case .sent: return "paperplane"
+        case .folders: return "folder"
         }
     }
 
-    var folder: EmailFolder {
+    var folder: EmailFolder? {
         switch self {
         case .inbox: return .inbox
         case .sent: return .sent
+        case .folders: return nil // Folders don't have a Gmail folder
         }
     }
 }
