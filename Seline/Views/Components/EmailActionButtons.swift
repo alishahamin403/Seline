@@ -7,15 +7,17 @@ struct EmailActionButtons: View {
     let onDelete: () -> Void
     let onMarkAsUnread: () -> Void
     let onAddEvent: (() -> Void)?
+    let onSave: (() -> Void)?
     @Environment(\.colorScheme) var colorScheme
 
-    init(email: Email, onReply: @escaping () -> Void, onForward: @escaping () -> Void, onDelete: @escaping () -> Void, onMarkAsUnread: @escaping () -> Void, onAddEvent: (() -> Void)? = nil) {
+    init(email: Email, onReply: @escaping () -> Void, onForward: @escaping () -> Void, onDelete: @escaping () -> Void, onMarkAsUnread: @escaping () -> Void, onAddEvent: (() -> Void)? = nil, onSave: (() -> Void)? = nil) {
         self.email = email
         self.onReply = onReply
         self.onForward = onForward
         self.onDelete = onDelete
         self.onMarkAsUnread = onMarkAsUnread
         self.onAddEvent = onAddEvent
+        self.onSave = onSave
     }
 
     var body: some View {
@@ -42,6 +44,17 @@ struct EmailActionButtons: View {
                     icon: "calendar.badge.plus",
                     text: "Event",
                     action: onAddEvent,
+                    colorScheme: colorScheme,
+                    isHighlighted: true
+                )
+            }
+
+            // Save Button (if provided)
+            if let onSave = onSave {
+                ActionButtonWithText(
+                    icon: "folder.badge.plus",
+                    text: "Save",
+                    action: onSave,
                     colorScheme: colorScheme,
                     isHighlighted: true
                 )

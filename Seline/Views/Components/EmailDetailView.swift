@@ -10,6 +10,7 @@ struct EmailDetailView: View {
     @State private var fullEmail: Email? = nil
     @State private var isLoadingFullBody: Bool = false
     @State private var showAddEventSheet: Bool = false
+    @State private var showSaveFolderSheet: Bool = false
 
     var body: some View {
         NavigationView {
@@ -78,7 +79,10 @@ struct EmailDetailView: View {
                             },
                             onAddEvent: !isLoadingFullBody ? {
                                 showAddEventSheet = true
-                            } : nil
+                            } : nil,
+                            onSave: {
+                                showSaveFolderSheet = true
+                            }
                         )
                         .padding(.horizontal, 20)
                         .padding(.bottom, 4)
@@ -100,6 +104,9 @@ struct EmailDetailView: View {
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showAddEventSheet) {
             AddEventFromEmailView(email: fullEmail ?? email)
+        }
+        .sheet(isPresented: $showSaveFolderSheet) {
+            SaveFolderSelectionSheet(email: email, isPresented: $showSaveFolderSheet)
         }
         .onAppear {
             // Mark email as read when view appears

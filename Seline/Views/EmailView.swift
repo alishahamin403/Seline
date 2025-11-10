@@ -7,24 +7,22 @@ struct EmailView: View, Searchable {
     @State private var selectedCategory: EmailCategory? = nil // nil means show all emails
     @State private var showUnreadOnly: Bool = false
     @State private var lastRefreshTime: Date? = nil
+    @State private var showingEmailFolderSidebar: Bool = false
 
     var currentEmails: [Email] {
-        guard let folder = selectedTab.folder else { return [] }
-        return emailService.getEmails(for: folder)
+        return emailService.getEmails(for: selectedTab.folder)
     }
 
     var currentLoadingState: EmailLoadingState {
-        guard let folder = selectedTab.folder else { return .idle }
-        return emailService.getLoadingState(for: folder)
+        return emailService.getLoadingState(for: selectedTab.folder)
     }
 
     var currentSections: [EmailSection] {
-        guard let folder = selectedTab.folder else { return [] }
         if let selectedCategory = selectedCategory {
-            return emailService.getCategorizedEmails(for: folder, category: selectedCategory, unreadOnly: showUnreadOnly)
+            return emailService.getCategorizedEmails(for: selectedTab.folder, category: selectedCategory, unreadOnly: showUnreadOnly)
         } else {
             // Show all emails when no category is selected
-            return emailService.getCategorizedEmails(for: folder, unreadOnly: showUnreadOnly)
+            return emailService.getCategorizedEmails(for: selectedTab.folder, unreadOnly: showUnreadOnly)
         }
     }
 
@@ -37,87 +35,89 @@ struct EmailView: View, Searchable {
                 VStack(spacing: 0) {
                     // Tab selector and unread filter button
                     HStack(spacing: 12) {
+                        // Folder sidebar button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingEmailFolderSidebar.toggle()
+                            }
+                        }) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
                         EmailTabView(selectedTab: $selectedTab)
                             .onChange(of: selectedTab) { newTab in
                                 // Load emails for the selected folder - cache will be respected
                                 // This will show cached content immediately if available
-                                if let folder = newTab.folder {
-                                    Task {
-                                        await emailService.loadEmailsForFolder(folder)
-                                    }
+                                Task {
+                                    await emailService.loadEmailsForFolder(newTab.folder)
                                 }
                             }
 
-                        // Unread filter button (hide for folders tab)
-                        if selectedTab != .folders {
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showUnreadOnly.toggle()
-                                }
-                            }) {
-                                Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(
-                                        showUnreadOnly ?
-                                            (colorScheme == .dark ? .white : .black) :
-                                            Color.gray
-                                    )
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(
-                                                showUnreadOnly ?
-                                                    (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
-                                                    (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
-                                            )
-                                    )
+                        // Unread filter button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showUnreadOnly.toggle()
                             }
-                            .buttonStyle(PlainButtonStyle())
+                        }) {
+                            Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(
+                                    showUnreadOnly ?
+                                        (colorScheme == .dark ? .white : .black) :
+                                        Color.gray
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(
+                                            showUnreadOnly ?
+                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
+                                                (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
+                                        )
+                                )
                         }
+                        .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, topPadding)
                     .padding(.bottom, 12)
 
-                    // Category filter slider - Gmail style (hide for folders tab)
-                    if selectedTab != .folders {
-                        EmailCategoryFilterView(selectedCategory: $selectedCategory)
-                            .onChange(of: selectedCategory) { _ in
-                                // Category change doesn't require reloading data, just filtering
-                                // The currentSections computed property will handle the filtering
-                            }
-                    }
+                    // Category filter slider - Gmail style
+                    EmailCategoryFilterView(selectedCategory: $selectedCategory)
+                        .onChange(of: selectedCategory) { _ in
+                            // Category change doesn't require reloading data, just filtering
+                            // The currentSections computed property will handle the filtering
+                        }
                 }
                 .background(
                     (colorScheme == .dark ? Color.black : Color.white)
                 )
 
-                // Email list or Folders list
-                if selectedTab == .folders {
-                    EmailFolderListView()
-                } else {
-                    EmailListWithCategories(
-                        sections: currentSections,
-                        loadingState: currentLoadingState,
-                        onRefresh: {
-                            await refreshCurrentFolder()
-                        },
-                        onDeleteEmail: { email in
-                            Task {
-                                do {
-                                    try await emailService.deleteEmail(email)
-                                } catch {
-                                    print("Failed to delete email: \(error.localizedDescription)")
-                                    // You could show an alert here if needed
-                                }
+                // Email list
+                EmailListWithCategories(
+                    sections: currentSections,
+                    loadingState: currentLoadingState,
+                    onRefresh: {
+                        await refreshCurrentFolder()
+                    },
+                    onDeleteEmail: { email in
+                        Task {
+                            do {
+                                try await emailService.deleteEmail(email)
+                            } catch {
+                                print("Failed to delete email: \(error.localizedDescription)")
+                                // You could show an alert here if needed
                             }
-                        },
-                        onMarkAsUnread: { email in
-                            emailService.markAsUnread(email)
                         }
-                    )
-                }
+                    },
+                    onMarkAsUnread: { email in
+                        emailService.markAsUnread(email)
+                    }
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(
@@ -149,6 +149,40 @@ struct EmailView: View, Searchable {
                 }
             }
             )
+            .overlay(
+                Group {
+                    if showingEmailFolderSidebar {
+                        ZStack {
+                            Color.black.opacity(0.3)
+                                .ignoresSafeArea()
+                                .onTapGesture {
+                                    withAnimation {
+                                        showingEmailFolderSidebar = false
+                                    }
+                                }
+
+                            HStack(spacing: 0) {
+                                EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
+                                    .frame(width: geometry.size.width * 0.85)
+                                    .transition(.move(edge: .leading))
+                                    .gesture(
+                                        DragGesture()
+                                            .onEnded { value in
+                                                if value.translation.width < -100 {
+                                                    withAnimation {
+                                                        showingEmailFolderSidebar = false
+                                                    }
+                                                }
+                                            }
+                                    )
+
+                                Spacer()
+                            }
+                        }
+                        .allowsHitTesting(showingEmailFolderSidebar)
+                    }
+                }
+            )
         }
         .onAppear {
             // Register with search service first
@@ -159,22 +193,18 @@ struct EmailView: View, Searchable {
                 emailService.notificationService.clearEmailNotifications()
 
                 // Load emails for current tab - will show cached content immediately
-                if let folder = selectedTab.folder {
-                    await emailService.loadEmailsForFolder(folder)
+                await emailService.loadEmailsForFolder(selectedTab.folder)
 
-                    // Update app badge to reflect current unread count
-                    let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
-                    emailService.notificationService.updateAppBadge(count: unreadCount)
-                }
+                // Update app badge to reflect current unread count
+                let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
+                emailService.notificationService.updateAppBadge(count: unreadCount)
             }
         }
     }
 
     private func refreshCurrentFolder() async {
         lastRefreshTime = Date()
-        if let folder = selectedTab.folder {
-            await emailService.loadEmailsForFolder(folder, forceRefresh: true)
-        }
+        await emailService.loadEmailsForFolder(selectedTab.folder, forceRefresh: true)
     }
 
     private func openGmailCompose() {
