@@ -591,13 +591,28 @@ struct FolderOverlayView: View {
                                         onClose()
                                     }) {
                                         VStack(spacing: 6) {
-                                            // Location photo or initials
-                                            PlaceImageView(
-                                                place: place,
-                                                size: 80,
-                                                cornerRadius: 18
-                                            )
-                                            .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                            // Location photo or initials with favourite badge
+                                            ZStack(alignment: .topTrailing) {
+                                                PlaceImageView(
+                                                    place: place,
+                                                    size: 80,
+                                                    cornerRadius: 18
+                                                )
+                                                .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+
+                                                // Favourite star badge
+                                                if place.isFavourite {
+                                                    Image(systemName: "star.fill")
+                                                        .font(.system(size: 14, weight: .semibold))
+                                                        .foregroundColor(.yellow)
+                                                        .padding(6)
+                                                        .background(
+                                                            Circle()
+                                                                .fill(Color.black.opacity(0.6))
+                                                        )
+                                                        .offset(x: 8, y: -8)
+                                                }
+                                            }
 
                                             // Place name
                                             Text(place.displayName)
@@ -614,6 +629,12 @@ struct FolderOverlayView: View {
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                     .contextMenu {
+                                        Button(action: {
+                                            locationsManager.toggleFavourite(for: place.id)
+                                        }) {
+                                            Label(place.isFavourite ? "Remove from Favourites" : "Add to Favourites", systemImage: place.isFavourite ? "star.fill" : "star")
+                                        }
+
                                         Button(action: {
                                             selectedPlace = place
                                             newPlaceName = place.customName ?? place.name
