@@ -641,9 +641,6 @@ struct FolderOverlayView: View {
                                                 .multilineTextAlignment(.center)
                                                 .minimumScaleFactor(0.8)
                                                 .frame(height: 28)
-
-                                            // Open/Closed status
-                                            FolderPlaceStatusView(place: place)
                                         }
                                         .contentShape(Rectangle())
                                     }
