@@ -31,12 +31,10 @@ actor EmailFolderService {
         )
 
         let client = await supabaseManager.getPostgrestClient()
-        let data = try encoder.encode(folder)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
         let response = try await client
             .from("email_folders")
-            .insert(json)
+            .insert(folder)
             .select()
             .single()
             .execute()
@@ -75,10 +73,16 @@ actor EmailFolderService {
     /// Update a folder's name
     func renameFolder(id: UUID, newName: String) async throws -> CustomEmailFolder {
         let client = await supabaseManager.getPostgrestClient()
-        let updateData: [String: Any] = [
-            "name": newName,
-            "updated_at": ISO8601DateFormatter().string(from: Date())
-        ]
+
+        struct UpdateData: Codable {
+            let name: String
+            let updated_at: String
+        }
+
+        let updateData = UpdateData(
+            name: newName,
+            updated_at: ISO8601DateFormatter().string(from: Date())
+        )
 
         let response = try await client
             .from("email_folders")
@@ -95,10 +99,16 @@ actor EmailFolderService {
     /// Update a folder's color
     func updateFolderColor(id: UUID, color: String) async throws -> CustomEmailFolder {
         let client = await supabaseManager.getPostgrestClient()
-        let updateData: [String: Any] = [
-            "color": color,
-            "updated_at": ISO8601DateFormatter().string(from: Date())
-        ]
+
+        struct UpdateData: Codable {
+            let color: String
+            let updated_at: String
+        }
+
+        let updateData = UpdateData(
+            color: color,
+            updated_at: ISO8601DateFormatter().string(from: Date())
+        )
 
         let response = try await client
             .from("email_folders")
@@ -156,12 +166,10 @@ actor EmailFolderService {
         )
 
         let client = await supabaseManager.getPostgrestClient()
-        let data = try encoder.encode(savedEmail)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
         let response = try await client
             .from("saved_emails")
-            .insert(json)
+            .insert(savedEmail)
             .select()
             .single()
             .execute()
@@ -214,10 +222,16 @@ actor EmailFolderService {
     /// Move a saved email to a different folder
     func moveEmail(id: UUID, toFolder folderId: UUID) async throws -> SavedEmail {
         let client = await supabaseManager.getPostgrestClient()
-        let updateData: [String: Any] = [
-            "email_folder_id": folderId.uuidString,
-            "updated_at": ISO8601DateFormatter().string(from: Date())
-        ]
+
+        struct UpdateData: Codable {
+            let email_folder_id: String
+            let updated_at: String
+        }
+
+        let updateData = UpdateData(
+            email_folder_id: folderId.uuidString,
+            updated_at: ISO8601DateFormatter().string(from: Date())
+        )
 
         let response = try await client
             .from("saved_emails")
@@ -290,12 +304,10 @@ actor EmailFolderService {
         )
 
         let client = await supabaseManager.getPostgrestClient()
-        let data = try encoder.encode(attachment)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
         let response = try await client
             .from("saved_email_attachments")
-            .insert(json)
+            .insert(attachment)
             .select()
             .single()
             .execute()
