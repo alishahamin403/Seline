@@ -131,15 +131,6 @@ struct RankingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            Text("Restaurants")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 16)
-
             // Location filters (dropdowns)
             HStack(spacing: 12) {
                 // Country filter dropdown
@@ -176,6 +167,7 @@ struct RankingView: View {
                 )
             }
             .padding(.horizontal, 20)
+            .padding(.top, 20)
             .padding(.bottom, 12)
 
             // Cuisine filter (pills)
