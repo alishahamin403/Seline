@@ -198,6 +198,139 @@ struct EmailAddress: Codable, Hashable {
     }
 }
 
+// MARK: - Custom Email Folder Models
+
+/// Represents a custom email folder created by the user
+struct CustomEmailFolder: Identifiable, Codable, Equatable {
+    let id: UUID
+    let userId: UUID
+    let name: String
+    let color: String // Hex color code (e.g., "#84cae9")
+    let createdAt: Date
+    let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case name
+        case color
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    var displayColor: Color {
+        Color(hex: color) ?? Color.blue
+    }
+}
+
+/// Represents an email saved in a custom folder with full content
+struct SavedEmail: Identifiable, Codable, Equatable {
+    let id: UUID
+    let userId: UUID
+    let emailFolderId: UUID
+    let gmailMessageId: String // Reference to original Gmail message
+    let subject: String
+    let senderName: String?
+    let senderEmail: String
+    let recipients: [String] // Array of recipient emails
+    let ccRecipients: [String] // Array of CC recipient emails
+    let body: String? // Full HTML body
+    let snippet: String?
+    let timestamp: Date // Original email date
+    let savedAt: Date
+    let updatedAt: Date
+    var attachments: [SavedEmailAttachment] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case emailFolderId = "email_folder_id"
+        case gmailMessageId = "gmail_message_id"
+        case subject
+        case senderName = "sender_name"
+        case senderEmail = "sender_email"
+        case recipients
+        case ccRecipients = "cc_recipients"
+        case body
+        case snippet
+        case timestamp
+        case savedAt = "saved_at"
+        case updatedAt = "updated_at"
+    }
+
+    var formattedTime: String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+
+        if calendar.isDateInToday(timestamp) {
+            formatter.timeStyle = .short
+            return formatter.string(from: timestamp)
+        } else if calendar.isDateInYesterday(timestamp) {
+            return "Yesterday"
+        } else {
+            formatter.dateStyle = .short
+            return formatter.string(from: timestamp)
+        }
+    }
+
+    var previewText: String {
+        return (snippet ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Represents an attachment for a saved email
+struct SavedEmailAttachment: Identifiable, Codable, Equatable {
+    let id: UUID
+    let savedEmailId: UUID
+    let fileName: String
+    let fileSize: Int64
+    let mimeType: String?
+    let storagePath: String // Path in Supabase Storage
+    let uploadedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case savedEmailId = "saved_email_id"
+        case fileName = "file_name"
+        case fileSize = "file_size"
+        case mimeType = "mime_type"
+        case storagePath = "storage_path"
+        case uploadedAt = "uploaded_at"
+    }
+
+    var formattedSize: String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: fileSize)
+    }
+
+    var fileExtension: String {
+        return (fileName as NSString).pathExtension.lowercased()
+    }
+
+    var isImage: Bool {
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "heic"]
+        return imageExtensions.contains(fileExtension)
+    }
+
+    var isPDF: Bool {
+        return fileExtension == "pdf"
+    }
+
+    var systemIcon: String {
+        if isImage {
+            return "photo"
+        } else if isPDF {
+            return "doc.text"
+        } else if fileExtension == "zip" || fileExtension == "rar" {
+            return "archivebox"
+        } else {
+            return "doc"
+        }
+    }
+}
+
 enum EmailFolder: String, CaseIterable {
     case inbox = "INBOX"
     case sent = "SENT"

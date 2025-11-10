@@ -240,6 +240,70 @@ class GmailAPIClient {
         }
     }
 
+    /// Download an attachment from a Gmail message
+    /// - Parameters:
+    ///   - messageId: The Gmail message ID
+    ///   - attachmentId: The attachment ID from the message payload
+    /// - Returns: The attachment data, or nil if not found
+    func downloadAttachment(messageId: String, attachmentId: String) async throws -> Data? {
+        try await refreshAccessTokenIfNeeded()
+        return try await withRetry {
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                throw GmailAPIError.notAuthenticated
+            }
+
+            let accessToken = user.accessToken.tokenString
+
+            guard let url = URL(string: "\(self.baseURL)/messages/\(messageId)/attachments/\(attachmentId)") else {
+                throw GmailAPIError.invalidURL
+            }
+
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GmailAPIError.invalidResponse
+            }
+
+            // Handle 404 (attachment not found)
+            if httpResponse.statusCode == 404 {
+                return nil
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                throw GmailAPIError.apiError(
+                    httpResponse.statusCode,
+                    String(data: data, encoding: .utf8) ?? "Unknown error"
+                )
+            }
+
+            // Decode the attachment response
+            let attachmentResponse = try JSONDecoder().decode(GmailAttachmentResponse.self, from: data)
+
+            // Decode base64url encoded data
+            if let base64Data = attachmentResponse.data {
+                // Gmail returns base64url encoded data, need to convert to standard base64
+                let base64 = base64Data
+                    .replacingOccurrences(of: "-", with: "+")
+                    .replacingOccurrences(of: "_", with: "/")
+
+                // Add padding if needed
+                var padded = base64
+                let remainder = base64.count % 4
+                if remainder > 0 {
+                    padded = base64 + String(repeating: "=", count: 4 - remainder)
+                }
+
+                return Data(base64Encoded: padded)
+            }
+
+            return nil
+        }
+    }
+
     func markAsRead(messageId: String) async throws {
         try await refreshAccessTokenIfNeeded()
 
@@ -1193,6 +1257,18 @@ struct GooglePersonSnippet: Codable {
     enum CodingKeys: String, CodingKey {
         case name
         case phoneNumber
+    }
+}
+
+// MARK: - Gmail Attachment Response
+
+struct GmailAttachmentResponse: Codable {
+    let size: Int?
+    let data: String? // Base64url encoded data
+
+    enum CodingKeys: String, CodingKey {
+        case size
+        case data
     }
 }
 

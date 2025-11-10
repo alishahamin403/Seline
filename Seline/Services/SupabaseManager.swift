@@ -197,6 +197,28 @@ class SupabaseManager: ObservableObject {
         return publicURL.absoluteString
     }
 
+    // Upload file with custom path (for email attachments and other use cases)
+    func uploadFile(data: Data, bucket: String, path: String) async throws {
+        // Verify user is authenticated
+        guard authClient.currentUser != nil else {
+            throw NSError(domain: "SupabaseManager", code: 401, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
+        let storage = await getStorageClient()
+
+        // Upload with specified path
+        try await storage
+            .from(bucket)
+            .upload(
+                path,
+                data: data,
+                options: FileOptions(
+                    cacheControl: "public, max-age=3600",
+                    upsert: true
+                )
+            )
+    }
+
     // MARK: - User Location Preferences
 
     func saveLocationPreferences(_ preferences: UserLocationPreferences) async throws {

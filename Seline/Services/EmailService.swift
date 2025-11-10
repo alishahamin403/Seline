@@ -1050,6 +1050,145 @@ class EmailService: ObservableObject {
         return data
     }
 
+    // MARK: - Save Email to Folder
+
+    /// Save an email to a custom folder with attachments
+    func saveEmailToFolder(_ email: Email, folderId: UUID) async throws -> SavedEmail {
+        let emailFolderService = await EmailFolderService.shared
+
+        // First, download and upload attachments if any
+        var savedAttachments: [SavedEmailAttachment] = []
+        if email.hasAttachments && !email.attachments.isEmpty {
+            do {
+                savedAttachments = try await downloadAndSaveAttachments(
+                    from: email,
+                    toFolderId: folderId
+                )
+            } catch {
+                print("⚠️ Warning: Failed to download some attachments: \(error)")
+                // Continue saving email even if attachments fail
+            }
+        }
+
+        // Save email to folder
+        let savedEmail = try await emailFolderService.saveEmail(
+            from: email,
+            to: folderId,
+            with: savedAttachments
+        )
+
+        return savedEmail
+    }
+
+    /// Download email attachments and save to Supabase Storage
+    private func downloadAndSaveAttachments(
+        from email: Email,
+        toFolderId: UUID
+    ) async throws -> [SavedEmailAttachment] {
+        var savedAttachments: [SavedEmailAttachment] = []
+        let supabaseManager = SupabaseManager.shared
+        let emailFolderService = await EmailFolderService.shared
+
+        for attachment in email.attachments {
+            do {
+                // Download attachment from Gmail
+                guard let fileData = try await gmailAPIClient.downloadAttachment(
+                    messageId: email.id,
+                    attachmentId: attachment.id
+                ) else {
+                    continue
+                }
+
+                // Upload to Supabase Storage
+                let storagePath = "email-attachments/\(email.id)/\(attachment.id)/\(attachment.name)"
+                try await supabaseManager.uploadFile(
+                    data: fileData,
+                    bucket: "email-attachments",
+                    path: storagePath
+                )
+
+                // Create attachment record in database
+                // Note: This will be saved when SavedEmail is saved via EmailFolderService
+                let savedAttachment = SavedEmailAttachment(
+                    id: UUID(),
+                    savedEmailId: UUID(), // Will be updated after SavedEmail is created
+                    fileName: attachment.name,
+                    fileSize: Int64(fileData.count),
+                    mimeType: attachment.mimeType,
+                    storagePath: storagePath,
+                    uploadedAt: Date()
+                )
+                savedAttachments.append(savedAttachment)
+
+            } catch {
+                print("⚠️ Warning: Failed to download attachment '\(attachment.name)': \(error)")
+                // Continue with other attachments
+            }
+        }
+
+        return savedAttachments
+    }
+
+    /// Get all saved email folders
+    func fetchSavedFolders() async throws -> [CustomEmailFolder] {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.fetchFolders()
+    }
+
+    /// Create a new email folder
+    func createEmailFolder(name: String, color: String = "#84cae9") async throws -> CustomEmailFolder {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.createFolder(name: name, color: color)
+    }
+
+    /// Rename an email folder
+    func renameEmailFolder(id: UUID, newName: String) async throws -> CustomEmailFolder {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.renameFolder(id: id, newName: newName)
+    }
+
+    /// Update email folder color
+    func updateEmailFolderColor(id: UUID, color: String) async throws -> CustomEmailFolder {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.updateFolderColor(id: id, color: color)
+    }
+
+    /// Delete an email folder
+    func deleteEmailFolder(id: UUID) async throws {
+        let emailFolderService = await EmailFolderService.shared
+        try await emailFolderService.deleteFolder(id: id)
+    }
+
+    /// Get all saved emails in a folder
+    func fetchSavedEmails(in folderId: UUID) async throws -> [SavedEmail] {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.fetchEmailsInFolder(folderId: folderId)
+    }
+
+    /// Search saved emails in a folder
+    func searchSavedEmails(in folderId: UUID, query: String) async throws -> [SavedEmail] {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.searchEmailsInFolder(folderId: folderId, query: query)
+    }
+
+    /// Move saved email to a different folder
+    func moveSavedEmail(id: UUID, toFolder folderId: UUID) async throws -> SavedEmail {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.moveEmail(id: id, toFolder: folderId)
+    }
+
+    /// Delete a saved email
+    func deleteSavedEmail(id: UUID) async throws {
+        let emailFolderService = await EmailFolderService.shared
+        try await emailFolderService.deleteSavedEmail(id: id)
+    }
+
+    /// Get email count in a folder
+    func getSavedEmailCount(in folderId: UUID) async throws -> Int {
+        let emailFolderService = await EmailFolderService.shared
+        return try await emailFolderService.getEmailCountInFolder(folderId: folderId)
+    }
+
     // MARK: - Error Handling
     private func getUserFriendlyErrorMessage(_ error: Error) -> String {
         if let gmailError = error as? GmailAPIError {
