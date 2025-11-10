@@ -95,7 +95,7 @@ struct SavedPlaceRow: View {
                 }) {
                     Image(systemName: isFavourite ? "star.fill" : "star")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.yellow)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
                 .buttonStyle(PlainButtonStyle())
 

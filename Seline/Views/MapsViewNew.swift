@@ -89,22 +89,6 @@ struct MapsViewNew: View, Searchable {
                                 let favourites = locationsManager.getFavourites()
                                 if !favourites.isEmpty {
                                     VStack(alignment: .leading, spacing: 12) {
-                                        HStack {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "star.fill")
-                                                    .font(.system(size: 16, weight: .semibold))
-                                                    .foregroundColor(.yellow)
-
-                                                Text("Favourites")
-                                                    .font(.system(size: 18, weight: .bold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            }
-                                            Spacer()
-                                            Text("\(favourites.count)")
-                                                .font(.system(size: 14, weight: .medium))
-                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                                        }
-                                        .padding(.horizontal, 20)
 
                                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                             ForEach(favourites, id: \.id) { place in
@@ -125,11 +109,11 @@ struct MapsViewNew: View, Searchable {
                                                         }) {
                                                             Image(systemName: place.isFavourite ? "star.fill" : "star")
                                                                 .font(.system(size: 12, weight: .semibold))
-                                                                .foregroundColor(.yellow)
+                                                                .foregroundColor(colorScheme == .dark ? .white : .black)
                                                                 .padding(6)
                                                                 .background(
                                                                     Circle()
-                                                                        .fill(Color.black.opacity(0.7))
+                                                                        .fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9))
                                                                 )
                                                         }
                                                         .offset(x: 6, y: -6)
@@ -159,15 +143,6 @@ struct MapsViewNew: View, Searchable {
                                     .padding(.bottom, 20)
                                 }
 
-                                // Folders section header
-                                HStack {
-                                    Text("Folders")
-                                        .font(.system(size: 24, weight: .bold))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 12)
 
                                 // Location filters section
                                 LocationFiltersView(
@@ -647,7 +622,7 @@ struct FolderOverlayView: View {
                                                 }) {
                                                     Image(systemName: place.isFavourite ? "star.fill" : "star")
                                                         .font(.system(size: 16, weight: .semibold))
-                                                        .foregroundColor(.yellow)
+                                                        .foregroundColor(.white)
                                                         .padding(8)
                                                         .background(
                                                             Circle()
