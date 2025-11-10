@@ -621,15 +621,15 @@ struct FolderOverlayView: View {
                                                     HapticManager.shared.selection()
                                                 }) {
                                                     Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                        .font(.system(size: 16, weight: .semibold))
+                                                        .font(.system(size: 12, weight: .semibold))
                                                         .foregroundColor(.white)
-                                                        .padding(8)
+                                                        .padding(6)
                                                         .background(
                                                             Circle()
                                                                 .fill(Color.black.opacity(0.7))
                                                         )
                                                 }
-                                                .offset(x: 8, y: -8)
+                                                .offset(x: 6, y: -6)
                                                 .zIndex(1)
                                             }
 
