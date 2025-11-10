@@ -1,10 +1,10 @@
 import Foundation
-import Supabase
+import PostgREST
 
 actor EmailFolderService {
     static let shared = EmailFolderService()
 
-    private let supabase = SupabaseManager.shared.client
+    private let supabaseManager = SupabaseManager.shared
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -17,7 +17,7 @@ actor EmailFolderService {
 
     /// Create a new email folder
     func createFolder(name: String, color: String = "#84cae9") async throws -> CustomEmailFolder {
-        guard let userId = try supabase.auth.session?.user.id else {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
             throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
 
@@ -30,11 +30,11 @@ actor EmailFolderService {
             updatedAt: Date()
         )
 
+        let client = await supabaseManager.getPostgrestClient()
         let data = try encoder.encode(folder)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
-        let response = try await supabase
-            .database
+        let response = try await client
             .from("email_folders")
             .insert(json)
             .select()
@@ -47,8 +47,8 @@ actor EmailFolderService {
 
     /// Fetch all folders for the current user
     func fetchFolders() async throws -> [CustomEmailFolder] {
-        let response = try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
             .from("email_folders")
             .select()
             .order("created_at", ascending: false)
@@ -60,8 +60,8 @@ actor EmailFolderService {
 
     /// Fetch a specific folder by ID
     func fetchFolder(id: UUID) async throws -> CustomEmailFolder {
-        let response = try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
             .from("email_folders")
             .select()
             .eq("id", value: id.uuidString)
@@ -74,13 +74,13 @@ actor EmailFolderService {
 
     /// Update a folder's name
     func renameFolder(id: UUID, newName: String) async throws -> CustomEmailFolder {
+        let client = await supabaseManager.getPostgrestClient()
         let updateData: [String: Any] = [
             "name": newName,
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 
-        let response = try await supabase
-            .database
+        let response = try await client
             .from("email_folders")
             .update(updateData)
             .eq("id", value: id.uuidString)
@@ -94,13 +94,13 @@ actor EmailFolderService {
 
     /// Update a folder's color
     func updateFolderColor(id: UUID, color: String) async throws -> CustomEmailFolder {
+        let client = await supabaseManager.getPostgrestClient()
         let updateData: [String: Any] = [
             "color": color,
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 
-        let response = try await supabase
-            .database
+        let response = try await client
             .from("email_folders")
             .update(updateData)
             .eq("id", value: id.uuidString)
@@ -114,8 +114,8 @@ actor EmailFolderService {
 
     /// Delete a folder
     func deleteFolder(id: UUID) async throws {
-        try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        try await client
             .from("email_folders")
             .delete()
             .eq("id", value: id.uuidString)
@@ -130,7 +130,7 @@ actor EmailFolderService {
         to folderId: UUID,
         with attachments: [SavedEmailAttachment] = []
     ) async throws -> SavedEmail {
-        guard let userId = try supabase.auth.session?.user.id else {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
             throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
 
@@ -155,11 +155,11 @@ actor EmailFolderService {
             attachments: attachments
         )
 
+        let client = await supabaseManager.getPostgrestClient()
         let data = try encoder.encode(savedEmail)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
-        let response = try await supabase
-            .database
+        let response = try await client
             .from("saved_emails")
             .insert(json)
             .select()
@@ -172,8 +172,8 @@ actor EmailFolderService {
 
     /// Fetch all saved emails in a folder
     func fetchEmailsInFolder(folderId: UUID) async throws -> [SavedEmail] {
-        let response = try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
             .from("saved_emails")
             .select()
             .eq("email_folder_id", value: folderId.uuidString)
@@ -198,8 +198,8 @@ actor EmailFolderService {
 
     /// Fetch a specific saved email
     func fetchSavedEmail(id: UUID) async throws -> SavedEmail {
-        let response = try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
             .from("saved_emails")
             .select()
             .eq("id", value: id.uuidString)
@@ -213,13 +213,13 @@ actor EmailFolderService {
 
     /// Move a saved email to a different folder
     func moveEmail(id: UUID, toFolder folderId: UUID) async throws -> SavedEmail {
+        let client = await supabaseManager.getPostgrestClient()
         let updateData: [String: Any] = [
             "email_folder_id": folderId.uuidString,
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 
-        let response = try await supabase
-            .database
+        let response = try await client
             .from("saved_emails")
             .update(updateData)
             .eq("id", value: id.uuidString)
@@ -234,8 +234,8 @@ actor EmailFolderService {
 
     /// Delete a saved email from a folder
     func deleteSavedEmail(id: UUID) async throws {
-        try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        try await client
             .from("saved_emails")
             .delete()
             .eq("id", value: id.uuidString)
@@ -259,8 +259,8 @@ actor EmailFolderService {
 
     /// Fetch attachments for a saved email
     func fetchAttachments(for emailId: UUID) async throws -> [SavedEmailAttachment] {
-        let response = try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
             .from("saved_email_attachments")
             .select()
             .eq("saved_email_id", value: emailId.uuidString)
@@ -289,11 +289,11 @@ actor EmailFolderService {
             uploadedAt: Date()
         )
 
+        let client = await supabaseManager.getPostgrestClient()
         let data = try encoder.encode(attachment)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
 
-        let response = try await supabase
-            .database
+        let response = try await client
             .from("saved_email_attachments")
             .insert(json)
             .select()
@@ -306,8 +306,8 @@ actor EmailFolderService {
 
     /// Delete an attachment
     func deleteAttachment(id: UUID) async throws {
-        try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        try await client
             .from("saved_email_attachments")
             .delete()
             .eq("id", value: id.uuidString)
@@ -318,8 +318,8 @@ actor EmailFolderService {
 
     /// Get count of saved emails in a folder
     func getEmailCountInFolder(folderId: UUID) async throws -> Int {
-        let response = try await supabase
-            .database
+        let client = await supabaseManager.getPostgrestClient()
+        let response = try await client
             .from("saved_emails")
             .select("id", head: true, count: .exact)
             .eq("email_folder_id", value: folderId.uuidString)
