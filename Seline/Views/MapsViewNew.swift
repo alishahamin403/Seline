@@ -85,6 +85,43 @@ struct MapsViewNew: View, Searchable {
                                 }
                                 .padding(.top, 60)
                             } else {
+                                // Favourites section
+                                let favourites = locationsManager.getFavourites()
+                                if !favourites.isEmpty {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        HStack {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "star.fill")
+                                                    .font(.system(size: 16, weight: .semibold))
+                                                    .foregroundColor(.yellow)
+
+                                                Text("Favourites")
+                                                    .font(.system(size: 18, weight: .bold))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            }
+                                            Spacer()
+                                            Text("\(favourites.count)")
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                        }
+                                        .padding(.horizontal, 20)
+
+                                        VStack(spacing: 8) {
+                                            ForEach(favourites, id: \.id) { place in
+                                                SavedPlaceRow(
+                                                    place: place,
+                                                    onTap: { _ in },
+                                                    onDelete: { deletedPlace in
+                                                        locationsManager.deletePlace(deletedPlace)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .padding(.top, 8)
+                                    .padding(.bottom, 20)
+                                }
+
                                 // Folders section header
                                 HStack {
                                     Text("Folders")

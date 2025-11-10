@@ -26,6 +26,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var userRating: Int? // User's personal rating (1-10)
     var userNotes: String? // User's personal notes
     var userCuisine: String? // User's manual cuisine assignment
+    var isFavourite: Bool // Whether this location is marked as favourite
     var dateCreated: Date
     var dateModified: Date
 
@@ -49,6 +50,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.userRating = nil
         self.userNotes = nil
         self.userCuisine = nil
+        self.isFavourite = false
         self.dateCreated = Date()
         self.dateModified = Date()
 
@@ -431,6 +433,31 @@ class LocationsManager: ObservableObject {
         }
     }
 
+    // MARK: - Favourite Management
+
+    func toggleFavourite(for placeId: UUID) {
+        if let index = savedPlaces.firstIndex(where: { $0.id == placeId }) {
+            savedPlaces[index].isFavourite.toggle()
+            savedPlaces[index].dateModified = Date()
+            savePlacesToStorage()
+
+            // Sync with Supabase
+            Task {
+                await updatePlaceInSupabase(savedPlaces[index])
+            }
+        }
+    }
+
+    func getFavourites() -> [SavedPlace] {
+        return savedPlaces.filter { $0.isFavourite }
+            .sorted { $0.dateModified > $1.dateModified }
+    }
+
+    func getFavourites(for category: String) -> [SavedPlace] {
+        return savedPlaces.filter { $0.isFavourite && $0.category == category }
+            .sorted { $0.dateModified > $1.dateModified }
+    }
+
     // MARK: - Supabase Sync
 
     private func savePlaceToSupabase(_ place: SavedPlace) async {
@@ -457,6 +484,7 @@ class LocationsManager: ObservableObject {
             "city": place.city != nil ? .string(place.city!) : .null,
             "photos": .string(try! JSONEncoder().encode(place.photos).base64EncodedString()),
             "rating": place.rating != nil ? .double(place.rating!) : .null,
+            "is_favourite": .bool(place.isFavourite),
             "date_created": .string(formatter.string(from: place.dateCreated)),
             "date_modified": .string(formatter.string(from: place.dateModified))
         ]
@@ -500,6 +528,7 @@ class LocationsManager: ObservableObject {
             "city": place.city != nil ? .string(place.city!) : .null,
             "photos": .string(try! JSONEncoder().encode(place.photos).base64EncodedString()),
             "rating": place.rating != nil ? .double(place.rating!) : .null,
+            "is_favourite": .bool(place.isFavourite),
             "date_modified": .string(formatter.string(from: place.dateModified))
         ]
 
@@ -671,6 +700,7 @@ class LocationsManager: ObservableObject {
         place.category = data.category
         place.country = data.country
         place.city = data.city
+        place.isFavourite = data.is_favourite
         place.userRating = data.user_rating
         place.userNotes = data.user_notes
         place.dateCreated = dateCreated
@@ -762,6 +792,7 @@ struct PlaceSupabaseData: Codable {
     let rating: Double?
     let opening_hours: String? // Base64 encoded JSON array
     let is_open_now: Bool?
+    let is_favourite: Bool
     let user_rating: Int?
     let user_notes: String?
     let date_created: String

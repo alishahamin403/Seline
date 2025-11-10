@@ -4,8 +4,10 @@ struct SavedPlaceRow: View {
     let place: SavedPlace
     let onTap: (SavedPlace) -> Void
     let onDelete: (SavedPlace) -> Void
+    @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showEditSheet = false
+    @State private var isFavourite: Bool
 
     var body: some View {
         Button(action: {
@@ -86,6 +88,17 @@ struct SavedPlaceRow: View {
 
                 Spacer()
 
+                // Favourite button
+                Button(action: {
+                    locationsManager.toggleFavourite(for: place.id)
+                    isFavourite.toggle()
+                }) {
+                    Image(systemName: isFavourite ? "star.fill" : "star")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.yellow)
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 // Chevron
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
@@ -96,6 +109,13 @@ struct SavedPlaceRow: View {
         }
         .buttonStyle(PlainButtonStyle())
         .contextMenu {
+            Button(action: {
+                locationsManager.toggleFavourite(for: place.id)
+                isFavourite.toggle()
+            }) {
+                Label(isFavourite ? "Remove from Favourites" : "Add to Favourites", systemImage: isFavourite ? "star.fill" : "star")
+            }
+
             Button(action: {
                 showEditSheet = true
             }) {
@@ -111,6 +131,16 @@ struct SavedPlaceRow: View {
         .sheet(isPresented: $showEditSheet) {
             EditPlaceNameSheet(place: place)
         }
+        .onAppear {
+            isFavourite = place.isFavourite
+        }
+    }
+
+    init(place: SavedPlace, onTap: @escaping (SavedPlace) -> Void, onDelete: @escaping (SavedPlace) -> Void) {
+        self.place = place
+        self.onTap = onTap
+        self.onDelete = onDelete
+        _isFavourite = State(initialValue: place.isFavourite)
     }
 }
 
