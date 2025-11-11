@@ -183,129 +183,275 @@ struct SavedEmailDetailView: View {
     let folder: CustomEmailFolder
     @ObservedObject var viewModel: SavedEmailsListViewModel
     @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isEmailBodyExpanded: Bool = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Header
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(email.subject)
-                            .font(.title2)
-                            .fontWeight(.bold)
+        NavigationView {
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    // Main content
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            // Email Header
+                            headerSection
+                                .padding(.horizontal, 20)
 
-                        HStack {
-                            Text(email.senderName ?? email.senderEmail)
-                                .font(.subheadline)
+                            // Sender/Recipient Information
+                            senderSection
+                                .padding(.horizontal, 20)
 
+                            // Email Body Section (with expand/collapse)
+                            emailBodySection
+
+                            // Attachments Section
+                            if !email.attachments.isEmpty {
+                                attachmentsSection
+                                    .padding(.horizontal, 20)
+                            }
+
+                            // Bottom spacing to account for delete button
                             Spacer()
-
-                            Text(email.formattedTime)
-                                .font(.caption)
-                                .foregroundColor(.gray)
+                                .frame(height: 40)
                         }
-                    }
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(8)
-
-                    // Recipient Info
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("From:")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                            Text(email.senderEmail)
-                                .font(.caption)
-                                .foregroundColor(.blue)
-                        }
-
-                        if !email.recipients.isEmpty {
-                            HStack {
-                                Text("To:")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                Text(email.recipients.joined(separator: ", "))
-                                    .font(.caption)
-                                    .lineLimit(2)
-                            }
-                        }
-
-                        if !email.ccRecipients.isEmpty {
-                            HStack {
-                                Text("CC:")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                Text(email.ccRecipients.joined(separator: ", "))
-                                    .font(.caption)
-                                    .lineLimit(2)
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(8)
-
-                    // Body
-                    if let body = email.body {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(body)
-                                .font(.body)
-                                .lineLimit(nil)
-                        }
-                        .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(8)
+                        .padding(.top, 24)
                     }
 
-                    // Attachments
-                    if !email.attachments.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Attachments")
-                                .font(.headline)
-
-                            ForEach(email.attachments) { attachment in
-                                HStack {
-                                    Image(systemName: attachment.systemIcon)
-                                        .foregroundColor(.blue)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(attachment.fileName)
-                                            .font(.subheadline)
-                                        Text(attachment.formattedSize)
-                                            .font(.caption)
-                                            .foregroundColor(.gray)
-                                    }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .foregroundColor(.gray)
-                                }
-                                .padding()
-                                .background(Color(.systemGray6))
-                                .cornerRadius(8)
+                    // Fixed delete button at bottom
+                    VStack(spacing: 0) {
+                        Button(role: .destructive) {
+                            viewModel.deleteEmail(email)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("Delete Email")
+                                    .font(FontManager.geist(size: .body, weight: .medium))
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundColor(.white)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.red.opacity(0.8))
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 4)
+                        .padding(.top, 4)
+                        .background(
+                            colorScheme == .dark ?
+                                Color.gmailDarkBackground :
+                                Color.white
+                        )
+                    }
+                }
+                .background(
+                    colorScheme == .dark ?
+                        Color.gmailDarkBackground :
+                        Color.white
+                )
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    // MARK: - Header Section
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(email.subject)
+                .font(FontManager.geist(size: .title1, weight: .bold))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Sender Section
+    private var senderSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // From
+            HStack(spacing: 8) {
+                Text("From")
+                    .font(FontManager.geist(size: .caption, weight: .semibold))
+                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    if let senderName = email.senderName {
+                        Text(senderName)
+                            .font(FontManager.geist(size: .body, weight: .medium))
+                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                    }
+                    Text(email.senderEmail)
+                        .font(FontManager.geist(size: .caption, weight: .regular))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                }
+
+                Spacer()
+
+                Text(email.formattedTime)
+                    .font(FontManager.geist(size: .caption, weight: .regular))
+                    .foregroundColor(Color.shadcnMuted(colorScheme))
+            }
+
+            Divider()
+
+            // To
+            HStack(alignment: .top, spacing: 8) {
+                Text("To")
+                    .font(FontManager.geist(size: .caption, weight: .semibold))
+                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(email.recipients, id: \.self) { recipient in
+                        Text(recipient)
+                            .font(FontManager.geist(size: .caption, weight: .regular))
+                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                    }
+                }
+
+                Spacer()
+            }
+
+            // CC (if present)
+            if !email.ccRecipients.isEmpty {
+                Divider()
+
+                HStack(alignment: .top, spacing: 8) {
+                    Text("CC")
+                        .font(FontManager.geist(size: .caption, weight: .semibold))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(email.ccRecipients, id: \.self) { recipient in
+                            Text(recipient)
+                                .font(FontManager.geist(size: .caption, weight: .regular))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
                         }
                     }
 
                     Spacer()
                 }
-                .padding()
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button(role: .destructive) {
-                            viewModel.deleteEmail(email)
-                            dismiss()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+        }
+        .padding(12)
+        .background(
+            colorScheme == .dark ?
+                Color.white.opacity(0.05) :
+                Color.gray.opacity(0.05)
+        )
+        .cornerRadius(8)
+    }
+
+    // MARK: - Email Body Section
+    private var emailBodySection: some View {
+        VStack(spacing: 0) {
+            // Expandable header button
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isEmailBodyExpanded.toggle()
+                }
+            }) {
+                HStack {
+                    Text("Email Body")
+                        .font(FontManager.geist(size: .body, weight: .medium))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                    Spacer()
+
+                    Image(systemName: isEmailBodyExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(
+                    colorScheme == .dark ?
+                        Color.white.opacity(0.05) :
+                        Color.gray.opacity(0.1)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Expandable content
+            if isEmailBodyExpanded {
+                if let body = email.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ScrollView {
+                        Text(body)
+                            .font(FontManager.geist(size: .body, weight: .regular))
+                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(20)
                     }
+                    .frame(height: 300)
+                    .background(
+                        colorScheme == .dark ?
+                            Color.black :
+                            Color.white
+                    )
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 40, weight: .light))
+                            .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                        Text("No content available")
+                            .font(FontManager.geist(size: .body, weight: .medium))
+                            .foregroundColor(Color.shadcnMuted(colorScheme))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(20)
+                    .background(
+                        colorScheme == .dark ?
+                            Color.black :
+                            Color.white
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - Attachments Section
+    private var attachmentsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Attachments")
+                .font(FontManager.geist(size: .title3, weight: .semibold))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+
+            LazyVStack(spacing: 8) {
+                ForEach(email.attachments) { attachment in
+                    HStack(spacing: 12) {
+                        Image(systemName: attachment.systemIcon)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color.shadcnForeground(colorScheme))
+                            .frame(width: 24)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(attachment.fileName)
+                                .font(FontManager.geist(size: .body, weight: .medium))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .lineLimit(1)
+
+                            Text(attachment.formattedSize)
+                                .font(FontManager.geist(size: .caption, weight: .regular))
+                                .foregroundColor(Color.shadcnMuted(colorScheme))
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.shadcnMuted(colorScheme))
+                    }
+                    .padding(12)
+                    .background(
+                        colorScheme == .dark ?
+                            Color.white.opacity(0.05) :
+                            Color.gray.opacity(0.05)
+                    )
+                    .cornerRadius(8)
                 }
             }
         }
