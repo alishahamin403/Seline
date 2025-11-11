@@ -68,6 +68,7 @@ struct SavedEmailsListView: View {
                                     Label("Delete", systemImage: "trash")
                                 }
                             }
+                            .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)
