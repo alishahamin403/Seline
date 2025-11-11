@@ -474,28 +474,30 @@ struct SavedEmailDetailView: View {
         // Convert SavedEmail to Email for AISummaryCard compatibility
         return Email(
             id: email.gmailMessageId,
-            gmailMessageId: email.gmailMessageId,
             threadId: "",
+            sender: EmailAddress(name: email.senderName, email: email.senderEmail, avatarUrl: nil),
+            recipients: email.recipients.map { EmailAddress(name: nil, email: $0, avatarUrl: nil) },
+            ccRecipients: email.ccRecipients.map { EmailAddress(name: nil, email: $0, avatarUrl: nil) },
             subject: email.subject,
-            body: email.body,
             snippet: email.snippet,
-            sender: EmailAddress(name: email.senderName, email: email.senderEmail),
-            recipients: email.recipients.map { EmailAddress(name: nil, email: $0) },
-            ccRecipients: email.ccRecipients.map { EmailAddress(name: nil, email: $0) },
+            body: email.body,
             timestamp: email.timestamp,
             isRead: true,
+            isImportant: false,
             hasAttachments: !email.attachments.isEmpty,
-            category: nil,
             attachments: email.attachments.map { attachment in
                 EmailAttachment(
                     id: attachment.id.uuidString,
                     name: attachment.fileName,
+                    size: attachment.fileSize,
                     mimeType: attachment.mimeType ?? "application/octet-stream",
-                    data: nil
+                    url: nil
                 )
             },
             labels: [],
-            aiSummary: email.aiSummary
+            aiSummary: email.aiSummary,
+            gmailMessageId: email.gmailMessageId,
+            gmailThreadId: nil
         )
     }
 }
