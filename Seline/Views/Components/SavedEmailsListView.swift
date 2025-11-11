@@ -401,7 +401,7 @@ struct SavedEmailDetailView: View {
                         )
                 } else {
                     // Display plain text or show "no content" message
-                    let bodyText = email.body ?? email.snippet
+                    let bodyText = email.body ?? email.snippet ?? ""
 
                     ScrollView {
                         if bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
