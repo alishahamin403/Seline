@@ -3727,6 +3727,16 @@ class OpenAIService: ObservableObject {
 
         Selection rules:
         - For date-based questions like "this week" or "this month", select items within that timeframe
+        - For FUTURE date questions (tomorrow, next week, upcoming, next month):
+          * CRITICAL: For recurring events, PROJECT which events will occur on the target date(s)
+          * Check the event's weekday and recurrenceFrequency to determine if it will occur
+          * Example: If user asks "How's my day tomorrow?" and tomorrow is Wednesday:
+            - Find recurring events where weekday=Wednesday
+            - Include those recurring events in your selection (the LLM will explain which ones will occur)
+          * For weekly events: Check if the event's weekday matches the target date's weekday
+          * For daily events: Include if the target date is before recurrenceEndDate
+          * For other frequencies: Use the recurrenceFrequency pattern to calculate occurrences
+          * Return the recurring event IDs - the LLM context will indicate which future dates they apply to
         - For location questions:
           * CRITICAL: Check BOTH address City AND Folder City fields to match requested location
           * If user asks for "locations in [city]" or "saved locations in [city]", return ALL locations where:
@@ -3744,7 +3754,8 @@ class OpenAIService: ObservableObject {
           * CRITICAL: Only select events where isRecurring=true for recurring activity patterns
           * For "gym" queries: Find events with "gym" in the title and isRecurring=true
           * If multiple similar recurring events exist (e.g., "Go gym", "Go gym pussy"), select the SHORTEST/CLEANEST name
-          * Use completedDates field to count occurrences in the requested timeframe
+          * For FUTURE dates: Use recurrenceFrequency and weekday to project which events will occur
+          * For PAST dates: Use completedDates field to count occurrences in the requested timeframe
           * Each date in completedDates represents one completion of that recurring event
         - For month/timeframe analysis:
           * For "this month": Only include completedDates that fall in the CURRENT month
@@ -3755,7 +3766,7 @@ class OpenAIService: ObservableObject {
           * First: Match by keyword (gym → contains "gym")
           * Second: Verify isRecurring=true (ignore one-time events)
           * Third: Filter to shortest name if multiple matches
-          * Fourth: Use completedDates to verify the event has activity in requested timeframe
+          * Fourth: Use completedDates (past) or recurrence pattern (future) to verify relevance
         - Return null for categories with no relevant items
         - If query is ambiguous and you need clarification (e.g., user asks for "places" but doesn't specify category or location), include a note in "reasoning" like: "Query is ambiguous - user may want [option 1] or [option 2]. Selecting [most likely option]. Please ask for clarification if needed."
         """
@@ -3774,6 +3785,17 @@ class OpenAIService: ObservableObject {
         let lastMonthDate = calendar.date(byAdding: .month, value: -1, to: currentDate) ?? currentDate
         let lastMonthName = dateFormatter.string(from: lastMonthDate)
 
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+        let tomorrowStr = dateFormatter.string(from: tomorrow)
+        let nextWeek = calendar.date(byAdding: .day, value: 7, to: currentDate) ?? currentDate
+        let nextWeekStr = dateFormatter.string(from: nextWeek)
+        let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentDate) ?? currentDate
+        let nextMonthName = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMMM yyyy"
+            return formatter.string(from: nextMonth)
+        }()
+
         let prompt = """
         User's question: "\(question)"
 
@@ -3786,9 +3808,15 @@ class OpenAIService: ObservableObject {
         Current date: \(DateFormatter().string(from: currentDate))
         Current month: \(currentMonthName) (month \(currentMonth) of year \(currentYear))
         Last month: \(lastMonthName) (month \(lastMonth) of year \(lastYear))
+        Tomorrow: \(tomorrowStr)
+        Next week: \(nextWeekStr)
+        Next month: \(nextMonthName)
 
         IMPORTANT: When user asks about "this month", they mean \(currentMonthName).
         When user asks about "last month", they mean \(lastMonthName).
+        When user asks about "tomorrow", they mean \(tomorrowStr).
+        When user asks about "next week", they mean around \(nextWeekStr).
+        When user asks about "next month" or "upcoming month", they mean \(nextMonthName).
 
         USE USER PATTERNS TO MAKE SMARTER SELECTIONS:
         - If user asks about spending and their top category is 'food', prioritize food expenses
@@ -3960,6 +3988,7 @@ class OpenAIService: ObservableObject {
                 formatted += "  Recurring: \(event.isRecurring)\n"
                 if event.isRecurring, let pattern = event.recurrencePattern {
                     formatted += "  Pattern: \(pattern)\n"
+                    formatted += "  Day of Week: \(event.dayOfWeek ?? "Not specified")\n"
                 }
                 if let completedDates = event.completedDates, !completedDates.isEmpty {
                     let thisMonthCount = completedDates.filter { date in
@@ -3980,6 +4009,13 @@ class OpenAIService: ObservableObject {
                     formatted += "  Total Completions: \(completedDates.count)\n"
                     formatted += "  This Month: \(thisMonthCount) times\n"
                     formatted += "  Last Month: \(lastMonthCount) times\n"
+                }
+                if event.isRecurring {
+                    // Calculate next 3 occurrences for context
+                    let nextOccurrences = calculateNextRecurringOccurrences(event: event, from: currentDate, count: 3)
+                    if !nextOccurrences.isEmpty {
+                        formatted += "  Next Occurrences: \(nextOccurrences.map { dateFormatter.string(from: $0) }.joined(separator: ", "))\n"
+                    }
                 }
                 if let eventType = event.eventType {
                     formatted += "  Type: \(eventType)\n"
@@ -4658,6 +4694,101 @@ class OpenAIService: ObservableObject {
         }
 
         return enrichedContext
+    }
+
+    /// Calculates the next N occurrences of a recurring event
+    /// - Parameters:
+    ///   - event: The EventMetadata for a recurring event
+    ///   - from: The starting date to calculate from
+    ///   - count: Number of occurrences to calculate
+    /// - Returns: Array of dates when the event will next occur
+    private func calculateNextRecurringOccurrences(event: EventMetadata, from startDate: Date, count: Int) -> [Date] {
+        guard event.isRecurring, let frequency = event.recurrencePattern else {
+            return []
+        }
+
+        var occurrences: [Date] = []
+        let calendar = Calendar.current
+        let endDate = event.recurrenceEndDate ?? calendar.date(byAdding: .year, value: 10, to: startDate) ?? startDate
+
+        var currentDate = startDate
+
+        while occurrences.count < count && currentDate < endDate {
+            // Move to next day
+            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? currentDate
+
+            // Check if this date matches the recurrence pattern
+            if shouldRecurOn(date: currentDate, event: event, frequency: frequency, calendar: calendar) {
+                occurrences.append(currentDate)
+            }
+
+            // Safety check to prevent infinite loops
+            if currentDate > calendar.date(byAdding: .year, value: 2, to: startDate) ?? startDate {
+                break
+            }
+        }
+
+        return occurrences
+    }
+
+    /// Determines if a recurring event should occur on a specific date
+    /// - Parameters:
+    ///   - date: The date to check
+    ///   - event: The EventMetadata for the recurring event
+    ///   - frequency: The recurrence frequency
+    ///   - calendar: The calendar to use for calculations
+    /// - Returns: True if the event should occur on this date
+    private func shouldRecurOn(date: Date, event: EventMetadata, frequency: String, calendar: Calendar) -> Bool {
+        let eventWeekday = event.dayOfWeek?.lowercased() ?? ""
+        let dateWeekday = getWeekdayString(for: date, calendar: calendar)
+
+        switch frequency.lowercased() {
+        case "daily":
+            return true
+
+        case "weekly":
+            // For weekly events, check if the day of week matches
+            return dateWeekday == eventWeekday
+
+        case "biweekly":
+            // For biweekly, check day of week and week number
+            if dateWeekday != eventWeekday {
+                return false
+            }
+
+            // Check if it's the right week (every 2 weeks)
+            if let createdDate = event.createdDate {
+                let components = calendar.dateComponents([.weekOfYear], from: createdDate, to: date)
+                let weekDifference = components.weekOfYear ?? 0
+                return weekDifference % 2 == 0
+            }
+            return false
+
+        case "monthly":
+            // For monthly events, check if it's the same day of month
+            let eventDay = calendar.component(.day, from: event.createdDate ?? date)
+            let currentDay = calendar.component(.day, from: date)
+            return eventDay == currentDay
+
+        case "yearly":
+            // For yearly events, check if it's the same month and day
+            let eventMonth = calendar.component(.month, from: event.createdDate ?? date)
+            let eventDay = calendar.component(.day, from: event.createdDate ?? date)
+            let currentMonth = calendar.component(.month, from: date)
+            let currentDay = calendar.component(.day, from: date)
+            return eventMonth == currentMonth && eventDay == currentDay
+
+        default:
+            return false
+        }
+    }
+
+    /// Converts a date to a weekday string (e.g., "monday", "tuesday")
+    private func getWeekdayString(for date: Date, calendar: Calendar) -> String {
+        let weekday = calendar.component(.weekday, from: date)
+        // Calendar uses: 1=Sunday, 2=Monday, ..., 7=Saturday
+        let weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        return weekday > 0 && weekday <= 7 ? weekdayNames[weekday - 1] : ""
     }
 }
 
