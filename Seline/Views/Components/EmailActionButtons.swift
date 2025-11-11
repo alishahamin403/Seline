@@ -21,52 +21,55 @@ struct EmailActionButtons: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Reply Button
+        HStack(spacing: 8) {
+            // Reply Button - Primary
             ActionButtonWithText(
                 icon: "arrowshape.turn.up.left",
                 text: "Reply",
                 action: onReply,
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                style: .primary
             )
 
-            // Forward Button
+            // Forward Button - Primary
             ActionButtonWithText(
                 icon: "arrowshape.turn.up.right",
                 text: "Forward",
                 action: onForward,
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                style: .primary
             )
 
-            // Add Event Button (if provided)
+            // Add Event Button (if provided) - Secondary
             if let onAddEvent = onAddEvent {
                 ActionButtonWithText(
                     icon: "calendar.badge.plus",
                     text: "Event",
                     action: onAddEvent,
                     colorScheme: colorScheme,
-                    isHighlighted: true
+                    style: .secondary
                 )
             }
 
-            // Save Button (if provided)
+            // Save Button (if provided) - Secondary
             if let onSave = onSave {
                 ActionButtonWithText(
                     icon: "folder.badge.plus",
                     text: "Save",
                     action: onSave,
                     colorScheme: colorScheme,
-                    isHighlighted: true
+                    style: .secondary
                 )
             }
 
-            // Delete Button
+            // Delete Button - Dangerous (Red)
             ActionButtonWithText(
                 icon: "trash",
                 text: "Delete",
                 action: onDelete,
                 colorScheme: colorScheme,
-                isDangerous: true
+                isDangerous: true,
+                style: .tertiary
             )
         }
         .padding(.horizontal, 16)
@@ -82,41 +85,89 @@ struct ActionButtonWithText: View {
     let colorScheme: ColorScheme
     let isDangerous: Bool
     let isHighlighted: Bool
+    var style: ActionButtonStyle = .secondary
 
-    init(icon: String, text: String, action: @escaping () -> Void, colorScheme: ColorScheme, isDangerous: Bool = false, isHighlighted: Bool = false) {
+    init(icon: String, text: String, action: @escaping () -> Void, colorScheme: ColorScheme, isDangerous: Bool = false, isHighlighted: Bool = false, style: ActionButtonStyle = .secondary) {
         self.icon = icon
         self.text = text
         self.action = action
         self.colorScheme = colorScheme
         self.isDangerous = isDangerous
         self.isHighlighted = isHighlighted
+        self.style = style
+    }
+
+    private var backgroundColor: Color {
+        if isDangerous {
+            return Color.red
+        }
+
+        switch style {
+        case .primary:
+            return Color(red: 0.2, green: 0.5, blue: 1.0) // Blue tint
+        case .secondary:
+            return Color.clear
+        case .tertiary:
+            return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)
+        }
+    }
+
+    private var foregroundColor: Color {
+        if isDangerous {
+            return .white
+        }
+
+        switch style {
+        case .primary:
+            return .white
+        case .secondary:
+            return colorScheme == .dark ? Color.white : Color.black
+        case .tertiary:
+            return colorScheme == .dark ? Color.white : Color.black
+        }
+    }
+
+    private var borderColor: Color? {
+        switch style {
+        case .secondary:
+            return colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2)
+        default:
+            return nil
+        }
     }
 
     var body: some View {
         Button(action: action) {
-            Text(text)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor((isDangerous || isHighlighted) ? .black : (colorScheme == .dark ? .white : .black))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(text)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(foregroundColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(
-                    isDangerous ? Color.red :
-                    isHighlighted ? Color.white :
-                    (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                )
+                .fill(backgroundColor)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
-                    (isDangerous || colorScheme == .dark) ? Color.clear : Color.black.opacity(0.3),
-                    lineWidth: 1
+                    borderColor ?? Color.clear,
+                    lineWidth: 1.2
                 )
         )
         .buttonStyle(PlainButtonStyle())
     }
+}
+
+enum ActionButtonStyle {
+    case primary    // Filled blue (Reply, Forward)
+    case secondary  // Outlined (Save, Event)
+    case tertiary   // Light background fallback
 }
 
 struct MinimalisticActionButton: View {
