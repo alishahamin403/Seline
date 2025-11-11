@@ -4,39 +4,41 @@ struct SaveFolderSelectionSheet: View {
     let email: Email
     @Binding var isPresented: Bool
     @StateObject private var viewModel = SaveFolderSelectionViewModel()
+    @Environment(\.colorScheme) var colorScheme
     @State private var showCreateFolder = false
     @State private var newFolderName = ""
-    @State private var selectedFolderColor = "#84cae9"
     @State private var isSaving = false
-
-    let colors = [
-        "#84cae9", // Blue
-        "#ff6b6b", // Red
-        "#ffd93d", // Yellow
-        "#6bcf7f", // Green
-        "#c78bfa", // Purple
-        "#f87171", // Orange
-    ]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Header
-                HStack {
-                    Text("Save Email To Folder")
-                        .font(.headline)
-                        .fontWeight(.bold)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Save Email")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                    Spacer()
+                            Text("Choose where to save this email")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
 
-                    Button(action: { isPresented = false }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.gray)
+                        Spacer()
+
+                        Button(action: { isPresented = false }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
                     }
                 }
-                .padding()
-                .background(Color.white)
-                .border(Color(.systemGray5), width: 1)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+
+                Divider()
+                    .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
 
                 if viewModel.isLoading {
                     VStack {
@@ -46,58 +48,68 @@ struct SaveFolderSelectionSheet: View {
                     }
                 } else if viewModel.folders.isEmpty {
                     // Create Folder Prompt
-                    VStack(spacing: 16) {
+                    VStack(spacing: 20) {
                         Spacer()
-                        Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 50))
-                            .foregroundColor(.gray)
 
-                        Text("No Folders Yet")
-                            .font(.headline)
-                            .foregroundColor(.gray)
+                        Image(systemName: "folder")
+                            .font(.system(size: 48, weight: .light))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
 
-                        Text("Create a folder to save this email")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                        VStack(spacing: 8) {
+                            Text("No Folders Yet")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            Text("Create a folder to save this email")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                .multilineTextAlignment(.center)
+                        }
 
                         Button(action: { showCreateFolder = true }) {
-                            Text("Create Folder")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(12)
-                                .background(Color.blue)
-                                .cornerRadius(8)
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text("Create Folder")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundColor(.white)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                            )
                         }
-                        .padding()
+                        .padding(.horizontal, 20)
 
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
                 } else {
                     ScrollView {
-                        VStack(spacing: 8) {
+                        VStack(spacing: 12) {
                             // Existing Folders
                             ForEach(viewModel.folders) { folder in
                                 Button(action: {
                                     saveEmailToFolder(folder)
                                 }) {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "folder.fill")
-                                            .foregroundColor(Color(hex: folder.color) ?? .blue)
-                                            .font(.title3)
+                                    HStack(spacing: 14) {
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 18, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .frame(width: 24)
 
-                                        VStack(alignment: .leading, spacing: 2) {
+                                        VStack(alignment: .leading, spacing: 3) {
                                             Text(folder.name)
-                                                .font(.subheadline)
-                                                .fontWeight(.semibold)
-                                                .foregroundColor(.black)
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
 
                                             if let count = viewModel.folderEmailCounts[folder.id] {
                                                 Text("\(count) email\(count != 1 ? "s" : "")")
-                                                    .font(.caption)
-                                                    .foregroundColor(.gray)
+                                                    .font(.system(size: 12, weight: .regular))
+                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                             }
                                         }
 
@@ -105,88 +117,122 @@ struct SaveFolderSelectionSheet: View {
 
                                         if isSaving {
                                             ProgressView()
+                                                .scaleEffect(0.8)
+                                        } else {
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                         }
                                     }
-                                    .padding()
-                                    .background(Color(.systemGray6))
-                                    .cornerRadius(8)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(colorScheme == .dark ?
+                                                Color.white.opacity(0.05) :
+                                                Color.black.opacity(0.02)
+                                            )
+                                    )
                                 }
                                 .disabled(isSaving)
                             }
 
                             // Create New Folder Button
                             Button(action: { showCreateFolder = true }) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundColor(.blue)
-                                        .font(.title3)
+                                HStack(spacing: 14) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .frame(width: 24)
 
                                     Text("Create New Folder")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.blue)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                     Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
-                                .padding()
-                                .background(Color(.systemGray6))
-                                .cornerRadius(8)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(colorScheme == .dark ?
+                                            Color.white.opacity(0.05) :
+                                            Color.black.opacity(0.02)
+                                        )
+                                )
                             }
                         }
-                        .padding()
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
                 }
 
                 Spacer()
             }
-            .background(Color(.systemGray6))
+            .background(colorScheme == .dark ? Color.black : Color.white)
             .onAppear {
                 viewModel.loadFolders()
             }
             .sheet(isPresented: $showCreateFolder) {
                 NavigationStack {
-                    Form {
-                        Section("Folder Name") {
+                    VStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Folder Name")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                .padding(.horizontal, 20)
+                                .padding(.top, 20)
+
                             TextField("Enter folder name", text: $newFolderName)
+                                .font(.system(size: 16, weight: .regular))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(colorScheme == .dark ?
+                                            Color.white.opacity(0.05) :
+                                            Color.black.opacity(0.05)
+                                        )
+                                )
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 24)
                         }
 
-                        Section("Color") {
-                            HStack(spacing: 12) {
-                                ForEach(colors, id: \.self) { color in
-                                    Circle()
-                                        .fill(Color(hex: color) ?? .blue)
-                                        .frame(width: 40, height: 40)
-                                        .overlay(
-                                            selectedFolderColor == color ?
-                                            Circle().stroke(Color.black, lineWidth: 2) :
-                                            nil
-                                        )
-                                        .onTapGesture {
-                                            selectedFolderColor = color
-                                        }
-                                }
-                                Spacer()
+                        Spacer()
+
+                        VStack(spacing: 10) {
+                            Button(action: { createFolderAndSave() }) {
+                                Text("Create & Save")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .foregroundColor(.white)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(colorScheme == .dark ?
+                                                Color.white.opacity(0.15) :
+                                                Color.black.opacity(0.08)
+                                            )
+                                    )
                             }
-                        }
-                    }
-                    .navigationTitle("New Folder")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
+                            .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+
                             Button("Cancel") {
                                 showCreateFolder = false
                                 newFolderName = ""
-                                selectedFolderColor = "#84cae9"
                             }
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
-
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Create & Save") {
-                                createFolderAndSave()
-                            }
-                            .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
-                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     }
+                    .background(colorScheme == .dark ? Color.black : Color.white)
+                    .navigationBarHidden(true)
                 }
             }
         }
@@ -212,7 +258,7 @@ struct SaveFolderSelectionSheet: View {
             do {
                 let newFolder = try await EmailService.shared.createEmailFolder(
                     name: newFolderName,
-                    color: selectedFolderColor
+                    color: "#84cae9" // Default color (not shown in UI)
                 )
                 _ = try await EmailService.shared.saveEmailToFolder(email, folderId: newFolder.id)
                 isPresented = false
