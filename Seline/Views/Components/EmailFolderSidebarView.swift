@@ -68,9 +68,10 @@ struct EmailFolderSidebarView: View {
                         ForEach(viewModel.folders) { folder in
                             NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "folder.fill")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    Image(systemName: "folder")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .frame(width: 20)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(folder.name)
@@ -116,34 +117,6 @@ struct EmailFolderSidebarView: View {
                 .padding(.vertical, 12)
             }
 
-            Spacer()
-
-            // Close button
-            Button(action: {
-                withAnimation {
-                    isPresented = false
-                }
-            }) {
-                HStack {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Close")
-                        .font(.system(size: 14, weight: .medium))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(colorScheme == .dark ?
-                            Color.white.opacity(0.1) :
-                            Color.black.opacity(0.05)
-                        )
-                )
-            }
-            .buttonStyle(PlainButtonStyle())
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
         }
         .background(
             colorScheme == .dark ?
