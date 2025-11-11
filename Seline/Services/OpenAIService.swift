@@ -3988,7 +3988,11 @@ class OpenAIService: ObservableObject {
                 formatted += "  Recurring: \(event.isRecurring)\n"
                 if event.isRecurring, let pattern = event.recurrencePattern {
                     formatted += "  Pattern: \(pattern)\n"
-                    formatted += "  Day of Week: \(event.dayOfWeek ?? "Not specified")\n"
+                    if let eventDate = event.date {
+                        let dayName = calendar.component(.weekday, from: eventDate)
+                        let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+                        formatted += "  Day of Week: \(dayNames[dayName - 1])\n"
+                    }
                 }
                 if let completedDates = event.completedDates, !completedDates.isEmpty {
                     let thisMonthCount = completedDates.filter { date in
@@ -4709,7 +4713,8 @@ class OpenAIService: ObservableObject {
 
         var occurrences: [Date] = []
         let calendar = Calendar.current
-        let endDate = event.recurrenceEndDate ?? calendar.date(byAdding: .year, value: 10, to: startDate) ?? startDate
+        // Look ahead up to 2 years for recurring events
+        let endDate = calendar.date(byAdding: .year, value: 2, to: startDate) ?? startDate
 
         var currentDate = startDate
 
@@ -4739,7 +4744,9 @@ class OpenAIService: ObservableObject {
     ///   - calendar: The calendar to use for calculations
     /// - Returns: True if the event should occur on this date
     private func shouldRecurOn(date: Date, event: EventMetadata, frequency: String, calendar: Calendar) -> Bool {
-        let eventWeekday = event.dayOfWeek?.lowercased() ?? ""
+        guard let eventDate = event.date else { return false }
+
+        let eventWeekday = getWeekdayString(for: eventDate, calendar: calendar)
         let dateWeekday = getWeekdayString(for: date, calendar: calendar)
 
         switch frequency.lowercased() {
@@ -4757,23 +4764,20 @@ class OpenAIService: ObservableObject {
             }
 
             // Check if it's the right week (every 2 weeks)
-            if let createdDate = event.createdDate {
-                let components = calendar.dateComponents([.weekOfYear], from: createdDate, to: date)
-                let weekDifference = components.weekOfYear ?? 0
-                return weekDifference % 2 == 0
-            }
-            return false
+            let components = calendar.dateComponents([.weekOfYear], from: eventDate, to: date)
+            let weekDifference = components.weekOfYear ?? 0
+            return weekDifference % 2 == 0
 
         case "monthly":
             // For monthly events, check if it's the same day of month
-            let eventDay = calendar.component(.day, from: event.createdDate ?? date)
+            let eventDay = calendar.component(.day, from: eventDate)
             let currentDay = calendar.component(.day, from: date)
             return eventDay == currentDay
 
         case "yearly":
             // For yearly events, check if it's the same month and day
-            let eventMonth = calendar.component(.month, from: event.createdDate ?? date)
-            let eventDay = calendar.component(.day, from: event.createdDate ?? date)
+            let eventMonth = calendar.component(.month, from: eventDate)
+            let eventDay = calendar.component(.day, from: eventDate)
             let currentMonth = calendar.component(.month, from: date)
             let currentDay = calendar.component(.day, from: date)
             return eventMonth == currentMonth && eventDay == currentDay
