@@ -225,9 +225,10 @@ class ResponseValidator {
         }
 
         // If filtering by date range and response lists items outside that range
-        if let dateRange = context.metadata.dateRangeQueried {
-            // Check if response mentions outside-range dates
-            // This is more complex and would require date parsing
+        // Check if response mentions outside-range dates
+        // This is more complex and would require date parsing
+        if context.metadata.dateRangeQueried != nil {
+            // TODO: Implement date range validation
         }
 
         return issues

@@ -2452,9 +2452,6 @@ class TaskManager: ObservableObject {
     /// Use this when you want to remove previously synced calendar events and start fresh
     @MainActor
     func deleteSyncedCalendarEventsAndReset() {
-        // Get list of synced event IDs
-        let syncedIDs = CalendarSyncService.shared.getSyncedEventIDsPublic()
-
         var deletedCount = 0
 
         // Delete synced events from all weekdays

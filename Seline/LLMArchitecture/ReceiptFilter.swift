@@ -79,7 +79,6 @@ class ReceiptFilter {
 
             // Enhanced merchant matching: keyword + merchant intelligence
             let lowerMerchant = receipt.title.lowercased()
-            var merchantKeywordMatch = false
 
             for entity in intent.entities {
                 let lowerEntity = entity.lowercased()
@@ -88,7 +87,6 @@ class ReceiptFilter {
                 if lowerMerchant.contains(lowerEntity) {
                     score += 2.0
                     matchType = .merchant_match
-                    merchantKeywordMatch = true
                 }
 
                 // Semantic match via merchant intelligence
@@ -194,7 +192,7 @@ class ReceiptFilter {
         // Group by category
         var byCategory: [String: (total: Double, count: Int)] = [:]
         for receipt in receipts {
-            let category = receipt.receipt.category ?? "Uncategorized"
+            let category = receipt.receipt.category
             if byCategory[category] != nil {
                 byCategory[category]!.total += receipt.receipt.amount
                 byCategory[category]!.count += 1

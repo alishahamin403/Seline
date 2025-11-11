@@ -177,10 +177,7 @@ class DataFilter {
         // Build metadata
         let weatherDescription = weather.map { weather -> String in
             // Handle WeatherData properties - safe unwrapping
-            if let temp = weather.temperature as? Double {
-                return "\(Int(temp))°C"
-            }
-            return "Weather data available"
+            return "\(Int(weather.temperature))°C"
         }
 
         let metadata = FilteredContext.ContextMetadata(

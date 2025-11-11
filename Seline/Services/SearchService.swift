@@ -225,7 +225,7 @@ class SearchService: ObservableObject {
 
             // Combine all scoring factors:
             // 70% keyword-based, 30% semantic similarity, + context boost
-            var combinedScore = (keywordScore * 0.7) + (semanticScore * 0.3) + contextBoost
+            let combinedScore = (keywordScore * 0.7) + (semanticScore * 0.3) + contextBoost
 
             if combinedScore > 0 {
                 let matchedText = findMatchedText(in: item, queryWords: queryWords)

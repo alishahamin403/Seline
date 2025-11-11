@@ -290,7 +290,7 @@ struct UserProfile: Codable {
     let notablePreferences: [String]  // Special preferences we've learned
 
     // Version tracking (for migration if profile format changes)
-    let profileVersion: Int = 1
+    var profileVersion: Int = 1
 }
 
 /// User profile that's actively being built/updated
