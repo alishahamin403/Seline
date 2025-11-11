@@ -33,14 +33,7 @@ struct EmailFolderSidebarView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(
-                colorScheme == .dark ?
-                    Color(red: 0.15, green: 0.15, blue: 0.15) :
-                    Color(red: 0.95, green: 0.95, blue: 0.95)
-            )
-
-            Divider()
-                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+            .background(Color.clear)
 
             // Folders list
             ScrollView(showsIndicators: false) {
