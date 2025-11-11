@@ -1061,9 +1061,10 @@ class EmailService: ObservableObject {
         do {
             if emailToSave.body == nil || emailToSave.body?.isEmpty == true {
                 if let messageId = emailToSave.gmailMessageId {
-                    let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId)
-                    emailToSave = fetchedEmail
-                    print("✅ Fetched full email body for saving")
+                    if let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId) {
+                        emailToSave = fetchedEmail
+                        print("✅ Fetched full email body for saving")
+                    }
                 }
             }
         } catch {
@@ -1075,14 +1076,14 @@ class EmailService: ObservableObject {
         var aiSummary: String? = nil
         do {
             let emailBody = emailToSave.body ?? emailToSave.snippet
-            let plainTextContent = stripHTMLTags(from: emailBody ?? "")
+            let plainTextContent = Self.stripHTMLTags(from: emailBody ?? "")
 
-            if plainTextContent.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20 {
+            if plainTextContent.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).count >= 20 {
                 let summary = try await openAIService.summarizeEmail(
                     subject: emailToSave.subject,
                     body: emailBody ?? ""
                 )
-                aiSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : summary
+                aiSummary = summary.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty ? nil : summary
                 print("✅ Generated AI summary for email")
             }
         } catch {
@@ -1245,6 +1246,36 @@ class EmailService: ObservableObject {
             }
         }
         return "Failed to load emails. Pull down to retry"
+    }
+
+    // MARK: - Helper Methods
+    private static func stripHTMLTags(from html: String) -> String {
+        var text = html
+
+        // Remove script and style tags with their content
+        text = text.replacingOccurrences(
+            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Remove all HTML tags
+        text = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Decode common HTML entities
+        let entities = [
+            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+            "&quot;": "\"", "&apos;": "'"
+        ]
+        for (entity, replacement) in entities {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        return text
     }
 }
 
