@@ -53,11 +53,11 @@ struct EmailActionButtons: View {
             Button(action: { showActionMenu = true }) {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 48, height: 48)
                     .background(
                         Circle()
-                            .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
                     )
             }
 
@@ -69,7 +69,6 @@ struct EmailActionButtons: View {
         .sheet(isPresented: $showActionMenu) {
             ActionMenuSheet(
                 showActionMenu: $showActionMenu,
-                onForward: onForward,
                 onAddEvent: onAddEvent,
                 onSave: onSave,
                 onDelete: onDelete
@@ -80,7 +79,6 @@ struct EmailActionButtons: View {
 
 struct ActionMenuSheet: View {
     @Binding var showActionMenu: Bool
-    let onForward: () -> Void
     let onAddEvent: (() -> Void)?
     let onSave: (() -> Void)?
     let onDelete: () -> Void
@@ -102,24 +100,9 @@ struct ActionMenuSheet: View {
             .padding(.vertical, 12)
             .background(Color.clear)
 
-            Divider()
-                .padding(.horizontal, 16)
-
             // Menu Items
             ScrollView {
                 VStack(spacing: 2) {
-                    // Forward
-                    ActionMenuItem(
-                        icon: "arrowshape.turn.up.right",
-                        title: "Forward",
-                        subtitle: "Send to another recipient",
-                        isDangerous: false,
-                        action: {
-                            showActionMenu = false
-                            onForward()
-                        }
-                    )
-
                     // Add Event (if available)
                     if let onAddEvent = onAddEvent {
                         ActionMenuItem(
