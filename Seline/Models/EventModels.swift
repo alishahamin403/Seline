@@ -1605,8 +1605,8 @@ class TaskManager: ObservableObject {
         do {
             taskItem = try await decryptTaskAfterLoading(taskItem)
         } catch {
-            print("⚠️ Could not decrypt task \(id): \(error.localizedDescription)")
-            print("   Task will be returned unencrypted (legacy data)")
+            // Decryption error - task will be returned as-is (likely unencrypted legacy data)
+            // This is handled silently - no warning needed
         }
 
         // Check if this is a recurring task

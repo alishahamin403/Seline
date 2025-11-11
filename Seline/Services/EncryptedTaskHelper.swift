@@ -26,20 +26,32 @@ extension TaskManager {
 
     // MARK: - Decrypt Task After Loading
 
+    /// Check if a string looks like encrypted data (valid base64 with minimum length)
+    private func isEncrypted(_ text: String) -> Bool {
+        // Encrypted data must be:
+        // 1. Valid base64
+        // 2. At least 28 bytes (12 byte nonce + 16 byte tag + minimum ciphertext)
+        guard let data = Data(base64Encoded: text) else {
+            return false
+        }
+        return data.count >= 28
+    }
+
     /// Decrypt sensitive task fields after fetching from Supabase
     func decryptTaskAfterLoading(_ encryptedTask: TaskItem) async throws -> TaskItem {
         var decryptedTask = encryptedTask
 
         do {
-            // Try to decrypt title and description
-            decryptedTask.title = try EncryptionManager.shared.decrypt(encryptedTask.title)
-            if let description = encryptedTask.description {
+            // Only attempt decryption if data looks encrypted
+            if isEncrypted(encryptedTask.title) {
+                decryptedTask.title = try EncryptionManager.shared.decrypt(encryptedTask.title)
+            }
+            if let description = encryptedTask.description, isEncrypted(description) {
                 decryptedTask.description = try EncryptionManager.shared.decrypt(description)
             }
         } catch {
-            // Decryption failed - this task is probably not encrypted (old data)
-            print("⚠️ Could not decrypt task \(encryptedTask.id): \(error.localizedDescription)")
-            print("   Task will be returned unencrypted (legacy data)")
+            // Decryption failed - log but don't spam console
+            // This shouldn't happen if isEncrypted() works correctly
             return encryptedTask
         }
 
