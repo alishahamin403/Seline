@@ -1301,3 +1301,91 @@ enum EmailServiceError: LocalizedError {
         }
     }
 }
+
+// MARK: - Searchable Conformance for Saved Emails
+
+extension EmailService: Searchable {
+    /// Provide saved emails from all folders as searchable content for the LLM
+    func getSearchableContent() -> [SearchableItem] {
+        var searchableEmails: [SearchableItem] = []
+
+        // Fetch saved folders synchronously (limited to avoid blocking)
+        let emailFolderService = EmailFolderService.shared
+
+        // Use a semaphore to wait for async task
+        let semaphore = DispatchSemaphore(value: 0)
+        var folders: [CustomEmailFolder] = []
+
+        Task {
+            do {
+                folders = try await emailFolderService.fetchFolders()
+            } catch {
+                print("⚠️ Error fetching folders for search: \(error)")
+            }
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+
+        // Fetch emails from each folder
+        for folder in folders {
+            let folderSemaphore = DispatchSemaphore(value: 0)
+            var emails: [SavedEmail] = []
+
+            Task {
+                do {
+                    emails = try await emailFolderService.fetchEmailsInFolder(folderId: folder.id)
+                } catch {
+                    print("⚠️ Error fetching emails from folder \(folder.name): \(error)")
+                }
+                folderSemaphore.signal()
+            }
+
+            folderSemaphore.wait()
+
+            // Convert each email to a SearchableItem
+            for email in emails {
+                let emailContent = """
+                From: \(email.senderName ?? email.senderEmail)
+                To: \(email.recipients.joined(separator: ", "))
+                Subject: \(email.subject)
+
+                \(email.body ?? email.snippet ?? "")
+
+                Summary: \(email.aiSummary ?? "No summary available")
+                """
+
+                let tags = [
+                    "email",
+                    "saved",
+                    folder.name,
+                    email.senderName ?? email.senderEmail
+                ].filter { !$0.isEmpty }
+
+                let metadata: [String: String] = [
+                    "folder": folder.name,
+                    "sender": email.senderEmail,
+                    "senderName": email.senderName ?? "",
+                    "recipients": email.recipients.joined(separator: ";"),
+                    "subject": email.subject,
+                    "hasAISummary": email.aiSummary != nil ? "yes" : "no"
+                ]
+
+                let searchItem = SearchableItem(
+                    title: email.subject,
+                    content: emailContent,
+                    type: .email,
+                    identifier: email.id.uuidString,
+                    metadata: metadata,
+                    tags: tags,
+                    relatedItems: [],
+                    date: email.timestamp
+                )
+
+                searchableEmails.append(searchItem)
+            }
+        }
+
+        return searchableEmails
+    }
+}

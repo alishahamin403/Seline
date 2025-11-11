@@ -188,6 +188,8 @@ struct EmailView: View, Searchable {
         .onAppear {
             // Register with search service first
             SearchService.shared.registerSearchableProvider(self, for: .email)
+            // Also register EmailService to provide saved emails for LLM access
+            SearchService.shared.registerSearchableProvider(EmailService.shared, for: .email)
 
             // Clear any email notifications when user opens email view
             Task {
