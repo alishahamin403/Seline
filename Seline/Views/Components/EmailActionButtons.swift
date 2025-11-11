@@ -58,8 +58,7 @@ struct EmailActionButtons: View {
                 onForward: onForward,
                 onAddEvent: onAddEvent,
                 onSave: onSave,
-                onDelete: onDelete,
-                colorScheme: colorScheme
+                onDelete: onDelete
             )
         }
     }
