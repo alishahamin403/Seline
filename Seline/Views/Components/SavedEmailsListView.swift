@@ -155,7 +155,7 @@ struct SavedEmailDetailView: View {
                                 .padding(.horizontal, 20)
 
                             // Sender/Recipient Information
-                            senderSection
+                            CompactSenderView(email: convertToEmail())
                                 .padding(.horizontal, 20)
 
                             // AI Summary Section
@@ -237,81 +237,6 @@ struct SavedEmailDetailView: View {
         }
     }
 
-    // MARK: - Sender Section
-    private var senderSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // From
-            HStack(spacing: 8) {
-                Text("From")
-                    .font(FontManager.geist(size: .caption, weight: .semibold))
-                    .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    if let senderName = email.senderName {
-                        Text(senderName)
-                            .font(FontManager.geist(size: .body, weight: .medium))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
-                    }
-                    Text(email.senderEmail)
-                        .font(FontManager.geist(size: .caption, weight: .regular))
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
-                }
-
-                Spacer()
-
-                Text(email.formattedTime)
-                    .font(FontManager.geist(size: .caption, weight: .regular))
-                    .foregroundColor(Color.shadcnMuted(colorScheme))
-            }
-
-            Divider()
-
-            // To
-            HStack(alignment: .top, spacing: 8) {
-                Text("To")
-                    .font(FontManager.geist(size: .caption, weight: .semibold))
-                    .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(email.recipients, id: \.self) { recipient in
-                        Text(recipient)
-                            .font(FontManager.geist(size: .caption, weight: .regular))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
-                    }
-                }
-
-                Spacer()
-            }
-
-            // CC (if present)
-            if !email.ccRecipients.isEmpty {
-                Divider()
-
-                HStack(alignment: .top, spacing: 8) {
-                    Text("CC")
-                        .font(FontManager.geist(size: .caption, weight: .semibold))
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(email.ccRecipients, id: \.self) { recipient in
-                            Text(recipient)
-                                .font(FontManager.geist(size: .caption, weight: .regular))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                        }
-                    }
-
-                    Spacer()
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            colorScheme == .dark ?
-                Color.white.opacity(0.05) :
-                Color.gray.opacity(0.05)
-        )
-        .cornerRadius(8)
-    }
 
     // MARK: - Original Email Section
     private var emailBodySection: some View {
