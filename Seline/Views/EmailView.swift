@@ -44,6 +44,11 @@ struct EmailView: View, Searchable {
                             Image(systemName: "folder")
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                                )
                         }
                         .buttonStyle(PlainButtonStyle())
 
