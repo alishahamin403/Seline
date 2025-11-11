@@ -18,6 +18,8 @@ class EmailService: ObservableObject {
     @Published var searchResults: [Email] = []
     @Published var isSearching: Bool = false
 
+    // Cache for searchable emails (used by LLM search)
+    @Published var cachedSearchableEmails: [SearchableItem] = []
 
     // Cache management
     private var cacheTimestamps: [EmailFolder: Date] = [:]
@@ -1319,9 +1321,6 @@ extension EmailService: Searchable {
         // This will be populated by the background task
         return self.cachedSearchableEmails
     }
-
-    /// Cache for searchable emails (loaded in background)
-    @Published private var cachedSearchableEmails: [SearchableItem] = []
 
     /// Load saved emails for search in the background (non-blocking)
     private func loadSavedEmailsForSearch() async {
