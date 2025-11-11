@@ -42,12 +42,13 @@ struct EmailView: View, Searchable {
                             }
                         }) {
                             Image(systemName: "folder")
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(width: 32, height: 32)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
                                 .background(
-                                    Circle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
                                 )
                         }
                         .buttonStyle(PlainButtonStyle())
