@@ -97,8 +97,8 @@ struct EmailFolderSidebarView: View {
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(colorScheme == .dark ?
-                                            Color.white.opacity(0.05) :
-                                            Color.black.opacity(0.02)
+                                            Color.white.opacity(0.15) :
+                                            Color.black.opacity(0.08)
                                         )
                                 )
                             }
