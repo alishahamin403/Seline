@@ -49,7 +49,7 @@ struct EmailActionButtons: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)
-                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
+                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
                 }
             }
 
@@ -60,7 +60,7 @@ struct EmailActionButtons: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)
-                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
+                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)))
                 }
             }
 
