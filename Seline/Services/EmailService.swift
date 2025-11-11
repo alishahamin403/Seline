@@ -1306,86 +1306,89 @@ enum EmailServiceError: LocalizedError {
 
 extension EmailService: Searchable {
     /// Provide saved emails from all folders as searchable content for the LLM
+    /// Note: This uses cached data to avoid blocking the main thread
     func getSearchableContent() -> [SearchableItem] {
         var searchableEmails: [SearchableItem] = []
 
-        // Fetch saved folders synchronously (limited to avoid blocking)
-        let emailFolderService = EmailFolderService.shared
-
-        // Use a semaphore to wait for async task
-        let semaphore = DispatchSemaphore(value: 0)
-        var folders: [CustomEmailFolder] = []
-
+        // Load saved emails asynchronously in the background
         Task {
-            do {
-                folders = try await emailFolderService.fetchFolders()
-            } catch {
-                print("⚠️ Error fetching folders for search: \(error)")
-            }
-            semaphore.signal()
+            await self.loadSavedEmailsForSearch()
         }
 
-        semaphore.wait()
+        // Return cached searchable emails immediately (non-blocking)
+        // This will be populated by the background task
+        return self.cachedSearchableEmails
+    }
 
-        // Fetch emails from each folder
-        for folder in folders {
-            let folderSemaphore = DispatchSemaphore(value: 0)
-            var emails: [SavedEmail] = []
+    /// Cache for searchable emails (loaded in background)
+    @Published private var cachedSearchableEmails: [SearchableItem] = []
 
-            Task {
+    /// Load saved emails for search in the background (non-blocking)
+    private func loadSavedEmailsForSearch() async {
+        var searchableEmails: [SearchableItem] = []
+        let emailFolderService = await EmailFolderService.shared
+
+        do {
+            // Fetch all folders
+            let folders = try await emailFolderService.fetchFolders()
+
+            // Fetch emails from each folder
+            for folder in folders {
                 do {
-                    emails = try await emailFolderService.fetchEmailsInFolder(folderId: folder.id)
+                    let emails = try await emailFolderService.fetchEmailsInFolder(folderId: folder.id)
+
+                    // Convert each email to a SearchableItem
+                    for email in emails {
+                        let emailContent = """
+                        From: \(email.senderName ?? email.senderEmail)
+                        To: \(email.recipients.joined(separator: ", "))
+                        Subject: \(email.subject)
+
+                        \(email.body ?? email.snippet ?? "")
+
+                        Summary: \(email.aiSummary ?? "No summary available")
+                        """
+
+                        let tags = [
+                            "email",
+                            "saved",
+                            folder.name,
+                            email.senderName ?? email.senderEmail
+                        ].filter { !$0.isEmpty }
+
+                        let metadata: [String: String] = [
+                            "folder": folder.name,
+                            "sender": email.senderEmail,
+                            "senderName": email.senderName ?? "",
+                            "recipients": email.recipients.joined(separator: ";"),
+                            "subject": email.subject,
+                            "hasAISummary": email.aiSummary != nil ? "yes" : "no"
+                        ]
+
+                        let searchItem = SearchableItem(
+                            title: email.subject,
+                            content: emailContent,
+                            type: .email,
+                            identifier: email.id.uuidString,
+                            metadata: metadata,
+                            tags: tags,
+                            relatedItems: [],
+                            date: email.timestamp
+                        )
+
+                        searchableEmails.append(searchItem)
+                    }
                 } catch {
                     print("⚠️ Error fetching emails from folder \(folder.name): \(error)")
                 }
-                folderSemaphore.signal()
             }
 
-            folderSemaphore.wait()
-
-            // Convert each email to a SearchableItem
-            for email in emails {
-                let emailContent = """
-                From: \(email.senderName ?? email.senderEmail)
-                To: \(email.recipients.joined(separator: ", "))
-                Subject: \(email.subject)
-
-                \(email.body ?? email.snippet ?? "")
-
-                Summary: \(email.aiSummary ?? "No summary available")
-                """
-
-                let tags = [
-                    "email",
-                    "saved",
-                    folder.name,
-                    email.senderName ?? email.senderEmail
-                ].filter { !$0.isEmpty }
-
-                let metadata: [String: String] = [
-                    "folder": folder.name,
-                    "sender": email.senderEmail,
-                    "senderName": email.senderName ?? "",
-                    "recipients": email.recipients.joined(separator: ";"),
-                    "subject": email.subject,
-                    "hasAISummary": email.aiSummary != nil ? "yes" : "no"
-                ]
-
-                let searchItem = SearchableItem(
-                    title: email.subject,
-                    content: emailContent,
-                    type: .email,
-                    identifier: email.id.uuidString,
-                    metadata: metadata,
-                    tags: tags,
-                    relatedItems: [],
-                    date: email.timestamp
-                )
-
-                searchableEmails.append(searchItem)
+            // Update cache on main thread
+            await MainActor.run {
+                self.cachedSearchableEmails = searchableEmails
             }
+        } catch {
+            print("⚠️ Error fetching folders for search: \(error)")
         }
-
-        return searchableEmails
     }
 }
