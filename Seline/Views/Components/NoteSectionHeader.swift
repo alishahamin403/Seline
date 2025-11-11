@@ -17,7 +17,7 @@ struct NoteSectionHeader: View {
             HStack {
                 // Section title - matching email page font and size
                 Text(title.lowercased().capitalized)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
                 Spacer()
