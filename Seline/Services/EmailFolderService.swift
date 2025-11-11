@@ -138,7 +138,8 @@ actor EmailFolderService {
     func saveEmail(
         from email: Email,
         to folderId: UUID,
-        with attachments: [SavedEmailAttachment] = []
+        with attachments: [SavedEmailAttachment] = [],
+        aiSummary: String? = nil
     ) async throws -> SavedEmail {
         guard let userId = supabaseManager.getCurrentUser()?.id else {
             throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
@@ -159,6 +160,7 @@ actor EmailFolderService {
             ccRecipients: ccEmails,
             body: email.body,
             snippet: email.snippet,
+            aiSummary: aiSummary,
             timestamp: email.timestamp,
             savedAt: Date(),
             updatedAt: Date(),

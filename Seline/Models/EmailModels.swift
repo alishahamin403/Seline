@@ -237,6 +237,7 @@ struct SavedEmail: Identifiable, Codable, Equatable {
     let ccRecipients: [String] // Array of CC recipient emails
     let body: String? // Full HTML body
     let snippet: String?
+    let aiSummary: String? // AI-generated summary
     let timestamp: Date // Original email date
     let savedAt: Date
     let updatedAt: Date
@@ -254,6 +255,7 @@ struct SavedEmail: Identifiable, Codable, Equatable {
         case ccRecipients = "cc_recipients"
         case body
         case snippet
+        case aiSummary = "ai_summary"
         case timestamp
         case savedAt = "saved_at"
         case updatedAt = "updated_at"

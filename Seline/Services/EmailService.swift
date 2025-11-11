@@ -1055,13 +1055,47 @@ class EmailService: ObservableObject {
     /// Save an email to a custom folder with attachments
     func saveEmailToFolder(_ email: Email, folderId: UUID) async throws -> SavedEmail {
         let emailFolderService = await EmailFolderService.shared
+        var emailToSave = email
 
-        // First, download and upload attachments if any
+        // First, fetch full email body if needed
+        do {
+            if emailToSave.body == nil || emailToSave.body?.isEmpty == true {
+                if let messageId = emailToSave.gmailMessageId {
+                    let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId)
+                    emailToSave = fetchedEmail
+                    print("✅ Fetched full email body for saving")
+                }
+            }
+        } catch {
+            print("⚠️ Warning: Failed to fetch full email body: \(error)")
+            // Continue with current email data
+        }
+
+        // Generate AI summary
+        var aiSummary: String? = nil
+        do {
+            let emailBody = emailToSave.body ?? emailToSave.snippet
+            let plainTextContent = stripHTMLTags(from: emailBody ?? "")
+
+            if plainTextContent.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20 {
+                let summary = try await openAIService.summarizeEmail(
+                    subject: emailToSave.subject,
+                    body: emailBody ?? ""
+                )
+                aiSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : summary
+                print("✅ Generated AI summary for email")
+            }
+        } catch {
+            print("⚠️ Warning: Failed to generate AI summary: \(error)")
+            // Continue saving email even if summary generation fails
+        }
+
+        // Download and upload attachments if any
         var savedAttachments: [SavedEmailAttachment] = []
-        if email.hasAttachments && !email.attachments.isEmpty {
+        if emailToSave.hasAttachments && !emailToSave.attachments.isEmpty {
             do {
                 savedAttachments = try await downloadAndSaveAttachments(
-                    from: email,
+                    from: emailToSave,
                     toFolderId: folderId
                 )
             } catch {
@@ -1070,11 +1104,12 @@ class EmailService: ObservableObject {
             }
         }
 
-        // Save email to folder
+        // Save email to folder with full body and AI summary
         let savedEmail = try await emailFolderService.saveEmail(
-            from: email,
+            from: emailToSave,
             to: folderId,
-            with: savedAttachments
+            with: savedAttachments,
+            aiSummary: aiSummary
         )
 
         return savedEmail

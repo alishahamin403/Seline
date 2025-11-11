@@ -201,6 +201,18 @@ struct SavedEmailDetailView: View {
                             senderSection
                                 .padding(.horizontal, 20)
 
+                            // AI Summary Section
+                            if let summary = email.aiSummary, !summary.isEmpty {
+                                AISummaryCard(
+                                    email: convertToEmail(),
+                                    onGenerateSummary: { _, _ in
+                                        // Saved emails don't regenerate summaries
+                                        return .success(summary)
+                                    }
+                                )
+                                .padding(.horizontal, 20)
+                            }
+
                             // Email Body Section (with expand/collapse)
                             emailBodySection
 
@@ -455,6 +467,36 @@ struct SavedEmailDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Helper Methods
+    private func convertToEmail() -> Email {
+        // Convert SavedEmail to Email for AISummaryCard compatibility
+        return Email(
+            id: email.gmailMessageId,
+            gmailMessageId: email.gmailMessageId,
+            threadId: "",
+            subject: email.subject,
+            body: email.body,
+            snippet: email.snippet,
+            sender: EmailAddress(name: email.senderName, email: email.senderEmail),
+            recipients: email.recipients.map { EmailAddress(name: nil, email: $0) },
+            ccRecipients: email.ccRecipients.map { EmailAddress(name: nil, email: $0) },
+            timestamp: email.timestamp,
+            isRead: true,
+            hasAttachments: !email.attachments.isEmpty,
+            category: nil,
+            attachments: email.attachments.map { attachment in
+                EmailAttachment(
+                    id: attachment.id.uuidString,
+                    name: attachment.fileName,
+                    mimeType: attachment.mimeType ?? "application/octet-stream",
+                    data: nil
+                )
+            },
+            labels: [],
+            aiSummary: email.aiSummary
+        )
     }
 }
 
