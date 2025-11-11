@@ -25,29 +25,43 @@ struct EmailActionButtons: View {
         HStack(spacing: 12) {
             Spacer()
 
-            // Primary Reply Button
+            // Reply Button - Pill Icon Button
             Button(action: onReply) {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrowshape.turn.up.left.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Reply")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .padding(.vertical, 12)
-                .padding(.horizontal, 20)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
-                )
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        Circle()
+                            .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
+                    )
             }
 
-            // More Actions Menu Button
-            Button(action: { showActionMenu = true }) {
-                Image(systemName: "ellipsis.circle.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+            // Forward Button - Pill Icon Button
+            Button(action: onForward) {
+                Image(systemName: "arrowshape.turn.up.right.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        Circle()
+                            .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
+                    )
             }
+
+            // More Actions Menu Button - Pill Icon Button
+            Button(action: { showActionMenu = true }) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        Circle()
+                            .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
+                    )
+            }
+
+            Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
