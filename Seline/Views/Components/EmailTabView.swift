@@ -50,8 +50,8 @@ struct EmailTabButton: View {
     }
 
     private var selectedColor: Color {
-        // Matches unread email badge styling
-        return colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)
+        // Matches + sign button fill color - #333333
+        return Color(red: 0.2, green: 0.2, blue: 0.2)
     }
 
     private var backgroundColor: Color {
