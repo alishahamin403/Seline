@@ -179,13 +179,13 @@ struct ConversationSearchView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(colorScheme == .dark ? Color.black : Color.white)
+                .fill(colorScheme == .dark ? Color.black : Color(white: 0.25))
         )
         .overlay(inputBoxBorder)
         .shadow(
             color: isInputFocused
-                ? (colorScheme == .dark ? Color.black.opacity(0.4) : Color.black.opacity(0.12))
-                : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)),
+                ? (colorScheme == .dark ? Color.black.opacity(0.4) : Color.black.opacity(0.25))
+                : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.15)),
             radius: isInputFocused ? 12 : 6,
             x: 0,
             y: isInputFocused ? 8 : 2
@@ -202,8 +202,8 @@ struct ConversationSearchView: View {
         )
         .font(.system(size: 14, weight: .regular))
         .focused($isInputFocused)
-        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-        .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+        .foregroundColor(colorScheme == .dark ? Color.white : Color.white)
+        .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.white.opacity(0.7))
         .textFieldStyle(PlainTextFieldStyle())
         .frame(maxWidth: .infinity, alignment: .leading)
         .multilineTextAlignment(.leading)
@@ -224,7 +224,7 @@ struct ConversationSearchView: View {
         }) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
+                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.white.opacity(0.4) : Color.white)
                 .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1.0 : 1.1, anchor: .center)
         }
         .buttonStyle(PlainButtonStyle())
@@ -237,8 +237,8 @@ struct ConversationSearchView: View {
         RoundedRectangle(cornerRadius: 14)
             .stroke(
                 isInputFocused
-                    ? (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.15))
-                    : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)),
+                    ? (colorScheme == .dark ? Color.white.opacity(0.3) : Color.white.opacity(0.2))
+                    : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.white.opacity(0.1)),
                 lineWidth: 1
             )
     }
