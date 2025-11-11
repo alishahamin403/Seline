@@ -356,7 +356,7 @@ struct SavedEmailDetailView: View {
         .cornerRadius(8)
     }
 
-    // MARK: - Email Body Section
+    // MARK: - Original Email Section
     private var emailBodySection: some View {
         VStack(spacing: 0) {
             // Expandable header button
@@ -366,7 +366,7 @@ struct SavedEmailDetailView: View {
                 }
             }) {
                 HStack {
-                    Text("Email Body")
+                    Text("Original Email")
                         .font(FontManager.geist(size: .body, weight: .medium))
                         .foregroundColor(Color.shadcnForeground(colorScheme))
 
@@ -388,33 +388,49 @@ struct SavedEmailDetailView: View {
 
             // Expandable content
             if isEmailBodyExpanded {
-                if let body = email.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let htmlBody = email.body,
+                   !htmlBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   htmlBody.contains("<") {
+                    // Display HTML content using WebView with zoom (like EmailDetailView)
+                    ZoomableHTMLContentView(htmlContent: htmlBody)
+                        .frame(height: 500)
+                        .background(
+                            colorScheme == .dark ?
+                                Color.black :
+                                Color.white
+                        )
+                } else {
+                    // Display plain text or show "no content" message
+                    let bodyText = email.body ?? email.snippet
+
                     ScrollView {
-                        Text(body)
-                            .font(FontManager.geist(size: .body, weight: .regular))
-                            .foregroundColor(Color.shadcnForeground(colorScheme))
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 40, weight: .light))
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                Text("No content available")
+                                    .font(FontManager.geist(size: .body, weight: .medium))
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+
+                                Text("This email does not contain any readable content.")
+                                    .font(FontManager.geist(size: .caption, weight: .regular))
+                                    .foregroundColor(Color.shadcnMuted(colorScheme))
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding(20)
+                        } else {
+                            Text(bodyText)
+                                .font(FontManager.geist(size: .body, weight: .regular))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(20)
+                        }
                     }
                     .frame(height: 300)
-                    .background(
-                        colorScheme == .dark ?
-                            Color.black :
-                            Color.white
-                    )
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 40, weight: .light))
-                            .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                        Text("No content available")
-                            .font(FontManager.geist(size: .body, weight: .medium))
-                            .foregroundColor(Color.shadcnMuted(colorScheme))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(20)
                     .background(
                         colorScheme == .dark ?
                             Color.black :
