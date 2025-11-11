@@ -41,7 +41,7 @@ struct EmailView: View, Searchable {
                                 showingEmailFolderSidebar.toggle()
                             }
                         }) {
-                            Image(systemName: "folder.fill")
+                            Image(systemName: "folder")
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
