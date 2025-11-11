@@ -9,7 +9,6 @@ struct EmailActionButtons: View {
     let onAddEvent: (() -> Void)?
     let onSave: (() -> Void)?
     @Environment(\.colorScheme) var colorScheme
-    @State private var showActionMenu = false
 
     init(email: Email, onReply: @escaping () -> Void, onForward: @escaping () -> Void, onDelete: @escaping () -> Void, onMarkAsUnread: @escaping () -> Void, onAddEvent: (() -> Void)? = nil, onSave: (() -> Void)? = nil) {
         self.email = email
@@ -22,43 +21,56 @@ struct EmailActionButtons: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Spacer()
 
-            // Reply Button - Pill Icon Button
+            // Reply Button - Icon Only
             Button(action: onReply) {
                 Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Circle()
-                            .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
-                    )
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
             }
 
-            // Forward Button - Pill Icon Button
+            // Forward Button - Icon Only
             Button(action: onForward) {
                 Image(systemName: "arrowshape.turn.up.right.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Circle()
-                            .fill(Color(red: 0.2, green: 0.5, blue: 1.0))
-                    )
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
             }
 
-            // More Actions Menu Button - Pill Icon Button
-            Button(action: { showActionMenu = true }) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                    )
+            // Event Button - Icon Only
+            if let onAddEvent = onAddEvent {
+                Button(action: onAddEvent) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
+                }
+            }
+
+            // Save Button - Icon Only
+            if let onSave = onSave {
+                Button(action: onSave) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
+                }
+            }
+
+            // Delete Button - Icon Only (Red)
+            Button(action: onDelete) {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.red))
             }
 
             Spacer()
@@ -66,143 +78,6 @@ struct EmailActionButtons: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color.clear)
-        .sheet(isPresented: $showActionMenu) {
-            ActionMenuSheet(
-                showActionMenu: $showActionMenu,
-                onAddEvent: onAddEvent,
-                onSave: onSave,
-                onDelete: onDelete
-            )
-        }
-    }
-}
-
-struct ActionMenuSheet: View {
-    @Binding var showActionMenu: Bool
-    let onAddEvent: (() -> Void)?
-    let onSave: (() -> Void)?
-    let onDelete: () -> Void
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            VStack(spacing: 12) {
-                Capsule()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                    .frame(width: 40, height: 4)
-
-                Text("Actions")
-                    .font(.system(size: 18, weight: .bold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-            }
-            .padding(.vertical, 12)
-            .background(Color.clear)
-
-            // Menu Items
-            ScrollView {
-                VStack(spacing: 2) {
-                    // Add Event (if available)
-                    if let onAddEvent = onAddEvent {
-                        ActionMenuItem(
-                            icon: "calendar.badge.plus",
-                            title: "Add Event",
-                            subtitle: "Create calendar event",
-                            isDangerous: false,
-                            action: {
-                                showActionMenu = false
-                                onAddEvent()
-                            }
-                        )
-                    }
-
-                    // Save (if available)
-                    if let onSave = onSave {
-                        ActionMenuItem(
-                            icon: "folder.badge.plus",
-                            title: "Save",
-                            subtitle: "Save to folder",
-                            isDangerous: false,
-                            action: {
-                                showActionMenu = false
-                                onSave()
-                            }
-                        )
-                    }
-
-                    Divider()
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-
-                    // Delete
-                    ActionMenuItem(
-                        icon: "trash",
-                        title: "Delete",
-                        subtitle: "Remove email",
-                        isDangerous: true,
-                        action: {
-                            showActionMenu = false
-                            onDelete()
-                        }
-                    )
-                }
-            }
-
-            Spacer()
-
-            // Close Button
-            Button(action: { showActionMenu = false }) {
-                Text("Close")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color(red: 0.2, green: 0.5, blue: 1.0))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-}
-
-struct ActionMenuItem: View {
-    let icon: String
-    let title: String
-    let subtitle: String
-    let isDangerous: Bool
-    let action: () -> Void
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(isDangerous ? .red : Color(red: 0.2, green: 0.5, blue: 1.0))
-                    .frame(width: 28)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(isDangerous ? .red : (colorScheme == .dark ? .white : .black))
-
-                    Text(subtitle)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-        }
-        .contentShape(Rectangle())
     }
 }
 
