@@ -479,7 +479,7 @@ struct SavedEmailDetailView: View {
             recipients: email.recipients.map { EmailAddress(name: nil, email: $0, avatarUrl: nil) },
             ccRecipients: email.ccRecipients.map { EmailAddress(name: nil, email: $0, avatarUrl: nil) },
             subject: email.subject,
-            snippet: email.snippet,
+            snippet: email.snippet ?? "",
             body: email.body,
             timestamp: email.timestamp,
             isRead: true,
