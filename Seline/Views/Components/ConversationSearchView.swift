@@ -295,7 +295,7 @@ struct ConversationMessageView: View {
                     // Simple text for user messages or unformatted AI responses
                     Text(message.text)
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(message.isUser ? Color.white : Color.shadcnForeground(colorScheme))
+                        .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
                         .textSelection(.enabled)
                         .lineLimit(nil)
                 }
@@ -314,7 +314,7 @@ struct ConversationMessageView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(
                         message.isUser
-                            ? (colorScheme == .dark ? Color.black : Color(white: 0.25))
+                            ? (colorScheme == .dark ? Color.white : Color(white: 0.25))
                             : (colorScheme == .dark
                                 ? Color.gray.opacity(0.15)
                                 : Color.gray.opacity(0.15))
@@ -323,7 +323,7 @@ struct ConversationMessageView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        message.isUser ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.white.opacity(0.15)) : Color.gray.opacity(0.2),
+                        message.isUser ? (colorScheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.15)) : Color.gray.opacity(0.2),
                         lineWidth: 0.5
                     )
             )
