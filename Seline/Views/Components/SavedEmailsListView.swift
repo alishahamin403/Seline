@@ -3,44 +3,15 @@ import SwiftUI
 struct SavedEmailsListView: View {
     let folder: CustomEmailFolder
     @StateObject private var viewModel = SavedEmailsListViewModel()
-    @State private var searchText = ""
     @State private var selectedEmail: SavedEmail?
-
-    var filteredEmails: [SavedEmail] {
-        if searchText.isEmpty {
-            return viewModel.emails
-        }
-        return viewModel.emails.filter { email in
-            email.subject.localizedCaseInsensitiveContains(searchText) ||
-            email.senderEmail.localizedCaseInsensitiveContains(searchText) ||
-            email.senderName?.localizedCaseInsensitiveContains(searchText) ?? false
-        }
-    }
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         ZStack {
-            Color(.systemGray6)
+            (colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.1) : Color.white)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Search Bar
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-
-                    TextField("Search emails", text: $searchText)
-                        .textFieldStyle(.roundedBorder)
-
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .padding()
-                .background(Color.white)
-
                 // Emails List
                 if viewModel.isLoading {
                     VStack {
@@ -49,60 +20,44 @@ struct SavedEmailsListView: View {
                             .scaleEffect(1.2)
                         Spacer()
                     }
-                } else if filteredEmails.isEmpty {
-                    VStack {
+                } else if viewModel.emails.isEmpty {
+                    VStack(spacing: 16) {
                         Spacer()
                         Image(systemName: "envelope")
                             .font(.system(size: 50))
-                            .foregroundColor(.gray)
-                        Text(searchText.isEmpty ? "No Emails" : "No Results")
-                            .font(.headline)
-                            .foregroundColor(.gray)
-                        Text(searchText.isEmpty ? "Save emails to this folder" : "Try a different search")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.gray)
+                        Text("No Emails")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        Text("Save emails to this folder")
+                            .font(.system(size: 14))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
                 } else {
                     List {
-                        ForEach(filteredEmails) { email in
-                            VStack(alignment: .leading, spacing: 8) {
+                        ForEach(viewModel.emails) { email in
+                            VStack(alignment: .leading, spacing: 6) {
                                 HStack {
                                     Text(email.senderName ?? email.senderEmail)
-                                        .font(.headline)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .lineLimit(1)
 
                                     Spacer()
 
                                     Text(email.formattedTime)
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
                                 }
 
                                 Text(email.subject)
-                                    .font(.subheadline)
+                                    .font(.system(size: 14))
                                     .lineLimit(2)
-                                    .foregroundColor(.black)
-
-                                if !email.previewText.isEmpty {
-                                    Text(email.previewText)
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                        .lineLimit(2)
-                                }
-
-                                if !email.attachments.isEmpty {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "paperclip")
-                                            .font(.caption)
-                                            .foregroundColor(.blue)
-                                        Text("\(email.attachments.count) attachment\(email.attachments.count != 1 ? "s" : "")")
-                                            .font(.caption)
-                                            .foregroundColor(.blue)
-                                    }
-                                }
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black)
                             }
+                            .padding(.vertical, 4)
                             .onTapGesture {
                                 selectedEmail = email
                             }
@@ -116,6 +71,7 @@ struct SavedEmailsListView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
         }
