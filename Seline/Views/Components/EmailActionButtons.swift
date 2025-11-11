@@ -47,9 +47,9 @@ struct EmailActionButtons: View {
                 Button(action: onAddEvent) {
                     Image(systemName: "calendar.badge.plus")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
+                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
                 }
             }
 
@@ -58,9 +58,9 @@ struct EmailActionButtons: View {
                 Button(action: onSave) {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color(red: 0.2, green: 0.5, blue: 1.0)))
+                        .background(Circle().fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)))
                 }
             }
 
