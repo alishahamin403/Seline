@@ -153,14 +153,6 @@ struct EmailView: View, Searchable {
                 Group {
                     if showingEmailFolderSidebar {
                         ZStack {
-                            Color.black.opacity(0.3)
-                                .ignoresSafeArea()
-                                .onTapGesture {
-                                    withAnimation {
-                                        showingEmailFolderSidebar = false
-                                    }
-                                }
-
                             NavigationStack {
                                 HStack(spacing: 0) {
                                     EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
@@ -177,7 +169,14 @@ struct EmailView: View, Searchable {
                                                 }
                                         )
 
-                                    Spacer()
+                                    // Tappable right area to close sidebar
+                                    Color.black.opacity(0.3)
+                                        .ignoresSafeArea()
+                                        .onTapGesture {
+                                            withAnimation {
+                                                showingEmailFolderSidebar = false
+                                            }
+                                        }
                                 }
                             }
                         }
