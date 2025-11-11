@@ -31,166 +31,9 @@ struct ConversationSearchView: View {
 
             // Main conversation view
             VStack(spacing: 0) {
-                // Header with title and close button only
-                HStack(spacing: 12) {
-                    // Sidebar toggle button on the left
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        isInputFocused = false
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showingSidebar.toggle()
-                        }
-                    }) {
-                        Image(systemName: "sidebar.leading")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .zIndex(10)
-
-                    // Only show title if this is NOT a new conversation
-                    if !searchService.isNewConversation {
-                        Text(searchService.conversationTitle)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-
-            // Conversation thread
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(searchService.conversationHistory) { message in
-                            ConversationMessageView(message: message)
-                                .id(message.id)
-                        }
-
-                        if searchService.isLoadingQuestionResponse {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(colorScheme == .dark ? Color.white : Color.black)
-                                Text("Thinking... \(formatElapsedTime(thinkingElapsedTime))")
-                                    .font(.system(size: 13, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .onAppear {
-                                startThinkingTimer()
-                            }
-                            .onChange(of: searchService.isLoadingQuestionResponse) { isLoading in
-                                if !isLoading {
-                                    stopThinkingTimer()
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 16)
-                    .onChange(of: searchService.conversationHistory.count) { _ in
-                        withAnimation {
-                            if let lastMessage = searchService.conversationHistory.last {
-                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-                .simultaneousGesture(
-                    DragGesture()
-                        .onChanged { _ in
-                            // Dismiss keyboard when user starts scrolling
-                            if isInputFocused {
-                                isInputFocused = false
-                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                            }
-                        }
-                )
-            }
-
-            // Action confirmation area disabled - action creation feature removed
-            // All queries now route directly to conversation mode
-
-            // Input area - ChatGPT-style modern design
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    TextField(
-                        "Ask a follow-up question...",
-                        text: $messageText
-                    )
-                    .font(.system(size: 14, weight: .regular))
-                    .focused($isInputFocused)
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-
-                    Button(action: {
-                        if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            HapticManager.shared.selection()
-                            // Send conversation message
-                            let query = messageText
-                            messageText = ""
-                            Task {
-                                await searchService.addConversationMessage(query)
-                            }
-                        }
-                    }) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
-                            .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1.0 : 1.1, anchor: .center)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
-                    .animation(.easeInOut(duration: 0.15), value: messageText)
-                    .padding(.trailing, 10)
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(colorScheme == .dark ? Color.black : Color.white)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(
-                            isInputFocused
-                                ? (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.15))
-                                : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(
-                    color: isInputFocused
-                        ? (colorScheme == .dark ? Color.black.opacity(0.4) : Color.black.opacity(0.12))
-                        : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)),
-                    radius: isInputFocused ? 12 : 6,
-                    x: 0,
-                    y: isInputFocused ? 8 : 2
-                )
-                .animation(.easeInOut(duration: 0.2), value: isInputFocused)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-            }
-            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                headerView
+                conversationScrollView
+                inputAreaView
             }
             // Main VStack
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
@@ -223,6 +66,169 @@ struct ConversationSearchView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Subviews
+
+    private var headerView: some View {
+        HStack(spacing: 12) {
+            // Sidebar toggle button on the left
+            Button(action: {
+                HapticManager.shared.selection()
+                isInputFocused = false
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showingSidebar.toggle()
+                }
+            }) {
+                Image(systemName: "sidebar.leading")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .zIndex(10)
+
+            // Only show title if this is NOT a new conversation
+            if !searchService.isNewConversation {
+                Text(searchService.conversationTitle)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(action: {
+                HapticManager.shared.selection()
+                dismiss()
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+    }
+
+    private var conversationScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(searchService.conversationHistory) { message in
+                        ConversationMessageView(message: message)
+                            .id(message.id)
+                    }
+
+                    if searchService.isLoadingQuestionResponse {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                                .tint(colorScheme == .dark ? Color.white : Color.black)
+                            Text("Thinking... \(formatElapsedTime(thinkingElapsedTime))")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .onAppear {
+                            startThinkingTimer()
+                        }
+                        .onChange(of: searchService.isLoadingQuestionResponse) { isLoading in
+                            if !isLoading {
+                                stopThinkingTimer()
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 16)
+                .onChange(of: searchService.conversationHistory.count) { _ in
+                    withAnimation {
+                        if let lastMessage = searchService.conversationHistory.last {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+            .simultaneousGesture(
+                DragGesture()
+                    .onChanged { _ in
+                        // Dismiss keyboard when user starts scrolling
+                        if isInputFocused {
+                            isInputFocused = false
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        }
+                    }
+            )
+        }
+    }
+
+    private var inputAreaView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                TextField(
+                    "Ask a follow-up question...",
+                    text: $messageText
+                )
+                .font(.system(size: 14, weight: .regular))
+                .focused($isInputFocused)
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                .textFieldStyle(PlainTextFieldStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+
+                Button(action: {
+                    if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        HapticManager.shared.selection()
+                        // Send conversation message
+                        let query = messageText
+                        messageText = ""
+                        Task {
+                            await searchService.addConversationMessage(query)
+                        }
+                    }
+                }) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
+                        .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1.0 : 1.1, anchor: .center)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
+                .animation(.easeInOut(duration: 0.15), value: messageText)
+                .padding(.trailing, 10)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(colorScheme == .dark ? Color.black : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(
+                        isInputFocused
+                            ? (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.15))
+                            : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(
+                color: isInputFocused
+                    ? (colorScheme == .dark ? Color.black.opacity(0.4) : Color.black.opacity(0.12))
+                    : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)),
+                radius: isInputFocused ? 12 : 6,
+                x: 0,
+                y: isInputFocused ? 8 : 2
+            )
+            .animation(.easeInOut(duration: 0.2), value: isInputFocused)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+        }
+        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
     }
 
     // MARK: - Thinking Timer Helpers
