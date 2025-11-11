@@ -53,11 +53,11 @@ struct HomeSectionButton: View {
                         if let unreadCount = unreadCount, unreadCount > 0 {
                             Text("\(unreadCount)")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .white)
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .frame(width: 20, height: 20)
                                 .background(
                                     Circle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
                                 )
                         }
 
