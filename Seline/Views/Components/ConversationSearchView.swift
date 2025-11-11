@@ -127,28 +127,22 @@ struct ConversationSearchView: View {
             // Action confirmation area disabled - action creation feature removed
             // All queries now route directly to conversation mode
 
-            // Input area - show appropriate input based on context
-            VStack(spacing: 12) {
-                HStack(spacing: 12) {
+            // Input area - ChatGPT-style modern design
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
                     TextField(
                         "Ask a follow-up question...",
                         text: $messageText
                     )
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 14, weight: .regular))
                     .focused($isInputFocused)
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .accentColor(colorScheme == .dark ? Color.white : Color.black)
+                    .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     .textFieldStyle(PlainTextFieldStyle())
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(colorScheme == .dark ? Color.black : Color.white)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2), lineWidth: 1)
-                    )
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
 
                     Button(action: {
                         if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -162,13 +156,38 @@ struct ConversationSearchView: View {
                         }
                     }) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
+                            .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1.0 : 1.1, anchor: .center)
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
+                    .animation(.easeInOut(duration: 0.15), value: messageText)
+                    .padding(.trailing, 10)
                 }
-                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(colorScheme == .dark ? Color.black : Color.white)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(
+                            isInputFocused
+                                ? (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.15))
+                                : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: isInputFocused
+                        ? (colorScheme == .dark ? Color.black.opacity(0.4) : Color.black.opacity(0.12))
+                        : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)),
+                    radius: isInputFocused ? 12 : 6,
+                    x: 0,
+                    y: isInputFocused ? 8 : 2
+                )
+                .animation(.easeInOut(duration: 0.2), value: isInputFocused)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
             .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
