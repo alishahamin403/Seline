@@ -161,22 +161,24 @@ struct EmailView: View, Searchable {
                                     }
                                 }
 
-                            HStack(spacing: 0) {
-                                EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
-                                    .frame(width: geometry.size.width * 0.85)
-                                    .transition(.move(edge: .leading))
-                                    .gesture(
-                                        DragGesture()
-                                            .onEnded { value in
-                                                if value.translation.width < -100 {
-                                                    withAnimation {
-                                                        showingEmailFolderSidebar = false
+                            NavigationStack {
+                                HStack(spacing: 0) {
+                                    EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
+                                        .frame(width: geometry.size.width * 0.85)
+                                        .transition(.move(edge: .leading))
+                                        .gesture(
+                                            DragGesture()
+                                                .onEnded { value in
+                                                    if value.translation.width < -100 {
+                                                        withAnimation {
+                                                            showingEmailFolderSidebar = false
+                                                        }
                                                     }
                                                 }
-                                            }
-                                    )
+                                        )
 
-                                Spacer()
+                                    Spacer()
+                                }
                             }
                         }
                         .allowsHitTesting(showingEmailFolderSidebar)
