@@ -221,8 +221,9 @@ class ItemSearchService {
                 continue
             }
 
-            // Check merchant name
-            if receipt.title.lowercased().contains(lowerProductName) {
+            // Check merchant name - both exact and partial matches
+            let lowerTitle = receipt.title.lowercased()
+            if lowerTitle.contains(lowerProductName) {
                 print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' contains '\(productName)' on \(receipt.date)")
                 results.append(ItemSearchResult(
                     receiptID: receipt.id,
@@ -232,6 +233,32 @@ class ItemSearchService {
                     amount: receipt.amount,
                     confidence: 0.7
                 ))
+            } else if lowerProductName.count >= 3 {
+                // Try partial word matching for multi-word product names
+                let productWords = lowerProductName.split(separator: " ")
+                let titleWords = lowerTitle.split(separator: " ")
+
+                var foundMatch = false
+                for productWord in productWords {
+                    if foundMatch { break }
+                    for titleWord in titleWords {
+                        // Check if title word starts with product word (e.g., "pizzeria" starts with "pizza")
+                        if titleWord.lowercased().hasPrefix(String(productWord).lowercased()) {
+                            print("   [\(index)] PARTIAL MERCHANT MATCH: '\(receipt.title)' contains variant of '\(productName)' on \(receipt.date)")
+                            results.append(ItemSearchResult(
+                                receiptID: receipt.id,
+                                receiptDate: receipt.date,
+                                merchant: receipt.title,
+                                matchedProduct: productName,
+                                amount: receipt.amount,
+                                confidence: 0.6
+                            ))
+                            // Found a match, stop checking
+                            foundMatch = true
+                            break
+                        }
+                    }
+                }
             }
         }
 

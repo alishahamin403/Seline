@@ -311,16 +311,29 @@ struct ConversationMessageView: View {
                 if !message.isUser, let relatedData = message.relatedData {
                     let receipts = relatedData.filter { $0.type == .receipt }
                     if !receipts.isEmpty {
+                        // Deduplicate receipts by ID to avoid showing duplicates
+                        var seenIds = Set<UUID>()
+                        let uniqueReceipts = receipts.filter { receipt in
+                            let isNew = !seenIds.contains(receipt.id)
+                            seenIds.insert(receipt.id)
+                            return isNew
+                        }
+
                         VStack(alignment: .leading, spacing: 8) {
                             Divider()
                                 .padding(.vertical, 4)
 
-                            ForEach(receipts) { receipt in
+                            ForEach(uniqueReceipts) { receipt in
                                 ReceiptCardView(
+                                    id: receipt.id,
                                     merchant: receipt.merchant ?? receipt.title,
                                     date: receipt.date,
                                     amount: receipt.amount,
-                                    colorScheme: colorScheme
+                                    colorScheme: colorScheme,
+                                    onTap: {
+                                        // TODO: Handle receipt tap - navigate to receipt detail or note
+                                        print("Receipt tapped: \(receipt.id)")
+                                    }
                                 )
                             }
                         }
@@ -359,10 +372,14 @@ struct ConversationMessageView: View {
 // MARK: - Receipt Card Component
 
 struct ReceiptCardView: View {
+    let id: UUID
     let merchant: String
     let date: Date?
     let amount: Double?
     let colorScheme: ColorScheme
+    let onTap: () -> Void
+
+    @State private var isPressed = false
 
     private var dateString: String {
         guard let date = date else { return "Unknown date" }
@@ -417,18 +434,28 @@ struct ReceiptCardView: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(
                     colorScheme == .dark
-                        ? Color.white.opacity(0.05)
-                        : Color.black.opacity(0.03)
+                        ? Color.white.opacity(isPressed ? 0.1 : 0.05)
+                        : Color.black.opacity(isPressed ? 0.08 : 0.03)
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(
                     colorScheme == .dark
-                        ? Color.white.opacity(0.1)
-                        : Color.black.opacity(0.08),
+                        ? Color.white.opacity(isPressed ? 0.2 : 0.1)
+                        : Color.black.opacity(isPressed ? 0.15 : 0.08),
                     lineWidth: 0.5
                 )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .onLongPressGesture(minimumDuration: 0.01, perform: {})
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
         )
     }
 }
