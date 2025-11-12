@@ -308,7 +308,6 @@ class SaveFolderSelectionViewModel: ObservableObject {
 }
 
 #Preview {
-    let email = Email.sampleEmails[0]
-    @Previewable @State var isPresented = true
-    SaveFolderSelectionSheet(email: email, isPresented: $isPresented)
+    @State var isPresented = true
+    SaveFolderSelectionSheet(email: Email.sampleEmails[0], isPresented: $isPresented)
 }

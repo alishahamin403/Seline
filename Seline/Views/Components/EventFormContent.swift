@@ -748,18 +748,18 @@ struct ReminderOptionsSheet: View {
 }
 
 #Preview {
-    @Previewable @State var title = ""
-    @Previewable @State var description = ""
-    @Previewable @State var selectedDate = Date()
-    @Previewable @State var hasTime = false
-    @Previewable @State var selectedTime = Date()
-    @Previewable @State var selectedEndTime = Date().addingTimeInterval(3600)
-    @Previewable @State var isRecurring = false
-    @Previewable @State var recurrenceFrequency: RecurrenceFrequency = .weekly
-    @Previewable @State var selectedReminder: ReminderTime = .none
-    @Previewable @State var selectedTagId: String? = nil
+    @State var title = ""
+    @State var description = ""
+    @State var selectedDate = Date()
+    @State var hasTime = false
+    @State var selectedTime = Date()
+    @State var selectedEndTime = Date().addingTimeInterval(3600)
+    @State var isRecurring = false
+    @State var recurrenceFrequency: RecurrenceFrequency = .weekly
+    @State var selectedReminder: ReminderTime = .none
+    @State var selectedTagId: String? = nil
 
-    ZStack {
+    return ZStack {
         Color.white
             .ignoresSafeArea()
 
