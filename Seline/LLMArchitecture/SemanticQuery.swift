@@ -806,7 +806,7 @@ enum UniversalItem {
         case .receipt(let receipt):
             return receipt.title
         case .email(let email):
-            return email.sender
+            return email.sender.email
         case .event(let event):
             return event.title
         case .note(let note):
