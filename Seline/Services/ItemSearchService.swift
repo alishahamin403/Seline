@@ -170,10 +170,15 @@ class ItemSearchService {
         // Sort receipts by date DESCENDING (newest first)
         let sortedReceipts = receipts.sorted { $0.date > $1.date }
 
-        for receipt in sortedReceipts {
+        print("🔎 searchAllReceiptsForProduct: Looking for '\(productName)' in \(sortedReceipts.count) receipts")
+        print("   Notes available: \(notes.count)")
+
+        for (index, receipt) in sortedReceipts.enumerated() {
             guard let note = notes[receipt.noteId] else {
                 // If note not found, check the title
-                if receipt.title.lowercased().contains(lowerProductName) {
+                let merchantMatch = receipt.title.lowercased().contains(lowerProductName)
+                if merchantMatch {
+                    print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' on \(receipt.date)")
                     results.append(ItemSearchResult(
                         receiptID: receipt.id,
                         receiptDate: receipt.date,
@@ -182,12 +187,15 @@ class ItemSearchService {
                         amount: receipt.amount,
                         confidence: 0.7
                     ))
+                } else {
+                    print("   [\(index)] NO MATCH: Note missing for '\(receipt.title)' (will skip content check)")
                 }
                 continue
             }
 
             // Check for exact match in receipt content
             if note.content.lowercased().contains(lowerProductName) {
+                print("   [\(index)] EXACT MATCH: Found '\(productName)' in '\(receipt.title)' on \(receipt.date)")
                 results.append(ItemSearchResult(
                     receiptID: receipt.id,
                     receiptDate: receipt.date,
@@ -201,6 +209,7 @@ class ItemSearchService {
 
             // Check for fuzzy match
             if let matchedText = findFuzzyMatch(lowerProductName, in: note.content.lowercased()) {
+                print("   [\(index)] FUZZY MATCH: '\(matchedText)' ≈ '\(productName)' in '\(receipt.title)' on \(receipt.date)")
                 results.append(ItemSearchResult(
                     receiptID: receipt.id,
                     receiptDate: receipt.date,
@@ -214,6 +223,7 @@ class ItemSearchService {
 
             // Check merchant name
             if receipt.title.lowercased().contains(lowerProductName) {
+                print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' contains '\(productName)' on \(receipt.date)")
                 results.append(ItemSearchResult(
                     receiptID: receipt.id,
                     receiptDate: receipt.date,
@@ -224,6 +234,8 @@ class ItemSearchService {
                 ))
             }
         }
+
+        print("🏁 searchAllReceiptsForProduct: Found \(results.count) total match(es) for '\(productName)'")
 
         return results
     }
@@ -305,6 +317,7 @@ class ItemSearchService {
             let distance = levenshteinDistance(searchTerm, word.lowercased())
             // Allow up to 2 character differences for fuzzy matching
             if distance <= 2 && distance > 0 {
+                print("       🔤 Fuzzy: '\(searchTerm)' ~ '\(word)' (distance: \(distance))")
                 return word
             }
         }
