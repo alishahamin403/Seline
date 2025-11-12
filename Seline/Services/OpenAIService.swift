@@ -3601,8 +3601,8 @@ class OpenAIService: ObservableObject {
 
                 // For aggregation queries, find ALL matches
                 if intent.queryType != .lookup {
-                    print("📊 Tier 1: Aggregation query - finding ALL matches")
-                    let allMatches = ItemSearchService.shared.searchAllReceiptsForProduct(intent.productName, in: allReceipts, notes: notesDict)
+                    print("📊 Tier 1: Aggregation query - finding ALL matches using \(intent.alternateSearchTerms.count) search term(s)")
+                    let allMatches = ItemSearchService.shared.searchAllReceiptsForProduct(intent.alternateSearchTerms, in: allReceipts, notes: notesDict)
 
                     if !allMatches.isEmpty {
                         print("✅ Tier 1 SUCCESS: Found \(allMatches.count) receipt(s) for '\(intent.productName)'")
@@ -5056,6 +5056,7 @@ class OpenAIService: ObservableObject {
         Return this JSON structure:
         {
             "productName": "the main product/item being asked about (e.g., 'pizza', 'coffee', 'zonnic')",
+            "alternateSearchTerms": ["list", "of", "related", "terms"],
             "queryType": "one of: lookup, countUnique, listAll, sumAmount, frequency",
             "dateFilter": "optional date constraint like 'this month', 'last week', or null if none",
             "merchantFilter": "optional merchant/location filter or null if none",
@@ -5069,11 +5070,15 @@ class OpenAIService: ObservableObject {
         - sumAmount: "how much did I spend on X?", "total spent on X?" → sum amounts
         - frequency: "how many times did I buy X?", "how often?" → count occurrences
 
+        IMPORTANT: Include semantic variations in alternateSearchTerms!
+        - "pizza" → ["pizza", "pizzeria", "pizza hut", "pizza place"]
+        - "coffee" → ["coffee", "cafe", "café", "espresso", "starbucks"]
+        - "donut" → ["donut", "doughnut", "donuts", "doughnuts"]
+
         Examples:
-        - "Can you show all the pizza receipts" → {productName: "pizza", queryType: "listAll", ...}
-        - "When did I last buy zonnic?" → {productName: "zonnic", queryType: "lookup", ...}
-        - "How many different pizza places did I get pizza from?" → {productName: "pizza", queryType: "countUnique", ...}
-        - "How much did I spend on pizza last month?" → {productName: "pizza", queryType: "sumAmount", dateFilter: "last month", ...}
+        - "How many times did I buy pizza" → {productName: "pizza", alternateSearchTerms: ["pizza", "pizzeria", "pizza place"], queryType: "frequency", ...}
+        - "When did I last buy zonnic?" → {productName: "zonnic", alternateSearchTerms: ["zonnic"], queryType: "lookup", ...}
+        - "How many different pizza places did I get pizza from?" → {productName: "pizza", alternateSearchTerms: ["pizza", "pizzeria"], queryType: "countUnique", ...}
         """
 
         let requestBody: [String: Any] = [
@@ -5105,6 +5110,7 @@ class OpenAIService: ObservableObject {
                 let dateFilter: String?
                 let merchantFilter: String?
                 let confidence: Double
+                let alternateSearchTerms: [String]?
             }
 
             let intentResponse = try decoder.decode(IntentResponse.self, from: jsonData)
@@ -5126,15 +5132,22 @@ class OpenAIService: ObservableObject {
                 queryTypeEnum = .lookup
             }
 
+            // Ensure alternateSearchTerms always includes at least the productName
+            var alternateTerms = intentResponse.alternateSearchTerms ?? [intentResponse.productName]
+            if !alternateTerms.contains(intentResponse.productName) {
+                alternateTerms.insert(intentResponse.productName, at: 0)
+            }
+
             let intent = ExpenseIntent(
                 productName: intentResponse.productName,
                 queryType: queryTypeEnum,
                 dateFilter: intentResponse.dateFilter,
                 merchantFilter: intentResponse.merchantFilter,
-                confidence: intentResponse.confidence
+                confidence: intentResponse.confidence,
+                alternateSearchTerms: alternateTerms
             )
 
-            print("🧠 LLM Intent Extraction: product='\(intent.productName)', type=\(intent.queryType), confidence=\(String(format: "%.1f%%", intent.confidence * 100))")
+            print("🧠 LLM Intent Extraction: product='\(intent.productName)', type=\(intent.queryType), terms=\(alternateTerms), confidence=\(String(format: "%.1f%%", intent.confidence * 100))")
             return intent
 
         } catch {

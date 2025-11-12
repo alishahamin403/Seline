@@ -56,6 +56,7 @@ struct ExpenseIntent {
     let dateFilter: String?         // Optional date constraint (e.g., "this month", "last week")
     let merchantFilter: String?     // Optional merchant constraint
     let confidence: Double          // 0.0-1.0 confidence in extraction
+    let alternateSearchTerms: [String]  // Alternative/related search terms (e.g., "pizza" → ["pizza", "pizzeria", "pizza place"])
 }
 
 // MARK: - Item Search Service
@@ -164,105 +165,150 @@ class ItemSearchService {
         in receipts: [ReceiptStat],
         notes: [UUID: Note]
     ) -> [ItemSearchResult] {
-        let lowerProductName = productName.lowercased()
+        // Default to just the single productName if no alternates provided
+        return searchAllReceiptsForProduct([productName], in: receipts, notes: notes)
+    }
+
+    /// Search for receipts matching ANY of multiple product names/terms
+    /// This version supports alternative search terms from LLM intent extraction
+    /// - Parameters:
+    ///   - searchTerms: Array of product names/terms to search for (e.g., ["pizza", "pizzeria", "pizza place"])
+    ///   - receipts: Array of ReceiptStat to search through
+    ///   - notes: Dictionary mapping noteId to Note (for accessing receipt content)
+    /// - Returns: Array of ItemSearchResult sorted by date (most recent first)
+    func searchAllReceiptsForProduct(
+        _ searchTerms: [String],
+        in receipts: [ReceiptStat],
+        notes: [UUID: Note]
+    ) -> [ItemSearchResult] {
         var results: [ItemSearchResult] = []
+        let lowerSearchTerms = searchTerms.map { $0.lowercased() }
 
         // Sort receipts by date DESCENDING (newest first)
         let sortedReceipts = receipts.sorted { $0.date > $1.date }
 
-        print("🔎 searchAllReceiptsForProduct: Looking for '\(productName)' in \(sortedReceipts.count) receipts")
+        print("🔎 searchAllReceiptsForProduct: Looking for \(searchTerms) in \(sortedReceipts.count) receipts")
         print("   Notes available: \(notes.count)")
 
         for (index, receipt) in sortedReceipts.enumerated() {
+            let lowerTitle = receipt.title.lowercased()
+            var foundMatch = false
+            var matchedProduct = searchTerms.first ?? "unknown"
+            var matchConfidence = 0.0
+
             guard let note = notes[receipt.noteId] else {
-                // If note not found, check the title
-                let merchantMatch = receipt.title.lowercased().contains(lowerProductName)
-                if merchantMatch {
-                    print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' on \(receipt.date)")
+                // If note not found, check the title against all search terms
+                for searchTerm in lowerSearchTerms {
+                    if lowerTitle.contains(searchTerm) {
+                        print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' contains '\(searchTerm)' on \(receipt.date)")
+                        matchedProduct = searchTerm
+                        matchConfidence = 0.7
+                        foundMatch = true
+                        break
+                    }
+                }
+
+                if !foundMatch {
+                    print("   [\(index)] NO MATCH: Note missing for '\(receipt.title)' (will skip content check)")
+                }
+
+                if foundMatch {
                     results.append(ItemSearchResult(
                         receiptID: receipt.id,
                         receiptDate: receipt.date,
                         merchant: receipt.title,
-                        matchedProduct: productName,
+                        matchedProduct: matchedProduct,
+                        amount: receipt.amount,
+                        confidence: matchConfidence
+                    ))
+                }
+                continue
+            }
+
+            let lowerContent = note.content.lowercased()
+
+            // Check for exact match in receipt content against all search terms
+            for searchTerm in lowerSearchTerms {
+                if lowerContent.contains(searchTerm) {
+                    print("   [\(index)] EXACT MATCH: Found '\(searchTerm)' in '\(receipt.title)' on \(receipt.date)")
+                    results.append(ItemSearchResult(
+                        receiptID: receipt.id,
+                        receiptDate: receipt.date,
+                        merchant: receipt.title,
+                        matchedProduct: searchTerm,
+                        amount: receipt.amount,
+                        confidence: 1.0
+                    ))
+                    foundMatch = true
+                    break
+                }
+            }
+            if foundMatch { continue }
+
+            // Check for fuzzy match against all search terms
+            for searchTerm in lowerSearchTerms {
+                if let matchedText = findFuzzyMatch(searchTerm, in: lowerContent) {
+                    print("   [\(index)] FUZZY MATCH: '\(matchedText)' ≈ '\(searchTerm)' in '\(receipt.title)' on \(receipt.date)")
+                    results.append(ItemSearchResult(
+                        receiptID: receipt.id,
+                        receiptDate: receipt.date,
+                        merchant: receipt.title,
+                        matchedProduct: matchedText,
+                        amount: receipt.amount,
+                        confidence: 0.85
+                    ))
+                    foundMatch = true
+                    break
+                }
+            }
+            if foundMatch { continue }
+
+            // Check merchant name against all search terms - both exact and partial matches
+            for searchTerm in lowerSearchTerms {
+                if lowerTitle.contains(searchTerm) {
+                    print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' contains '\(searchTerm)' on \(receipt.date)")
+                    results.append(ItemSearchResult(
+                        receiptID: receipt.id,
+                        receiptDate: receipt.date,
+                        merchant: receipt.title,
+                        matchedProduct: searchTerm,
                         amount: receipt.amount,
                         confidence: 0.7
                     ))
-                } else {
-                    print("   [\(index)] NO MATCH: Note missing for '\(receipt.title)' (will skip content check)")
+                    foundMatch = true
+                    break
                 }
-                continue
-            }
 
-            // Check for exact match in receipt content
-            if note.content.lowercased().contains(lowerProductName) {
-                print("   [\(index)] EXACT MATCH: Found '\(productName)' in '\(receipt.title)' on \(receipt.date)")
-                results.append(ItemSearchResult(
-                    receiptID: receipt.id,
-                    receiptDate: receipt.date,
-                    merchant: receipt.title,
-                    matchedProduct: productName,
-                    amount: receipt.amount,
-                    confidence: 1.0
-                ))
-                continue
-            }
+                // Try partial word matching
+                if searchTerm.count >= 3 {
+                    let productWords = searchTerm.split(separator: " ")
+                    let titleWords = lowerTitle.split(separator: " ")
 
-            // Check for fuzzy match
-            if let matchedText = findFuzzyMatch(lowerProductName, in: note.content.lowercased()) {
-                print("   [\(index)] FUZZY MATCH: '\(matchedText)' ≈ '\(productName)' in '\(receipt.title)' on \(receipt.date)")
-                results.append(ItemSearchResult(
-                    receiptID: receipt.id,
-                    receiptDate: receipt.date,
-                    merchant: receipt.title,
-                    matchedProduct: matchedText,
-                    amount: receipt.amount,
-                    confidence: 0.85
-                ))
-                continue
-            }
-
-            // Check merchant name - both exact and partial matches
-            let lowerTitle = receipt.title.lowercased()
-            if lowerTitle.contains(lowerProductName) {
-                print("   [\(index)] MERCHANT MATCH: '\(receipt.title)' contains '\(productName)' on \(receipt.date)")
-                results.append(ItemSearchResult(
-                    receiptID: receipt.id,
-                    receiptDate: receipt.date,
-                    merchant: receipt.title,
-                    matchedProduct: productName,
-                    amount: receipt.amount,
-                    confidence: 0.7
-                ))
-            } else if lowerProductName.count >= 3 {
-                // Try partial word matching for multi-word product names
-                let productWords = lowerProductName.split(separator: " ")
-                let titleWords = lowerTitle.split(separator: " ")
-
-                var foundMatch = false
-                for productWord in productWords {
-                    if foundMatch { break }
-                    for titleWord in titleWords {
-                        // Check if title word starts with product word (e.g., "pizzeria" starts with "pizza")
-                        if titleWord.lowercased().hasPrefix(String(productWord).lowercased()) {
-                            print("   [\(index)] PARTIAL MERCHANT MATCH: '\(receipt.title)' contains variant of '\(productName)' on \(receipt.date)")
-                            results.append(ItemSearchResult(
-                                receiptID: receipt.id,
-                                receiptDate: receipt.date,
-                                merchant: receipt.title,
-                                matchedProduct: productName,
-                                amount: receipt.amount,
-                                confidence: 0.6
-                            ))
-                            // Found a match, stop checking
-                            foundMatch = true
-                            break
+                    for productWord in productWords {
+                        if foundMatch { break }
+                        for titleWord in titleWords {
+                            if titleWord.lowercased().hasPrefix(String(productWord).lowercased()) {
+                                print("   [\(index)] PARTIAL MERCHANT MATCH: '\(receipt.title)' contains variant of '\(searchTerm)' on \(receipt.date)")
+                                results.append(ItemSearchResult(
+                                    receiptID: receipt.id,
+                                    receiptDate: receipt.date,
+                                    merchant: receipt.title,
+                                    matchedProduct: searchTerm,
+                                    amount: receipt.amount,
+                                    confidence: 0.6
+                                ))
+                                foundMatch = true
+                                break
+                            }
                         }
                     }
                 }
+
+                if foundMatch { break }
             }
         }
 
-        print("🏁 searchAllReceiptsForProduct: Found \(results.count) total match(es) for '\(productName)'")
+        print("🏁 searchAllReceiptsForProduct: Found \(results.count) total match(es) for \(searchTerms)")
 
         return results
     }
