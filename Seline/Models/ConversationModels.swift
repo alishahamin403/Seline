@@ -95,7 +95,8 @@ struct RelatedDataItem: Identifiable, Codable {
         case event
         case note
         case location
-        case receipt  // NEW: for expense query results
+        case receipt
+        case email
     }
 
     init(id: UUID = UUID(), type: DataType, title: String, subtitle: String? = nil, date: Date? = nil, amount: Double? = nil, merchant: String? = nil) {

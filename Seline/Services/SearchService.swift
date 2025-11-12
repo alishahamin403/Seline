@@ -385,6 +385,72 @@ class SearchService: ObservableObject {
         isSearching = false
     }
 
+    // MARK: - Semantic Query Processing (Universal Intent System)
+
+    /// Try to process a query using the semantic query engine first
+    /// This handles queries across all app data types, not just expenses
+    /// Returns (success, formattedResponse, relatedItems) or nil if semantic query didn't apply
+    func processWithSemanticQuery(_ userQuery: String) async -> (text: String, items: [RelatedDataItem])? {
+        // Step 1: Generate semantic query from user input
+        guard let semanticQuery = await OpenAIService.shared.generateSemanticQuery(from: userQuery) else {
+            print("⚠️ Semantic query generation failed, falling back to conversation")
+            return nil
+        }
+
+        // Check if we have reasonable confidence
+        guard semanticQuery.confidence > 0.5 else {
+            print("⚠️ Low confidence semantic query (\(String(format: "%.0f%%", semanticQuery.confidence * 100))), falling back to conversation")
+            return nil
+        }
+
+        // Step 2: Execute the semantic query
+        let queryResult = await UniversalQueryExecutor.shared.execute(semanticQuery)
+
+        // Step 3: Format the response intelligently
+        let formattedResponse = UniversalResponseFormatter.shared.format(queryResult, rules: semanticQuery.presentation)
+
+        // Step 4: Convert formatted items to RelatedDataItem for UI
+        var relatedItems: [RelatedDataItem] = []
+        for item in formattedResponse.items {
+            // Convert string ID to UUID
+            let uuid = UUID(uuidString: item.id) ?? UUID()
+            relatedItems.append(RelatedDataItem(
+                id: uuid,
+                type: mapItemType(item.type),
+                title: item.displayTitle,
+                subtitle: item.category,
+                date: item.date,
+                amount: item.amount > 0 ? item.amount : nil,
+                merchant: item.merchant
+            ))
+        }
+
+        print("✅ Semantic query succeeded:")
+        print("   Intent: \(semanticQuery.intent)")
+        print("   Response: \(formattedResponse.text.prefix(100))...")
+        print("   Items to show: \(relatedItems.count)")
+
+        return (text: formattedResponse.text, items: relatedItems)
+    }
+
+    /// Map RelatedItem type to RelatedDataItem.DataType
+    private func mapItemType(_ type: String) -> RelatedDataItem.DataType {
+        switch type {
+        case "receipt":
+            return .receipt
+        case "email":
+            return .email
+        case "event":
+            return .event
+        case "note":
+            return .note
+        case "location":
+            return .location
+        default:
+            return .receipt
+        }
+    }
+
     // MARK: - Conversation Management
 
     /// Check if a query should trigger conversation mode
@@ -451,6 +517,33 @@ class SearchService: ObservableObject {
         isLoadingQuestionResponse = true
         let thinkStartTime = Date()  // Track when LLM starts thinking
         do {
+            // STEP 1: Try semantic query first (handles any app data, not just conversation)
+            var semanticQueryResult: (text: String, items: [RelatedDataItem])? = nil
+            if let result = await processWithSemanticQuery(trimmed) {
+                semanticQueryResult = result
+            }
+
+            // STEP 2: If semantic query succeeded, use its response
+            if let (responseText, relatedItems) = semanticQueryResult {
+                DispatchQueue.main.async {
+                    let assistantMsg = ConversationMessage(
+                        id: UUID(),
+                        isUser: false,
+                        text: responseText,
+                        timestamp: Date(),
+                        intent: .general,
+                        relatedData: relatedItems.isEmpty ? nil : relatedItems,
+                        timeStarted: thinkStartTime,
+                        timeFinished: Date()
+                    )
+                    self.conversationHistory.append(assistantMsg)
+                    self.isLoadingQuestionResponse = false
+                    self.saveConversationLocally()
+                }
+                return
+            }
+
+            // STEP 3: Fall back to traditional OpenAI conversation if semantic query failed
             if enableStreamingResponses {
                 // Use streaming response
                 var fullResponse = ""

@@ -737,7 +737,7 @@ enum UniversalItem {
     case email(Email)
     case event(Event)
     case note(Note)
-    case location(Location)
+    case location(SavedPlace)
 
     var date: Date {
         switch self {
@@ -765,7 +765,7 @@ enum UniversalItem {
         case .note(let note):
             return note.folder
         case .location(let location):
-            return location.category ?? "Place"
+            return location.category
         }
     }
 
@@ -795,7 +795,7 @@ enum UniversalItem {
         case .note:
             return "active"
         case .location(let location):
-            return location.isFavorited ? "favorited" : "saved"
+            return location.isFavourite ? "favorited" : "saved"
         }
     }
 
@@ -810,7 +810,7 @@ enum UniversalItem {
         case .note(let note):
             return note.title
         case .location(let location):
-            return location.name
+            return location.displayName
         }
     }
 
@@ -825,7 +825,7 @@ enum UniversalItem {
         case .note(let note):
             return "\(note.title) \(note.content)"
         case .location(let location):
-            return "\(location.name) \(location.category ?? "")"
+            return "\(location.displayName) \(location.category) \(location.address)"
         }
     }
 }

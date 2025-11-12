@@ -114,11 +114,14 @@ class UniversalQueryExecutor {
                 if let filter = filter {
                     switch filter {
                     case .favorited:
-                        locations = locations.filter { $0.isFavorited }
+                        locations = locations.filter { $0.isFavourite }
                     case .ranked:
-                        locations = locations.filter { $0.ranking > 0 }
+                        // SavedPlace has userRating instead of ranking
+                        locations = locations.filter { $0.userRating ?? 0 > 0 }
                     case .inFolder:
-                        locations = locations.filter { !$0.folder.isEmpty }
+                        // SavedPlace doesn't have a folder property
+                        // This could be implemented with custom properties or tags in the future
+                        break
                     }
                 }
 
