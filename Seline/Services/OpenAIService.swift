@@ -3558,9 +3558,16 @@ class OpenAIService: ObservableObject {
         // Add current context
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
 
+        // SPECIAL HANDLING FOR FUTURE DATE QUERIES
+        // Directly calculate events for tomorrow/next week instead of complex LLM filtering
+        let lowerQuery = query.lowercased()
+        if let futureContext = checkForFutureDateQuery(query: lowerQuery, currentDate: currentDate, taskManager: taskManager) {
+            print("🗓️ Detected future date query: \(futureContext)")
+            return futureContext
+        }
+
         // SPECIAL HANDLING FOR EXPENSE QUERIES
         // Bypass LLM ID selection (which corrupts UUIDs) and directly get all receipts for the requested period
-        let lowerQuery = query.lowercased()
 
         // Detect expense queries by keywords OR by product mentions with purchase/count verbs
         let expenseKeywords = ["spend", "expense", "cost", "receipt", "month", "budget"]
@@ -4793,6 +4800,143 @@ class OpenAIService: ObservableObject {
         // Calendar uses: 1=Sunday, 2=Monday, ..., 7=Saturday
         let weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
         return weekday > 0 && weekday <= 7 ? weekdayNames[weekday - 1] : ""
+    }
+
+    /// Handles future date queries directly without LLM filtering
+    /// For "tomorrow", "next week", etc., calculates events that will occur and returns them directly
+    /// This bypasses the complex filtering and ensures recurring events are detected
+    private func checkForFutureDateQuery(query: String, currentDate: Date, taskManager: TaskManager) -> String? {
+        let calendar = Calendar.current
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        let timeFormatter = DateFormatter()
+        timeFormatter.timeStyle = .short
+
+        var targetDates: [Date] = []
+        var queryDescription = ""
+
+        // Detect future date keywords
+        if query.contains("tomorrow") {
+            if let tomorrow = calendar.date(byAdding: .day, value: 1, to: currentDate) {
+                targetDates = [tomorrow]
+                queryDescription = "tomorrow"
+            }
+        } else if query.contains("next week") || query.contains("upcoming week") {
+            if let nextWeekStart = calendar.date(byAdding: .day, value: 1, to: currentDate),
+               let nextWeekEnd = calendar.date(byAdding: .day, value: 7, to: currentDate) {
+                targetDates = (0...6).compactMap { calendar.date(byAdding: .day, value: $0, to: nextWeekStart) }
+                queryDescription = "next week"
+            }
+        } else if query.contains("next month") || query.contains("upcoming month") {
+            if let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentDate) {
+                let range = calendar.range(of: .day, in: .month, for: nextMonth) ?? 1...28
+                targetDates = range.compactMap { day in
+                    calendar.date(from: DateComponents(year: calendar.component(.year, from: nextMonth),
+                                                        month: calendar.component(.month, from: nextMonth),
+                                                        day: day))
+                }
+                queryDescription = "next month"
+            }
+        }
+
+        guard !targetDates.isEmpty else { return nil }
+
+        // Get all tasks and filter for those that occur on target dates
+        var allEvents: [TaskItem] = []
+        for weekday in WeekDay.allCases {
+            if let tasksForDay = taskManager.tasks[weekday] {
+                allEvents.append(contentsOf: tasksForDay)
+            }
+        }
+        var matchingEvents: [TaskItem] = []
+
+        for targetDate in targetDates {
+            let targetWeekday = calendar.component(.weekday, from: targetDate)
+            let targetDay = calendar.component(.day, from: targetDate)
+            let targetMonth = calendar.component(.month, from: targetDate)
+            let targetYear = calendar.component(.year, from: targetDate)
+
+            for event in allEvents {
+                // Check if event occurs on this target date
+                let isMatch: Bool
+
+                if event.isRecurring {
+                    // For recurring events, check if it recurs on this date based on frequency
+                    let eventWeekday = event.weekday.calendarWeekday
+                    isMatch = shouldEventOccurOnDate(event: event, targetWeekday: targetWeekday, targetDay: targetDay, calendar: calendar)
+                } else {
+                    // For one-time events, check if the date matches
+                    if let eventDate = event.targetDate ?? event.createdAt {
+                        let eventDay = calendar.component(.day, from: eventDate)
+                        let eventMonth = calendar.component(.month, from: eventDate)
+                        let eventYear = calendar.component(.year, from: eventDate)
+                        isMatch = (eventDay == targetDay && eventMonth == targetMonth && eventYear == targetYear)
+                    } else {
+                        isMatch = false
+                    }
+                }
+
+                if isMatch && !matchingEvents.contains(where: { $0.id == event.id }) {
+                    matchingEvents.append(event)
+                }
+            }
+        }
+
+        // Build response with matching events
+        var response = "Events for \(queryDescription):\n\n"
+
+        if matchingEvents.isEmpty {
+            response += "You have no events for \(queryDescription)."
+        } else {
+            response += "Here are your events for \(queryDescription):\n\n"
+            for event in matchingEvents.sorted(by: { ($0.scheduledTime ?? Date()) < ($1.scheduledTime ?? Date()) }) {
+                response += "• \(event.title)"
+                if let time = event.scheduledTime {
+                    response += " - \(timeFormatter.string(from: time))"
+                }
+                if event.isRecurring {
+                    response += " (recurring \(event.recurrenceFrequency?.displayName ?? ""))"
+                }
+                if let description = event.description {
+                    response += "\n  \(description)"
+                }
+                response += "\n"
+            }
+        }
+
+        return response
+    }
+
+    /// Determines if a recurring event should occur on a specific target date
+    private func shouldEventOccurOnDate(event: TaskItem, targetWeekday: Int, targetDay: Int, calendar: Calendar) -> Bool {
+        let eventWeekday = event.weekday.calendarWeekday
+
+        switch event.recurrenceFrequency {
+        case .daily:
+            return true
+
+        case .weekly:
+            return eventWeekday == targetWeekday
+
+        case .biweekly:
+            if eventWeekday != targetWeekday { return false }
+            // Check if it's in the right bi-weekly cycle
+            let components = calendar.dateComponents([.weekOfYear], from: event.createdAt, to: Date())
+            let weekDiff = components.weekOfYear ?? 0
+            return weekDiff % 2 == 0
+
+        case .monthly:
+            return targetDay == calendar.component(.day, from: event.createdAt)
+
+        case .yearly:
+            let eventMonth = calendar.component(.month, from: event.createdAt)
+            let eventDay = calendar.component(.day, from: event.createdAt)
+            let targetMonth = calendar.component(.month, from: Date().addingTimeInterval(TimeInterval(targetDay * 86400)))
+            return eventMonth == targetMonth && eventDay == targetDay
+
+        case .none:
+            return false
+        }
     }
 }
 
