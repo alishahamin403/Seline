@@ -28,6 +28,9 @@ class OpenAIService: ObservableObject {
     private let apiKey = Config.openAIAPIKey
     private let baseURL = "https://api.openai.com/v1/chat/completions"
 
+    // Track the last SearchAnswer for UI to display related items after streaming
+    @Published var lastSearchAnswer: SearchAnswer?
+
     // Rate limiting properties
     private let requestQueue = DispatchQueue(label: "openai-requests", qos: .utility)
     private var lastRequestTime: Date = Date.distantPast
@@ -3567,25 +3570,128 @@ class OpenAIService: ObservableObject {
         }
 
         // SPECIAL HANDLING FOR EXPENSE QUERIES
-        // Bypass LLM ID selection (which corrupts UUIDs) and directly get all receipts for the requested period
+        // Detect purchase queries: "when did I buy X", "did I ever buy Y", "how much did I spend on Z"
 
-        // Detect expense queries by keywords OR by product mentions with purchase/count verbs
-        let expenseKeywords = ["spend", "expense", "cost", "receipt", "month", "budget"]
-        let productKeywords = ["pizza", "coffee", "starbucks", "costco", "whole foods", "burger",
-                               "amazon", "uber", "lyft", "restaurant", "cafe", "grocery", "walmart",
-                               "target", "mcdonalds", "chipotle", "doordash", "ubereats"]
-        let purchaseVerbs = ["buy", "bought", "purchase", "times", "count", "spent"]
+        // Detect expense queries by keywords OR by purchase-related patterns
+        let expenseKeywords = ["spend", "expense", "cost", "receipt", "month", "budget", "spent", "purchase", "purchased"]
+        let purchaseVerbs = ["buy", "bought", "purchase", "purchased", "get", "got"]  // Verbs that indicate buying
 
         let hasExpenseKeyword = expenseKeywords.contains { lowerQuery.contains($0) }
-        let hasProductAndPurchaseVerb = productKeywords.contains { product in
-            lowerQuery.contains(product) && purchaseVerbs.contains { verb in
-                lowerQuery.contains(verb)
-            }
-        }
-        let isExpenseQuery = hasExpenseKeyword || hasProductAndPurchaseVerb
+        let hasPurchaseVerb = purchaseVerbs.contains { lowerQuery.contains($0) }
+
+        // Any query with a purchase verb OR expense keyword is an expense query
+        let isExpenseQuery = hasExpenseKeyword || hasPurchaseVerb
 
         if isExpenseQuery {
-            print("💰 Detected expense query - using smart receipt retrieval with keyword filtering")
+            print("💰 Detected expense query")
+
+            // TIER 1: Use LLM to intelligently extract intent, then search receipts directly
+            if let intent = await extractExpenseIntent(from: query) {
+                print("🔍 Tier 1: LLM extracted intent - product='\(intent.productName)', type=\(intent.queryType)")
+
+                // Get all receipts
+                let allReceipts = await notesManager.getReceiptStatistics().flatMap { $0.monthlySummaries }.flatMap { $0.receipts }
+
+                // Create notes dictionary for ItemSearchService
+                let notesDict = Dictionary(uniqueKeysWithValues:
+                    notesManager.notes.map { ($0.id, $0) }
+                )
+
+                print("🔍 Tier 1: Searching \(allReceipts.count) receipts with \(notesDict.count) notes available")
+
+                // For aggregation queries, find ALL matches
+                if intent.queryType != .lookup {
+                    print("📊 Tier 1: Aggregation query - finding ALL matches")
+                    let allMatches = ItemSearchService.shared.searchAllReceiptsForProduct(intent.productName, in: allReceipts, notes: notesDict)
+
+                    if !allMatches.isEmpty {
+                        print("✅ Tier 1 SUCCESS: Found \(allMatches.count) receipt(s) for '\(intent.productName)'")
+
+                        // Generate response based on query type
+                        switch intent.queryType {
+                        case .countUnique:
+                            return formatCountUniqueResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
+                        case .listAll:
+                            return formatListAllResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
+                        case .sumAmount:
+                            return formatSumResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
+                        case .frequency:
+                            return formatFrequencyResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
+                        case .lookup:
+                            // This shouldn't happen, but handle it
+                            return formatLookupResponseWithItems(productName: intent.productName, result: allMatches.first!, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
+                        }
+                    } else {
+                        print("❌ Tier 1 FAILED: No matches for '\(intent.productName)'")
+                        return "I couldn't find any receipts for **\(intent.productName)**."
+                    }
+                }
+
+                // For lookup queries, find just the most recent
+                if let itemResult = ItemSearchService.shared.searchReceiptItems(for: intent.productName, in: allReceipts, notes: notesDict) {
+                    print("✅ Tier 1 SUCCESS: Found '\(intent.productName)' in receipt from \(itemResult.formattedDate) at \(itemResult.merchant)")
+                    print("   Confidence: \(String(format: "%.0f%%", itemResult.confidence * 100))")
+
+                    return formatLookupResponseWithItems(productName: intent.productName, result: itemResult, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
+                } else {
+                    print("⚠️ Tier 1 FAILED: Product '\(intent.productName)' not found in receipts")
+                    print("   Falling back to Tier 2 (full context analysis)")
+                }
+            } else {
+                print("⚠️ LLM intent extraction failed")
+                print("   Using Tier 2 (full context analysis)")
+            }
+
+            // TIER 2: Fall back to receipt-only search (no LLM for item matching, but use LLM for analysis)
+            print("📊 Tier 2: Searching all receipts for product")
+
+            let allReceipts = await notesManager.getReceiptStatistics().flatMap { $0.monthlySummaries }.flatMap { $0.receipts }
+            let notesDict = Dictionary(uniqueKeysWithValues:
+                notesManager.notes.map { ($0.id, $0) }
+            )
+
+            // Search for all occurrences (not just the most recent)
+            if false {  // extractProductName removed - use LLM intent extraction instead
+                let productName = ""  // unreachable
+                let allMatches = ItemSearchService.shared.searchAllReceiptsForProduct(productName, in: allReceipts, notes: notesDict)
+
+                if !allMatches.isEmpty {
+                    print("✅ Found \(allMatches.count) receipt(s) matching '\(productName)'")
+
+                    // Format results
+                    var response = "I found \(allMatches.count) receipt"
+                    if allMatches.count != 1 { response += "s" }
+                    response += " for **\(productName)**:\n\n"
+
+                    for (index, match) in allMatches.prefix(10).enumerated() {
+                        let dateStr = dateFormatter.string(from: match.receiptDate)
+                        response += "**\(index + 1). \(dateStr)** - \(match.merchant)"
+
+                        if match.amount > 0 {
+                            let formattedAmount = String(format: "$%.2f", match.amount)
+                            response += " - \(formattedAmount)"
+                        }
+
+                        if match.confidence < 1.0 {
+                            response += " (\(String(format: "%.0f%%", match.confidence * 100)) confidence)"
+                        }
+
+                        response += "\n"
+                    }
+
+                    if allMatches.count > 10 {
+                        response += "\n...and \(allMatches.count - 10) more"
+                    }
+
+                    return response
+                } else {
+                    print("❌ No receipts found for '\(productName)'")
+                    return "I couldn't find any receipts for **\(productName)**. The product might be listed under a different name or with a merchant. Try checking your receipts for items or merchants."
+                }
+            }
+
+            // If product name extraction failed, fall back to full context
+            print("📊 Tier 2: Using full context analysis")
             return await buildSmartExpenseContext(
                 query: query,
                 notesManager: notesManager,
@@ -4938,11 +5044,317 @@ class OpenAIService: ObservableObject {
             return false
         }
     }
-}
 
-// MARK: - Response Models (for future use if needed)
-struct OpenAIResponse: Codable {
-    let choices: [OpenAIChoice]
+    // MARK: - LLM-Based Expense Intent Extraction
+
+    /// Use LLM to intelligently extract expense query intent
+    /// Handles natural language variation without hardcoded lists
+    func extractExpenseIntent(from query: String) async -> ExpenseIntent? {
+        let systemPrompt = """
+        You are an expert at understanding purchase/expense queries. Extract the intent from the user's query and respond with ONLY a JSON object (no other text).
+
+        Return this JSON structure:
+        {
+            "productName": "the main product/item being asked about (e.g., 'pizza', 'coffee', 'zonnic')",
+            "queryType": "one of: lookup, countUnique, listAll, sumAmount, frequency",
+            "dateFilter": "optional date constraint like 'this month', 'last week', or null if none",
+            "merchantFilter": "optional merchant/location filter or null if none",
+            "confidence": 0.0-1.0
+        }
+
+        Query types:
+        - lookup: "when did I last buy X?", "did I ever buy X?" → most recent purchase
+        - countUnique: "how many different pizza places?", "how many unique merchants?" → count unique merchants
+        - listAll: "show all pizza purchases", "list all coffee" → all matching receipts
+        - sumAmount: "how much did I spend on X?", "total spent on X?" → sum amounts
+        - frequency: "how many times did I buy X?", "how often?" → count occurrences
+
+        Examples:
+        - "Can you show all the pizza receipts" → {productName: "pizza", queryType: "listAll", ...}
+        - "When did I last buy zonnic?" → {productName: "zonnic", queryType: "lookup", ...}
+        - "How many different pizza places did I get pizza from?" → {productName: "pizza", queryType: "countUnique", ...}
+        - "How much did I spend on pizza last month?" → {productName: "pizza", queryType: "sumAmount", dateFilter: "last month", ...}
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": query]
+            ],
+            "temperature": 0.2,
+            "max_tokens": 200
+        ]
+
+        do {
+            let responseString = try await makeOpenAIRequest(
+                url: URL(string: baseURL)!,
+                requestBody: requestBody
+            )
+
+            // Parse JSON response
+            guard let jsonData = responseString.data(using: .utf8) else {
+                return nil
+            }
+
+            let decoder = JSONDecoder()
+
+            struct IntentResponse: Codable {
+                let productName: String
+                let queryType: String
+                let dateFilter: String?
+                let merchantFilter: String?
+                let confidence: Double
+            }
+
+            let intentResponse = try decoder.decode(IntentResponse.self, from: jsonData)
+
+            // Convert string queryType to enum
+            let queryTypeEnum: ExpenseQueryType
+            switch intentResponse.queryType.lowercased() {
+            case "lookup":
+                queryTypeEnum = .lookup
+            case "countunique":
+                queryTypeEnum = .countUnique
+            case "listall":
+                queryTypeEnum = .listAll
+            case "sumamount":
+                queryTypeEnum = .sumAmount
+            case "frequency":
+                queryTypeEnum = .frequency
+            default:
+                queryTypeEnum = .lookup
+            }
+
+            let intent = ExpenseIntent(
+                productName: intentResponse.productName,
+                queryType: queryTypeEnum,
+                dateFilter: intentResponse.dateFilter,
+                merchantFilter: intentResponse.merchantFilter,
+                confidence: intentResponse.confidence
+            )
+
+            print("🧠 LLM Intent Extraction: product='\(intent.productName)', type=\(intent.queryType), confidence=\(String(format: "%.1f%%", intent.confidence * 100))")
+            return intent
+
+        } catch {
+            print("❌ Intent extraction failed: \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Response Formatting Helpers
+
+    private func formatLookupResponseWithItems(
+        productName: String,
+        result: ItemSearchResult,
+        dateFormatter: DateFormatter,
+        allReceipts: [ReceiptStat],
+        notes: [UUID: Note]
+    ) -> String {
+        let answer = ItemSearchService.shared.createSearchAnswer(
+            text: formatLookupResponse(productName: productName, result: result, dateFormatter: dateFormatter),
+            for: [result],
+            receipts: allReceipts,
+            notes: Array(notes.values)
+        )
+        self.lastSearchAnswer = answer
+        return answer.text
+    }
+
+    private func formatLookupResponse(
+        productName: String,
+        result: ItemSearchResult,
+        dateFormatter: DateFormatter
+    ) -> String {
+        let dateStr = dateFormatter.string(from: result.receiptDate)
+        var response = "You last bought **\(productName)** on **\(dateStr)** at **\(result.merchant)**"
+
+        if result.amount > 0 {
+            let formattedAmount = String(format: "$%.2f", result.amount)
+            response += " for \(formattedAmount)"
+        }
+
+        if result.confidence < 1.0 {
+            response += " (confidence: \(String(format: "%.0f%%", result.confidence * 100)))"
+        }
+
+        response += "."
+        return response
+    }
+
+    private func formatCountUniqueResponseWithItems(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter,
+        allReceipts: [ReceiptStat],
+        notes: [UUID: Note]
+    ) -> String {
+        let answer = ItemSearchService.shared.createSearchAnswer(
+            text: formatCountUniqueResponse(productName: productName, matches: matches, dateFormatter: dateFormatter),
+            for: matches,
+            receipts: allReceipts,
+            notes: Array(notes.values)
+        )
+        self.lastSearchAnswer = answer
+        return answer.text
+    }
+
+    private func formatCountUniqueResponse(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter
+    ) -> String {
+        let grouped = ItemSearchService.shared.groupReceiptsByMerchant(for: matches)
+        let uniqueCount = grouped.count
+
+        var response = "You bought **\(productName)** from **\(uniqueCount) different \(uniqueCount == 1 ? "place" : "places")**:\n\n"
+
+        // Sort merchants by most recent receipt
+        let sortedMerchants = grouped.keys.sorted { merchant1, merchant2 in
+            let date1 = grouped[merchant1]?.max(by: { $0.receiptDate < $1.receiptDate })?.receiptDate ?? Date()
+            let date2 = grouped[merchant2]?.max(by: { $0.receiptDate < $1.receiptDate })?.receiptDate ?? Date()
+            return date1 > date2
+        }
+
+        for (index, merchant) in sortedMerchants.enumerated() {
+            let receiptsAtMerchant = grouped[merchant] ?? []
+            let count = receiptsAtMerchant.count
+            let totalAmount = receiptsAtMerchant.reduce(0) { $0 + $1.amount }
+
+            response += "**\(index + 1). \(merchant)**"
+            if count > 1 {
+                response += " (\(count) times, total: $\(String(format: "%.2f", totalAmount)))"
+            } else {
+                response += " ($\(String(format: "%.2f", totalAmount)))"
+            }
+            response += "\n"
+
+            // Show dates of purchases at this merchant
+            let dates = receiptsAtMerchant.sorted { $0.receiptDate > $1.receiptDate }
+            for date in dates.prefix(3) {
+                response += "   • \(dateFormatter.string(from: date.receiptDate))\n"
+            }
+            if dates.count > 3 {
+                response += "   • ...and \(dates.count - 3) more\n"
+            }
+        }
+
+        return response
+    }
+
+    private func formatListAllResponseWithItems(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter,
+        allReceipts: [ReceiptStat],
+        notes: [UUID: Note]
+    ) -> String {
+        let answer = ItemSearchService.shared.createSearchAnswer(
+            text: formatListAllResponse(productName: productName, matches: matches, dateFormatter: dateFormatter),
+            for: matches,
+            receipts: allReceipts,
+            notes: Array(notes.values)
+        )
+        self.lastSearchAnswer = answer
+        return answer.text
+    }
+
+    private func formatListAllResponse(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter
+    ) -> String {
+        var response = "Found \(matches.count) receipt\(matches.count == 1 ? "" : "s") for **\(productName)**:\n\n"
+
+        for (index, match) in matches.enumerated() {
+            let dateStr = dateFormatter.string(from: match.receiptDate)
+            response += "**\(index + 1). \(dateStr)** - \(match.merchant)"
+
+            if match.amount > 0 {
+                response += " ($\(String(format: "%.2f", match.amount)))"
+            }
+
+            response += "\n"
+        }
+
+        return response
+    }
+
+    private func formatSumResponseWithItems(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter,
+        allReceipts: [ReceiptStat],
+        notes: [UUID: Note]
+    ) -> String {
+        let answer = ItemSearchService.shared.createSearchAnswer(
+            text: formatSumResponse(productName: productName, matches: matches, dateFormatter: dateFormatter),
+            for: matches,
+            receipts: allReceipts,
+            notes: Array(notes.values)
+        )
+        self.lastSearchAnswer = answer
+        return answer.text
+    }
+
+    private func formatSumResponse(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter
+    ) -> String {
+        let totalAmount = ItemSearchService.shared.sumAmount(for: matches)
+        let count = matches.count
+
+        var response = "You spent **$\(String(format: "%.2f", totalAmount))** on **\(productName)** across \(count) purchase\(count == 1 ? "" : "s"):\n\n"
+
+        for match in matches.sorted(by: { $0.receiptDate > $1.receiptDate }) {
+            let dateStr = dateFormatter.string(from: match.receiptDate)
+            response += "• \(dateStr): \(match.merchant) - $\(String(format: "%.2f", match.amount))\n"
+        }
+
+        return response
+    }
+
+    private func formatFrequencyResponseWithItems(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter,
+        allReceipts: [ReceiptStat],
+        notes: [UUID: Note]
+    ) -> String {
+        let answer = ItemSearchService.shared.createSearchAnswer(
+            text: formatFrequencyResponse(productName: productName, matches: matches, dateFormatter: dateFormatter),
+            for: matches,
+            receipts: allReceipts,
+            notes: Array(notes.values)
+        )
+        self.lastSearchAnswer = answer
+        return answer.text
+    }
+
+    private func formatFrequencyResponse(
+        productName: String,
+        matches: [ItemSearchResult],
+        dateFormatter: DateFormatter
+    ) -> String {
+        let count = matches.count
+
+        var response = "You bought **\(productName)** \(count) time\(count == 1 ? "" : "s"):\n\n"
+
+        for (index, match) in matches.enumerated() {
+            let dateStr = dateFormatter.string(from: match.receiptDate)
+            response += "**\(index + 1). \(dateStr)** at \(match.merchant)"
+
+            if match.amount > 0 {
+                response += " ($\(String(format: "%.2f", match.amount)))"
+            }
+
+            response += "\n"
+        }
+
+        return response
+    }
 }
 
 struct OpenAIChoice: Codable {
@@ -4951,6 +5363,11 @@ struct OpenAIChoice: Codable {
 
 struct OpenAIMessage: Codable {
     let content: String
+}
+
+// MARK: - Response Models (for future use if needed)
+struct OpenAIResponse: Codable {
+    let choices: [OpenAIChoice]
 }
 
 // MARK: - Embedding Response Models
