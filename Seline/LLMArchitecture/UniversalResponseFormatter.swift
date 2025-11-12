@@ -244,10 +244,10 @@ class UniversalResponseFormatter {
         }
 
         // Filter items based on presentation rules
-        var items = result.data.items.prefix(rules.maxItemsToShow)
+        var items = Array(result.data.items.prefix(rules.maxItemsToShow))
 
         // Sort by relevance based on intent
-        items = sortItemsByIntent(Array(items), intent: result.intent)
+        items = sortItemsByIntent(items, intent: result.intent)
 
         // Convert to RelatedItem for display
         return items.map { item in
