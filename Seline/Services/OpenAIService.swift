@@ -5156,6 +5156,406 @@ class OpenAIService: ObservableObject {
         }
     }
 
+    // MARK: - Universal Semantic Query Generation
+
+    /// Generate a semantic query that works across all app data types
+    /// This is the new foundational query system that replaces rigid intent types
+    func generateSemanticQuery(from userQuery: String) async -> SemanticQuery? {
+        let systemPrompt = """
+        You are an expert semantic query parser for a personal data assistant.
+
+        The app contains 6 data types:
+        1. **Receipts** - Purchase history with merchant, amount, date, category
+        2. **Emails** - Messages organized in folders
+        3. **Events** - Calendar events (upcoming/completed)
+        4. **Notes** - Text content organized in folders
+        5. **Locations** - Saved places (favorited, ranked, in folders)
+        6. **Calendar** - Integrated calendar events
+
+        Parse the user's natural language query into a semantic query plan. Return ONLY valid JSON (no other text).
+
+        {
+          "intent": "search|compare|analyze|explore|track|summarize|predict",
+          "reasoning": "brief explanation of intent interpretation",
+
+          "dataSources": [
+            {
+              "type": "receipts|emails|events|notes|locations|calendar",
+              "filters": { "category": "...", "folder": "...", "status": "..." }
+            }
+          ],
+
+          "filters": [
+            {
+              "type": "date_range|category|text_search|status|amount_range|merchant",
+              "parameters": { ... }
+            }
+          ],
+
+          "operations": [
+            {
+              "type": "aggregate|comparison|search|trend_analysis",
+              "parameters": { ... }
+            }
+          ],
+
+          "presentation": {
+            "format": "summary|table|list|timeline|trend|cards|mixed",
+            "includeIndividualItems": true|false,
+            "maxItemsToShow": 5-20,
+            "summaryLevel": "brief|detailed|comprehensive"
+          },
+
+          "confidence": 0.0-1.0
+        }
+
+        **Intent Types:**
+        - search: Find items matching criteria ("show my emails from John", "find notes about project X")
+        - compare: Compare time periods or categories ("compare Nov vs Oct", "food vs shopping spending")
+        - analyze: Statistics, patterns, insights ("which merchant do I use most", "spending trend")
+        - explore: Browse and discover ("show my recent emails", "what locations have I saved")
+        - track: Monitor status/progress ("what events are pending", "incomplete tasks")
+        - summarize: Overview/digest ("monthly summary", "recap of last week")
+        - predict: Forecast/suggest ("when will I hit budget", "likely next purchase")
+
+        **Data Source Examples:**
+        - receipts: { "type": "receipts", "filters": {"category": "Food"} }
+        - emails: { "type": "emails", "filters": {"folder": "Work"} }
+        - events: { "type": "events", "filters": {"status": "upcoming"} }
+        - notes: { "type": "notes", "filters": {"folder": "Projects"} }
+        - locations: { "type": "locations" }
+
+        **Filter Types:**
+        - date_range: { "startDate": "2025-11-01", "endDate": "2025-11-30", "labels": ["November 2025"] }
+        - category: { "categories": ["Food", "Shopping"], "excludeCategories": [] }
+        - text_search: { "query": "pizza", "fields": ["content", "merchant"], "fuzzyMatch": true }
+        - status: { "status": "completed" }
+        - amount_range: { "minAmount": 10.0, "maxAmount": 100.0 }
+        - merchant: { "merchants": ["Costco", "Trader Joe's"], "fuzzyMatch": true }
+
+        **Operation Types:**
+        - aggregate: { "type": "aggregate", "aggregationType": "sum|count|average|min|max", "groupBy": "category|merchant|date|status" }
+        - comparison: { "type": "comparison", "dimension": "time|category|merchant", "slices": ["November", "October"], "metric": "total|count|average" }
+        - search: { "type": "search", "query": "...", "rankBy": "relevance|date|amount", "limit": 10 }
+        - trend_analysis: { "type": "trend_analysis", "metric": "spending|frequency", "timeGranularity": "daily|weekly|monthly|yearly" }
+
+        **CRITICAL RULES:**
+        1. For comparison queries (e.g., "Nov vs Oct"), use comparison operation with dimension "time"
+        2. For aggregate queries (e.g., "spending by category"), use aggregate operation with groupBy
+        3. For month comparisons, detect both date periods and add them as date_range filters
+        4. Set includeIndividualItems: false for aggregate/comparison/analyze queries
+        5. Set includeIndividualItems: true for search/explore/track queries
+
+        **Examples:**
+
+        Query: "Compare my spending in November and October 2025"
+        {
+          "intent": "compare",
+          "dataSources": [{"type": "receipts"}],
+          "filters": [
+            {
+              "type": "date_range",
+              "parameters": {
+                "startDate": "2025-10-01",
+                "endDate": "2025-11-30",
+                "labels": ["October 2025", "November 2025"]
+              }
+            }
+          ],
+          "operations": [
+            {
+              "type": "comparison",
+              "parameters": {
+                "dimension": "time",
+                "slices": ["October 2025", "November 2025"],
+                "metric": "total"
+              }
+            },
+            {
+              "type": "aggregate",
+              "parameters": {
+                "aggregationType": "sum",
+                "groupBy": "category"
+              }
+            }
+          ],
+          "presentation": {
+            "format": "table",
+            "includeIndividualItems": false,
+            "maxItemsToShow": 10,
+            "summaryLevel": "detailed"
+          },
+          "confidence": 0.95
+        }
+
+        Query: "Show me unread emails from the past week"
+        {
+          "intent": "explore",
+          "dataSources": [{"type": "emails"}],
+          "filters": [
+            {"type": "date_range", "parameters": {"days": 7, "labels": ["past week"]}},
+            {"type": "status", "parameters": {"status": "unread"}}
+          ],
+          "operations": [],
+          "presentation": {
+            "format": "list",
+            "includeIndividualItems": true,
+            "maxItemsToShow": 20,
+            "summaryLevel": "brief"
+          },
+          "confidence": 0.98
+        }
+
+        Query: "What's my top spending category"
+        {
+          "intent": "analyze",
+          "dataSources": [{"type": "receipts"}],
+          "filters": [],
+          "operations": [
+            {
+              "type": "aggregate",
+              "parameters": {
+                "aggregationType": "sum",
+                "groupBy": "category"
+              }
+            }
+          ],
+          "presentation": {
+            "format": "summary",
+            "includeIndividualItems": false,
+            "maxItemsToShow": 5,
+            "summaryLevel": "brief"
+          },
+          "confidence": 0.92
+        }
+        """
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userQuery]
+            ],
+            "temperature": 0.3,
+            "max_tokens": 1500
+        ]
+
+        do {
+            let responseString = try await makeOpenAIRequest(
+                url: URL(string: baseURL)!,
+                requestBody: requestBody
+            )
+
+            guard let jsonData = responseString.data(using: .utf8) else {
+                return nil
+            }
+
+            let decoder = JSONDecoder()
+            let response = try decoder.decode(SemanticQueryResponse.self, from: jsonData)
+
+            // Build the SemanticQuery from the response
+            let intent = QueryIntent(rawValue: response.intent) ?? .search
+            let dataSources = parseDataSources(response.dataSources)
+            let filters = parseFilters(response.filters)
+            let operations = parseOperations(response.operations)
+            let presentation = PresentationRules(
+                format: PresentationRules.ResponseFormat(rawValue: response.presentation.format) ?? .mixed,
+                includeIndividualItems: response.presentation.includeIndividualItems,
+                maxItemsToShow: response.presentation.maxItemsToShow,
+                visualizations: [],
+                summaryLevel: PresentationRules.SummaryLevel(rawValue: response.presentation.summaryLevel) ?? .detailed
+            )
+
+            let query = SemanticQuery(
+                userQuery: userQuery,
+                intent: intent,
+                dataSources: dataSources,
+                filters: filters,
+                operations: operations,
+                presentation: presentation,
+                confidence: response.confidence,
+                reasoning: response.reasoning
+            )
+
+            print("🧠 Semantic Query Generated:")
+            print("   Intent: \(intent)")
+            print("   Sources: \(dataSources.count)")
+            print("   Filters: \(filters.count)")
+            print("   Operations: \(operations.count)")
+            print("   Format: \(presentation.format)")
+            print("   Confidence: \(String(format: "%.0f%%", response.confidence * 100))")
+
+            return query
+
+        } catch {
+            print("❌ Semantic query generation failed: \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Semantic Query Response Parsing
+
+    private struct SemanticQueryResponse: Codable {
+        let intent: String
+        let reasoning: String
+        let dataSources: [[String: AnyCodable]]
+        let filters: [[String: AnyCodable]]
+        let operations: [[String: AnyCodable]]
+        let presentation: PresentationResponse
+        let confidence: Double
+
+        enum CodingKeys: String, CodingKey {
+            case intent, reasoning, dataSources, filters, operations, presentation, confidence
+        }
+    }
+
+    private struct PresentationResponse: Codable {
+        let format: String
+        let includeIndividualItems: Bool
+        let maxItemsToShow: Int
+        let summaryLevel: String
+    }
+
+    private func parseDataSources(_ raw: [[String: AnyCodable]]) -> [DataSource] {
+        return raw.compactMap { dict in
+            guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
+
+            switch typeStr {
+            case "receipts":
+                let category = (dict["filters"] as? AnyCodable)?.value
+                    .flatMap { $0 as? [String: AnyCodable] }
+                    .flatMap { $0["category"]?.value as? String }
+                return .receipts(category: category)
+
+            case "emails":
+                let folder = (dict["filters"] as? AnyCodable)?.value
+                    .flatMap { $0 as? [String: AnyCodable] }
+                    .flatMap { $0["folder"]?.value as? String }
+                return .emails(folder: folder)
+
+            case "events":
+                let statusStr = (dict["filters"] as? AnyCodable)?.value
+                    .flatMap { $0 as? [String: AnyCodable] }
+                    .flatMap { $0["status"]?.value as? String }
+                let status = statusStr.flatMap { EventStatus(rawValue: $0) }
+                return .events(status: status)
+
+            case "notes":
+                let folder = (dict["filters"] as? AnyCodable)?.value
+                    .flatMap { $0 as? [String: AnyCodable] }
+                    .flatMap { $0["folder"]?.value as? String }
+                return .notes(folder: folder)
+
+            case "locations":
+                return .locations(type: nil)
+
+            case "calendar":
+                return .calendar
+
+            default:
+                return nil
+            }
+        }
+    }
+
+    private func parseFilters(_ raw: [[String: AnyCodable]]) -> [AnyFilter] {
+        return raw.compactMap { dict in
+            guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
+            guard let params = (dict["parameters"] as? AnyCodable)?.value as? [String: Any] else { return nil }
+
+            switch typeStr {
+            case "date_range":
+                let labels = (params["labels"] as? [String]) ?? []
+                let startStr = params["startDate"] as? String
+                let endStr = params["endDate"] as? String
+
+                let formatter = ISO8601DateFormatter()
+                let start = startStr.flatMap { formatter.date(from: $0) }
+                let end = endStr.flatMap { formatter.date(from: $0) }
+
+                return AnyFilter(DateRangeFilter(startDate: start, endDate: end, labels: labels))
+
+            case "category":
+                let categories = (params["categories"] as? [String]) ?? []
+                let excludeCategories = (params["excludeCategories"] as? [String]) ?? []
+                return AnyFilter(CategoryFilter(categories: categories, excludeCategories: excludeCategories))
+
+            case "text_search":
+                let query = (params["query"] as? String) ?? ""
+                let fields = (params["fields"] as? [String]) ?? []
+                let fuzzyMatch = (params["fuzzyMatch"] as? Bool) ?? true
+                return AnyFilter(TextSearchFilter(query: query, fields: fields, fuzzyMatch: fuzzyMatch))
+
+            case "status":
+                let status = (params["status"] as? String) ?? ""
+                return AnyFilter(StatusFilter(status: status))
+
+            case "amount_range":
+                let minAmount = params["minAmount"] as? Double
+                let maxAmount = params["maxAmount"] as? Double
+                return AnyFilter(AmountRangeFilter(minAmount: minAmount, maxAmount: maxAmount))
+
+            case "merchant":
+                let merchants = (params["merchants"] as? [String]) ?? []
+                let fuzzyMatch = (params["fuzzyMatch"] as? Bool) ?? true
+                return AnyFilter(MerchantFilter(merchants: merchants, fuzzyMatch: fuzzyMatch))
+
+            default:
+                return nil
+            }
+        }
+    }
+
+    private func parseOperations(_ raw: [[String: AnyCodable]]) -> [AnyOperation] {
+        return raw.compactMap { dict in
+            guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
+            guard let params = (dict["parameters"] as? AnyCodable)?.value as? [String: Any] else { return nil }
+
+            switch typeStr {
+            case "aggregate":
+                let aggTypeStr = (params["aggregationType"] as? String) ?? "count"
+                let groupBy = params["groupBy"] as? String
+
+                let aggType: AggregateOperation.AggregationType
+                switch aggTypeStr {
+                case "sum":
+                    aggType = .sum(field: "amount")
+                case "average":
+                    aggType = .average(field: "amount")
+                case "min":
+                    aggType = .min(field: "amount")
+                case "max":
+                    aggType = .max(field: "amount")
+                default:
+                    aggType = .count
+                }
+
+                return AnyOperation(AggregateOperation(type: aggType, groupBy: groupBy, sortBy: nil))
+
+            case "comparison":
+                let dimension = (params["dimension"] as? String) ?? "time"
+                let slices = (params["slices"] as? [String]) ?? []
+                let metric = (params["metric"] as? String) ?? "total"
+                return AnyOperation(ComparisonOperation(dimension: dimension, slices: slices, metric: metric))
+
+            case "search":
+                let query = (params["query"] as? String) ?? ""
+                let rankBy = params["rankBy"] as? String
+                let limit = params["limit"] as? Int
+                return AnyOperation(SearchOperation(query: query, rankBy: rankBy, limit: limit))
+
+            case "trend_analysis":
+                let metric = (params["metric"] as? String) ?? "spending"
+                let granularity = (params["timeGranularity"] as? String) ?? "monthly"
+                let direction = params["direction"] as? String
+                return AnyOperation(TrendAnalysisOperation(metric: metric, timeGranularity: granularity, direction: direction))
+
+            default:
+                return nil
+            }
+        }
+    }
+
     // MARK: - Response Formatting Helpers
 
     private func formatLookupResponseWithItems(
