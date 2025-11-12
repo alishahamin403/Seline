@@ -4805,6 +4805,7 @@ class OpenAIService: ObservableObject {
     /// Handles future date queries directly without LLM filtering
     /// For "tomorrow", "next week", etc., calculates events that will occur and returns them directly
     /// This bypasses the complex filtering and ensures recurring events are detected
+    @MainActor
     private func checkForFutureDateQuery(query: String, currentDate: Date, taskManager: TaskManager) -> String? {
         let calendar = Calendar.current
         let dateFormatter = DateFormatter()
@@ -4829,8 +4830,9 @@ class OpenAIService: ObservableObject {
             }
         } else if query.contains("next month") || query.contains("upcoming month") {
             if let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentDate) {
-                let range = calendar.range(of: .day, in: .month, for: nextMonth) ?? 1...28
-                targetDates = range.compactMap { day in
+                let range = calendar.range(of: .day, in: .month, for: nextMonth)
+                let daysInMonth = range?.count ?? 28
+                targetDates = (1...daysInMonth).compactMap { day in
                     calendar.date(from: DateComponents(year: calendar.component(.year, from: nextMonth),
                                                         month: calendar.component(.month, from: nextMonth),
                                                         day: day))
@@ -4866,14 +4868,11 @@ class OpenAIService: ObservableObject {
                     isMatch = shouldEventOccurOnDate(event: event, targetWeekday: targetWeekday, targetDay: targetDay, calendar: calendar)
                 } else {
                     // For one-time events, check if the date matches
-                    if let eventDate = event.targetDate ?? event.createdAt {
-                        let eventDay = calendar.component(.day, from: eventDate)
-                        let eventMonth = calendar.component(.month, from: eventDate)
-                        let eventYear = calendar.component(.year, from: eventDate)
-                        isMatch = (eventDay == targetDay && eventMonth == targetMonth && eventYear == targetYear)
-                    } else {
-                        isMatch = false
-                    }
+                    let eventDate = event.targetDate ?? event.createdAt
+                    let eventDay = calendar.component(.day, from: eventDate)
+                    let eventMonth = calendar.component(.month, from: eventDate)
+                    let eventYear = calendar.component(.year, from: eventDate)
+                    isMatch = (eventDay == targetDay && eventMonth == targetMonth && eventYear == targetYear)
                 }
 
                 if isMatch && !matchingEvents.contains(where: { $0.id == event.id }) {
@@ -4908,6 +4907,7 @@ class OpenAIService: ObservableObject {
     }
 
     /// Determines if a recurring event should occur on a specific target date
+    @MainActor
     private func shouldEventOccurOnDate(event: TaskItem, targetWeekday: Int, targetDay: Int, calendar: Calendar) -> Bool {
         let eventWeekday = event.weekday.calendarWeekday
 
