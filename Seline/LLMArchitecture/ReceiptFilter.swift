@@ -95,7 +95,6 @@ class ReceiptFilter {
                     if MerchantIntelligenceLayer.shared.likelyToSell(info, product: lowerEntity) {
                         score += 1.5  // Slightly lower confidence than explicit match
                         matchType = .merchant_match
-                        merchantKeywordMatch = true
                     }
                 }
             }
