@@ -6,7 +6,7 @@ import Foundation
 /// Main semantic query structure - describes exactly what data transformation is needed
 struct SemanticQuery {
     let userQuery: String
-    let intent: QueryIntent
+    let intent: SemanticQueryIntent
     let dataSources: [DataSource]
     let filters: [AnyFilter]
     let operations: [AnyOperation]
@@ -19,9 +19,9 @@ struct SemanticQuery {
     }
 }
 
-// MARK: - Query Intent (WHAT the user wants to do)
+// MARK: - Semantic Query Intent (WHAT the user wants to do)
 
-enum QueryIntent: String, Codable {
+enum SemanticQueryIntent: String, Codable {
     case search       // Find items matching criteria
     case compare      // Compare entities or time periods
     case analyze      // Statistics, trends, patterns
@@ -38,7 +38,7 @@ enum DataSource: Hashable, Codable {
     case emails(folder: String? = nil)
     case events(status: EventStatus? = nil)
     case notes(folder: String? = nil)
-    case locations(type: LocationFilter? = nil)
+    case locations(type: SemanticLocationFilter? = nil)
     case calendar
 
     enum CodingKeys: String, CodingKey {
@@ -62,7 +62,9 @@ enum DataSource: Hashable, Codable {
             try container.encodeIfPresent(folder, forKey: .folder)
         case .locations(let filter):
             try container.encode("locations", forKey: .type)
-            try container.encodeIfPresent(filter?.rawValue, forKey: .locationType)
+            if let filter = filter {
+                try container.encode(filter.rawValue, forKey: .locationType)
+            }
         case .calendar:
             try container.encode("calendar", forKey: .type)
         }
@@ -88,7 +90,7 @@ enum DataSource: Hashable, Codable {
             self = .notes(folder: folder)
         case "locations":
             let filter = try container.decodeIfPresent(String.self, forKey: .locationType)
-                .flatMap { LocationFilter(rawValue: $0) }
+                .flatMap { SemanticLocationFilter(rawValue: $0) }
             self = .locations(type: filter)
         case "calendar":
             self = .calendar
@@ -104,7 +106,7 @@ enum EventStatus: String, Codable {
     case all
 }
 
-enum LocationFilter: String, Codable {
+enum SemanticLocationFilter: String, Codable {
     case favorited
     case ranked
     case inFolder
@@ -701,7 +703,7 @@ struct PresentationRules: Codable {
 // MARK: - Result Structures
 
 struct QueryResult {
-    let intent: QueryIntent
+    let intent: SemanticQueryIntent
     let data: QueryResultData
     let explanation: String
 }
@@ -735,7 +737,7 @@ struct TrendResult {
 enum UniversalItem {
     case receipt(ReceiptStat)
     case email(Email)
-    case event(Event)
+    case event(TaskItem)
     case note(Note)
     case location(SavedPlace)
 
@@ -746,7 +748,7 @@ enum UniversalItem {
         case .email(let email):
             return email.timestamp
         case .event(let event):
-            return event.eventDate
+            return event.targetDate ?? event.scheduledTime ?? event.createdAt
         case .note(let note):
             return note.dateModified
         case .location(let location):
@@ -759,11 +761,11 @@ enum UniversalItem {
         case .receipt(let receipt):
             return receipt.category
         case .email(let email):
-            return email.folder
+            return email.labels.first ?? "inbox"
         case .event(let event):
-            return event.tags.first?.name ?? "General"
+            return "Event"
         case .note(let note):
-            return note.folder
+            return "Note"
         case .location(let location):
             return location.category
         }
@@ -819,9 +821,9 @@ enum UniversalItem {
         case .receipt(let receipt):
             return "\(receipt.title) \(receipt.category)"
         case .email(let email):
-            return "\(email.subject) \(email.body) \(email.sender)"
+            return "\(email.subject) \(email.body ?? "") \(email.sender.email)"
         case .event(let event):
-            return "\(event.title) \(event.notes)"
+            return "\(event.title) \(event.description ?? "")"
         case .note(let note):
             return "\(note.title) \(note.content)"
         case .location(let location):

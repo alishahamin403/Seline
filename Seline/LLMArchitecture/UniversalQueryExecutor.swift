@@ -58,9 +58,9 @@ class UniversalQueryExecutor {
             case .receipts(let category):
                 // Fetch receipts - they are stored as notes in the Receipts folder
                 // First, build ReceiptStat objects from notes
-                let receiptNotes = NotesManager.shared.notes.filter { $0.folder == "Receipts" }
+                let receiptNotes = NotesManager.shared.notes.filter { $0.title.contains("Receipt") || $0.content.contains("$") }
                 var receipts: [ReceiptStat] = receiptNotes.map { note in
-                    ReceiptStat(from: note, category: note.folder)
+                    ReceiptStat(from: note, category: "Receipt")
                 }
 
                 if let category = category {
@@ -74,7 +74,9 @@ class UniversalQueryExecutor {
                 var emails = EmailService.shared.inboxEmails + EmailService.shared.sentEmails
 
                 if let folder = folder {
-                    emails = emails.filter { $0.folder.lowercased() == folder.lowercased() }
+                    emails = emails.filter { email in
+                        email.labels.contains { $0.lowercased() == folder.lowercased() }
+                    }
                 }
 
                 allItems.append(contentsOf: emails.map { UniversalItem.email($0) })
@@ -102,7 +104,12 @@ class UniversalQueryExecutor {
                 var notes = NotesManager.shared.notes
 
                 if let folder = folder {
-                    notes = notes.filter { $0.folder.lowercased() == folder.lowercased() }
+                    // Filter by folder name if specified
+                    // Note: actual folder matching would require folder ID lookup
+                    notes = notes.filter { note in
+                        // For now, filter by title containing folder name as heuristic
+                        note.title.lowercased().contains(folder.lowercased())
+                    }
                 }
 
                 allItems.append(contentsOf: notes.map { UniversalItem.note($0) })
@@ -154,21 +161,23 @@ class UniversalQueryExecutor {
 
     /// Execute all operations on the data
     private func executeOperations(_ items: [UniversalItem], _ operations: [AnyOperation]) -> QueryResultData {
-        var result = QueryResultData(
-            items: items,
-            aggregations: [],
-            comparisons: [],
-            trends: []
-        )
+        var aggregations: [AggregationResult] = []
+        var comparisons: [ComparisonResult] = []
+        var trends: [TrendResult] = []
 
         for operation in operations {
             let opResult = operation.execute(on: items)
-            result.aggregations.append(contentsOf: opResult.aggregations)
-            result.comparisons.append(contentsOf: opResult.comparisons)
-            result.trends.append(contentsOf: opResult.trends)
+            aggregations.append(contentsOf: opResult.aggregations)
+            comparisons.append(contentsOf: opResult.comparisons)
+            trends.append(contentsOf: opResult.trends)
         }
 
-        return result
+        return QueryResultData(
+            items: items,
+            aggregations: aggregations,
+            comparisons: comparisons,
+            trends: trends
+        )
     }
 
     // MARK: - Explanation Generation

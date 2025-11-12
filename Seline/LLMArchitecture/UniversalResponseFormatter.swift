@@ -284,7 +284,7 @@ class UniversalResponseFormatter {
     }
 
     /// Sort items based on the user's intent
-    private func sortItemsByIntent(_ items: [UniversalItem], intent: QueryIntent) -> [UniversalItem] {
+    private func sortItemsByIntent(_ items: [UniversalItem], intent: SemanticQueryIntent) -> [UniversalItem] {
         switch intent {
         case .search:
             // For search, sort by date descending (most recent first)
@@ -321,11 +321,12 @@ class UniversalResponseFormatter {
             return "\(receipt.title) - \(amount) (\(formatter.string(from: receipt.date)))"
 
         case .email(let email):
-            return "\(email.subject) from \(email.sender)"
+            return "\(email.subject) from \(email.sender.email)"
 
         case .event(let event):
             let status = event.isCompleted ? "✓" : "→"
-            return "\(status) \(event.title) (\(formatter.string(from: event.eventDate)))"
+            let date = event.targetDate ?? event.scheduledTime ?? event.createdAt
+            return "\(status) \(event.title) (\(formatter.string(from: date)))"
 
         case .note(let note):
             let preview = note.content.prefix(40)

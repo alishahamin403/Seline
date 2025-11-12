@@ -5354,7 +5354,7 @@ class OpenAIService: ObservableObject {
             let response = try decoder.decode(SemanticQueryResponse.self, from: jsonData)
 
             // Build the SemanticQuery from the response
-            let intent = QueryIntent(rawValue: response.intent) ?? .search
+            let intent = SemanticQueryIntent(rawValue: response.intent) ?? .search
             let dataSources = parseDataSources(response.dataSources)
             let filters = parseFilters(response.filters)
             let operations = parseOperations(response.operations)
