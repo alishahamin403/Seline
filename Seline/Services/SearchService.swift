@@ -505,15 +505,40 @@ class SearchService: ObservableObject {
                 )
 
                 // Mark when LLM finishes thinking (after streaming completes)
+                // Also extract any related items (receipts, notes, etc.) from the response
                 // Dispatch to main thread to ensure UI updates happen on main thread
                 DispatchQueue.main.async {
                     if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                        // Extract related data from OpenAIService's lastSearchAnswer
+                        var relatedData: [RelatedDataItem]? = nil
+                        if let searchAnswer = OpenAIService.shared.lastSearchAnswer {
+                            var items: [RelatedDataItem] = []
+
+                            // Add related receipts
+                            for receipt in searchAnswer.relatedReceipts {
+                                items.append(RelatedDataItem(
+                                    id: receipt.id,
+                                    type: .receipt,
+                                    title: receipt.title,
+                                    subtitle: receipt.category,
+                                    date: receipt.date,
+                                    amount: receipt.amount,
+                                    merchant: receipt.title
+                                ))
+                            }
+
+                            if !items.isEmpty {
+                                relatedData = items
+                            }
+                        }
+
                         let finalMsg = ConversationMessage(
                             id: streamingMessageID,
                             isUser: false,
                             text: self.conversationHistory[lastIndex].text,
                             timestamp: self.conversationHistory[lastIndex].timestamp,
                             intent: self.conversationHistory[lastIndex].intent,
+                            relatedData: relatedData,
                             timeStarted: self.conversationHistory[lastIndex].timeStarted,
                             timeFinished: Date()
                         )
@@ -534,12 +559,36 @@ class SearchService: ObservableObject {
                     conversationHistory: conversationHistory.dropLast() // All messages except the current user message
                 )
 
+                // Extract related data from OpenAIService's lastSearchAnswer
+                var relatedData: [RelatedDataItem]? = nil
+                if let searchAnswer = OpenAIService.shared.lastSearchAnswer {
+                    var items: [RelatedDataItem] = []
+
+                    // Add related receipts
+                    for receipt in searchAnswer.relatedReceipts {
+                        items.append(RelatedDataItem(
+                            id: receipt.id,
+                            type: .receipt,
+                            title: receipt.title,
+                            subtitle: receipt.category,
+                            date: receipt.date,
+                            amount: receipt.amount,
+                            merchant: receipt.title
+                        ))
+                    }
+
+                    if !items.isEmpty {
+                        relatedData = items
+                    }
+                }
+
                 let assistantMsg = ConversationMessage(
                     id: UUID(),
                     isUser: false,
                     text: response,
                     timestamp: Date(),
                     intent: .general,
+                    relatedData: relatedData,
                     timeStarted: thinkStartTime,
                     timeFinished: Date()
                 )

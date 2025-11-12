@@ -306,6 +306,26 @@ struct ConversationMessageView: View {
                         .font(.system(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                 }
+
+                // Show related receipts for expense queries
+                if !message.isUser, let relatedData = message.relatedData {
+                    let receipts = relatedData.filter { $0.type == .receipt }
+                    if !receipts.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Divider()
+                                .padding(.vertical, 4)
+
+                            ForEach(receipts) { receipt in
+                                ReceiptCardView(
+                                    merchant: receipt.merchant ?? receipt.title,
+                                    date: receipt.date,
+                                    amount: receipt.amount,
+                                    colorScheme: colorScheme
+                                )
+                            }
+                        }
+                    }
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
@@ -333,6 +353,83 @@ struct ConversationMessageView: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+}
+
+// MARK: - Receipt Card Component
+
+struct ReceiptCardView: View {
+    let merchant: String
+    let date: Date?
+    let amount: Double?
+    let colorScheme: ColorScheme
+
+    private var dateString: String {
+        guard let date = date else { return "Unknown date" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
+    }
+
+    private var amountString: String {
+        guard let amount = amount, amount > 0 else { return "—" }
+        return String(format: "$%.2f", amount)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Receipt icon
+            Image(systemName: "receipt.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.blue)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            colorScheme == .dark
+                                ? Color.blue.opacity(0.15)
+                                : Color.blue.opacity(0.1)
+                        )
+                )
+
+            // Receipt details
+            VStack(alignment: .leading, spacing: 4) {
+                Text(merchant)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .lineLimit(1)
+
+                Text(dateString)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            }
+
+            Spacer()
+
+            // Amount
+            Text(amountString)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.green)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.05)
+                        : Color.black.opacity(0.03)
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(
+                    colorScheme == .dark
+                        ? Color.white.opacity(0.1)
+                        : Color.black.opacity(0.08),
+                    lineWidth: 0.5
+                )
+        )
     }
 }
 

@@ -88,19 +88,24 @@ struct RelatedDataItem: Identifiable, Codable {
     let title: String
     let subtitle: String?
     let date: Date?
+    let amount: Double?  // For receipts
+    let merchant: String?  // For receipts
 
     enum DataType: String, Codable {
         case event
         case note
         case location
+        case receipt  // NEW: for expense query results
     }
 
-    init(id: UUID = UUID(), type: DataType, title: String, subtitle: String? = nil, date: Date? = nil) {
+    init(id: UUID = UUID(), type: DataType, title: String, subtitle: String? = nil, date: Date? = nil, amount: Double? = nil, merchant: String? = nil) {
         self.id = id
         self.type = type
         self.title = title
         self.subtitle = subtitle
         self.date = date
+        self.amount = amount
+        self.merchant = merchant
     }
 }
 
