@@ -498,7 +498,7 @@ struct TagSelectionSheet: View {
             .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
     }
 
     private var personalTagSection: some View {
@@ -508,7 +508,7 @@ struct TagSelectionSheet: View {
         }) {
             HStack(spacing: 12) {
                 Circle()
-                    .fill(Color.gray.opacity(0.5))
+                    .fill(Color(red: 0.2039, green: 0.6588, blue: 0.3255))
                     .frame(width: 12, height: 12)
 
                 Text("Personal")
@@ -520,23 +520,23 @@ struct TagSelectionSheet: View {
                 if selectedTagId == nil {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 16))
-                        .foregroundColor(Color.gray.opacity(0.6))
+                        .foregroundColor(Color(red: 0.2039, green: 0.6588, blue: 0.3255))
                 }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(selectedTagId == nil ? Color.gray.opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
+                    .fill(selectedTagId == nil ? Color(red: 0.2039, green: 0.6588, blue: 0.3255).opacity(0.1) : (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(selectedTagId == nil ? Color.gray.opacity(0.3) : Color.clear, lineWidth: 1)
+                    .stroke(selectedTagId == nil ? Color(red: 0.2039, green: 0.6588, blue: 0.3255).opacity(0.3) : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
     }
 
     private var userTagsSection: some View {
@@ -579,13 +579,13 @@ struct TagSelectionSheet: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
         }
     }
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 12) {
+            VStack(spacing: 0) {
                 createNewTagSection
 
                 personalTagSection
