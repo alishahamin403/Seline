@@ -3701,14 +3701,63 @@ class OpenAIService: ObservableObject {
         }
 
         // Step 1: Compile lightweight metadata from all data sources
-        let metadata = MetadataBuilderService.buildAppMetadata(
+        let allMetadata = MetadataBuilderService.buildAppMetadata(
             taskManager: taskManager,
             notesManager: notesManager,
             emailService: emailService,
             locationsManager: locationsManager ?? LocationsManager.shared
         )
 
-        // Step 2: Ask LLM which items are relevant based on metadata
+        // Step 1.5: CRITICAL - Filter metadata by temporal bounds BEFORE LLM sees it
+        // This ensures LLM only receives data from the requested time period
+        let temporalFilter = TemporalDataFilterService.shared
+        let dateBounds = temporalFilter.extractTemporalBoundsFromQuery(query)
+
+        print("⏰ TEMPORAL FILTER: \(dateBounds.periodDescription)")
+        print("   Start: \(ISO8601DateFormatter().string(from: dateBounds.start))")
+        print("   End: \(ISO8601DateFormatter().string(from: dateBounds.end))")
+
+        // Filter all metadata to only include relevant dates
+        let filteredEvents = temporalFilter.filterEventsByDate(
+            allMetadata.events,
+            startDate: dateBounds.start,
+            endDate: dateBounds.end
+        )
+
+        let filteredReceipts = temporalFilter.filterReceiptsByDate(
+            allMetadata.receipts,
+            startDate: dateBounds.start,
+            endDate: dateBounds.end
+        )
+
+        let filteredNotes = temporalFilter.filterNotesByDate(
+            allMetadata.notes,
+            startDate: dateBounds.start,
+            endDate: dateBounds.end
+        )
+
+        let filteredEmails = temporalFilter.filterEmailsByDate(
+            allMetadata.emails,
+            startDate: dateBounds.start,
+            endDate: dateBounds.end
+        )
+
+        // Create temporally-filtered metadata
+        let metadata = AppDataMetadata(
+            receipts: filteredReceipts,
+            events: filteredEvents,
+            locations: allMetadata.locations,  // Locations don't have dates, keep all
+            notes: filteredNotes,
+            emails: filteredEmails
+        )
+
+        print("📊 METADATA AFTER TEMPORAL FILTER:")
+        print("   Events: \(allMetadata.events.count) → \(filteredEvents.count)")
+        print("   Receipts: \(allMetadata.receipts.count) → \(filteredReceipts.count)")
+        print("   Notes: \(allMetadata.notes.count) → \(filteredNotes.count)")
+        print("   Emails: \(allMetadata.emails.count) → \(filteredEmails.count)")
+
+        // Step 2: Ask LLM which items are relevant based on FILTERED metadata
         let relevantItemIds = await getRelevantDataIds(
             forQuestion: query,
             metadata: metadata,
