@@ -98,38 +98,32 @@ class SelineAppContext {
         // Events detail
         context += "=== EVENTS ===\n"
         if !events.isEmpty {
-            // Group by category for summary
-            let byCategory = Dictionary(grouping: events) { $0.category.rawValue }
-            for (category, items) in byCategory.sorted(by: { $0.key < $1.key }) {
-                context += "\n**\(category.capitalized)** (\(items.count) events)\n"
+            // Separate recurring and non-recurring events
+            let recurring = events.filter { $0.isRecurring }
+            let nonRecurring = events.filter { !$0.isRecurring }
 
-                // Show recurring events with completion info
-                let recurring = items.filter { $0.isRecurring }
-                let nonRecurring = items.filter { !$0.isRecurring }
+            if !recurring.isEmpty {
+                context += "\n**Recurring Events** (\(recurring.count) events)\n"
+                for event in recurring.prefix(10) {
+                    let completed = event.completedDates.count
+                    let upcoming = event.isCompleted ? "Completed" : "Upcoming"
+                    context += "  • \(event.title): \(completed) completions total [\(upcoming)]\n"
 
-                if !recurring.isEmpty {
-                    context += "  Recurring:\n"
-                    for event in recurring.prefix(10) {
-                        let completed = event.completedDates.count
-                        let upcoming = event.isCompleted ? "Completed" : "Upcoming"
-                        context += "    • \(event.title): \(completed) completions total [\(upcoming)]\n"
-
-                        // Show recent completions
-                        if !event.completedDates.isEmpty {
-                            let recent = event.completedDates.sorted().suffix(3)
-                            let dateStr = recent.map { formatDate($0) }.joined(separator: ", ")
-                            context += "      Last completions: \(dateStr)\n"
-                        }
+                    // Show recent completions
+                    if !event.completedDates.isEmpty {
+                        let recent = event.completedDates.sorted().suffix(3)
+                        let dateStr = recent.map { formatDate($0) }.joined(separator: ", ")
+                        context += "    Last completions: \(dateStr)\n"
                     }
                 }
+            }
 
-                if !nonRecurring.isEmpty {
-                    context += "  One-time:\n"
-                    for event in nonRecurring.prefix(10) {
-                        let dateStr = event.targetDate.map { formatDate($0) } ?? "No date"
-                        let status = event.isCompleted ? "✓" : "○"
-                        context += "    \(status) \(event.title) - \(dateStr)\n"
-                    }
+            if !nonRecurring.isEmpty {
+                context += "\n**One-time Events** (\(nonRecurring.count) events)\n"
+                for event in nonRecurring.prefix(10) {
+                    let dateStr = event.targetDate.map { formatDate($0) } ?? "No date"
+                    let status = event.isCompleted ? "✓" : "○"
+                    context += "  \(status) \(event.title) - \(dateStr)\n"
                 }
             }
         } else {
@@ -203,7 +197,7 @@ class SelineAppContext {
             [
                 "id": event.id,
                 "title": event.title,
-                "targetDate": event.targetDate.map { formatDate($0) } ?? nil as Any,
+                "targetDate": event.targetDate.map { formatDate($0) } ?? NSNull(),
                 "isCompleted": event.isCompleted,
                 "completedDates": event.completedDates.map { formatDate($0) },
                 "isRecurring": event.isRecurring,
@@ -224,8 +218,7 @@ class SelineAppContext {
                 "title": receipt.title,
                 "amount": receipt.amount,
                 "date": formatDate(receipt.date),
-                "category": receipt.category,
-                "content": String(receipt.content.prefix(500))
+                "category": receipt.category
             ]
         }
 
