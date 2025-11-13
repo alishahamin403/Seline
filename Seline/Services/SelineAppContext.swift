@@ -104,26 +104,67 @@ class SelineAppContext {
 
             if !recurring.isEmpty {
                 context += "\n**Recurring Events** (\(recurring.count) events)\n"
-                for event in recurring.prefix(10) {
-                    let completed = event.completedDates.count
-                    let upcoming = event.isCompleted ? "Completed" : "Upcoming"
-                    context += "  • \(event.title): \(completed) completions total [\(upcoming)]\n"
+                for event in recurring.prefix(20) {  // Show up to 20 recurring events
+                    let currentMonth = Calendar.current.dateComponents([.month, .year], from: currentDate)
 
-                    // Show recent completions
+                    // Filter completions for THIS MONTH
+                    let thisMonthCompletions = event.completedDates.filter { date in
+                        let dateComponents = Calendar.current.dateComponents([.month, .year], from: date)
+                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
+                    }.sorted()
+
+                    let allTimeCompletions = event.completedDates.count
+                    let thisMonthCount = thisMonthCompletions.count
+
+                    context += "  • \(event.title):\n"
+                    context += "    This month: \(thisMonthCount) completions\n"
+                    context += "    All-time: \(allTimeCompletions) completions\n"
+
+                    // Show ALL completions for this month (not just last 3)
+                    if !thisMonthCompletions.isEmpty {
+                        let dateStrings = thisMonthCompletions.map { formatDate($0) }
+                        context += "    Completed on: \(dateStrings.joined(separator: ", "))\n"
+                    } else {
+                        context += "    No completions this month\n"
+                    }
+
+                    // Show recent completions across all time
                     if !event.completedDates.isEmpty {
-                        let recent = event.completedDates.sorted().suffix(3)
+                        let recent = event.completedDates.sorted().suffix(3).reversed()
                         let dateStr = recent.map { formatDate($0) }.joined(separator: ", ")
-                        context += "    Last completions: \(dateStr)\n"
+                        context += "    Recent (all-time): \(dateStr)\n"
+                    }
+
+                    // Show target date if it exists
+                    if let targetDate = event.targetDate {
+                        context += "    Original date: \(formatDate(targetDate))\n"
                     }
                 }
             }
 
             if !nonRecurring.isEmpty {
                 context += "\n**One-time Events** (\(nonRecurring.count) events)\n"
-                for event in nonRecurring.prefix(10) {
-                    let dateStr = event.targetDate.map { formatDate($0) } ?? "No date"
-                    let status = event.isCompleted ? "✓" : "○"
-                    context += "  \(status) \(event.title) - \(dateStr)\n"
+                for event in nonRecurring.prefix(20) {  // Show up to 20 one-time events
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let dateStr: String
+
+                    // Try to get a date from various sources
+                    if let targetDate = event.targetDate {
+                        dateStr = formatDate(targetDate)
+                    } else if let scheduledTime = event.scheduledTime {
+                        dateStr = formatDate(scheduledTime) + " (scheduled)"
+                    } else if let completedDate = event.completedDate {
+                        dateStr = formatDate(completedDate) + " (completed)"
+                    } else {
+                        dateStr = "No date set"
+                    }
+
+                    context += "  \(status): \(event.title) - \(dateStr)\n"
+
+                    // Add description if available
+                    if let description = event.description, !description.isEmpty {
+                        context += "    Description: \(description)\n"
+                    }
                 }
             }
         } else {
