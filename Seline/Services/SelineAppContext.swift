@@ -7,6 +7,7 @@ class SelineAppContext {
     // MARK: - Core Data
 
     private let taskManager: TaskManager
+    private let tagManager: TagManager
     private let notesManager: NotesManager
     private let emailService: EmailService
     private let weatherService: WeatherService
@@ -25,6 +26,7 @@ class SelineAppContext {
 
     init(
         taskManager: TaskManager = TaskManager.shared,
+        tagManager: TagManager = TagManager.shared,
         notesManager: NotesManager = NotesManager.shared,
         emailService: EmailService = EmailService.shared,
         weatherService: WeatherService = WeatherService.shared,
@@ -33,6 +35,7 @@ class SelineAppContext {
         categorizationService: ReceiptCategorizationService = ReceiptCategorizationService.shared
     ) {
         self.taskManager = taskManager
+        self.tagManager = tagManager
         self.notesManager = notesManager
         self.emailService = emailService
         self.weatherService = weatherService
@@ -135,76 +138,140 @@ class SelineAppContext {
         context += "Total Emails: \(emails.count)\n"
         context += "Total Locations: \(locations.count)\n\n"
 
-        // Events detail
-        context += "=== EVENTS ===\n"
+        // Events detail - Comprehensive with categories, temporal organization, and all-day status
+        context += "=== EVENTS & CALENDAR ===\n"
         if !events.isEmpty {
-            // Separate recurring and non-recurring events
-            let recurring = events.filter { $0.isRecurring }
-            let nonRecurring = events.filter { !$0.isRecurring }
+            let calendar = Calendar.current
 
-            if !recurring.isEmpty {
-                context += "\n**Recurring Events** (\(recurring.count) events)\n"
-                for event in recurring.prefix(20) {  // Show up to 20 recurring events
-                    let currentMonth = Calendar.current.dateComponents([.month, .year], from: currentDate)
+            // Organize events by temporal proximity
+            var today: [TaskItem] = []
+            var tomorrow: [TaskItem] = []
+            var thisWeek: [TaskItem] = []
+            var upcoming: [TaskItem] = []
+            var past: [TaskItem] = []
 
-                    // Filter completions for THIS MONTH
-                    let thisMonthCompletions = event.completedDates.filter { date in
-                        let dateComponents = Calendar.current.dateComponents([.month, .year], from: date)
-                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
-                    }.sorted()
+            for event in events {
+                // Determine the reference date for this event
+                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
 
-                    let allTimeCompletions = event.completedDates.count
-                    let thisMonthCount = thisMonthCompletions.count
+                if calendar.isDateInToday(eventDate) {
+                    today.append(event)
+                } else if calendar.isDateInTomorrow(eventDate) {
+                    tomorrow.append(event)
+                } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                    thisWeek.append(event)
+                } else if eventDate > currentDate {
+                    upcoming.append(event)
+                } else {
+                    past.append(event)
+                }
+            }
 
-                    context += "  • \(event.title):\n"
-                    context += "    This month: \(thisMonthCount) completions\n"
-                    context += "    All-time: \(allTimeCompletions) completions\n"
+            // TODAY
+            if !today.isEmpty {
+                context += "\n**TODAY** (\(today.count) events):\n"
+                for event in today.sorted(by: { ($0.scheduledTime ?? Date.distantFuture) < ($1.scheduledTime ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
 
-                    // Show ALL completions for this month (not just last 3)
-                    if !thisMonthCompletions.isEmpty {
-                        let dateStrings = thisMonthCompletions.map { formatDate($0) }
-                        context += "    Completed on: \(dateStrings.joined(separator: ", "))\n"
-                    } else {
-                        context += "    No completions this month\n"
-                    }
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
 
-                    // Show recent completions across all time
-                    if !event.completedDates.isEmpty {
-                        let recent = event.completedDates.sorted().suffix(3).reversed()
-                        let dateStr = recent.map { formatDate($0) }.joined(separator: ", ")
-                        context += "    Recent (all-time): \(dateStr)\n"
-                    }
-
-                    // Show target date if it exists
-                    if let targetDate = event.targetDate {
-                        context += "    Original date: \(formatDate(targetDate))\n"
+                    if let description = event.description, !description.isEmpty {
+                        context += "    \(description)\n"
                     }
                 }
             }
 
-            if !nonRecurring.isEmpty {
-                context += "\n**One-time Events** (\(nonRecurring.count) events)\n"
-                for event in nonRecurring.prefix(20) {  // Show up to 20 one-time events
+            // TOMORROW
+            if !tomorrow.isEmpty {
+                context += "\n**TOMORROW** (\(tomorrow.count) events):\n"
+                for event in tomorrow.sorted(by: { ($0.scheduledTime ?? Date.distantFuture) < ($1.scheduledTime ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
-                    let dateStr: String
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
 
-                    // Try to get a date from various sources
-                    if let targetDate = event.targetDate {
-                        dateStr = formatDate(targetDate)
-                    } else if let scheduledTime = event.scheduledTime {
-                        dateStr = formatDate(scheduledTime) + " (scheduled)"
-                    } else if let completedDate = event.completedDate {
-                        dateStr = formatDate(completedDate) + " (completed)"
-                    } else {
-                        dateStr = "No date set"
-                    }
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
 
-                    context += "  \(status): \(event.title) - \(dateStr)\n"
-
-                    // Add description if available
                     if let description = event.description, !description.isEmpty {
-                        context += "    Description: \(description)\n"
+                        context += "    \(description)\n"
                     }
+                }
+            }
+
+            // THIS WEEK (next 3-7 days)
+            if !thisWeek.isEmpty {
+                context += "\n**THIS WEEK** (\(thisWeek.count) events):\n"
+                for event in thisWeek.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+                }
+            }
+
+            // UPCOMING (future beyond this week)
+            if !upcoming.isEmpty {
+                context += "\n**UPCOMING** (\(upcoming.count) events, showing first 15):\n"
+                for event in upcoming.prefix(15).sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
+                }
+                if upcoming.count > 15 {
+                    context += "  ... and \(upcoming.count - 15) more upcoming events\n"
+                }
+            }
+
+            // RECURRING EVENTS SUMMARY
+            let recurringEvents = events.filter { $0.isRecurring }
+            if !recurringEvents.isEmpty {
+                context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
+                for event in recurringEvents.prefix(10) {
+                    let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
+
+                    let thisMonthCompletions = event.completedDates.filter { date in
+                        let dateComponents = calendar.dateComponents([.month, .year], from: date)
+                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
+                    }
+
+                    let categoryName = getCategoryName(for: event.tagId)
+                    context += "  • \(event.title) [\(categoryName)]\n"
+                    context += "    This month: \(thisMonthCompletions.count) completions\n"
+                    context += "    All-time: \(event.completedDates.count) completions\n"
+
+                    if !thisMonthCompletions.isEmpty {
+                        let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
+                        context += "    Completed on: \(dateStrings.joined(separator: ", "))\n"
+                    } else {
+                        context += "    No completions this month\n"
+                    }
+                }
+            }
+
+            // PAST EVENTS
+            if !past.isEmpty {
+                context += "\n**PAST EVENTS** (showing last 5):\n"
+                for event in past.suffix(5).reversed() {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+
+                    context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
+                }
+                if past.count > 5 {
+                    context += "  ... and \(past.count - 5) more past events\n"
                 }
             }
         } else {
@@ -397,5 +464,29 @@ class SelineAppContext {
 
         // If no date found, return nil and let ReceiptStat use dateModified as fallback
         return nil
+    }
+
+    /// Get the category name for an event given its tagId
+    private func getCategoryName(for tagId: String?) -> String {
+        guard let tagId = tagId else { return "Personal" }
+        return tagManager.getTag(by: tagId)?.name ?? "Personal"
+    }
+
+    /// Get formatted time info for an event
+    private func getTimeInfo(_ event: TaskItem, isAllDay: Bool) -> String {
+        if isAllDay {
+            return "[All-day]"
+        }
+
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+
+        if let start = event.scheduledTime, let end = event.endTime {
+            return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
+        } else if let start = event.scheduledTime {
+            return formatter.string(from: start)
+        }
+
+        return ""
     }
 }
