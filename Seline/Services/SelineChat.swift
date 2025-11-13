@@ -2,6 +2,15 @@ import Foundation
 
 /// Main conversation manager for Seline - simpler, more direct approach
 /// Uses LLM intelligence instead of pre-processing
+///
+/// Architecture:
+/// - SelineAppContext: Collects all app data without pre-filtering
+/// - SelineChat: Manages conversation history and LLM communication
+/// - Streaming support: Real-time response chunks with UI callbacks
+/// - Future enhancement: Web search integration for external information
+///
+/// Key design principle: Let the LLM be smart. Send comprehensive context,
+/// let it understand intent and provide accurate responses directly.
 @MainActor
 class SelineChat {
     // MARK: - State
@@ -89,7 +98,7 @@ class SelineChat {
         3. Help the user understand patterns in their data
         4. Remember context from the conversation
         5. Ask clarifying questions if the user's intent is unclear
-        6. Use web search when needed for external information
+        6. Leverage all available app data to provide comprehensive answers
 
         IMPORTANT RULES:
         - Always refer to actual data provided below, not assumptions
@@ -98,6 +107,7 @@ class SelineChat {
         - For recurring events, count actual completions from the completedDates field
         - If you don't have data for a question, say so explicitly
         - Maintain conversation context - remember what was discussed previously
+        - When asked about external information (weather, news, etc.), acknowledge what you can and cannot access
 
         USER DATA CONTEXT:
         \(contextPrompt)

@@ -43,6 +43,22 @@ class SearchService: ObservableObject {
     @Published var enableStreamingResponses: Bool = true  // Toggle for streaming vs non-streaming
     private var streamingMessageID: UUID? = nil
 
+    // NEW: SelineChat integration flag
+    @Published var useSelineChat: Bool = true  // Use new simplified chat system
+    private var selineChat: SelineChat? = nil
+
+    // DEPRECATION: Phase 3 - Disable semantic query system (fallback to direct conversation)
+    @Published var useSemanticQueryFallback: Bool = false  // DEPRECATED: Keep disabled, only use if SelineChat fails
+    // NOTE: Semantic query system is being phased out in favor of simpler SelineChat approach
+    // Reason: Semantic query parsing is complex, error-prone, and the LLM can handle all logic directly
+
+    /// Disable semantic query system completely (Phase 3.2)
+    /// Called on initialization to ensure semantic queries are not used
+    func disableSemanticQuerySystem() {
+        useSemanticQueryFallback = false
+        print("⚠️ Semantic query system disabled. Using SelineChat for all conversations.")
+    }
+
     // Track recently created items for context in follow-up actions
     private var lastCreatedEventTitle: String? = nil
     private var lastCreatedEventDate: String? = nil
@@ -56,6 +72,9 @@ class SearchService: ObservableObject {
     private let infoExtractor = InformationExtractor.shared
 
     private init() {
+        // Phase 3.2: Disable semantic query system on initialization
+        disableSemanticQuerySystem()
+
         // Load saved conversations from local storage
         loadConversationHistoryLocally()
 
@@ -489,21 +508,6 @@ class SearchService: ObservableObject {
             isInConversationMode = true
         }
 
-        // Check if this is a single action query (create event, create note, etc.)
-        var queryType = queryRouter.classifyQuery(trimmed)
-
-        // If keyword matching didn't detect action, try semantic classification
-        if case .action = queryType {
-            // Action detected via keywords
-        } else {
-            // Try semantic LLM fallback for ambiguous cases
-            if let semanticAction = await queryRouter.classifyIntentWithLLM(trimmed) {
-                queryType = .action(semanticAction)
-            }
-        }
-
-        // DISABLED: Action creation from chat - all queries go to conversation mode
-
         // Add user message to history for conversation
         addMessageToHistory(trimmed, isUser: true, intent: .general)
 
@@ -516,11 +520,135 @@ class SearchService: ObservableObject {
         // Get AI response with full conversation history for context
         isLoadingQuestionResponse = true
         let thinkStartTime = Date()  // Track when LLM starts thinking
+
+        if useSelineChat {
+            // NEW: Use simplified SelineChat approach
+            await addConversationMessageWithSelineChat(trimmed, thinkStartTime: thinkStartTime)
+        } else {
+            // OLD: Use legacy system (fallback)
+            await addConversationMessageLegacy(trimmed, thinkStartTime: thinkStartTime)
+        }
+    }
+
+    // MARK: - SelineChat Implementation (Phase 2)
+
+    /// NEW simplified chat using SelineChat with proper streaming support
+    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date) async {
+        // Initialize SelineChat if needed
+        if selineChat == nil {
+            selineChat = SelineChat(appContext: SelineAppContext(), openAIService: OpenAIService.shared)
+        }
+
+        guard let chat = selineChat else {
+            print("❌ SelineChat initialization failed")
+            DispatchQueue.main.async {
+                self.isLoadingQuestionResponse = false
+            }
+            return
+        }
+
+        // MARK: - Wire up streaming callbacks for real-time UI updates
+        let streamingMessageID = UUID()
+        var messageAdded = false
+        var fullResponse = ""
+
+        // Callback when a streaming chunk arrives
+        chat.onStreamingChunk = { [weak self] chunk in
+            fullResponse += chunk
+
+            // Dispatch to main thread for UI updates
+            DispatchQueue.main.async {
+                // Add message on first chunk
+                if !messageAdded {
+                    let assistantMsg = ConversationMessage(
+                        id: streamingMessageID,
+                        isUser: false,
+                        text: fullResponse,
+                        timestamp: Date(),
+                        intent: .general,
+                        timeStarted: thinkStartTime
+                    )
+                    self?.conversationHistory.append(assistantMsg)
+                    messageAdded = true
+                    self?.saveConversationLocally()
+                } else {
+                    // Update the last message with accumulated response
+                    if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                        let updatedMsg = ConversationMessage(
+                            id: streamingMessageID,
+                            isUser: false,
+                            text: fullResponse,
+                            timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
+                            intent: self?.conversationHistory[lastIndex].intent ?? .general,
+                            timeStarted: self?.conversationHistory[lastIndex].timeStarted
+                        )
+                        self?.conversationHistory[lastIndex] = updatedMsg
+                        self?.saveConversationLocally()
+                    }
+                }
+            }
+        }
+
+        // Callback when streaming completes
+        chat.onStreamingComplete = { [weak self] in
+            DispatchQueue.main.async {
+                // Update final message with completion time
+                if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                    let finalMsg = ConversationMessage(
+                        id: streamingMessageID,
+                        isUser: false,
+                        text: self?.conversationHistory[lastIndex].text ?? "",
+                        timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
+                        intent: self?.conversationHistory[lastIndex].intent ?? .general,
+                        timeStarted: self?.conversationHistory[lastIndex].timeStarted,
+                        timeFinished: Date()
+                    )
+                    self?.conversationHistory[lastIndex] = finalMsg
+                    self?.saveConversationLocally()
+                }
+
+                self?.isLoadingQuestionResponse = false
+                print("✅ SelineChat streaming completed")
+            }
+        }
+
+        // Send message through SelineChat (handles both streaming and non-streaming based on enableStreamingResponses)
+        let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses)
+
+        // For non-streaming responses, add message synchronously
+        if !enableStreamingResponses {
+            DispatchQueue.main.async {
+                let assistantMsg = ConversationMessage(
+                    id: UUID(),
+                    isUser: false,
+                    text: response,
+                    timestamp: Date(),
+                    intent: .general,
+                    timeStarted: thinkStartTime,
+                    timeFinished: Date()
+                )
+                self.conversationHistory.append(assistantMsg)
+                self.isLoadingQuestionResponse = false
+                self.saveConversationLocally()
+                print("✅ SelineChat response added to history")
+            }
+        }
+    }
+
+    // MARK: - Legacy Implementation (Phase 3: To Be Removed)
+
+    /// OLD legacy chat system (fallback for compatibility)
+    /// NOTE: This method is DEPRECATED. Use SelineChat via useSelineChat flag instead.
+    /// This fallback is kept for compatibility but should not be used in normal flow.
+    private func addConversationMessageLegacy(_ userMessage: String, thinkStartTime: Date) async {
         do {
-            // STEP 1: Try semantic query first (handles any app data, not just conversation)
+            // DEPRECATED: Semantic query is disabled by default. Only use if explicitly enabled.
+            // The new SelineChat system handles all query types directly without pre-processing.
             var semanticQueryResult: (text: String, items: [RelatedDataItem])? = nil
-            if let result = await processWithSemanticQuery(trimmed) {
-                semanticQueryResult = result
+            if useSemanticQueryFallback {  // Only try if explicitly enabled
+                if let result = await processWithSemanticQuery(userMessage) {
+                    semanticQueryResult = result
+                }
             }
 
             // STEP 2: If semantic query succeeded, use its response
@@ -552,7 +680,7 @@ class SearchService: ObservableObject {
                 var messageAdded = false
 
                 try await OpenAIService.shared.answerQuestionWithStreaming(
-                    query: trimmed,
+                    query: userMessage,
                     taskManager: TaskManager.shared,
                     notesManager: NotesManager.shared,
                     emailService: EmailService.shared,
@@ -642,7 +770,7 @@ class SearchService: ObservableObject {
             } else {
                 // Non-streaming response
                 let response = try await OpenAIService.shared.answerQuestion(
-                    query: trimmed,
+                    query: userMessage,
                     taskManager: TaskManager.shared,
                     notesManager: NotesManager.shared,
                     emailService: EmailService.shared,
