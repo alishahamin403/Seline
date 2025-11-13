@@ -11,12 +11,12 @@ struct FolderSidebarView: View {
     @State private var selectedFolderForNote: NoteFolder? = nil
     @State private var showingTrash = false
 
-    // Computed property to organize folders by hierarchy
+    // Computed property to organize folders by hierarchy (excluding Receipts folder)
     var organizedFolders: [(folder: NoteFolder, depth: Int)] {
         var result: [(folder: NoteFolder, depth: Int)] = []
 
-        // Get root folders (no parent)
-        let rootFolders = notesManager.folders.filter { $0.parentFolderId == nil }
+        // Get root folders (no parent), excluding the Receipts folder
+        let rootFolders = notesManager.folders.filter { $0.parentFolderId == nil && $0.name != "Receipts" }
 
         for rootFolder in rootFolders {
             result.append((rootFolder, 0))
