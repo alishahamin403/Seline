@@ -101,8 +101,8 @@ class UniversalQueryExecutor {
                 var expandedEvents: [UniversalItem] = []
                 for event in filtered {
                     // If event has completedDates (recurring), create separate items for each completion
-                    if let completedDates = event.completedDates, !completedDates.isEmpty {
-                        for completionDate in completedDates {
+                    if !event.completedDates.isEmpty {
+                        for completionDate in event.completedDates {
                             // Create a pseudo-item with the completion date as the event date
                             var completedEvent = event
                             completedEvent.targetDate = completionDate  // Use completion date instead of original
@@ -159,8 +159,8 @@ class UniversalQueryExecutor {
                 var expandedCalendarEvents: [UniversalItem] = []
                 for event in events {
                     // If event has completedDates (recurring), create separate items for each completion
-                    if let completedDates = event.completedDates, !completedDates.isEmpty {
-                        for completionDate in completedDates {
+                    if !event.completedDates.isEmpty {
+                        for completionDate in event.completedDates {
                             var completedEvent = event
                             completedEvent.targetDate = completionDate  // Use completion date instead of original
                             expandedCalendarEvents.append(UniversalItem.event(completedEvent))
