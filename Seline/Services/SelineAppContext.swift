@@ -75,13 +75,23 @@ class SelineAppContext {
         print("   Current date: \(formatDate(currentDate))")
         print("   Events: \(events.count)")
         print("   Receipts: \(receipts.count)")
+
         if !receipts.isEmpty {
-            let minDate = receipts.min(by: { $0.date < $1.date })?.date ?? Date()
-            let maxDate = receipts.max(by: { $0.date < $1.date })?.date ?? Date()
-            print("     Date range: \(formatDate(minDate)) to \(formatDate(maxDate))")
-            // Show sample of receipt dates
-            let sampleDates = receipts.prefix(5).map { "\(formatDate($0.date)): \($0.title) ($\(String(format: "%.2f", $0.amount)))" }
-            print("     Sample: \(sampleDates.joined(separator: "\n              "))")
+            // Calculate current month range
+            let calendar = Calendar.current
+            let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: currentDate)) ?? currentDate
+
+            // Show current month receipts only
+            let thisMonthReceipts = receipts.filter { $0.date >= startOfMonth && $0.date <= currentDate }
+            let thisMonthTotal = thisMonthReceipts.reduce(0.0) { $0 + $1.amount }
+
+            print("     THIS MONTH (Nov 1 - Nov 12): \(thisMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", thisMonthTotal))")
+
+            // Show sample of this month's receipt dates
+            let sampleDates = thisMonthReceipts.prefix(5).map { "\(formatDate($0.date)): \($0.title) ($\(String(format: "%.2f", $0.amount)))" }
+            if !sampleDates.isEmpty {
+                print("     Sample: \(sampleDates.joined(separator: "\n              "))")
+            }
         }
         print("   Notes: \(notes.count)")
         print("   Emails: \(emails.count)")
