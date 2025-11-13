@@ -156,8 +156,7 @@ struct NotesView: View, Searchable {
 
                         NotesSearchBar(
                             searchText: $searchText,
-                            showingFolderSidebar: $showingFolderSidebar,
-                            selectedFolderId: $selectedFolderId
+                            showingFolderSidebar: $showingFolderSidebar
                         )
 
                         // Stats button (only shown if there are receipts)
@@ -184,6 +183,40 @@ struct NotesView: View, Searchable {
                         }
                     }
                     .padding(.horizontal, 20)
+
+                    // Selected folder indicator chip
+                    if let folderId = selectedFolderId {
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            Text(notesManager.getFolderName(for: folderId))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            Spacer()
+
+                            Button(action: {
+                                withAnimation {
+                                    selectedFolderId = nil
+                                }
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.gray)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 4)
+                    }
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 4)
