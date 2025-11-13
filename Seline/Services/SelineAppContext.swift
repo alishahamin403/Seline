@@ -56,6 +56,19 @@ class SelineAppContext {
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
 
+        // Debug: Log recurring events and their next occurrence
+        let recurringEvents = self.events.filter { $0.isRecurring }
+        if !recurringEvents.isEmpty {
+            print("🔁 Recurring events found: \(recurringEvents.count)")
+            for event in recurringEvents {
+                if let nextDate = getNextOccurrenceDate(for: event) {
+                    print("   • \(event.title) [\(event.recurrenceFrequency?.rawValue ?? "?")]: next occurrence = \(formatDate(nextDate))")
+                } else {
+                    print("   • \(event.title) [\(event.recurrenceFrequency?.rawValue ?? "?")]: NO next occurrence (ended or invalid)")
+                }
+            }
+        }
+
         // Collect all receipts from notes
         let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
         print("📂 Receipts folder ID: \(receiptsFolderId)")
