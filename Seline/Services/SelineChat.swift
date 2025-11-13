@@ -29,11 +29,11 @@ class SelineChat {
     // MARK: - Init
 
     init(
-        appContext: SelineAppContext = SelineAppContext(),
-        openAIService: OpenAIService = OpenAIService.shared
+        appContext: SelineAppContext? = nil,
+        openAIService: OpenAIService? = nil
     ) {
-        self.appContext = appContext
-        self.openAIService = openAIService
+        self.appContext = appContext ?? SelineAppContext()
+        self.openAIService = openAIService ?? OpenAIService.shared
     }
 
     // MARK: - Main Chat Interface
