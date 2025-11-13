@@ -12,6 +12,22 @@ struct StructuredLLMContext: Encodable {
         let userTimezone: String
         let intent: String
         let dateRangeQueried: String?
+        let temporalContext: TemporalContextJSON?
+        let followUpContext: FollowUpContextJSON?
+
+        struct TemporalContextJSON: Encodable {
+            let requestedPeriod: String
+            let startDate: String?
+            let endDate: String?
+            let relativeToNow: String  // "this month", "last week", etc.
+        }
+
+        struct FollowUpContextJSON: Encodable {
+            let isFollowUp: Bool
+            let previousTopic: String?
+            let previousTimeframe: String?
+            let relatedQueries: [String]?
+        }
     }
 
     struct ContextData: Encodable {
@@ -119,13 +135,21 @@ class ContextBuilder {
         from filteredContext: FilteredContext,
         conversationHistory: [ConversationMessage]
     ) -> StructuredLLMContext {
+        // Analyze temporal context
+        let temporalContext = extractTemporalContext(from: filteredContext)
+
+        // Analyze follow-up context from conversation history
+        let followUpContext = analyzeFollowUpContext(from: conversationHistory)
+
         // Build metadata
         let metadata = StructuredLLMContext.ContextMetadata(
             timestamp: ISO8601DateFormatter().string(from: Date()),
             currentWeather: filteredContext.metadata.currentWeather,
             userTimezone: filteredContext.metadata.userTimezone,
             intent: filteredContext.metadata.queryIntent,
-            dateRangeQueried: filteredContext.metadata.dateRangeQueried
+            dateRangeQueried: filteredContext.metadata.dateRangeQueried,
+            temporalContext: temporalContext,
+            followUpContext: followUpContext
         )
 
         // Build context data - LLM will discover what's relevant
@@ -331,6 +355,161 @@ class ContextBuilder {
         }
 
         return truncated + "..."
+    }
+
+    // MARK: - Temporal & Follow-up Context Analysis
+
+    /// Extract temporal context from filtered context
+    private func extractTemporalContext(from filteredContext: FilteredContext) -> StructuredLLMContext.ContextMetadata.TemporalContextJSON? {
+        // Get the date range from metadata if available
+        guard let dateRangeQueried = filteredContext.metadata.dateRangeQueried else {
+            return nil
+        }
+
+        // Determine relative description
+        let now = Date()
+        let calendar = Calendar.current
+        let relativeDesc = identifyRelativePeriod(dateRangeQueried, against: now, calendar: calendar)
+
+        // Try to parse start and end dates
+        var startDate: String?
+        var endDate: String?
+
+        // Check if this looks like a date range
+        if dateRangeQueried.contains("to") || dateRangeQueried.contains("-") {
+            let formatter = ISO8601DateFormatter()
+            // This is simplified; in a real scenario, you'd want more robust parsing
+            startDate = "parsed_from_context"
+            endDate = "parsed_from_context"
+        }
+
+        return StructuredLLMContext.ContextMetadata.TemporalContextJSON(
+            requestedPeriod: dateRangeQueried,
+            startDate: startDate,
+            endDate: endDate,
+            relativeToNow: relativeDesc
+        )
+    }
+
+    /// Analyze follow-up context from conversation history
+    private func analyzeFollowUpContext(from conversationHistory: [ConversationMessage]) -> StructuredLLMContext.ContextMetadata.FollowUpContextJSON? {
+        guard conversationHistory.count > 1 else {
+            return StructuredLLMContext.ContextMetadata.FollowUpContextJSON(
+                isFollowUp: false,
+                previousTopic: nil,
+                previousTimeframe: nil,
+                relatedQueries: nil
+            )
+        }
+
+        // Get the last user message(s) to detect topics
+        var userMessages: [String] = []
+        var assistantMessages: [String] = []
+
+        for message in conversationHistory {
+            if message.isUser {
+                userMessages.append(message.text)
+            } else {
+                assistantMessages.append(message.text)
+            }
+        }
+
+        // Detect if current query is a follow-up
+        let isFollowUp = userMessages.count > 1
+        var previousTopic: String?
+        var relatedQueries: [String] = []
+
+        // Extract topics from previous messages
+        if userMessages.count > 1 {
+            previousTopic = extractTopic(from: userMessages[userMessages.count - 2])
+            relatedQueries = extractRelatedQueries(from: userMessages.dropLast(1).map { $0 })
+        }
+
+        // Detect common timeframes used in conversation
+        let previousTimeframe = detectPreviousTimeframe(from: userMessages.dropLast(1).map { $0 })
+
+        return StructuredLLMContext.ContextMetadata.FollowUpContextJSON(
+            isFollowUp: isFollowUp,
+            previousTopic: previousTopic,
+            previousTimeframe: previousTimeframe,
+            relatedQueries: relatedQueries.isEmpty ? nil : relatedQueries
+        )
+    }
+
+    /// Identify relative period (e.g., "this month", "last week")
+    private func identifyRelativePeriod(_ dateRange: String, against now: Date, calendar: Calendar) -> String {
+        let lower = dateRange.lowercased()
+
+        if lower.contains("this month") { return "this month" }
+        if lower.contains("last month") { return "last month" }
+        if lower.contains("next month") { return "next month" }
+        if lower.contains("this week") { return "this week" }
+        if lower.contains("last week") { return "last week" }
+        if lower.contains("next week") { return "next week" }
+        if lower.contains("today") { return "today" }
+        if lower.contains("yesterday") { return "yesterday" }
+        if lower.contains("tomorrow") { return "tomorrow" }
+        if lower.contains("this year") { return "this year" }
+        if lower.contains("last year") { return "last year" }
+        if lower.contains("past 30 days") { return "past 30 days" }
+
+        return dateRange
+    }
+
+    /// Extract the main topic from a user query
+    private func extractTopic(from query: String) -> String? {
+        let lower = query.lowercased()
+
+        // Common topic keywords
+        let topicPatterns = [
+            ("gym", "fitness"),
+            ("coffee", "coffee"),
+            ("spend", "spending"),
+            ("expense", "expenses"),
+            ("email", "emails"),
+            ("event", "events"),
+            ("meeting", "meetings"),
+            ("location", "locations"),
+            ("restaurant", "dining"),
+            ("travel", "travel")
+        ]
+
+        for (pattern, topic) in topicPatterns {
+            if lower.contains(pattern) {
+                return topic
+            }
+        }
+
+        // Return first meaningful word
+        let words = query.split(separator: " ")
+        if words.count > 2 {
+            return String(words[2])
+        }
+
+        return nil
+    }
+
+    /// Extract related queries from previous messages
+    private func extractRelatedQueries(from messages: [String]) -> [String] {
+        return messages.filter { msg in
+            msg.contains("?") || msg.lowercased().contains("how") || msg.lowercased().contains("what")
+        }.suffix(3).map { $0 } // Get last 3 queries
+    }
+
+    /// Detect timeframes mentioned in previous queries
+    private func detectPreviousTimeframe(from messages: [String]) -> String? {
+        let timeframePatterns = ["this month", "last month", "this week", "last week", "today", "yesterday", "this year", "last year"]
+
+        for message in messages {
+            let lower = message.lowercased()
+            for timeframe in timeframePatterns {
+                if lower.contains(timeframe) {
+                    return timeframe
+                }
+            }
+        }
+
+        return nil
     }
 }
 

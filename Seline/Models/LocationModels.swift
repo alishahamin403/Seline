@@ -458,6 +458,23 @@ class LocationsManager: ObservableObject {
             .sorted { $0.dateModified > $1.dateModified }
     }
 
+    // MARK: - Clear Data on Logout
+
+    func clearPlacesOnLogout() {
+        savedPlaces = []
+        searchHistory = []
+        categories = []
+        countries = []
+        provinces = []
+        cities = []
+
+        // Clear UserDefaults
+        UserDefaults.standard.removeObject(forKey: placesKey)
+        UserDefaults.standard.removeObject(forKey: searchHistoryKey)
+
+        print("🗑️ Cleared all places and search history on logout")
+    }
+
     // MARK: - Supabase Sync
 
     private func savePlaceToSupabase(_ place: SavedPlace) async {

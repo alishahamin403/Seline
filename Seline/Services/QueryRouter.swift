@@ -4,6 +4,9 @@ enum QueryType {
     case action(ActionType)
     case search
     case question
+    case counting(CountingQueryParameters)
+    case comparison(ComparisonQueryParameters)
+    case temporal(TemporalQueryParameters)
 }
 
 /// Router for classifying user queries with keyword heuristics + semantic LLM analysis
@@ -33,6 +36,24 @@ class QueryRouter {
         // Check for action keywords first
         if let actionType = detectAction(lowercased) {
             return .action(actionType)
+        }
+
+        // Check for specialized query types (counting, comparison, temporal)
+        let advancedParser = AdvancedQueryParser.shared
+
+        // Check for counting queries
+        if let countingParams = advancedParser.parseCountingQuery(query) {
+            return .counting(countingParams)
+        }
+
+        // Check for comparison queries
+        if let comparisonParams = advancedParser.parseComparisonQuery(query) {
+            return .comparison(comparisonParams)
+        }
+
+        // Check for temporal queries (with specific date extraction)
+        if let temporalParams = advancedParser.parseTemporalQuery(query) {
+            return .temporal(temporalParams)
         }
 
         // Check for question keywords

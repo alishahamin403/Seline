@@ -61,11 +61,26 @@ class UniversalResponseFormatter {
     private func formatSummary(_ result: QueryResult) -> String {
         var summary = "**Summary**\n\n"
 
-        // Add aggregations
+        // Add aggregations with smart formatting for counts
         if !result.data.aggregations.isEmpty {
-            summary += "📊 Key Metrics:\n"
+            // Check if this is primarily a counting query
+            let isCounting = result.data.aggregations.allSatisfy { agg in
+                Int(agg.value) != nil || agg.value.contains("total") || agg.value.contains("count")
+            }
+
+            if isCounting {
+                summary += "📊 **Count Results:**\n"
+            } else {
+                summary += "📊 **Key Metrics:**\n"
+            }
+
             for agg in result.data.aggregations.prefix(5) {
-                summary += "• \(agg.label): \(agg.value)\n"
+                // Format counts more prominently
+                if Int(agg.value) != nil {
+                    summary += "• **\(agg.label)**: **\(agg.value)**\n"
+                } else {
+                    summary += "• \(agg.label): \(agg.value)\n"
+                }
             }
             summary += "\n"
         }
@@ -114,11 +129,26 @@ class UniversalResponseFormatter {
 
         for comparison in result.data.comparisons {
             text += "📊 **\(comparison.dimension.capitalized) Comparison**\n\n"
-            text += "| \(comparison.dimension.capitalized) | Value |\n"
-            text += "|---|---|\n"
 
-            for (slice, value) in comparison.slices.sorted(by: { $0.key < $1.key }) {
-                text += "| \(slice) | \(value) |\n"
+            // Find highest and lowest values for highlighting
+            let sortedSlices = comparison.slices.sorted { a, b in
+                // Try to sort numerically if possible
+                let aVal = parseNumericValue(a.value)
+                let bVal = parseNumericValue(b.value)
+                if let aNum = aVal, let bNum = bVal {
+                    return aNum > bNum
+                }
+                return a.key < b.key
+            }
+
+            let maxValue = sortedSlices.first?.value
+            let minValue = sortedSlices.last?.value
+
+            // Format with visual indicators
+            for (slice, value) in sortedSlices {
+                let highlight = (value == maxValue) ? "🔝 " : (value == minValue) ? "🔻 " : "  "
+                let emphasis = (value == maxValue) ? "**\(value)**" : value
+                text += "\(highlight)• **\(slice)**: \(emphasis)\n"
             }
 
             text += "\n"
@@ -130,6 +160,17 @@ class UniversalResponseFormatter {
         }
 
         return text
+    }
+
+    /// Parse numeric value from string (handles currency, percentages, plain numbers)
+    private func parseNumericValue(_ value: String) -> Double? {
+        let cleaned = value
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespaces)
+
+        return Double(cleaned)
     }
 
     private func formatList(_ result: QueryResult) -> String {

@@ -1287,6 +1287,31 @@ class SearchService: ObservableObject {
         savedConversations.removeAll { $0.id == id }
         saveConversationHistoryLocally()
     }
+
+    // MARK: - Clear Data on Logout
+
+    func clearSearchOnLogout() {
+        searchResults = []
+        searchQuery = ""
+        conversationHistory = []
+        savedConversations = []
+        pendingEventCreation = nil
+        pendingNoteCreation = nil
+        pendingNoteUpdate = nil
+        questionResponse = nil
+        currentInteractiveAction = nil
+        cachedContent = []
+        isInConversationMode = false
+        conversationTitle = "New Conversation"
+        isNewConversation = false
+        currentlyLoadedConversationId = nil
+        cancellables.removeAll()
+
+        // Clear conversation storage from UserDefaults
+        UserDefaults.standard.removeObject(forKey: "SavedConversations")
+
+        print("🗑️ Cleared all search and conversation data on logout")
+    }
 }
 
 // MARK: - Saved Conversation Model

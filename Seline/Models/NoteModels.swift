@@ -1165,6 +1165,23 @@ class NotesManager: ObservableObject {
         }.sorted { $0.dateModified > $1.dateModified }
     }
 
+    // MARK: - Clear Data on Logout
+
+    func clearNotesOnLogout() {
+        notes = []
+        folders = []
+        deletedNotes = []
+        deletedFolders = []
+
+        // Clear UserDefaults
+        UserDefaults.standard.removeObject(forKey: notesKey)
+        UserDefaults.standard.removeObject(forKey: foldersKey)
+        UserDefaults.standard.removeObject(forKey: "DeletedNotes")
+        UserDefaults.standard.removeObject(forKey: "DeletedFolders")
+
+        print("🗑️ Cleared all notes and folders on logout")
+    }
+
     // MARK: - Sample Data
 
     private func addSampleDataIfNeeded() {

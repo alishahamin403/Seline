@@ -2661,6 +2661,17 @@ class TagManager: ObservableObject {
         print("📂 Loading \(loadedTags.count) tags from local storage")
         self.tags = loadedTags
     }
+
+    // MARK: - Clear Data on Logout
+
+    func clearTagsOnLogout() {
+        tags = []
+
+        // Clear UserDefaults
+        userDefaults.removeObject(forKey: tagsKey)
+
+        print("🗑️ Cleared all tags on logout")
+    }
 }
 
 // MARK: - Supabase Tag Model

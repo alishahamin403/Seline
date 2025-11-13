@@ -5417,32 +5417,28 @@ class OpenAIService: ObservableObject {
     }
 
     private func parseDataSources(_ raw: [[String: AnyCodable]]) -> [DataSource] {
-        return raw.compactMap { dict in
+        return raw.compactMap { dict -> DataSource? in
             guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
 
             switch typeStr {
             case "receipts":
-                let category = (dict["filters"] as? AnyCodable)?.value
-                    .flatMap { $0 as? [String: AnyCodable] }
+                let category = (dict["filters"]?.value as? [String: AnyCodable])
                     .flatMap { $0["category"]?.value as? String }
                 return .receipts(category: category)
 
             case "emails":
-                let folder = (dict["filters"] as? AnyCodable)?.value
-                    .flatMap { $0 as? [String: AnyCodable] }
+                let folder = (dict["filters"]?.value as? [String: AnyCodable])
                     .flatMap { $0["folder"]?.value as? String }
                 return .emails(folder: folder)
 
             case "events":
-                let statusStr = (dict["filters"] as? AnyCodable)?.value
-                    .flatMap { $0 as? [String: AnyCodable] }
+                let statusStr = (dict["filters"]?.value as? [String: AnyCodable])
                     .flatMap { $0["status"]?.value as? String }
                 let status = statusStr.flatMap { EventStatus(rawValue: $0) }
                 return .events(status: status)
 
             case "notes":
-                let folder = (dict["filters"] as? AnyCodable)?.value
-                    .flatMap { $0 as? [String: AnyCodable] }
+                let folder = (dict["filters"]?.value as? [String: AnyCodable])
                     .flatMap { $0["folder"]?.value as? String }
                 return .notes(folder: folder)
 
@@ -5459,7 +5455,7 @@ class OpenAIService: ObservableObject {
     }
 
     private func parseFilters(_ raw: [[String: AnyCodable]]) -> [AnyFilter] {
-        return raw.compactMap { dict in
+        return raw.compactMap { dict -> AnyFilter? in
             guard let typeStr = (dict["type"] as? AnyCodable)?.value as? String else { return nil }
             guard let params = (dict["parameters"] as? AnyCodable)?.value as? [String: Any] else { return nil }
 

@@ -143,4 +143,10 @@ class UserProfilePersistenceService {
 
         return formatted
     }
+
+    /// Clear user profile data on logout
+    static func clearUserProfile() {
+        UserDefaults.standard.removeObject(forKey: userProfileKey)
+        print("🗑️ Cleared user profile data")
+    }
 }

@@ -296,6 +296,11 @@ struct MerchantFilter: FilterProtocol {
 
 // MARK: - Operations (WHAT to do with the data)
 
+enum SortOrder {
+    case ascending
+    case descending
+}
+
 protocol OperationProtocol {
     func execute(on items: [UniversalItem]) -> QueryResultData
     func description() -> String
@@ -322,6 +327,7 @@ struct AnyOperation: OperationProtocol {
 struct AggregateOperation: OperationProtocol {
     enum AggregationType {
         case count
+        case countDistinct(field: String)  // Count unique values
         case sum(field: String)
         case average(field: String)
         case min(field: String)
@@ -331,6 +337,7 @@ struct AggregateOperation: OperationProtocol {
     let type: AggregationType
     let groupBy: String?
     let sortBy: String?
+    let orderBy: SortOrder?  // ascending or descending
 
     func execute(on items: [UniversalItem]) -> QueryResultData {
         if let groupBy = groupBy {
@@ -345,6 +352,9 @@ struct AggregateOperation: OperationProtocol {
 
         switch type {
         case .count:
+            value = "\(items.count)"
+        case .countDistinct:
+            // For now, count all items (they're already filtered)
             value = "\(items.count)"
         case .sum(let field):
             let total = items.reduce(0.0) { $0 + $1.amount }
@@ -398,9 +408,12 @@ struct AggregateOperation: OperationProtocol {
 
         let results = grouped.map { key, items -> AggregationResult in
             let value: String
+
             switch type {
             case .count:
                 value = "\(items.count)"
+            case .countDistinct:
+                value = "\(items.count)" // Already filtered uniquely
             case .sum:
                 let total = items.reduce(0.0) { $0 + $1.amount }
                 value = String(format: "$%.2f", total)
@@ -418,7 +431,18 @@ struct AggregateOperation: OperationProtocol {
 
             return AggregationResult(label: key, value: value, groupKey: key)
         }.sorted { a, b in
-            // Sort by amount if numeric values
+            // Apply custom sort order if specified
+            if let orderBy = orderBy {
+                let compareResult = compareValues(a.value, b.value)
+                switch orderBy {
+                case .ascending:
+                    return compareResult < 0
+                case .descending:
+                    return compareResult > 0
+                }
+            }
+
+            // Default sort by amount if numeric values, otherwise alphabetical
             if let aVal = Double(a.value.replacingOccurrences(of: "$", with: "")),
                let bVal = Double(b.value.replacingOccurrences(of: "$", with: "")) {
                 return aVal > bVal
@@ -449,6 +473,8 @@ struct AggregateOperation: OperationProtocol {
         switch type {
         case .count:
             return "count items"
+        case .countDistinct:
+            return "count distinct items"
         case .sum:
             return "sum amounts"
         case .average:
@@ -458,6 +484,26 @@ struct AggregateOperation: OperationProtocol {
         case .max:
             return "maximum amount"
         }
+    }
+
+    private func compareValues(_ a: String, _ b: String) -> Int {
+        // Try to compare as doubles first
+        if let aVal = Double(a.replacingOccurrences(of: "$", with: "")),
+           let bVal = Double(b.replacingOccurrences(of: "$", with: "")) {
+            if aVal < bVal { return -1 }
+            if aVal > bVal { return 1 }
+            return 0
+        }
+
+        // Try to compare as integers
+        if let aNum = Int(a), let bNum = Int(b) {
+            if aNum < bNum { return -1 }
+            if aNum > bNum { return 1 }
+            return 0
+        }
+
+        // Compare as strings
+        return a.compare(b).rawValue
     }
 }
 

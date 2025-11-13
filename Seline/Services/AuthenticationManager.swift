@@ -150,25 +150,51 @@ class AuthenticationManager: ObservableObject {
             // Capture user ID before clearing for cache cleanup
             let userIdToClean = supabaseUser?.id
 
+            // === CLEAR ALL USER DATA ===
+
+            // 1. Clear manager data
+            TaskManager.shared.clearTasksOnLogout()
+            NotesManager.shared.clearNotesOnLogout()
+            LocationsManager.shared.clearPlacesOnLogout()
+            TagManager.shared.clearTagsOnLogout()
+
+            // 2. Clear email data
+            EmailService.shared.clearEmailsOnLogout()
+
+            // 3. Clear search & conversation data
+            SearchService.shared.clearSearchOnLogout()
+
+            // 4. Clear receipt cache (user-specific)
+            if let userId = userIdToClean {
+                ReceiptCategorizationService.shared.clearCacheForUser(userId.uuidString)
+            }
+
+            // 5. Clear user profile
+            UserProfilePersistenceService.clearUserProfile()
+
+            // 6. Clear image cache
+            ImageCacheManager.shared.clearCache()
+
+            // 7. Clear encryption key
+            EncryptionManager.shared.clearEncryption()
+
+            // 8. Clear all UserDefaults that might contain user-specific data
+            clearAllUserDefaults()
+
+            // === SIGN OUT FROM SERVICES ===
+
             // Sign out from Supabase
             try await supabaseManager.signOut()
 
             // Sign out from Google
             GIDSignIn.sharedInstance.signOut()
 
-            // Clear encryption key
-            EncryptionManager.shared.clearEncryption()
-
-            // Clear receipt categorization cache for this user
-            if let userId = userIdToClean {
-                ReceiptCategorizationService.shared.clearCacheForUser(userId.uuidString)
-            }
-
-            // Clear tasks and set authentication state
-            TaskManager.shared.clearTasksOnLogout()
+            // Clear authentication state
             self.isAuthenticated = false
             self.currentUser = nil
             self.supabaseUser = nil
+
+            print("✅ Successfully signed out and cleared all user data")
 
         } catch {
             errorMessage = "Sign out failed: \(error.localizedDescription)"
@@ -176,6 +202,45 @@ class AuthenticationManager: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    /// Clear all UserDefaults that might contain user-specific data
+    private func clearAllUserDefaults() {
+        let defaults = UserDefaults.standard
+
+        // Clear known keys that might contain user-specific data
+        let keysToRemove = [
+            "SavedTasks",
+            "SavedNotes",
+            "SavedNoteFolders",
+            "SavedPlaces",
+            "MapsSearchHistory",
+            "cached_inbox_emails",
+            "cached_sent_emails",
+            "cached_inbox_timestamp",
+            "cached_sent_timestamp",
+            "last_email_ids",
+            "SavedConversations",
+            "com.vibecode.seline.userprofile",
+            "UserLocationPreferences",
+            "UserCreatedTags",
+            "DeletedNotes",
+            "DeletedFolders"
+        ]
+
+        for key in keysToRemove {
+            defaults.removeObject(forKey: key)
+        }
+
+        // Also clear shared UserDefaults (for widgets/app groups)
+        if let sharedDefaults = UserDefaults(suiteName: "group.seline") {
+            for key in keysToRemove {
+                sharedDefaults.removeObject(forKey: key)
+            }
+        }
+
+        defaults.synchronize()
+        print("🗑️ Cleared all UserDefaults")
     }
 
     func refreshSession() async {
