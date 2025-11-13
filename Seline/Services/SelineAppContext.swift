@@ -59,6 +59,15 @@ class SelineAppContext {
         self.receipts = receiptNotes.map { note in
             // Try to extract the actual transaction date from the note content/title
             let transactionDate = extractTransactionDate(from: note)
+            let finalDate = transactionDate ?? note.dateModified
+
+            // Debug: Show if extraction failed
+            if transactionDate == nil {
+                print("⚠️  Date extraction FAILED for: \(note.title)")
+                print("   Using fallback dateModified: \(formatDate(finalDate))")
+                print("   Note content: \(note.content.prefix(100))")
+            }
+
             return ReceiptStat(from: note, date: transactionDate, category: "Receipt")
         }
 
@@ -372,11 +381,12 @@ class SelineAppContext {
         let searchText = note.title + " " + note.content
 
         // Regex to find dates like "Month DD, YYYY" or "Month DD YYYY"
-        // Matches: January 25, 2025 or January 25 2025
+        // More flexible: allows 0+ spaces, optional comma, handles both cases
         let monthNames = "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
-        let datePattern = "(\(monthNames))\\s+(\\d{1,2}),?\\s+(\\d{4})"
+        let datePattern = "(\(monthNames))\\s+(\\d{1,2})\\s*,?\\s*(\\d{4})"
 
         guard let regex = try? NSRegularExpression(pattern: datePattern, options: [.caseInsensitive]) else {
+            print("⚠️  Regex compilation failed")
             return nil
         }
 
@@ -393,32 +403,28 @@ class SelineAppContext {
 
         // Try to parse the extracted date string
         let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")  // Use standard locale
 
-        // Try with comma first
-        dateFormatter.dateFormat = "MMMM d, yyyy"
-        if let date = dateFormatter.date(from: matchedString) {
-            return date
+        // Try multiple format variations
+        let formats = [
+            "MMMM d, yyyy",    // November 25, 2025
+            "MMMM d yyyy",     // November 25 2025
+            "MMMM  d, yyyy",   // November  25, 2025 (double space)
+            "MMMM  d yyyy",    // November  25 2025
+            "MMM d, yyyy",     // Nov 25, 2025
+            "MMM d yyyy",      // Nov 25 2025
+            "MMM  d, yyyy",    // Nov  25, 2025
+            "MMM  d yyyy",     // Nov  25 2025
+        ]
+
+        for format in formats {
+            dateFormatter.dateFormat = format
+            if let date = dateFormatter.date(from: matchedString) {
+                return date
+            }
         }
 
-        // Try without comma
-        dateFormatter.dateFormat = "MMMM d yyyy"
-        if let date = dateFormatter.date(from: matchedString) {
-            return date
-        }
-
-        // Try abbreviated month with comma
-        dateFormatter.dateFormat = "MMM d, yyyy"
-        if let date = dateFormatter.date(from: matchedString) {
-            return date
-        }
-
-        // Try abbreviated month without comma
-        dateFormatter.dateFormat = "MMM d yyyy"
-        if let date = dateFormatter.date(from: matchedString) {
-            return date
-        }
-
-        // If we can't extract a date, return nil and let ReceiptStat use dateModified as fallback
+        print("⚠️  Could not parse extracted date '\(matchedString)' - tried \(formats.count) formats")
         return nil
     }
 }
