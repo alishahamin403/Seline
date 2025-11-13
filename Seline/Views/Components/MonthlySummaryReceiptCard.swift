@@ -12,16 +12,23 @@ struct MonthlySummaryReceiptCard: View {
     private var dailyAverage: Double {
         let calendar = Calendar.current
 
-        // Count unique days that have receipts
-        let uniqueDays = Set(monthlySummary.receipts.map { receipt in
-            calendar.component(.day, from: receipt.date)
-        })
+        // Get the first receipt's date to determine the month/year
+        guard let firstReceiptDate = monthlySummary.receipts.first?.date else {
+            return 0
+        }
 
-        let daysWithReceipts = uniqueDays.count
+        // Get the range of days in this month
+        let components = calendar.dateComponents([.year, .month], from: firstReceiptDate)
+        guard let startOfMonth = calendar.date(from: components),
+              let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startOfMonth) else {
+            return 0
+        }
 
-        // Fallback to 1 if no receipts to avoid division by zero
-        let divisor = Double(max(daysWithReceipts, 1))
+        // Calculate total days in the month
+        let daysInMonth = calendar.component(.day, from: endOfMonth)
 
+        // Divide by total days in month
+        let divisor = Double(max(daysInMonth, 1))
         return monthlySummary.monthlyTotal / divisor
     }
 

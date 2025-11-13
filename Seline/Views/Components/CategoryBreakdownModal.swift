@@ -24,26 +24,13 @@ struct CategoryBreakdownModal: View {
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(.primary)
 
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Total Spending")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-                        Text(CurrencyParser.formatAmount(monthlyTotal))
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primary)
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Categories")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-                        Text("\(categoryBreakdown.count)")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primary)
-                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Total Spending")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.gray)
+                    Text(CurrencyParser.formatAmount(monthlyTotal))
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.primary)
                 }
             }
             .padding(16)
