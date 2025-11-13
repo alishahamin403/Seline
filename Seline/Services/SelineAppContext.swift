@@ -353,21 +353,36 @@ class SelineAppContext {
 
     /// Extract date from receipt note title
     /// The title contains the transaction date like "Mazaj Lounge - October 31, 2025"
+    /// Searches for date patterns within the title, not the whole title as a date
     private func extractDateFromTitle(_ title: String) -> Date? {
+        // Look for date pattern: "Month DD, YYYY" or "Month DD YYYY" within the title
+        // Example: "Mazaj Lounge - October 31, 2025" → extract "October 31, 2025"
+
         let dateFormatter = DateFormatter()
 
-        // Try common formats found in receipt titles
-        let formats = [
-            "MMMM dd, yyyy",   // October 31, 2025
-            "MMMM d, yyyy",    // October 1, 2025
-            "MMM dd, yyyy",    // Oct 31, 2025
-            "MMM d, yyyy",     // Oct 1, 2025
-        ]
+        // Split by common separators and check each part for a date
+        let parts = title.components(separatedBy: CharacterSet(charactersIn: "-–—•"))
 
-        for format in formats {
-            dateFormatter.dateFormat = format
-            if let date = dateFormatter.date(from: title) {
-                return date
+        for part in parts {
+            let trimmedPart = part.trimmingCharacters(in: .whitespaces)
+
+            // Try each date format on this part
+            let formats = [
+                "MMMM dd, yyyy",   // October 31, 2025
+                "MMMM d, yyyy",    // October 1, 2025
+                "MMMM dd yyyy",    // October 31 2025
+                "MMMM d yyyy",     // October 1 2025
+                "MMM dd, yyyy",    // Oct 31, 2025
+                "MMM d, yyyy",     // Oct 1, 2025
+                "MMM dd yyyy",     // Oct 31 2025
+                "MMM d yyyy",      // Oct 1 2025
+            ]
+
+            for format in formats {
+                dateFormatter.dateFormat = format
+                if let date = dateFormatter.date(from: trimmedPart) {
+                    return date
+                }
             }
         }
 
