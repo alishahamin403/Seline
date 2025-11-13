@@ -21,6 +21,8 @@ class SelineAppContext {
     private(set) var receipts: [ReceiptStat] = []
     private(set) var notes: [Note] = []
     private(set) var emails: [Email] = []
+    private(set) var customEmailFolders: [CustomEmailFolder] = []
+    private(set) var savedEmailsByFolder: [UUID: [SavedEmail]] = [:]
     private(set) var locations: [SavedPlace] = []
     private(set) var currentDate: Date = Date()
 
@@ -43,18 +45,39 @@ class SelineAppContext {
         self.navigationService = navigationService
         self.categorizationService = categorizationService
 
-        refresh()
+        // Note: refresh() is called asynchronously in buildContextPrompt()
+        // to fetch custom email folders and saved emails
     }
 
     // MARK: - Data Collection
 
     /// Refresh all app data (call this at start of each conversation)
-    func refresh() {
+    func refresh() async {
         print("🔄 SelineAppContext.refresh() called")
         self.currentDate = Date()
 
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
+
+        // Collect custom email folders and their saved emails
+        do {
+            self.customEmailFolders = try await emailService.fetchSavedFolders()
+            print("📧 Found \(self.customEmailFolders.count) custom email folders")
+
+            // Load emails for each folder
+            for folder in self.customEmailFolders {
+                do {
+                    let savedEmails = try await emailService.getSavedEmails(in: folder.id)
+                    self.savedEmailsByFolder[folder.id] = savedEmails
+                    print("  • \(folder.name): \(savedEmails.count) emails")
+                } catch {
+                    print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
+                    self.savedEmailsByFolder[folder.id] = []
+                }
+            }
+        } catch {
+            print("⚠️  Error loading custom email folders: \(error)")
+        }
 
         // Debug: Log recurring events and their next occurrence
         let recurringEvents = self.events.filter { $0.isRecurring }
@@ -144,6 +167,9 @@ class SelineAppContext {
 
     /// Build a rich context string for the LLM with all app data
     func buildContextPrompt() async -> String {
+        // Refresh all data including custom email folders
+        await refresh()
+
         var context = ""
 
         // Current date context
@@ -497,9 +523,124 @@ class SelineAppContext {
                 }
             }
 
-            context += "**Total Emails**: \(emails.count)\n"
+            context += "**Total Standard Folders Emails**: \(emails.count)\n"
+
+            // CUSTOM EMAIL FOLDERS
+            if !customEmailFolders.isEmpty {
+                context += "\n**CUSTOM EMAIL FOLDERS** (\(customEmailFolders.count) folders):\n"
+
+                for folder in customEmailFolders {
+                    guard let folderEmails = savedEmailsByFolder[folder.id], !folderEmails.isEmpty else {
+                        context += "\n**\(folder.name)** (0 emails)\n"
+                        continue
+                    }
+
+                    context += "\n**\(folder.name)** (\(folderEmails.count) emails):\n"
+
+                    // Show most recent emails first, max 15 per custom folder
+                    for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(15) {
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateStyle = .medium
+                        dateFormatter.timeStyle = .short
+                        let formattedDate = dateFormatter.string(from: email.timestamp)
+
+                        let senderDisplay = email.senderName ?? email.senderEmail
+                        let recipientDisplay = email.recipients.joined(separator: ", ")
+
+                        context += "  • **\(email.subject)** - From: \(senderDisplay) - To: \(recipientDisplay) - Date: \(formattedDate)\n"
+
+                        // Add email metadata
+                        if let aiSummary = email.aiSummary, !aiSummary.isEmpty {
+                            context += "    AI Summary: \(aiSummary)\n"
+                        }
+
+                        // Add full email body/content
+                        if let body = email.body, !body.isEmpty {
+                            context += "    Content:\n"
+                            let bodyLines = body.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                            for line in bodyLines.prefix(50) {  // Show up to 50 lines of email content
+                                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                                if !trimmedLine.isEmpty {
+                                    context += "      \(trimmedLine)\n"
+                                }
+                            }
+                            if bodyLines.count > 50 {
+                                context += "      ... (email continues - \(bodyLines.count - 50) more lines)\n"
+                            }
+                        }
+
+                        // Add attachments if present
+                        if !email.attachments.isEmpty {
+                            context += "    Attachments: \(email.attachments.map { $0.fileName }.joined(separator: ", "))\n"
+                        }
+
+                        context += "\n"
+                    }
+
+                    if folderEmails.count > 15 {
+                        context += "  ... and \(folderEmails.count - 15) more emails in this folder\n"
+                    }
+                }
+            }
+
+            let totalEmails = emails.count + (savedEmailsByFolder.values.reduce(0) { $0 + $1.count })
+            context += "\n**Total Emails**: \(totalEmails)\n"
+        } else if !customEmailFolders.isEmpty {
+            // Show custom folders even if no standard emails
+            context += "\n**CUSTOM EMAIL FOLDERS** (\(customEmailFolders.count) folders):\n"
+
+            for folder in customEmailFolders {
+                guard let folderEmails = savedEmailsByFolder[folder.id] else {
+                    context += "\n**\(folder.name)** (0 emails)\n"
+                    continue
+                }
+
+                context += "\n**\(folder.name)** (\(folderEmails.count) emails):\n"
+
+                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(15) {
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    dateFormatter.timeStyle = .short
+                    let formattedDate = dateFormatter.string(from: email.timestamp)
+
+                    let senderDisplay = email.senderName ?? email.senderEmail
+                    let recipientDisplay = email.recipients.joined(separator: ", ")
+
+                    context += "  • **\(email.subject)** - From: \(senderDisplay) - To: \(recipientDisplay) - Date: \(formattedDate)\n"
+
+                    if let aiSummary = email.aiSummary, !aiSummary.isEmpty {
+                        context += "    AI Summary: \(aiSummary)\n"
+                    }
+
+                    if let body = email.body, !body.isEmpty {
+                        context += "    Content:\n"
+                        let bodyLines = body.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                        for line in bodyLines.prefix(50) {
+                            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                            if !trimmedLine.isEmpty {
+                                context += "      \(trimmedLine)\n"
+                            }
+                        }
+                        if bodyLines.count > 50 {
+                            context += "      ... (email continues - \(bodyLines.count - 50) more lines)\n"
+                        }
+                    }
+
+                    if !email.attachments.isEmpty {
+                        context += "    Attachments: \(email.attachments.map { $0.fileName }.joined(separator: ", "))\n"
+                    }
+
+                    context += "\n"
+                }
+
+                if folderEmails.count > 15 {
+                    context += "  ... and \(folderEmails.count - 15) more emails in this folder\n"
+                }
+            }
+
+            context += "\n**Total Custom Emails**: \(savedEmailsByFolder.values.reduce(0) { $0 + $1.count })\n"
         } else {
-            context += "  No emails\n"
+            context += "  No emails or custom folders\n"
         }
 
         // Notes detail - Comprehensive with folder, dates, and full content

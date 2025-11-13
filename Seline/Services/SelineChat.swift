@@ -72,9 +72,9 @@ class SelineChat {
     }
 
     /// Clear conversation history
-    func clearHistory() {
+    func clearHistory() async {
         conversationHistory = []
-        appContext.refresh()
+        await appContext.refresh()
     }
 
     /// Get context size estimate (for display)
