@@ -417,16 +417,60 @@ class SelineAppContext {
             context += "  No receipts\n"
         }
 
-        // Notes detail
+        // Notes detail - Comprehensive with folder, dates, and full content
         context += "\n=== NOTES ===\n"
         if !notes.isEmpty {
-            for note in notes.sorted(by: { $0.dateModified > $1.dateModified }).prefix(10) {
-                let preview = String(note.content.prefix(100)).replacingOccurrences(of: "\n", with: " ")
-                context += "  • **\(note.title)**: \(preview)...\n"
+            // Group notes by folder
+            let notesByFolder = Dictionary(grouping: notes) { note in
+                notesManager.getFolderName(for: note.folderId)
             }
-            if notes.count > 10 {
-                context += "  ... and \(notes.count - 10) more notes\n"
+
+            // Sort folders with "Receipts" last (since it's for receipts, not general notes)
+            let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
+                if folder1.lowercased().contains("receipt") { return false }
+                if folder2.lowercased().contains("receipt") { return false }
+                return folder1 < folder2
             }
+
+            for folder in sortedFolders {
+                guard let folderNotes = notesByFolder[folder] else { continue }
+
+                // Skip Receipts folder - already shown in expenses section
+                if folder.lowercased().contains("receipt") {
+                    continue
+                }
+
+                let folderLabel = folder == "Notes" ? "**Uncategorized Notes**" : "**\(folder)**"
+                context += "\n\(folderLabel) (\(folderNotes.count) notes):\n"
+
+                // Show most recently modified notes first, max 15 per folder
+                for note in folderNotes.sorted(by: { $0.dateModified > $1.dateModified }).prefix(15) {
+                    let lastModified = formatDate(note.dateModified)
+                    context += "  • **\(note.title)** (Updated: \(lastModified))\n"
+                    context += "    Content:\n"
+
+                    // Include full note content, formatted nicely
+                    let contentLines = note.content.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                    for line in contentLines.prefix(50) {  // Show up to 50 lines per note
+                        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                        if !trimmedLine.isEmpty {
+                            context += "    \(trimmedLine)\n"
+                        }
+                    }
+
+                    if contentLines.count > 50 {
+                        context += "    ... (note continues)\n"
+                    }
+                    context += "\n"
+                }
+
+                if folderNotes.count > 15 {
+                    context += "  ... and \(folderNotes.count - 15) more notes in this folder\n"
+                }
+            }
+
+            let totalNotes = notes.count
+            context += "\n**Total Notes**: \(totalNotes)\n"
         } else {
             context += "  No notes\n"
         }
