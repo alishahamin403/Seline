@@ -66,8 +66,17 @@ class SelineAppContext {
         self.locations = locationsManager.savedPlaces
 
         print("📦 AppContext refreshed:")
+        print("   Current date: \(formatDate(currentDate))")
         print("   Events: \(events.count)")
         print("   Receipts: \(receipts.count)")
+        if !receipts.isEmpty {
+            let minDate = receipts.min(by: { $0.date < $1.date })?.date ?? Date()
+            let maxDate = receipts.max(by: { $0.date < $1.date })?.date ?? Date()
+            print("     Date range: \(formatDate(minDate)) to \(formatDate(maxDate))")
+            // Show sample of receipt dates
+            let sampleDates = receipts.prefix(5).map { "\(formatDate($0.date)): \($0.title) ($\(String(format: "%.2f", $0.amount)))" }
+            print("     Sample: \(sampleDates.joined(separator: "\n              "))")
+        }
         print("   Notes: \(notes.count)")
         print("   Emails: \(emails.count)")
         print("   Locations: \(locations.count)")
@@ -174,22 +183,38 @@ class SelineAppContext {
         // Receipts detail
         context += "\n=== RECEIPTS & EXPENSES ===\n"
         if !receipts.isEmpty {
-            // First, identify current month
-            let currentMonth = Calendar.current.dateComponents([.month, .year], from: currentDate)
+            // First, identify current month and year safely
+            let currentMonthComponents = Calendar.current.dateComponents([.month, .year], from: currentDate)
+            let currentMonth = currentMonthComponents.month ?? 0
+            let currentYear = currentMonthComponents.year ?? 0
+
             let currentMonthFormatter = DateFormatter()
             currentMonthFormatter.dateFormat = "MMMM yyyy"
             let currentMonthStr = currentMonthFormatter.string(from: currentDate)
 
-            // Separate current month from other months
+            // Debug: Log the current month/year we're filtering for
+            print("📅 Filtering receipts for: \(currentMonthStr) (Month: \(currentMonth), Year: \(currentYear))")
+
+            // Separate current month from other months - SAFE COMPARISON
             let currentMonthReceipts = receipts.filter { receipt in
-                let receiptMonth = Calendar.current.dateComponents([.month, .year], from: receipt.date)
-                return receiptMonth.month == currentMonth.month && receiptMonth.year == currentMonth.year
+                let receiptMonthComponents = Calendar.current.dateComponents([.month, .year], from: receipt.date)
+                let receiptMonth = receiptMonthComponents.month ?? 0
+                let receiptYear = receiptMonthComponents.year ?? 0
+                let isCurrentMonth = (receiptMonth == currentMonth && receiptYear == currentYear)
+                return isCurrentMonth
             }
 
             let otherMonthsReceipts = receipts.filter { receipt in
-                let receiptMonth = Calendar.current.dateComponents([.month, .year], from: receipt.date)
-                return !(receiptMonth.month == currentMonth.month && receiptMonth.year == currentMonth.year)
+                let receiptMonthComponents = Calendar.current.dateComponents([.month, .year], from: receipt.date)
+                let receiptMonth = receiptMonthComponents.month ?? 0
+                let receiptYear = receiptMonthComponents.year ?? 0
+                let isCurrentMonth = (receiptMonth == currentMonth && receiptYear == currentYear)
+                return !isCurrentMonth
             }
+
+            // Debug output
+            print("💰 Current month receipts: \(currentMonthReceipts.count)")
+            print("📋 Other month receipts: \(otherMonthsReceipts.count)")
 
             // CURRENT MONTH - Show all details
             if !currentMonthReceipts.isEmpty {
