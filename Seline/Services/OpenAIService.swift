@@ -5526,7 +5526,7 @@ class OpenAIService: ObservableObject {
                     aggType = .count
                 }
 
-                return AnyOperation(AggregateOperation(type: aggType, groupBy: groupBy, sortBy: nil))
+                return AnyOperation(AggregateOperation(type: aggType, groupBy: groupBy, sortBy: nil, orderBy: nil))
 
             case "comparison":
                 let dimension = (params["dimension"] as? String) ?? "time"
