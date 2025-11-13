@@ -17,9 +17,9 @@ struct StructuredLLMContext: Encodable {
 
         struct TemporalContextJSON: Encodable {
             let requestedPeriod: String
-            let startDate: String?
-            let endDate: String?
-            let relativeToNow: String  // "this month", "last week", etc.
+            let startDate: String
+            let endDate: String
+            let periodType: String  // "thisMonth", "lastWeek", etc.
         }
 
         struct FollowUpContextJSON: Encodable {
@@ -366,29 +366,83 @@ class ContextBuilder {
             return nil
         }
 
-        // Determine relative description
-        let now = Date()
-        let calendar = Calendar.current
-        let relativeDesc = identifyRelativePeriod(dateRangeQueried, against: now, calendar: calendar)
+        let formatter = ISO8601DateFormatter()
 
-        // Try to parse start and end dates
-        var startDate: String?
-        var endDate: String?
+        // Try to identify the period type
+        let periodType = identifyRelativePeriod(dateRangeQueried)
 
-        // Check if this looks like a date range
-        if dateRangeQueried.contains("to") || dateRangeQueried.contains("-") {
-            let formatter = ISO8601DateFormatter()
-            // This is simplified; in a real scenario, you'd want more robust parsing
-            startDate = "parsed_from_context"
-            endDate = "parsed_from_context"
-        }
+        // Get start and end dates
+        let (startDate, endDate) = getDateBoundsForPeriod(periodType)
 
         return StructuredLLMContext.ContextMetadata.TemporalContextJSON(
             requestedPeriod: dateRangeQueried,
-            startDate: startDate,
-            endDate: endDate,
-            relativeToNow: relativeDesc
+            startDate: formatter.string(from: startDate),
+            endDate: formatter.string(from: endDate),
+            periodType: periodType
         )
+    }
+
+    /// Get date bounds for a given period
+    private func getDateBoundsForPeriod(_ period: String) -> (start: Date, end: Date) {
+        let now = Date()
+        let calendar = Calendar.current
+
+        switch period.lowercased() {
+        case "thismonth":
+            let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+            let end = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: start)!
+            return (start, end)
+
+        case "lastmonth":
+            let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+            let lastMonthEnd = calendar.date(byAdding: DateComponents(day: -1), to: currentMonthStart)!
+            let lastMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: lastMonthEnd))!
+            return (lastMonthStart, lastMonthEnd)
+
+        case "nextmonth":
+            let nextMonthStart = calendar.date(byAdding: DateComponents(month: 1), to: calendar.date(from: calendar.dateComponents([.year, .month], from: now))!)!
+            let nextMonthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: nextMonthStart)!
+            return (nextMonthStart, nextMonthEnd)
+
+        case "thisweek":
+            let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
+            let weekEnd = calendar.date(byAdding: DateComponents(day: 6), to: weekStart)!
+            return (weekStart, weekEnd)
+
+        case "lastweek":
+            let thisWeekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
+            let lastWeekEnd = calendar.date(byAdding: DateComponents(day: -1), to: thisWeekStart)!
+            let lastWeekStart = calendar.date(byAdding: DateComponents(day: -6), to: lastWeekEnd)!
+            return (lastWeekStart, lastWeekEnd)
+
+        case "nextweek":
+            let thisWeekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
+            let nextWeekStart = calendar.date(byAdding: DateComponents(day: 7), to: thisWeekStart)!
+            let nextWeekEnd = calendar.date(byAdding: DateComponents(day: 6), to: nextWeekStart)!
+            return (nextWeekStart, nextWeekEnd)
+
+        case "today":
+            let start = calendar.startOfDay(for: now)
+            let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start)!
+            return (start, end)
+
+        case "yesterday":
+            let yesterday = calendar.date(byAdding: DateComponents(day: -1), to: now)!
+            let start = calendar.startOfDay(for: yesterday)
+            let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start)!
+            return (start, end)
+
+        case "tomorrow":
+            let tomorrow = calendar.date(byAdding: DateComponents(day: 1), to: now)!
+            let start = calendar.startOfDay(for: tomorrow)
+            let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start)!
+            return (start, end)
+
+        default:
+            let start = calendar.startOfDay(for: now)
+            let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start)!
+            return (start, end)
+        }
     }
 
     /// Analyze follow-up context from conversation history
@@ -436,24 +490,24 @@ class ContextBuilder {
         )
     }
 
-    /// Identify relative period (e.g., "this month", "last week")
-    private func identifyRelativePeriod(_ dateRange: String, against now: Date, calendar: Calendar) -> String {
+    /// Identify relative period (e.g., "thisMonth", "lastWeek")
+    private func identifyRelativePeriod(_ dateRange: String) -> String {
         let lower = dateRange.lowercased()
 
-        if lower.contains("this month") { return "this month" }
-        if lower.contains("last month") { return "last month" }
-        if lower.contains("next month") { return "next month" }
-        if lower.contains("this week") { return "this week" }
-        if lower.contains("last week") { return "last week" }
-        if lower.contains("next week") { return "next week" }
+        if lower.contains("this month") { return "thisMonth" }
+        if lower.contains("last month") { return "lastMonth" }
+        if lower.contains("next month") { return "nextMonth" }
+        if lower.contains("this week") { return "thisWeek" }
+        if lower.contains("last week") { return "lastWeek" }
+        if lower.contains("next week") { return "nextWeek" }
         if lower.contains("today") { return "today" }
         if lower.contains("yesterday") { return "yesterday" }
         if lower.contains("tomorrow") { return "tomorrow" }
-        if lower.contains("this year") { return "this year" }
-        if lower.contains("last year") { return "last year" }
-        if lower.contains("past 30 days") { return "past 30 days" }
+        if lower.contains("this year") { return "thisYear" }
+        if lower.contains("last year") { return "lastYear" }
+        if lower.contains("past 30 days") { return "past30Days" }
 
-        return dateRange
+        return "custom"
     }
 
     /// Extract the main topic from a user query

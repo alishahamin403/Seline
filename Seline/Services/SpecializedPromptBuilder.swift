@@ -98,8 +98,10 @@ class SpecializedPromptBuilder {
 
     /// Generate optimized prompt for temporal queries
     /// Ensures correct date range filtering and temporal understanding
-    func buildTemporalQueryPrompt(requestedPeriod: String, startDate: Date?, endDate: Date?) -> String {
+    func buildTemporalQueryPrompt(dateRange: DateRange) -> String {
         let formatter = ISO8601DateFormatter()
+        let periodDescription = describePeriod(dateRange.period)
+
         var prompt = """
         You are a temporal analyst with precise date handling.
 
@@ -110,15 +112,10 @@ class SpecializedPromptBuilder {
         4. Convert relative dates (this month, last week) to absolute dates
         5. Clarify date boundaries in your response
 
-        REQUESTED TIME PERIOD: \(requestedPeriod)
+        REQUESTED TIME PERIOD: \(periodDescription)
+        - Start Date: \(formatter.string(from: dateRange.start))
+        - End Date: \(formatter.string(from: dateRange.end))
         """
-
-        if let start = startDate {
-            prompt += "\n- Start Date: \(formatter.string(from: start))"
-        }
-        if let end = endDate {
-            prompt += "\n- End Date: \(formatter.string(from: end))"
-        }
 
         let now = Date()
         let calendar = Calendar.current
@@ -232,11 +229,7 @@ class SpecializedPromptBuilder {
 
         case .temporal:
             if let params = temporalParams, let dateRange = params.dateRange {
-                finalPrompt += "\n\n" + buildTemporalQueryPrompt(
-                    requestedPeriod: dateRange.label,
-                    startDate: dateRange.start,
-                    endDate: dateRange.end
-                )
+                finalPrompt += "\n\n" + buildTemporalQueryPrompt(dateRange: dateRange)
             }
 
         case .followUp:
@@ -294,6 +287,30 @@ class SpecializedPromptBuilder {
         4. Suggest related insights if helpful
         5. Be conversational but informative
         """
+    }
+
+    // MARK: - Helper Methods
+
+    /// Convert TimePeriod enum to human-readable description
+    private func describePeriod(_ period: DateRange.TimePeriod) -> String {
+        switch period {
+        case .today:
+            return "Today"
+        case .tomorrow:
+            return "Tomorrow"
+        case .thisWeek:
+            return "This Week"
+        case .nextWeek:
+            return "Next Week"
+        case .thisMonth:
+            return "This Month"
+        case .lastMonth:
+            return "Last Month"
+        case .thisYear:
+            return "This Year"
+        case .custom:
+            return "Custom Period"
+        }
     }
 }
 

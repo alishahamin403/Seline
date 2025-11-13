@@ -235,32 +235,32 @@ class AdvancedQueryParser {
         let calendar = Calendar.current
 
         // Check for relative date patterns
-        let patterns = [
-            ("this month", { (now: Date) -> DateRange in
+        let patterns: [(String, DateRange.TimePeriod, (Date) -> DateRange?)] = [
+            ("this month", .thisMonth, { now in
                 let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
                 let end = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: start)!
-                return DateRange(start: start, end: end, label: "this month")
+                return DateRange(start: start, end: end, period: .thisMonth)
             }),
-            ("last month", { (now: Date) -> DateRange in
+            ("last month", .lastMonth, { now in
                 let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
                 let lastMonthEnd = calendar.date(byAdding: DateComponents(day: -1), to: currentMonthStart)!
                 let lastMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: lastMonthEnd))!
-                return DateRange(start: lastMonthStart, end: lastMonthEnd, label: "last month")
+                return DateRange(start: lastMonthStart, end: lastMonthEnd, period: .lastMonth)
             }),
-            ("this week", { (now: Date) -> DateRange in
+            ("this week", .thisWeek, { now in
                 let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
                 let weekEnd = calendar.date(byAdding: DateComponents(day: 6), to: weekStart)!
-                return DateRange(start: weekStart, end: weekEnd, label: "this week")
+                return DateRange(start: weekStart, end: weekEnd, period: .thisWeek)
             }),
-            ("last week", { (now: Date) -> DateRange in
+            ("last week", .lastMonth, { now in
                 let thisWeekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
                 let lastWeekEnd = calendar.date(byAdding: DateComponents(day: -1), to: thisWeekStart)!
                 let lastWeekStart = calendar.date(byAdding: DateComponents(day: -6), to: lastWeekEnd)!
-                return DateRange(start: lastWeekStart, end: lastWeekEnd, label: "last week")
+                return DateRange(start: lastWeekStart, end: lastWeekEnd, period: .lastMonth)
             })
         ]
 
-        for (pattern, calculator) in patterns {
+        for (pattern, _, calculator) in patterns {
             if lowercased.contains(pattern) {
                 return calculator(now)
             }
@@ -300,10 +300,4 @@ struct ComparisonQueryParameters {
 struct TemporalQueryParameters {
     let dateRange: DateRange?
     let query: String
-}
-
-struct DateRange {
-    let start: Date
-    let end: Date
-    let label: String
 }
