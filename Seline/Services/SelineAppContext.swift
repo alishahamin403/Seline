@@ -54,7 +54,13 @@ class SelineAppContext {
         let receiptNotes = notesManager.notes.filter { note in
             isUnderReceiptsFolderHierarchy(folderId: note.folderId, receiptsFolderId: receiptsFolderId)
         }
-        self.receipts = receiptNotes.map { ReceiptStat(from: $0, category: "Receipt") }
+
+        // Extract transaction dates from receipt notes
+        self.receipts = receiptNotes.map { note in
+            // Try to extract the actual transaction date from the note content/title
+            let transactionDate = extractTransactionDate(from: note)
+            return ReceiptStat(from: note, date: transactionDate, category: "Receipt")
+        }
 
         // Collect all notes
         self.notes = notesManager.notes
@@ -358,5 +364,61 @@ class SelineAppContext {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         return formatter.string(from: date)
+    }
+
+    /// Extract the actual transaction date from a receipt note
+    /// Searches note title and content for date patterns like "November 25, 2025"
+    private func extractTransactionDate(from note: Note) -> Date? {
+        let searchText = note.title + " " + note.content
+
+        // Regex to find dates like "Month DD, YYYY" or "Month DD YYYY"
+        // Matches: January 25, 2025 or January 25 2025
+        let monthNames = "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
+        let datePattern = "(\(monthNames))\\s+(\\d{1,2}),?\\s+(\\d{4})"
+
+        guard let regex = try? NSRegularExpression(pattern: datePattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(searchText.startIndex..., in: searchText)
+        guard let match = regex.firstMatch(in: searchText, options: [], range: range) else {
+            return nil
+        }
+
+        // Extract the matched date string
+        let matchedRange = match.range
+        guard let matchedString = Range(matchedRange, in: searchText).map({ String(searchText[$0]) }) else {
+            return nil
+        }
+
+        // Try to parse the extracted date string
+        let dateFormatter = DateFormatter()
+
+        // Try with comma first
+        dateFormatter.dateFormat = "MMMM d, yyyy"
+        if let date = dateFormatter.date(from: matchedString) {
+            return date
+        }
+
+        // Try without comma
+        dateFormatter.dateFormat = "MMMM d yyyy"
+        if let date = dateFormatter.date(from: matchedString) {
+            return date
+        }
+
+        // Try abbreviated month with comma
+        dateFormatter.dateFormat = "MMM d, yyyy"
+        if let date = dateFormatter.date(from: matchedString) {
+            return date
+        }
+
+        // Try abbreviated month without comma
+        dateFormatter.dateFormat = "MMM d yyyy"
+        if let date = dateFormatter.date(from: matchedString) {
+            return date
+        }
+
+        // If we can't extract a date, return nil and let ReceiptStat use dateModified as fallback
+        return nil
     }
 }
