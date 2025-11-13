@@ -57,17 +57,8 @@ class SelineAppContext {
 
         // Extract transaction dates from receipt notes
         self.receipts = receiptNotes.map { note in
-            // Try to extract the actual transaction date from the note content/title
-            let transactionDate = extractTransactionDate(from: note)
-            let finalDate = transactionDate ?? note.dateModified
-
-            // Debug: Show if extraction failed
-            if transactionDate == nil {
-                print("⚠️  Date extraction FAILED for: \(note.title)")
-                print("   Using fallback dateModified: \(formatDate(finalDate))")
-                print("   Note content: \(note.content.prefix(100))")
-            }
-
+            // Extract date from note title - that's the transaction date
+            let transactionDate = extractDateFromTitle(note.title)
             return ReceiptStat(from: note, date: transactionDate, category: "Receipt")
         }
 
@@ -198,38 +189,23 @@ class SelineAppContext {
         // Receipts detail
         context += "\n=== RECEIPTS & EXPENSES ===\n"
         if !receipts.isEmpty {
-            // First, identify current month and year safely
-            let currentMonthComponents = Calendar.current.dateComponents([.month, .year], from: currentDate)
-            let currentMonth = currentMonthComponents.month ?? 0
-            let currentYear = currentMonthComponents.year ?? 0
-
             let currentMonthFormatter = DateFormatter()
             currentMonthFormatter.dateFormat = "MMMM yyyy"
             let currentMonthStr = currentMonthFormatter.string(from: currentDate)
 
-            // Debug: Log the current month/year we're filtering for
-            print("📅 Filtering receipts for: \(currentMonthStr) (Month: \(currentMonth), Year: \(currentYear))")
+            // Get start of current month (e.g., Nov 1, 2025 at 00:00)
+            let calendar = Calendar.current
+            let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: currentDate)) ?? currentDate
 
-            // Separate current month from other months - SAFE COMPARISON
+            // Receipts from start of month to today
             let currentMonthReceipts = receipts.filter { receipt in
-                let receiptMonthComponents = Calendar.current.dateComponents([.month, .year], from: receipt.date)
-                let receiptMonth = receiptMonthComponents.month ?? 0
-                let receiptYear = receiptMonthComponents.year ?? 0
-                let isCurrentMonth = (receiptMonth == currentMonth && receiptYear == currentYear)
-                return isCurrentMonth
+                receipt.date >= startOfMonth && receipt.date <= currentDate
             }
 
+            // All other receipts
             let otherMonthsReceipts = receipts.filter { receipt in
-                let receiptMonthComponents = Calendar.current.dateComponents([.month, .year], from: receipt.date)
-                let receiptMonth = receiptMonthComponents.month ?? 0
-                let receiptYear = receiptMonthComponents.year ?? 0
-                let isCurrentMonth = (receiptMonth == currentMonth && receiptYear == currentYear)
-                return !isCurrentMonth
+                receipt.date < startOfMonth || receipt.date > currentDate
             }
-
-            // Debug output
-            print("💰 Current month receipts: \(currentMonthReceipts.count)")
-            print("📋 Other month receipts: \(otherMonthsReceipts.count)")
 
             // CURRENT MONTH - Show all details
             if !currentMonthReceipts.isEmpty {
@@ -375,56 +351,27 @@ class SelineAppContext {
         return formatter.string(from: date)
     }
 
-    /// Extract the actual transaction date from a receipt note
-    /// Searches note title and content for date patterns like "November 25, 2025"
-    private func extractTransactionDate(from note: Note) -> Date? {
-        let searchText = note.title + " " + note.content
-
-        // Regex to find dates like "Month DD, YYYY" or "Month DD YYYY"
-        // More flexible: allows 0+ spaces, optional comma, handles both cases
-        let monthNames = "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
-        let datePattern = "(\(monthNames))\\s+(\\d{1,2})\\s*,?\\s*(\\d{4})"
-
-        guard let regex = try? NSRegularExpression(pattern: datePattern, options: [.caseInsensitive]) else {
-            print("⚠️  Regex compilation failed")
-            return nil
-        }
-
-        let range = NSRange(searchText.startIndex..., in: searchText)
-        guard let match = regex.firstMatch(in: searchText, options: [], range: range) else {
-            return nil
-        }
-
-        // Extract the matched date string
-        let matchedRange = match.range
-        guard let matchedString = Range(matchedRange, in: searchText).map({ String(searchText[$0]) }) else {
-            return nil
-        }
-
-        // Try to parse the extracted date string
+    /// Extract date from receipt note title
+    /// The title contains the transaction date like "Mazaj Lounge - October 31, 2025"
+    private func extractDateFromTitle(_ title: String) -> Date? {
         let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")  // Use standard locale
 
-        // Try multiple format variations
+        // Try common formats found in receipt titles
         let formats = [
-            "MMMM d, yyyy",    // November 25, 2025
-            "MMMM d yyyy",     // November 25 2025
-            "MMMM  d, yyyy",   // November  25, 2025 (double space)
-            "MMMM  d yyyy",    // November  25 2025
-            "MMM d, yyyy",     // Nov 25, 2025
-            "MMM d yyyy",      // Nov 25 2025
-            "MMM  d, yyyy",    // Nov  25, 2025
-            "MMM  d yyyy",     // Nov  25 2025
+            "MMMM dd, yyyy",   // October 31, 2025
+            "MMMM d, yyyy",    // October 1, 2025
+            "MMM dd, yyyy",    // Oct 31, 2025
+            "MMM d, yyyy",     // Oct 1, 2025
         ]
 
         for format in formats {
             dateFormatter.dateFormat = format
-            if let date = dateFormatter.date(from: matchedString) {
+            if let date = dateFormatter.date(from: title) {
                 return date
             }
         }
 
-        print("⚠️  Could not parse extracted date '\(matchedString)' - tried \(formats.count) formats")
+        // If no date found, return nil and let ReceiptStat use dateModified as fallback
         return nil
     }
 }
