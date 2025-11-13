@@ -211,71 +211,51 @@ class SelineAppContext {
             context += "  No events\n"
         }
 
-        // Receipts detail
+        // Receipts detail - Group all receipts by month and show with real categorization
         context += "\n=== RECEIPTS & EXPENSES ===\n"
         if !receipts.isEmpty {
+            // Group all receipts by month dynamically
+            let receiptsByMonth = Dictionary(grouping: receipts) { receipt in
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMMM yyyy"
+                return formatter.string(from: receipt.date)
+            }
+
+            // Get current month for detection
+            let calendar = Calendar.current
             let currentMonthFormatter = DateFormatter()
             currentMonthFormatter.dateFormat = "MMMM yyyy"
             let currentMonthStr = currentMonthFormatter.string(from: currentDate)
 
-            // Get start of current month (e.g., Nov 1, 2025 at 00:00)
-            let calendar = Calendar.current
-            let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: currentDate)) ?? currentDate
-
-            // Receipts from start of month to today
-            let currentMonthReceipts = receipts.filter { receipt in
-                receipt.date >= startOfMonth && receipt.date <= currentDate
+            // Sort months: current month first, then others by recency
+            let sortedMonths = receiptsByMonth.keys.sorted { month1, month2 in
+                if month1 == currentMonthStr { return true }
+                if month2 == currentMonthStr { return false }
+                return month1 > month2  // Most recent first
             }
 
-            // All other receipts
-            let otherMonthsReceipts = receipts.filter { receipt in
-                receipt.date < startOfMonth || receipt.date > currentDate
-            }
+            for (index, month) in sortedMonths.prefix(7).enumerated() {
+                guard let items = receiptsByMonth[month] else { continue }
 
-            // CURRENT MONTH - Show all details with real category breakdown
-            if !currentMonthReceipts.isEmpty {
-                let currentMonthTotal = currentMonthReceipts.reduce(0.0) { $0 + $1.amount }
-                context += "\n**\(currentMonthStr)** (Current Month): \(currentMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", currentMonthTotal))\n"
+                let total = items.reduce(0.0) { $0 + $1.amount }
+                let isCurrentMonth = (month == currentMonthStr)
 
-                // Get real category breakdown from ReceiptCategorizationService
-                let categoryBreakdown = await categorizationService.getCategoryBreakdown(for: currentMonthReceipts)
+                context += "\n**\(month)**\(isCurrentMonth ? " (Current Month)" : ""): \(items.count) receipts, Total: $\(String(format: "%.2f", total))\n"
+
+                // Get real category breakdown for this month using ReceiptCategorizationService
+                let categoryBreakdown = await categorizationService.getCategoryBreakdown(for: items)
 
                 // Show categories and amounts
                 for (category, receiptsInCategory) in categoryBreakdown.categoryReceipts.sorted(by: { $0.key < $1.key }) {
                     let categoryTotal = receiptsInCategory.reduce(0.0) { $0 + $1.amount }
                     context += "  **\(category)**: $\(String(format: "%.2f", categoryTotal)) (\(receiptsInCategory.count) items)\n"
 
-                    // List all items in this category
-                    for receipt in receiptsInCategory.sorted(by: { $0.date > $1.date }) {
-                        context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
+                    // Show all items for current month, summary for previous months
+                    if isCurrentMonth {
+                        for receipt in receiptsInCategory.sorted(by: { $0.date > $1.date }) {
+                            context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
+                        }
                     }
-                }
-            }
-
-            // PREVIOUS MONTHS - Show summary with real categories
-            if !otherMonthsReceipts.isEmpty {
-                context += "\n**Previous Months Summary**:\n"
-
-                // Group by month
-                let byMonth = Dictionary(grouping: otherMonthsReceipts) { receipt in
-                    let formatter = DateFormatter()
-                    formatter.dateFormat = "MMMM yyyy"
-                    return formatter.string(from: receipt.date)
-                }
-
-                for (month, items) in byMonth.sorted(by: { $0.key > $1.key }).prefix(6) {
-                    let total = items.reduce(0.0) { $0 + $1.amount }
-
-                    // Get real category breakdown for this month using ReceiptCategorizationService
-                    let monthCategoryBreakdown = await categorizationService.getCategoryBreakdown(for: items)
-
-                    // Show category breakdown for each month
-                    var categoryBreakdown = monthCategoryBreakdown.categoryReceipts.map { cat, catItems in
-                        let catTotal = catItems.reduce(0.0) { $0 + $1.amount }
-                        return "\(cat): $\(String(format: "%.2f", catTotal))"
-                    }.sorted()
-
-                    context += "  **\(month)**: $\(String(format: "%.2f", total)) total - \(categoryBreakdown.joined(separator: ", "))\n"
                 }
             }
         } else {
