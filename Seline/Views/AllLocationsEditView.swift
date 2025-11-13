@@ -292,7 +292,7 @@ struct AllLocationsEditView: View {
                                         }) {
                                             Image(systemName: locationType.icon)
                                                 .font(.system(size: 16, weight: .semibold))
-                                                .foregroundColor(getCurrentIcon() == locationType.icon ? .white : (colorScheme == .dark ? .white : .black))
+                                                .foregroundColor(getCurrentIcon() == locationType.icon ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white : .black))
                                                 .frame(width: 48, height: 48)
                                                 .background(
                                                     Circle()
