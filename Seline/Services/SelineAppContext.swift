@@ -61,10 +61,21 @@ class SelineAppContext {
         if !recurringEvents.isEmpty {
             print("🔁 Recurring events found: \(recurringEvents.count)")
             for event in recurringEvents {
-                if let nextDate = getNextOccurrenceDate(for: event) {
-                    print("   • \(event.title) [\(event.recurrenceFrequency?.rawValue ?? "?")]: next occurrence = \(formatDate(nextDate))")
+                let frequency = event.recurrenceFrequency?.rawValue ?? "?"
+                let anchorDate = event.targetDate ?? event.createdAt
+                let nextDate = getNextOccurrenceDate(for: event)
+
+                print("   • \(event.title)")
+                print("     Frequency: \(frequency)")
+                print("     Anchor date: \(formatDate(anchorDate))")
+                print("     Recurrence end: \(event.recurrenceEndDate.map { formatDate($0) } ?? "None")")
+
+                if let nextDate = nextDate {
+                    let isTomorrow = Calendar.current.isDateInTomorrow(nextDate)
+                    let isToday = Calendar.current.isDateInToday(nextDate)
+                    print("     Next occurrence: \(formatDate(nextDate))\(isTomorrow ? " (TOMORROW)" : "")\(isToday ? " (TODAY)" : "")")
                 } else {
-                    print("   • \(event.title) [\(event.recurrenceFrequency?.rawValue ?? "?")]: NO next occurrence (ended or invalid)")
+                    print("     Next occurrence: NONE (ended or invalid)")
                 }
             }
         }
