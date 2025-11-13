@@ -241,26 +241,26 @@ struct DayCard: View {
                             HStack {
                                 Image(systemName: reminder.icon)
                                     .font(.system(size: 14))
-                                    .foregroundColor(selectedReminder == reminder ? Color.shadcnPrimary : Color.shadcnMutedForeground(colorScheme))
+                                    .foregroundColor(selectedReminder == reminder ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray)
                                     .frame(width: 20)
 
                                 Text(reminder.displayName)
                                     .font(.shadcnTextSm)
-                                    .foregroundColor(selectedReminder == reminder ? Color.shadcnPrimary : Color.shadcnForeground(colorScheme))
+                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                                 Spacer()
 
                                 if selectedReminder == reminder {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(Color.shadcnPrimary)
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 }
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: ShadcnRadius.sm)
-                                    .fill(selectedReminder == reminder ? Color.shadcnPrimary.opacity(0.1) : Color.clear)
+                                    .fill((colorScheme == .dark ? Color.white : Color.black).opacity(0.05))
                             )
                         }
                         .buttonStyle(PlainButtonStyle())

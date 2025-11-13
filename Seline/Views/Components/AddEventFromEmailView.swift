@@ -180,8 +180,12 @@ struct AddEventFromEmailView: View {
 
                     Picker("Reminder", selection: $reminderTime) {
                         ForEach(ReminderTime.allCases, id: \.self) { reminder in
-                            Text(reminder.displayName)
-                                .tag(reminder)
+                            HStack(spacing: 6) {
+                                Image(systemName: reminder.icon)
+                                    .font(.system(size: 12))
+                                Text(reminder.displayName)
+                            }
+                            .tag(reminder)
                         }
                     }
                     .pickerStyle(MenuPickerStyle())

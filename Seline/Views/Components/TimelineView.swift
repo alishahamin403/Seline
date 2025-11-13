@@ -433,14 +433,14 @@ struct TimelineView: View {
             Button(action: {
                 showReminderOptions = true
             }) {
-                Image(systemName: selectedReminder != .none ? "bell.fill" : "bell")
+                Image(systemName: selectedReminder != .none ? "bell.fill" : "bell.slash.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
                             .fill(colorScheme == .dark ?
-                                Color.white.opacity(0.9) :
+                                Color.white.opacity(0.15) :
                                 Color.black.opacity(0.1))
                     )
             }

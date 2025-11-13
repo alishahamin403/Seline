@@ -693,12 +693,12 @@ struct ReminderOptionsSheet: View {
                         HStack {
                             Image(systemName: reminder.icon)
                                 .font(.system(size: 16))
-                                .foregroundColor(reminder == .none ? Color.shadcnMuted(colorScheme) : Color.shadcnPrimary)
+                                .foregroundColor(reminder == .none ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                                 .frame(width: 24)
 
                             Text(reminder.displayName)
                                 .font(.shadcnTextBase)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
 
                             Spacer()
 
