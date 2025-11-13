@@ -33,6 +33,7 @@ struct CategoryBreakdownModal: View {
                         .foregroundColor(.primary)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
             .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
 
