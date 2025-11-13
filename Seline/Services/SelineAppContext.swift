@@ -417,6 +417,91 @@ class SelineAppContext {
             context += "  No receipts\n"
         }
 
+        // Emails detail - Comprehensive with folder organization, metadata, and full content
+        context += "\n=== EMAILS & MESSAGES ===\n"
+        if !emails.isEmpty {
+            // Group emails by labels (folders)
+            let emailsByFolder = Dictionary(grouping: emails) { email in
+                // Use labels to determine folder, default to "Inbox"
+                if email.labels.contains("SENT") {
+                    return "Sent"
+                } else if email.labels.contains("DRAFT") {
+                    return "Drafts"
+                } else if email.labels.contains("ARCHIVED") {
+                    return "Archive"
+                } else if email.labels.contains("IMPORTANT") {
+                    return "Important"
+                } else if email.labels.contains("STARRED") {
+                    return "Starred"
+                } else {
+                    return "Inbox"
+                }
+            }
+
+            // Sort folders with Inbox first
+            let sortedFolders = emailsByFolder.keys.sorted { folder1, folder2 in
+                if folder1 == "Inbox" { return true }
+                if folder2 == "Inbox" { return false }
+                return folder1 < folder2
+            }
+
+            for folder in sortedFolders {
+                guard let folderEmails = emailsByFolder[folder] else { continue }
+
+                context += "\n**\(folder)** (\(folderEmails.count) emails):\n"
+
+                // Show most recent emails first, max 20 per folder
+                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(20) {
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    dateFormatter.timeStyle = .short
+                    let formattedDate = dateFormatter.string(from: email.timestamp)
+
+                    let senderDisplay = email.sender.displayName
+                    let recipientDisplay = email.recipients.map { $0.displayName }.joined(separator: ", ")
+
+                    context += "  • **\(email.subject)** - From: \(senderDisplay) - To: \(recipientDisplay) - Date: \(formattedDate)\n"
+
+                    // Add email metadata
+                    context += "    Status: \(email.isRead ? "Read" : "Unread")\(email.isImportant ? ", Important" : "")\n"
+
+                    if let aiSummary = email.aiSummary, !aiSummary.isEmpty {
+                        context += "    AI Summary: \(aiSummary)\n"
+                    }
+
+                    // Add full email body/content
+                    if let body = email.body, !body.isEmpty {
+                        context += "    Content:\n"
+                        let bodyLines = body.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                        for line in bodyLines.prefix(50) {  // Show up to 50 lines of email content
+                            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                            if !trimmedLine.isEmpty {
+                                context += "      \(trimmedLine)\n"
+                            }
+                        }
+                        if bodyLines.count > 50 {
+                            context += "      ... (email continues - \(bodyLines.count - 50) more lines)\n"
+                        }
+                    }
+
+                    // Add attachments if present
+                    if email.hasAttachments && !email.attachments.isEmpty {
+                        context += "    Attachments: \(email.attachments.map { $0.filename }.joined(separator: ", "))\n"
+                    }
+
+                    context += "\n"
+                }
+
+                if folderEmails.count > 20 {
+                    context += "  ... and \(folderEmails.count - 20) more emails in this folder\n"
+                }
+            }
+
+            context += "**Total Emails**: \(emails.count)\n"
+        } else {
+            context += "  No emails\n"
+        }
+
         // Notes detail - Comprehensive with folder, dates, and full content
         context += "\n=== NOTES ===\n"
         if !notes.isEmpty {
