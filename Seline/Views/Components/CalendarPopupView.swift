@@ -31,23 +31,7 @@ struct CalendarPopupView: View {
                 )
                 .padding(.horizontal, 8)
                 .padding(.top, 12)
-                .padding(.bottom, 4)
-
-                // Tasks header
-                HStack {
-                    Text("Tasks")
-                        .font(.shadcnTextLgSemibold)
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                    Spacer()
-
-                    Text(formattedSelectedDate)
-                        .font(.shadcnTextSm)
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.bottom, 16)
 
                 // Filter buttons - Show "All", "Personal", and all user-created tags
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -687,17 +671,6 @@ struct ShadcnDayCell: View {
                 Text(dayNumber)
                     .font(.system(size: 13, weight: isToday ? .semibold : .regular))
                     .foregroundColor(textColor)
-
-                // Event indicator dot
-                if hasEvents && isInCurrentMonth {
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.white : Color.black)
-                        .frame(width: 3, height: 3)
-                } else {
-                    Circle()
-                        .fill(Color.clear)
-                        .frame(width: 3, height: 3)
-                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
