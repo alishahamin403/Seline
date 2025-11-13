@@ -145,7 +145,7 @@ struct ReviewExtractedEventsView: View {
                             } else {
                                 VStack(spacing: 12) {
                                     ForEach($extractionResponse.events, id: \.id) { $event in
-                                        SimpleEventCard(event: $event)
+                                        SimpleEventCard(event: $event, selectedTagId: $selectedTagId)
                                     }
                                 }
                             }
@@ -370,8 +370,17 @@ struct CreateTagSheet: View {
 
 struct SimpleEventCard: View {
     @Binding var event: ExtractedEvent
+    @Binding var selectedTagId: String?
+    @StateObject private var tagManager = TagManager.shared
     @State private var showStartTimePicker = false
     @State private var showEndTimePicker = false
+
+    private var eventColor: Color {
+        if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
+            return tag.color
+        }
+        return Color(red: 0.2039, green: 0.6588, blue: 0.3255) // Personal tag color (green)
+    }
 
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -391,40 +400,50 @@ struct SimpleEventCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Main event row
-            HStack(spacing: 12) {
-                if event.alreadyExists {
-                    // Already exists - show info icon instead of toggle
-                    Image(systemName: "info.circle.fill")
-                        .foregroundColor(.gray)
-                        .opacity(0.5)
-                } else {
-                    Toggle("", isOn: $event.isSelected)
-                        .labelsHidden()
+            Button(action: {
+                if !event.alreadyExists {
+                    event.isSelected.toggle()
                 }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(event.title)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .lineLimit(2)
-                            .foregroundColor(event.alreadyExists ? .gray : .primary)
-
-                        if event.alreadyExists {
-                            Text("(Already exists)")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                        }
+            }) {
+                HStack(spacing: 12) {
+                    if event.alreadyExists {
+                        // Already exists - show info icon instead of toggle
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(.gray)
+                            .opacity(0.5)
+                    } else {
+                        // Color indicator circle
+                        Circle()
+                            .fill(eventColor)
+                            .frame(width: 12, height: 12)
+                            .opacity(event.isSelected ? 1 : 0.4)
                     }
 
-                    Text(formatTimeRange())
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .opacity(event.alreadyExists ? 0.5 : 1)
-                }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text(event.title)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .lineLimit(2)
+                                .foregroundColor(event.alreadyExists ? .gray : .primary)
 
-                Spacer()
+                            if event.alreadyExists {
+                                Text("(Already exists)")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+
+                        Text(formatTimeRange())
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .opacity(event.alreadyExists ? 0.5 : 1)
+                    }
+
+                    Spacer()
+                }
             }
+            .buttonStyle(PlainButtonStyle())
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
             .opacity(event.alreadyExists ? 0.6 : 1)

@@ -67,7 +67,7 @@ class SelineAppContext {
             // Load emails for each folder
             for folder in self.customEmailFolders {
                 do {
-                    let savedEmails = try await emailService.getSavedEmails(in: folder.id)
+                    let savedEmails = try await emailService.fetchSavedEmails(in: folder.id)
                     self.savedEmailsByFolder[folder.id] = savedEmails
                     print("  • \(folder.name): \(savedEmails.count) emails")
                 } catch {

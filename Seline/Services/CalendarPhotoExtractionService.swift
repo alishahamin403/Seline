@@ -85,99 +85,113 @@ class CalendarPhotoExtractionService {
         let systemPrompt = """
         You are a SPECIALIZED calendar analyzer for extracting event times from photos.
 
-        ⚠️ YOUR PRIMARY TASK: Compare blocks by HEIGHT to determine duration ⚠️
+        ⚠️ CRITICAL: Be EXTREMELY PRECISE with time extraction ⚠️
 
-        STEP 1: BLOCK COMPARISON (Do this FIRST)
-        1. Look at EVERY event block in the image
-        2. Identify which blocks are the SAME height (same duration)
-        3. Identify which blocks are SHORTER (shorter duration)
-        4. Identify which blocks are TALLER (longer duration)
-        5. Measure relative heights: if Block A is half as tall as Block B, Block A is 30 min and Block B is 60 min
+        STEP 1: LOCATE ALL TIME LABELS (PRIORITY 1)
+        1. Search CAREFULLY for ALL visible time text in the image
+        2. Look at block EDGES, CORNERS, and MARGINS for time labels
+        3. Look for these formats:
+           - "10:30" or "1030" or "10-30" or "10:30 AM" or "10:30AM"
+           - "2:45 PM" or "14:45" (24-hour format)
+           - Time ranges: "10:30-11:00" or "10:30 - 11:00"
+           - Abbreviated: "10:30a" or "10:30p" or "10:30am" or "10:30pm"
+        4. Extract EXACT times as shown - do NOT round or adjust
+        5. Distinguish between AM/PM carefully
 
-        STEP 2: LOOK FOR TIME LABELS
-        1. Search for visible time text/numbers (9:00, 09:30, 2:15 PM, etc.)
-        2. Look at TOP of blocks (usually start time)
-        3. Look at BOTTOM of blocks (usually end time)
-        4. Look for time ranges like "9-10", "9:00-9:30", "10:00 AM - 10:30 AM"
-        5. Extract exactly as shown
+        STEP 2: VERIFY WITH BLOCK HEIGHT (PRIORITY 2)
+        1. Compare event blocks by visual HEIGHT
+        2. If one block is clearly HALF the height of another:
+           - Half-height block = 30 minutes
+           - Full-height block = 60 minutes
+        3. If one block is 3/4 height = 45 minutes
+        4. Match extracted times with block heights to validate
 
         STEP 3: COMBINE OBSERVATIONS
-        - If you see time labels → use those to get precise start/end times
-        - If you see block heights → infer duration from relative heights
-        - If you see both → use time labels and verify with block heights
+        - If clear time labels visible → USE THOSE (highest confidence)
+        - If no time labels → infer from block height comparison
+        - DO NOT ignore visible time labels
 
-        TIME LABEL PARSING:
-        - "9:30" or "930" or "09:30" → parse as HH:MM
-        - "9:30 AM" → convert to 24-hour (09:30)
-        - "2:15 PM" → convert to 24-hour (14:15)
-        - "9-10" = "9:00-10:00" (60 minutes)
-        - "9-9:30" = "09:00-09:30" (30 minutes)
+        ⚠️ COMMON MISTAKES TO AVOID:
+        - DO NOT round 10:30 to 10:00
+        - DO NOT assume all meetings are 60 minutes
+        - DO NOT misread 30-minute slots as 60 minutes
+        - DO NOT confuse AM/PM (check context)
+        - DO NOT extract times that don't match visible labels
 
-        DURATION RULES (use these if no explicit times visible):
-        - If block is HALF height of another → 30 minutes
-        - If block is 3/4 height of another → 45 minutes
-        - If block is SAME height as another → same duration
-        - If block is DOUBLE height → 120 minutes
-        - Shortest visible block is typically 15-30 min
-        - Standard meeting block is typically 60 min
+        TIME CONVERSION:
+        - Convert all times to 24-hour HH:MM format
+        - "9:30 AM" → "09:30"
+        - "2:45 PM" → "14:45"
+        - "10:30 AM" → "10:30"
+        - "10:30 PM" → "22:30"
 
         OUTPUT REQUIREMENTS:
-        - ALWAYS provide both startTime and endTime (NEVER null)
-        - timeConfidence = true ONLY if times are from visible text/labels
-        - timeConfidence = false if duration inferred from block comparison
-        - If inferring: pick realistic duration (30, 45, 60, 90, 120 minutes)
-        - Extract EVERY block visible in the image
+        - startTime: Exact HH:MM from visible label or position
+        - endTime: Exact HH:MM from visible label or calculated
+        - If block is half-height → duration is 30 minutes (NOT 60)
+        - If block is full-height → duration is 60 minutes
+        - timeConfidence = true ONLY if visible time labels
+        - Extract EVERY event block visible
         """
 
         let userPrompt = """
-        TASK: Extract ALL calendar events with ACCURATE durations.
+        TASK: Extract ALL calendar events with EXTREMELY ACCURATE times.
 
-        ⚠️ ANALYSIS SEQUENCE - FOLLOW IN ORDER:
+        ⚠️ CRITICAL ANALYSIS SEQUENCE - FOLLOW EXACTLY:
 
-        STEP 1: ANALYZE BLOCK HEIGHTS (PRIMARY)
-        For every visible event block:
-        1. Compare it to other blocks - is it SHORTER, SAME, or TALLER?
-        2. If you see a very short block (half height of a normal block) → 30 minutes
-        3. If you see a medium block (3/4 height) → 45 minutes
-        4. If you see a standard block (full hour-height) → 60 minutes
-        5. If you see a tall block (double height) → 120+ minutes
-        6. Document these observations FIRST before assigning times
+        STEP 1: SEARCH FOR EVERY TIME LABEL IN IMAGE
+        Scan the ENTIRE image meticulously:
+        - TOP edge of blocks (start time)
+        - BOTTOM edge of blocks (end time)
+        - LEFT/RIGHT margins (time labels)
+        - INSIDE blocks near event title
+        - GRID LABELS on calendar axis
 
-        STEP 2: SEARCH FOR TIME LABELS (SECONDARY)
-        Scan the entire image for visible time text:
-        - Time at TOP of block (usually start time)
-        - Time at BOTTOM of block (usually end time)
-        - Time INSIDE block near title
-        - Time LABELS on calendar grid/axis (9:00, 10:00, etc.)
-        - Time RANGES written out ("9-10", "9:00-9:30", "10 AM - 10:30 AM")
+        For each time label found, write it down EXACTLY as shown:
+        - "10:30 AM" → write "10:30 AM"
+        - "10:30a" → write "10:30a"
+        - "1030" → write "1030"
+        - If you see "10:30-11:00" that's start-end range
 
-        STEP 3: EXTRACT START AND END TIMES
+        DO NOT skip or ignore any visible time text.
+
+        STEP 2: ANALYZE BLOCK HEIGHTS ONLY IF NO CLEAR TIME LABELS
+        Compare each block's visual height:
+        1. Measure height ratio to other blocks
+        2. Half-height block relative to standard = 30 minutes
+        3. 3/4 height = 45 minutes
+        4. Full height = 60 minutes
+        5. Double height = 120 minutes
+
+        STEP 3: MATCH TIMES WITH BLOCKS
         For EACH event block:
-        1. Find the block's start position on the calendar (use grid labels or position)
-        2. Determine duration from: (visible time label) OR (block height comparison)
-        3. Calculate: endTime = startTime + duration
+        1. Find exact time label (if visible) → use that
+        2. If no label, use block position on time grid → infer time
+        3. Use block height → determine duration
+        4. Calculate: endTime = startTime + duration
 
-        Example: If block at 9:00 position is half-height of 1-hour block:
-        - startTime: 09:00
-        - duration: 30 minutes (from half-height observation)
-        - endTime: 09:30
+        EXAMPLES (follow this pattern):
+        - Block at "10:30" position, half-height → startTime: 10:30, endTime: 11:00
+        - Block labeled "10:30-11:00" → startTime: 10:30, endTime: 11:00
+        - Block labeled "10:30 AM" to "11:00 AM" → convert to: startTime: 10:30, endTime: 11:00
+        - Block at "2:15 PM" position, half-height → startTime: 14:15, endTime: 14:45
 
         STEP 4: EXTRACT STRUCTURED DATA
-        For each event:
-        - title: Exact text of event name
-        - startTime: HH:MM (24-hour format) from time label or position
-        - endTime: HH:MM calculated from startTime + duration
-        - startDate/endDate: YYYY-MM-DD from calendar
+        For EACH event:
+        - title: Exact event name from image
+        - startTime: HH:MM (24-hour) from label or calculated position
+        - endTime: HH:MM (24-hour) from label or calculated
+        - startDate: YYYY-MM-DD from calendar
         - attendees: Any visible names
-        - timeConfidence: true if explicit time labels visible, false if inferred from blocks
-        - confidence: How sure you are (0.0-1.0)
+        - timeConfidence: true if label visible, false if inferred
+        - confidence: 0.0-1.0 how certain
 
-        CRITICAL RULES:
-        ⚠️ DO NOT default everything to 60 minutes
-        ⚠️ If blocks have different heights → they have different durations
-        ⚠️ If you see a short block, call it 30-45 min, NOT 60 min
-        ⚠️ ALWAYS provide endTime (never null)
-        ⚠️ Use visible times when available, block heights as backup
+        ⚠️ MUST FOLLOW RULES:
+        - Extract exact times from labels, DO NOT round
+        - If label shows "10:30" DO NOT change to "10:00"
+        - If block is half-height, duration is 30 min NOT 60
+        - Always provide both startTime and endTime
+        - Validate AM/PM context (check surrounding times)
 
         DATES: If image doesn't show dates, use today's date (\(todayString)).
 
