@@ -152,7 +152,14 @@ class SelineAppContext {
 
             for event in events {
                 // Determine the reference date for this event
-                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                var eventDate: Date
+
+                if event.isRecurring {
+                    // For recurring events, determine the next occurrence date
+                    eventDate = getNextOccurrenceDate(for: event) ?? currentDate
+                } else {
+                    eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                }
 
                 if calendar.isDateInToday(eventDate) {
                     today.append(event)
@@ -488,5 +495,118 @@ class SelineAppContext {
         }
 
         return ""
+    }
+
+    /// Determine the next occurrence date for a recurring event
+    private func getNextOccurrenceDate(for event: TaskItem) -> Date? {
+        guard event.isRecurring, let frequency = event.recurrenceFrequency else { return nil }
+
+        let calendar = Calendar.current
+
+        // Check if event has reached its end date
+        if let endDate = event.recurrenceEndDate, currentDate > endDate {
+            return nil
+        }
+
+        // Use the original targetDate as the anchor date
+        let anchorDate = event.targetDate ?? event.createdAt
+
+        // Calculate the next occurrence based on frequency
+        switch frequency {
+        case .daily:
+            // Daily events occur every day after the anchor date
+            if currentDate >= anchorDate {
+                return currentDate // Occurs today
+            }
+            return anchorDate // Hasn't started yet
+
+        case .weekly:
+            // Weekly events occur on the same day of week
+            let targetWeekday = calendar.component(.weekday, from: anchorDate)
+            let currentWeekday = calendar.component(.weekday, from: currentDate)
+
+            if targetWeekday == currentWeekday && currentDate >= anchorDate {
+                return currentDate // This week
+            }
+
+            // Calculate next occurrence on the target weekday
+            var daysToAdd = (targetWeekday - currentWeekday + 7) % 7
+            if daysToAdd == 0 && currentDate >= anchorDate {
+                daysToAdd = 0 // Today is the day
+            } else if daysToAdd == 0 {
+                daysToAdd = 7 // Next week
+            }
+
+            if let nextOccurrence = calendar.date(byAdding: .day, value: daysToAdd, to: currentDate),
+               nextOccurrence >= anchorDate {
+                return nextOccurrence
+            }
+            return nil
+
+        case .biweekly:
+            // Biweekly events occur every 2 weeks on the same day
+            let daysDifference = calendar.dateComponents([.day], from: anchorDate, to: currentDate).day ?? 0
+
+            if daysDifference >= 0 && daysDifference % 14 == 0 {
+                return currentDate // Today
+            }
+
+            // Calculate next biweekly occurrence
+            let daysUntilNext = 14 - (daysDifference % 14)
+            if let nextOccurrence = calendar.date(byAdding: .day, value: daysUntilNext, to: currentDate) {
+                return nextOccurrence
+            }
+            return nil
+
+        case .monthly:
+            // Monthly events occur on the same day of month
+            let targetDay = calendar.component(.day, from: anchorDate)
+            let currentDay = calendar.component(.day, from: currentDate)
+
+            if targetDay == currentDay && currentDate >= anchorDate {
+                return currentDate // This month
+            }
+
+            // Calculate next monthly occurrence
+            var nextDate = currentDate
+            if targetDay > currentDay {
+                // It's later this month
+                if let date = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: currentDate),
+                   let adjusted = calendar.date(byAdding: .day, value: targetDay - currentDay, to: date) {
+                    nextDate = adjusted
+                }
+            } else {
+                // It's next month
+                if let date = calendar.date(byAdding: .month, value: 1, to: currentDate),
+                   let first = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+                   let adjusted = calendar.date(byAdding: .day, value: targetDay - 1, to: first) {
+                    nextDate = adjusted
+                }
+            }
+
+            return nextDate >= anchorDate ? nextDate : nil
+
+        case .yearly:
+            // Yearly events occur on the same month and day
+            let targetMonth = calendar.component(.month, from: anchorDate)
+            let targetDay = calendar.component(.day, from: anchorDate)
+            let currentMonth = calendar.component(.month, from: currentDate)
+            let currentDay = calendar.component(.day, from: currentDate)
+
+            if targetMonth == currentMonth && targetDay == currentDay && currentDate >= anchorDate {
+                return currentDate // This year
+            }
+
+            // Calculate next yearly occurrence
+            var nextDate = calendar.date(from: DateComponents(year: calendar.component(.year, from: currentDate),
+                                                             month: targetMonth,
+                                                             day: targetDay)) ?? currentDate
+
+            if nextDate <= currentDate {
+                nextDate = calendar.date(byAdding: .year, value: 1, to: nextDate) ?? currentDate
+            }
+
+            return nextDate >= anchorDate ? nextDate : nil
+        }
     }
 }
