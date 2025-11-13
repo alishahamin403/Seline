@@ -308,8 +308,8 @@ class SelineAppContext {
 
             // UPCOMING (future beyond this week)
             if !upcoming.isEmpty {
-                context += "\n**UPCOMING** (\(upcoming.count) events, showing first 15):\n"
-                for event in upcoming.prefix(15).sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                context += "\n**UPCOMING** (\(upcoming.count) events):\n"
+                for event in upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
                     let categoryName = getCategoryName(for: event.tagId)
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
@@ -318,16 +318,13 @@ class SelineAppContext {
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
                 }
-                if upcoming.count > 15 {
-                    context += "  ... and \(upcoming.count - 15) more upcoming events\n"
-                }
             }
 
             // RECURRING EVENTS SUMMARY with monthly/yearly stats
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
-                for event in recurringEvents.prefix(10) {
+                for event in recurringEvents {
                     let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
 
                     let thisMonthCompletions = event.completedDates.filter { date in
