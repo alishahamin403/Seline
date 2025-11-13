@@ -426,6 +426,31 @@ class SelineAppContext {
                     context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
                 }
             }
+            // RECURRING EVENTS SUMMARY with completion stats
+            let recurringEvents = events.filter { $0.isRecurring }
+            if !recurringEvents.isEmpty {
+                context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
+                for event in recurringEvents {
+                    let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
+
+                    let thisMonthCompletions = event.completedDates.filter { date in
+                        let dateComponents = calendar.dateComponents([.month, .year], from: date)
+                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
+                    }
+
+                    let categoryName = getCategoryName(for: event.tagId)
+                    context += "  • \(event.title) [\(categoryName)]\n"
+                    context += "    All-time: \(event.completedDates.count) completions\n"
+                    context += "    This month: \(thisMonthCompletions.count) completions\n"
+
+                    if !thisMonthCompletions.isEmpty {
+                        let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
+                        context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
+                    } else {
+                        context += "    No completions this month\n"
+                    }
+                }
+            }
         } else {
             context += "  No events\n"
         }
