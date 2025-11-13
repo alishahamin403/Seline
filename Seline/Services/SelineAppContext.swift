@@ -252,7 +252,7 @@ class SelineAppContext {
                 }
             }
 
-            // PREVIOUS MONTHS - Show summary
+            // PREVIOUS MONTHS - Show summary with real categories
             if !otherMonthsReceipts.isEmpty {
                 context += "\n**Previous Months Summary**:\n"
 
@@ -266,9 +266,11 @@ class SelineAppContext {
                 for (month, items) in byMonth.sorted(by: { $0.key > $1.key }).prefix(6) {
                     let total = items.reduce(0.0) { $0 + $1.amount }
 
+                    // Get real category breakdown for this month using ReceiptCategorizationService
+                    let monthCategoryBreakdown = await categorizationService.getCategoryBreakdown(for: items)
+
                     // Show category breakdown for each month
-                    let byCategory = Dictionary(grouping: items) { $0.category }
-                    var categoryBreakdown = byCategory.map { cat, catItems in
+                    var categoryBreakdown = monthCategoryBreakdown.categoryReceipts.map { cat, catItems in
                         let catTotal = catItems.reduce(0.0) { $0 + $1.amount }
                         return "\(cat): $\(String(format: "%.2f", catTotal))"
                     }.sorted()
