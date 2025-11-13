@@ -172,24 +172,65 @@ class SelineAppContext {
         }
 
         // Receipts detail
-        context += "\n=== RECEIPTS ===\n"
+        context += "\n=== RECEIPTS & EXPENSES ===\n"
         if !receipts.isEmpty {
-            // Group by month
-            let byMonth = Dictionary(grouping: receipts) { receipt in
-                let formatter = DateFormatter()
-                formatter.dateFormat = "MMMM yyyy"
-                return formatter.string(from: receipt.date)
+            // First, identify current month
+            let currentMonth = Calendar.current.dateComponents([.month, .year], from: currentDate)
+            let currentMonthFormatter = DateFormatter()
+            currentMonthFormatter.dateFormat = "MMMM yyyy"
+            let currentMonthStr = currentMonthFormatter.string(from: currentDate)
+
+            // Separate current month from other months
+            let currentMonthReceipts = receipts.filter { receipt in
+                let receiptMonth = Calendar.current.dateComponents([.month, .year], from: receipt.date)
+                return receiptMonth.month == currentMonth.month && receiptMonth.year == currentMonth.year
             }
 
-            for (month, items) in byMonth.sorted(by: { $0.key > $1.key }).prefix(6) {
-                let total = items.reduce(0.0) { $0 + $1.amount }
-                context += "\n**\(month)**: \(items.count) receipts, Total: $\(String(format: "%.2f", total))\n"
+            let otherMonthsReceipts = receipts.filter { receipt in
+                let receiptMonth = Calendar.current.dateComponents([.month, .year], from: receipt.date)
+                return !(receiptMonth.month == currentMonth.month && receiptMonth.year == currentMonth.year)
+            }
 
-                for receipt in items.sorted(by: { $0.date > $1.date }).prefix(5) {
-                    context += "  • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
+            // CURRENT MONTH - Show all details
+            if !currentMonthReceipts.isEmpty {
+                let currentMonthTotal = currentMonthReceipts.reduce(0.0) { $0 + $1.amount }
+                context += "\n**\(currentMonthStr)** (Current Month): \(currentMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", currentMonthTotal))\n"
+
+                // Group by category for current month
+                let byCategory = Dictionary(grouping: currentMonthReceipts) { $0.category }
+                for (category, items) in byCategory.sorted(by: { $0.key < $1.key }) {
+                    let categoryTotal = items.reduce(0.0) { $0 + $1.amount }
+                    context += "  **\(category)**: $\(String(format: "%.2f", categoryTotal)) (\(items.count) items)\n"
+
+                    // List all items in this category
+                    for receipt in items.sorted(by: { $0.date > $1.date }) {
+                        context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
+                    }
                 }
-                if items.count > 5 {
-                    context += "  ... and \(items.count - 5) more\n"
+            }
+
+            // PREVIOUS MONTHS - Show summary
+            if !otherMonthsReceipts.isEmpty {
+                context += "\n**Previous Months Summary**:\n"
+
+                // Group by month
+                let byMonth = Dictionary(grouping: otherMonthsReceipts) { receipt in
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "MMMM yyyy"
+                    return formatter.string(from: receipt.date)
+                }
+
+                for (month, items) in byMonth.sorted(by: { $0.key > $1.key }).prefix(6) {
+                    let total = items.reduce(0.0) { $0 + $1.amount }
+
+                    // Show category breakdown for each month
+                    let byCategory = Dictionary(grouping: items) { $0.category }
+                    var categoryBreakdown = byCategory.map { cat, catItems in
+                        let catTotal = catItems.reduce(0.0) { $0 + $1.amount }
+                        return "\(cat): $\(String(format: "%.2f", catTotal))"
+                    }.sorted()
+
+                    context += "  **\(month)**: $\(String(format: "%.2f", total)) total - \(categoryBreakdown.joined(separator: ", "))\n"
                 }
             }
         } else {
