@@ -388,6 +388,12 @@ struct SimpleEventCard: View {
         return formatter.string(from: date)
     }
 
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: date)
+    }
+
     private func formatTimeRange() -> String {
         let startStr = formatTime(event.startTime)
         if let endTime = event.endTime {
@@ -400,52 +406,51 @@ struct SimpleEventCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Main event row
-            Button(action: {
-                if !event.alreadyExists {
-                    event.isSelected.toggle()
+            HStack(spacing: 12) {
+                if event.alreadyExists {
+                    // Already exists - show info icon instead of toggle
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.gray)
+                        .opacity(0.5)
+                } else {
+                    // Toggle switch with color indicator
+                    Toggle("", isOn: $event.isSelected)
+                        .labelsHidden()
+                        .tint(eventColor)
                 }
-            }) {
-                HStack(spacing: 12) {
-                    if event.alreadyExists {
-                        // Already exists - show info icon instead of toggle
-                        Image(systemName: "info.circle.fill")
-                            .foregroundColor(.gray)
-                            .opacity(0.5)
-                    } else {
-                        // Color indicator circle
-                        Circle()
-                            .fill(eventColor)
-                            .frame(width: 12, height: 12)
-                            .opacity(event.isSelected ? 1 : 0.4)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(event.title)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .lineLimit(2)
+                            .foregroundColor(event.alreadyExists ? .gray : .primary)
+
+                        if event.alreadyExists {
+                            Text("(Already exists)")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
                     }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) {
-                            Text(event.title)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .lineLimit(2)
-                                .foregroundColor(event.alreadyExists ? .gray : .primary)
-
-                            if event.alreadyExists {
-                                Text("(Already exists)")
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
-                            }
-                        }
+                    HStack(spacing: 12) {
+                        Text(formatDate(event.startTime))
+                            .font(.caption2)
+                            .foregroundColor(.gray)
 
                         Text(formatTimeRange())
                             .font(.caption)
                             .foregroundColor(.gray)
-                            .opacity(event.alreadyExists ? 0.5 : 1)
                     }
-
-                    Spacer()
+                    .opacity(event.alreadyExists ? 0.5 : 1)
                 }
+
+                Spacer()
             }
-            .buttonStyle(PlainButtonStyle())
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
+            .background(event.isSelected && !event.alreadyExists ? eventColor.opacity(0.08) : Color.clear)
             .opacity(event.alreadyExists ? 0.6 : 1)
 
             // Divider
@@ -464,10 +469,16 @@ struct SimpleEventCard: View {
                                 .opacity(event.alreadyExists ? 0.5 : 1)
 
                             if !showStartTimePicker {
-                                Text(formatTime(event.startTime))
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .opacity(event.alreadyExists ? 0.5 : 1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(formatDate(event.startTime))
+                                        .font(.caption2)
+                                        .foregroundColor(.gray)
+
+                                    Text(formatTime(event.startTime))
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                }
+                                .opacity(event.alreadyExists ? 0.5 : 1)
                             }
                         }
 
@@ -517,10 +528,16 @@ struct SimpleEventCard: View {
 
                                 if !showEndTimePicker {
                                     if let endTime = event.endTime {
-                                        Text(formatTime(endTime))
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                            .opacity(event.alreadyExists ? 0.5 : 1)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(formatDate(endTime))
+                                                .font(.caption2)
+                                                .foregroundColor(.gray)
+
+                                            Text(formatTime(endTime))
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                        }
+                                        .opacity(event.alreadyExists ? 0.5 : 1)
                                     } else {
                                         Text("No end time")
                                             .font(.subheadline)
