@@ -486,7 +486,7 @@ class SelineAppContext {
 
                     // Add attachments if present
                     if email.hasAttachments && !email.attachments.isEmpty {
-                        context += "    Attachments: \(email.attachments.map { $0.filename }.joined(separator: ", "))\n"
+                        context += "    Attachments: \(email.attachments.map { $0.name }.joined(separator: ", "))\n"
                     }
 
                     context += "\n"
