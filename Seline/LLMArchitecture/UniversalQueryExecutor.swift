@@ -97,7 +97,24 @@ class UniversalQueryExecutor {
                     }
                 }
 
-                allItems.append(contentsOf: filtered.map { UniversalItem.event($0) })
+                // CRITICAL FIX: Expand recurring events into separate items for each completion
+                var expandedEvents: [UniversalItem] = []
+                for event in filtered {
+                    // If event has completedDates (recurring), create separate items for each completion
+                    if let completedDates = event.completedDates, !completedDates.isEmpty {
+                        for completionDate in completedDates {
+                            // Create a pseudo-item with the completion date as the event date
+                            var completedEvent = event
+                            completedEvent.targetDate = completionDate  // Use completion date instead of original
+                            expandedEvents.append(UniversalItem.event(completedEvent))
+                        }
+                    } else {
+                        // Non-recurring or single-instance event: use as-is
+                        expandedEvents.append(UniversalItem.event(event))
+                    }
+                }
+
+                allItems.append(contentsOf: expandedEvents)
 
             case .notes(let folder):
                 // Get notes from NotesManager
@@ -137,7 +154,24 @@ class UniversalQueryExecutor {
             case .calendar:
                 // Get calendar events from TaskManager
                 let events = TaskManager.shared.tasks.values.flatMap { $0 }
-                allItems.append(contentsOf: events.map { UniversalItem.event($0) })
+
+                // CRITICAL FIX: Expand recurring events into separate items for each completion
+                var expandedCalendarEvents: [UniversalItem] = []
+                for event in events {
+                    // If event has completedDates (recurring), create separate items for each completion
+                    if let completedDates = event.completedDates, !completedDates.isEmpty {
+                        for completionDate in completedDates {
+                            var completedEvent = event
+                            completedEvent.targetDate = completionDate  // Use completion date instead of original
+                            expandedCalendarEvents.append(UniversalItem.event(completedEvent))
+                        }
+                    } else {
+                        // Non-recurring or single-instance event: use as-is
+                        expandedCalendarEvents.append(UniversalItem.event(event))
+                    }
+                }
+
+                allItems.append(contentsOf: expandedCalendarEvents)
             }
         }
 
