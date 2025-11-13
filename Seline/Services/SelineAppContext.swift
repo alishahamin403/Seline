@@ -175,42 +175,58 @@ class SelineAppContext {
             var past: [TaskItem] = []
 
             for event in events {
-                // Determine the reference date for this event
-                var eventDate: Date? = nil
-
                 if event.isRecurring {
-                    // For recurring events, check which temporal section it falls into
-                    // by checking if it occurs on specific dates
-                    if shouldEventOccurOn(event, date: currentDate) {
-                        eventDate = currentDate
-                    } else if shouldEventOccurOn(event, date: calendar.date(byAdding: .day, value: 1, to: currentDate)!) {
-                        eventDate = calendar.date(byAdding: .day, value: 1, to: currentDate)
-                    } else if shouldEventOccurOn(event, date: calendar.date(byAdding: .day, value: 2, to: currentDate)!) {
-                        eventDate = calendar.date(byAdding: .day, value: 2, to: currentDate)
+                    // For recurring events, check which sections they appear in
+                    // A daily event might appear in Today, Tomorrow, AND This Week, etc.
+
+                    let todayDate = currentDate
+                    let tomorrowDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+                    let dayAfterTomorrowDate = calendar.date(byAdding: .day, value: 2, to: currentDate)!
+
+                    if shouldEventOccurOn(event, date: todayDate) {
+                        today.append(event)
+                    }
+
+                    if shouldEventOccurOn(event, date: tomorrowDate) {
+                        tomorrow.append(event)
+                    }
+
+                    if shouldEventOccurOn(event, date: dayAfterTomorrowDate) {
+                        thisWeek.append(event)
                     } else {
-                        // For events beyond this week, find the next occurrence
-                        if let nextDate = getNextOccurrenceDate(for: event, after: calendar.date(byAdding: .day, value: 3, to: currentDate)!) {
-                            eventDate = nextDate
-                        } else {
-                            continue // Event doesn't occur in the near future, skip it
+                        // If it doesn't occur in the next 2 days, check if it occurs within the week
+                        var hasUpcomingOccurrence = false
+                        for daysAhead in 3...7 {
+                            if let checkDate = calendar.date(byAdding: .day, value: daysAhead, to: currentDate),
+                               shouldEventOccurOn(event, date: checkDate) {
+                                thisWeek.append(event)
+                                hasUpcomingOccurrence = true
+                                break
+                            }
+                        }
+
+                        // If still no occurrence found, check further ahead
+                        if !hasUpcomingOccurrence {
+                            if let nextDate = getNextOccurrenceDate(for: event, after: calendar.date(byAdding: .day, value: 7, to: currentDate)!) {
+                                upcoming.append(event)
+                            }
                         }
                     }
                 } else {
-                    eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
-                }
+                    // For non-recurring events, use the original date logic
+                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
 
-                guard let eventDate = eventDate else { continue }
-
-                if calendar.isDateInToday(eventDate) {
-                    today.append(event)
-                } else if calendar.isDateInTomorrow(eventDate) {
-                    tomorrow.append(event)
-                } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
-                    thisWeek.append(event)
-                } else if eventDate > currentDate {
-                    upcoming.append(event)
-                } else {
-                    past.append(event)
+                    if calendar.isDateInToday(eventDate) {
+                        today.append(event)
+                    } else if calendar.isDateInTomorrow(eventDate) {
+                        tomorrow.append(event)
+                    } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                        thisWeek.append(event)
+                    } else if eventDate > currentDate {
+                        upcoming.append(event)
+                    } else {
+                        past.append(event)
+                    }
                 }
             }
 
