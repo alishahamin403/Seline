@@ -12,6 +12,7 @@ class SelineAppContext {
     private let weatherService: WeatherService
     private let locationsManager: LocationsManager
     private let navigationService: NavigationService
+    private let categorizationService: ReceiptCategorizationService
 
     // MARK: - Cached Data
 
@@ -28,7 +29,8 @@ class SelineAppContext {
         emailService: EmailService = EmailService.shared,
         weatherService: WeatherService = WeatherService.shared,
         locationsManager: LocationsManager = LocationsManager.shared,
-        navigationService: NavigationService = NavigationService.shared
+        navigationService: NavigationService = NavigationService.shared,
+        categorizationService: ReceiptCategorizationService = ReceiptCategorizationService.shared
     ) {
         self.taskManager = taskManager
         self.notesManager = notesManager
@@ -36,6 +38,7 @@ class SelineAppContext {
         self.weatherService = weatherService
         self.locationsManager = locationsManager
         self.navigationService = navigationService
+        self.categorizationService = categorizationService
 
         refresh()
     }
@@ -55,7 +58,7 @@ class SelineAppContext {
             isUnderReceiptsFolderHierarchy(folderId: note.folderId, receiptsFolderId: receiptsFolderId)
         }
 
-        // Extract transaction dates from receipt notes
+        // Extract transaction dates and categories from receipt notes
         self.receipts = receiptNotes.compactMap { note -> ReceiptStat? in
             // Extract date from note title - that's the transaction date
             guard let transactionDate = extractDateFromTitle(note.title) else {
@@ -64,7 +67,13 @@ class SelineAppContext {
                 print("⚠️  Skipping receipt with no extractable date: \(note.title)")
                 return nil
             }
-            return ReceiptStat(from: note, date: transactionDate, category: "Receipt")
+
+            // Get the real category from the categorization service (runs synchronously since we're @MainActor)
+            let category = Task.synchronous {
+                await self.categorizationService.categorizeReceipt(note.title)
+            }
+
+            return ReceiptStat(from: note, date: transactionDate, category: category)
         }
 
         // Collect all notes
