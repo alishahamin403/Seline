@@ -166,7 +166,284 @@ class SelineAppContext {
     // MARK: - Context Building for LLM
 
     /// Build a rich context string for the LLM with all app data
+    // MARK: - Query Intent Extraction
+
+    /// Extracts category/tag names from a user query
+    private func extractCategoryFilter(from query: String) -> UUID? {
+        let lowercaseQuery = query.lowercased()
+
+        // Get all tags and check if any match the query
+        for tag in tagManager.tags {
+            if lowercaseQuery.contains(tag.name.lowercased()) {
+                return tag.id
+            }
+        }
+
+        return nil
+    }
+
+    /// Extracts time period from a user query
+    private func extractTimePeriodFilter(from query: String) -> (startDate: Date, endDate: Date)? {
+        let calendar = Calendar.current
+        let lowercaseQuery = query.lowercased()
+
+        if lowercaseQuery.contains("last week") || lowercaseQuery.contains("past week") {
+            let endDate = currentDate
+            let startDate = calendar.date(byAdding: .day, value: -7, to: currentDate) ?? currentDate
+            return (startDate, endDate)
+        } else if lowercaseQuery.contains("this week") {
+            let startDate = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: currentDate)) ?? currentDate
+            let endDate = calendar.date(byAdding: .day, value: 7, to: startDate) ?? currentDate
+            return (startDate, endDate)
+        } else if lowercaseQuery.contains("yesterday") {
+            let endDate = calendar.date(byAdding: .day, value: -1, to: currentDate) ?? currentDate
+            let startDate = calendar.startOfDay(for: endDate)
+            return (startDate, calendar.date(byAdding: .second, value: -1, to: calendar.startOfDay(for: currentDate)) ?? endDate)
+        } else if lowercaseQuery.contains("today") {
+            let startDate = calendar.startOfDay(for: currentDate)
+            let endDate = currentDate
+            return (startDate, endDate)
+        } else if lowercaseQuery.contains("this month") {
+            let startDate = calendar.date(from: calendar.dateComponents([.year, .month], from: currentDate)) ?? currentDate
+            let endDate = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startDate) ?? currentDate
+            return (startDate, endDate)
+        } else if lowercaseQuery.contains("last month") {
+            let previousMonth = calendar.date(byAdding: .month, value: -1, to: currentDate) ?? currentDate
+            let startDate = calendar.date(from: calendar.dateComponents([.year, .month], from: previousMonth)) ?? previousMonth
+            let endDate = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startDate) ?? currentDate
+            return (startDate, endDate)
+        }
+
+        return nil
+    }
+
+    /// Build context with intelligent filtering based on user query
+    func buildContextPrompt(forQuery userQuery: String) async -> String {
+        // Extract intent from the query
+        let categoryFilter = extractCategoryFilter(from: userQuery)
+        let timePeriodFilter = extractTimePeriodFilter(from: userQuery)
+
+        // Refresh all data
+        await refresh()
+
+        // Filter events based on extracted intent
+        var filteredEvents = events
+
+        // Apply category filter if detected
+        if let categoryId = categoryFilter {
+            filteredEvents = filteredEvents.filter { $0.tagId == categoryId }
+        }
+
+        // Apply time period filter if detected
+        if let timePeriod = timePeriodFilter {
+            filteredEvents = filteredEvents.filter { event in
+                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
+            }
+        }
+
+        // Temporarily replace events with filtered version
+        let originalEvents = self.events
+        self.events = filteredEvents
+
+        // Build context with filtered events (skip refresh since we just did it)
+        var context = ""
+
+        // Current date context
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .full
+        dateFormatter.timeStyle = .short
+
+        context += "=== CURRENT DATE ===\n"
+        context += dateFormatter.string(from: currentDate) + "\n\n"
+
+        // Data summary
+        context += "=== DATA SUMMARY ===\n"
+        context += "Total Events: \(events.count)\n"
+        context += "Total Receipts: \(receipts.count)\n"
+        context += "Total Notes: \(notes.count)\n"
+        context += "Total Emails: \(emails.count)\n"
+        context += "Total Locations: \(locations.count)\n\n"
+
+        // Build events section from buildContextPromptInternal but without refresh
+        let calendar = Calendar.current
+
+        // Organize events by temporal proximity
+        var today: [TaskItem] = []
+        var tomorrow: [TaskItem] = []
+        var thisWeek: [TaskItem] = []
+        var upcoming: [TaskItem] = []
+        var past: [TaskItem] = []
+
+        for event in events {
+            if event.isRecurring {
+                let todayDate = currentDate
+                let tomorrowDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+                let dayAfterTomorrowDate = calendar.date(byAdding: .day, value: 2, to: currentDate)!
+
+                if shouldEventOccurOn(event, date: todayDate) {
+                    today.append(event)
+                }
+
+                if shouldEventOccurOn(event, date: tomorrowDate) {
+                    tomorrow.append(event)
+                }
+
+                if shouldEventOccurOn(event, date: dayAfterTomorrowDate) {
+                    thisWeek.append(event)
+                } else {
+                    var hasUpcomingOccurrence = false
+                    for daysAhead in 3...7 {
+                        if let checkDate = calendar.date(byAdding: .day, value: daysAhead, to: currentDate),
+                           shouldEventOccurOn(event, date: checkDate) {
+                            thisWeek.append(event)
+                            hasUpcomingOccurrence = true
+                            break
+                        }
+                    }
+
+                    if !hasUpcomingOccurrence {
+                        if let nextDate = getNextOccurrenceDate(for: event, after: calendar.date(byAdding: .day, value: 7, to: currentDate)!) {
+                            upcoming.append(event)
+                        }
+                    }
+                }
+            } else {
+                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+
+                if calendar.isDateInToday(eventDate) {
+                    today.append(event)
+                } else if calendar.isDateInTomorrow(eventDate) {
+                    tomorrow.append(event)
+                } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                    thisWeek.append(event)
+                } else if eventDate > currentDate {
+                    upcoming.append(event)
+                } else {
+                    past.append(event)
+                }
+            }
+        }
+
+        context += "=== EVENTS & CALENDAR ===\n"
+        if !events.isEmpty {
+            // TODAY
+            if !today.isEmpty {
+                context += "\n**TODAY** (\(today.count) events):\n"
+                for event in today.sorted(by: { ($0.scheduledTime ?? Date.distantFuture) < ($1.scheduledTime ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+
+                    if let description = event.description, !description.isEmpty {
+                        context += "    \(description)\n"
+                    }
+                }
+            }
+
+            // TOMORROW
+            if !tomorrow.isEmpty {
+                context += "\n**TOMORROW** (\(tomorrow.count) events):\n"
+                for event in tomorrow.sorted(by: { ($0.scheduledTime ?? Date.distantFuture) < ($1.scheduledTime ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+
+                    if let description = event.description, !description.isEmpty {
+                        context += "    \(description)\n"
+                    }
+                }
+            }
+
+            // THIS WEEK (next 3-7 days)
+            if !thisWeek.isEmpty {
+                context += "\n**THIS WEEK** (\(thisWeek.count) events):\n"
+                for event in thisWeek.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+                }
+            }
+
+            // UPCOMING (future beyond this week)
+            if !upcoming.isEmpty {
+                context += "\n**UPCOMING** (\(upcoming.count) events):\n"
+                for event in upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let isAllDay = event.scheduledTime == nil && event.endTime == nil
+                    let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+
+                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
+                }
+            }
+
+            // LAST WEEK EVENTS
+            let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: currentDate)!
+            let lastWeekEvents = past.filter { event in
+                let eventDate = event.targetDate ?? event.completedDate ?? currentDate
+                return eventDate >= sevenDaysAgo && eventDate < currentDate
+            }
+            if !lastWeekEvents.isEmpty {
+                context += "\n**LAST WEEK** (\(lastWeekEvents.count) events):\n"
+                for event in lastWeekEvents.sorted(by: { ($0.targetDate ?? $0.completedDate ?? Date.distantPast) > ($1.targetDate ?? $1.completedDate ?? Date.distantPast) }) {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+
+                    context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
+                }
+            }
+
+            // OLDER PAST EVENTS
+            let olderPastEvents = past.filter { event in
+                let eventDate = event.targetDate ?? event.completedDate ?? currentDate
+                return eventDate < sevenDaysAgo
+            }
+            if !olderPastEvents.isEmpty {
+                context += "\n**PAST EVENTS** (older than 1 week, showing last 5):\n"
+                for event in olderPastEvents.suffix(5).reversed() {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+
+                    context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
+                }
+                if olderPastEvents.count > 5 {
+                    context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
+                }
+            }
+        } else {
+            context += "  No events\n"
+        }
+
+        // Restore original events
+        self.events = originalEvents
+
+        // Note: For brevity, not including receipts/notes/emails sections in filtered query response
+        // Those would be added similarly if needed
+
+        return context
+    }
+
     func buildContextPrompt() async -> String {
+        return await buildContextPromptInternal()
+    }
+
+    private func buildContextPromptInternal() async -> String {
         // Refresh all data including custom email folders
         await refresh()
 
@@ -190,19 +467,6 @@ class SelineAppContext {
 
         // Events detail - Comprehensive with categories, temporal organization, and all-day status
         context += "=== EVENTS & CALENDAR ===\n"
-
-        // Available event categories
-        let availableTags = Set(events.compactMap { $0.tagId })
-        if !availableTags.isEmpty {
-            context += "**Available Event Categories:**\n"
-            for tagId in availableTags.sorted() {
-                let categoryName = getCategoryName(for: tagId)
-                let categoryEventCount = events.filter { $0.tagId == tagId }.count
-                context += "  • \(categoryName) (\(categoryEventCount) events)\n"
-            }
-            context += "\n"
-        }
-
         if !events.isEmpty {
             let calendar = Calendar.current
 

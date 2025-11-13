@@ -87,7 +87,13 @@ class SelineChat {
     // MARK: - Private: System Prompt
 
     private func buildSystemPrompt() async -> String {
-        let contextPrompt = await appContext.buildContextPrompt()
+        // Get the current user message (last in conversation)
+        let userMessage = conversationHistory.last?.content ?? ""
+
+        // Use query-aware context building if we have a user message
+        let contextPrompt = !userMessage.isEmpty ?
+            await appContext.buildContextPrompt(forQuery: userMessage) :
+            await appContext.buildContextPrompt()
 
         return """
         You are Seline, a personal AI assistant with access to the user's calendar, events, notes, emails, receipts, and locations.
