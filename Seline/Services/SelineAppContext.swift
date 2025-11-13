@@ -451,15 +451,17 @@ class SelineAppContext {
 
                     // Include full note content, formatted nicely
                     let contentLines = note.content.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
-                    for line in contentLines.prefix(50) {  // Show up to 50 lines per note
+                    let lineLimit = 500  // Show up to 500 lines per note (covers most notes including long statements)
+
+                    for line in contentLines.prefix(lineLimit) {
                         let trimmedLine = line.trimmingCharacters(in: .whitespaces)
                         if !trimmedLine.isEmpty {
                             context += "    \(trimmedLine)\n"
                         }
                     }
 
-                    if contentLines.count > 50 {
-                        context += "    ... (note continues)\n"
+                    if contentLines.count > lineLimit {
+                        context += "    ... (note continues - \(contentLines.count - lineLimit) more lines)\n"
                     }
                     context += "\n"
                 }
