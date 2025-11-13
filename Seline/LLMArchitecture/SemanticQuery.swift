@@ -12,7 +12,7 @@ struct SemanticQuery {
     let operations: [AnyOperation]
     let presentation: PresentationRules
     let confidence: Double
-    let reasoning: String
+    let reasoning: String?  // Optional - LLM may not include reasoning
 
     var isValid: Bool {
         confidence > 0.3 && !dataSources.isEmpty

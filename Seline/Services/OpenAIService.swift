@@ -5409,10 +5409,10 @@ class OpenAIService: ObservableObject {
             let operations = parseOperations(response.operations)
             let presentation = PresentationRules(
                 format: PresentationRules.ResponseFormat(rawValue: response.presentation.format) ?? .mixed,
-                includeIndividualItems: response.presentation.includeIndividualItems,
-                maxItemsToShow: response.presentation.maxItemsToShow,
+                includeIndividualItems: response.presentation.includeIndividualItems ?? true,
+                maxItemsToShow: response.presentation.maxItemsToShow ?? 5,
                 visualizations: [],
-                summaryLevel: PresentationRules.SummaryLevel(rawValue: response.presentation.summaryLevel) ?? .detailed
+                summaryLevel: PresentationRules.SummaryLevel(rawValue: response.presentation.summaryLevel ?? "detailed") ?? .detailed
             )
 
             let query = SemanticQuery(
@@ -5446,7 +5446,7 @@ class OpenAIService: ObservableObject {
 
     private struct SemanticQueryResponse: Codable {
         let intent: String
-        let reasoning: String
+        let reasoning: String?  // Optional - LLM may not include reasoning
         let dataSources: [[String: AnyCodable]]
         let filters: [[String: AnyCodable]]
         let operations: [[String: AnyCodable]]
@@ -5460,9 +5460,9 @@ class OpenAIService: ObservableObject {
 
     private struct PresentationResponse: Codable {
         let format: String
-        let includeIndividualItems: Bool
-        let maxItemsToShow: Int
-        let summaryLevel: String
+        let includeIndividualItems: Bool?
+        let maxItemsToShow: Int?
+        let summaryLevel: String?
     }
 
     private func parseDataSources(_ raw: [[String: AnyCodable]]) -> [DataSource] {
