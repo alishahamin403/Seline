@@ -175,7 +175,7 @@ class SelineAppContext {
         // Get all tags and check if any match the query
         for tag in tagManager.tags {
             if lowercaseQuery.contains(tag.name.lowercased()) {
-                return tag.id.uuidString
+                return tag.id
             }
         }
 
