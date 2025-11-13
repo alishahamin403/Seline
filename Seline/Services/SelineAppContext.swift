@@ -44,6 +44,7 @@ class SelineAppContext {
 
     /// Refresh all app data (call this at start of each conversation)
     func refresh() {
+        print("🔄 SelineAppContext.refresh() called")
         self.currentDate = Date()
 
         // Collect all events
@@ -51,9 +52,12 @@ class SelineAppContext {
 
         // Collect all receipts from notes
         let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+        print("📂 Receipts folder ID: \(receiptsFolderId)")
+
         let receiptNotes = notesManager.notes.filter { note in
             isUnderReceiptsFolderHierarchy(folderId: note.folderId, receiptsFolderId: receiptsFolderId)
         }
+        print("📝 Found \(receiptNotes.count) receipt notes in folder")
 
         // Extract transaction dates from receipt notes
         self.receipts = receiptNotes.compactMap { note -> ReceiptStat? in
@@ -67,6 +71,7 @@ class SelineAppContext {
 
             return ReceiptStat(from: note, date: transactionDate, category: "Other")
         }
+        print("✅ Extracted \(self.receipts.count) receipts with valid dates")
 
         // Collect all notes
         self.notes = notesManager.notes
