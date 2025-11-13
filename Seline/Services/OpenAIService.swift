@@ -1244,6 +1244,88 @@ class OpenAIService: ObservableObject {
         return try await makeOpenAIRequest(url: url, requestBody: requestBody)
     }
 
+    // MARK: - Simplified Chat Methods (for SelineChat)
+
+    /// Simple chat completion with a system prompt and messages
+    /// Used by SelineChat for direct LLM interactions
+    func simpleChatCompletion(
+        systemPrompt: String,
+        messages: [[String: String]]
+    ) async throws -> String {
+        let allMessages = [
+            ["role": "system", "content": systemPrompt]
+        ] + messages
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": allMessages,
+            "temperature": 0.7,
+            "max_tokens": 2000
+        ]
+
+        let url = URL(string: baseURL)!
+        return try await makeOpenAIRequest(url: url, requestBody: requestBody)
+    }
+
+    /// Simple streaming chat completion for SelineChat
+    func simpleChatCompletionStreaming(
+        systemPrompt: String,
+        messages: [[String: String]],
+        onChunk: @escaping (String) -> Void
+    ) async throws -> String {
+        let allMessages = [
+            ["role": "system", "content": systemPrompt]
+        ] + messages
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": allMessages,
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "stream": true
+        ]
+
+        let url = URL(string: baseURL)!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        } catch {
+            throw SummaryError.networkError(error)
+        }
+
+        var fullResponse = ""
+
+        let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw SummaryError.apiError("HTTP Error")
+        }
+
+        for try await line in asyncBytes.lines {
+            let line = line.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, line.hasPrefix("data: ") else { continue }
+
+            let data = String(line.dropFirst(6))
+            guard data != "[DONE]" else { break }
+
+            if let jsonData = data.data(using: .utf8),
+               let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+               let choices = json["choices"] as? [[String: Any]],
+               let firstChoice = choices.first,
+               let delta = firstChoice["delta"] as? [String: Any],
+               let content = delta["content"] as? String {
+                fullResponse += content
+                onChunk(content)
+            }
+        }
+
+        return fullResponse
+    }
+
     // Helper function to make OpenAI API requests
     private func makeOpenAIRequest(url: URL, requestBody: [String: Any], timeoutInterval: TimeInterval = 60) async throws -> String {
         var request = URLRequest(url: url)
