@@ -190,6 +190,19 @@ class SelineAppContext {
 
         // Events detail - Comprehensive with categories, temporal organization, and all-day status
         context += "=== EVENTS & CALENDAR ===\n"
+
+        // Available event categories
+        let availableTags = Set(events.compactMap { $0.tagId })
+        if !availableTags.isEmpty {
+            context += "**Available Event Categories:**\n"
+            for tagId in availableTags.sorted() {
+                let categoryName = getCategoryName(for: tagId)
+                let categoryEventCount = events.filter { $0.tagId == tagId }.count
+                context += "  • \(categoryName) (\(categoryEventCount) events)\n"
+            }
+            context += "\n"
+        }
+
         if !events.isEmpty {
             let calendar = Calendar.current
 
@@ -371,18 +384,39 @@ class SelineAppContext {
                 }
             }
 
-            // PAST EVENTS
-            if !past.isEmpty {
-                context += "\n**PAST EVENTS** (showing last 5):\n"
-                for event in past.suffix(5).reversed() {
+            // LAST WEEK EVENTS
+            let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: currentDate)!
+            let lastWeekEvents = past.filter { event in
+                let eventDate = event.targetDate ?? event.completedDate ?? currentDate
+                return eventDate >= sevenDaysAgo && eventDate < currentDate
+            }
+            if !lastWeekEvents.isEmpty {
+                context += "\n**LAST WEEK** (\(lastWeekEvents.count) events):\n"
+                for event in lastWeekEvents.sorted(by: { ($0.targetDate ?? $0.completedDate ?? Date.distantPast) > ($1.targetDate ?? $1.completedDate ?? Date.distantPast) }) {
                     let categoryName = getCategoryName(for: event.tagId)
                     let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
 
                     context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
                 }
-                if past.count > 5 {
-                    context += "  ... and \(past.count - 5) more past events\n"
+            }
+
+            // OLDER PAST EVENTS
+            let olderPastEvents = past.filter { event in
+                let eventDate = event.targetDate ?? event.completedDate ?? currentDate
+                return eventDate < sevenDaysAgo
+            }
+            if !olderPastEvents.isEmpty {
+                context += "\n**PAST EVENTS** (older than 1 week, showing last 5):\n"
+                for event in olderPastEvents.suffix(5).reversed() {
+                    let categoryName = getCategoryName(for: event.tagId)
+                    let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
+                    let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+
+                    context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
+                }
+                if olderPastEvents.count > 5 {
+                    context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
                 }
             }
         } else {
