@@ -64,11 +64,7 @@ class SelineAppContext {
                 print("⚠️  Skipping receipt with no extractable date: \(note.title)")
                 return nil
             }
-
-            // Determine category based on merchant name
-            let category = categorizeReceipt(note.title)
-
-            return ReceiptStat(from: note, date: transactionDate, category: category)
+            return ReceiptStat(from: note, date: transactionDate, category: "Receipt")
         }
 
         // Collect all notes
@@ -369,63 +365,6 @@ class SelineAppContext {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         return formatter.string(from: date)
-    }
-
-    /// Categorize a receipt based on merchant name
-    /// Returns category like "Food & Dining", "Transportation", "Shopping", etc.
-    private func categorizeReceipt(_ title: String) -> String {
-        let lowerTitle = title.lowercased()
-
-        // Food & Dining
-        if lowerTitle.contains("tim horton") || lowerTitle.contains("mcdonald") ||
-           lowerTitle.contains("pizza") || lowerTitle.contains("restaurant") ||
-           lowerTitle.contains("cafe") || lowerTitle.contains("coffee") ||
-           lowerTitle.contains("burger") || lowerTitle.contains("shawarma") ||
-           lowerTitle.contains("sharama") || lowerTitle.contains("indian") ||
-           lowerTitle.contains("cuisine") || lowerTitle.contains("kitchen") ||
-           lowerTitle.contains("lounge") || lowerTitle.contains("cookhouse") ||
-           lowerTitle.contains("szechuan") || lowerTitle.contains("apna farm") ||
-           lowerTitle.contains("bakery") || lowerTitle.contains("diner") ||
-           lowerTitle.contains("grill") {
-            return "Food & Dining"
-        }
-
-        // Transportation
-        if lowerTitle.contains("tesla") || lowerTitle.contains("gas") ||
-           lowerTitle.contains("shell") || lowerTitle.contains("uber") ||
-           lowerTitle.contains("taxi") || lowerTitle.contains("parking") ||
-           lowerTitle.contains("transit") || lowerTitle.contains("car") ||
-           lowerTitle.contains("fuel") {
-            return "Transportation"
-        }
-
-        // Health & Pharmacy
-        if lowerTitle.contains("pharmacy") || lowerTitle.contains("drug") ||
-           lowerTitle.contains("health") || lowerTitle.contains("medical") ||
-           lowerTitle.contains("clinic") || lowerTitle.contains("hospital") {
-            return "Health & Pharmacy"
-        }
-
-        // Entertainment
-        if lowerTitle.contains("cinema") || lowerTitle.contains("movie") ||
-           lowerTitle.contains("theater") || lowerTitle.contains("theatre") ||
-           lowerTitle.contains("concert") || lowerTitle.contains("music") ||
-           lowerTitle.contains("game") || lowerTitle.contains("entertainment") {
-            return "Entertainment"
-        }
-
-        // Shopping & Retail
-        if lowerTitle.contains("walmart") || lowerTitle.contains("amazon") ||
-           lowerTitle.contains("amazon") || lowerTitle.contains("amazon") ||
-           lowerTitle.contains("costco") || lowerTitle.contains("target") ||
-           lowerTitle.contains("mall") || lowerTitle.contains("store") ||
-           lowerTitle.contains("party city") || lowerTitle.contains("shoppers") ||
-           lowerTitle.contains("depot") || lowerTitle.contains("market") {
-            return "Shopping & Retail"
-        }
-
-        // Default category
-        return "Other"
     }
 
     /// Extract date from receipt note title
