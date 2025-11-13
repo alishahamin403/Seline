@@ -56,9 +56,14 @@ class SelineAppContext {
         }
 
         // Extract transaction dates from receipt notes
-        self.receipts = receiptNotes.map { note in
+        self.receipts = receiptNotes.compactMap { note -> ReceiptStat? in
             // Extract date from note title - that's the transaction date
-            let transactionDate = extractDateFromTitle(note.title)
+            guard let transactionDate = extractDateFromTitle(note.title) else {
+                // Skip receipts where we can't extract a date from the title
+                // This prevents fallback to dateModified which could be from wrong month
+                print("⚠️  Skipping receipt with no extractable date: \(note.title)")
+                return nil
+            }
             return ReceiptStat(from: note, date: transactionDate, category: "Receipt")
         }
 
