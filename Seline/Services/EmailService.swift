@@ -282,6 +282,31 @@ class EmailService: ObservableObject {
         return getFilteredEmails(for: folder, category: category).count
     }
 
+    // MARK: - Clear Data on Logout
+
+    func clearEmailsOnLogout() {
+        inboxEmails = []
+        sentEmails = []
+        searchResults = []
+        cachedSearchableEmails = []
+
+        // Clear cache timestamps
+        cacheTimestamps = [:]
+
+        // Clear UserDefaults cache
+        UserDefaults.standard.removeObject(forKey: CacheKeys.inboxEmails)
+        UserDefaults.standard.removeObject(forKey: CacheKeys.sentEmails)
+        UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
+        UserDefaults.standard.removeObject(forKey: CacheKeys.sentTimestamp)
+        UserDefaults.standard.removeObject(forKey: CacheKeys.lastEmailIds)
+
+        // Stop email polling
+        newEmailTimer?.invalidate()
+        newEmailTimer = nil
+
+        print("🗑️ Cleared all emails and email cache on logout")
+    }
+
     // MARK: - Email Actions
 
     func replyToEmail(_ email: Email) {
@@ -785,8 +810,8 @@ class EmailService: ObservableObject {
         // Check for new emails and show detailed notifications
         // Only fetches metadata (5 quota units per email) for lightweight checks
 
-        // Only check for new emails if we have cached data
-        guard !inboxEmails.isEmpty else { return }
+        // Only check for new emails if we have cached data and user is authenticated
+        guard !inboxEmails.isEmpty, GIDSignIn.sharedInstance.currentUser != nil else { return }
 
         do {
             // Fetch latest 3 emails from inbox
