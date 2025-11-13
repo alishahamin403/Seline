@@ -297,7 +297,7 @@ class SelineAppContext {
                 }
             }
 
-            // RECURRING EVENTS SUMMARY
+            // RECURRING EVENTS SUMMARY with monthly/yearly stats
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
@@ -311,12 +311,37 @@ class SelineAppContext {
 
                     let categoryName = getCategoryName(for: event.tagId)
                     context += "  • \(event.title) [\(categoryName)]\n"
-                    context += "    This month: \(thisMonthCompletions.count) completions\n"
                     context += "    All-time: \(event.completedDates.count) completions\n"
+                    context += "    This month: \(thisMonthCompletions.count) completions\n"
+
+                    // Monthly breakdown
+                    let monthlyStats = Dictionary(grouping: event.completedDates) { date in
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "MMMM yyyy"
+                        return formatter.string(from: date)
+                    }
+
+                    if !monthlyStats.isEmpty {
+                        // Sort months by date (most recent first)
+                        let sortedMonths = monthlyStats.keys.sorted { month1, month2 in
+                            // Create dummy dates from the month strings for comparison
+                            let formatter = DateFormatter()
+                            formatter.dateFormat = "MMMM yyyy"
+                            let date1 = formatter.date(from: month1) ?? Date.distantPast
+                            let date2 = formatter.date(from: month2) ?? Date.distantPast
+                            return date1 > date2
+                        }
+
+                        context += "    Monthly stats:\n"
+                        for month in sortedMonths.prefix(6) {
+                            let count = monthlyStats[month]?.count ?? 0
+                            context += "      \(month): \(count) completions\n"
+                        }
+                    }
 
                     if !thisMonthCompletions.isEmpty {
                         let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
-                        context += "    Completed on: \(dateStrings.joined(separator: ", "))\n"
+                        context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
                     } else {
                         context += "    No completions this month\n"
                     }
