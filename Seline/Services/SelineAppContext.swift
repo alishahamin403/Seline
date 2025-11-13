@@ -12,6 +12,7 @@ class SelineAppContext {
     private let weatherService: WeatherService
     private let locationsManager: LocationsManager
     private let navigationService: NavigationService
+    private let categorizationService: ReceiptCategorizationService
 
     // MARK: - Cached Data
 
@@ -28,7 +29,8 @@ class SelineAppContext {
         emailService: EmailService = EmailService.shared,
         weatherService: WeatherService = WeatherService.shared,
         locationsManager: LocationsManager = LocationsManager.shared,
-        navigationService: NavigationService = NavigationService.shared
+        navigationService: NavigationService = NavigationService.shared,
+        categorizationService: ReceiptCategorizationService = ReceiptCategorizationService.shared
     ) {
         self.taskManager = taskManager
         self.notesManager = notesManager
@@ -36,6 +38,7 @@ class SelineAppContext {
         self.weatherService = weatherService
         self.locationsManager = locationsManager
         self.navigationService = navigationService
+        self.categorizationService = categorizationService
 
         refresh()
     }
@@ -113,7 +116,7 @@ class SelineAppContext {
     // MARK: - Context Building for LLM
 
     /// Build a rich context string for the LLM with all app data
-    func buildContextPrompt() -> String {
+    func buildContextPrompt() async -> String {
         var context = ""
 
         // Current date context
@@ -229,19 +232,21 @@ class SelineAppContext {
                 receipt.date < startOfMonth || receipt.date > currentDate
             }
 
-            // CURRENT MONTH - Show all details
+            // CURRENT MONTH - Show all details with real category breakdown
             if !currentMonthReceipts.isEmpty {
                 let currentMonthTotal = currentMonthReceipts.reduce(0.0) { $0 + $1.amount }
                 context += "\n**\(currentMonthStr)** (Current Month): \(currentMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", currentMonthTotal))\n"
 
-                // Group by category for current month
-                let byCategory = Dictionary(grouping: currentMonthReceipts) { $0.category }
-                for (category, items) in byCategory.sorted(by: { $0.key < $1.key }) {
-                    let categoryTotal = items.reduce(0.0) { $0 + $1.amount }
-                    context += "  **\(category)**: $\(String(format: "%.2f", categoryTotal)) (\(items.count) items)\n"
+                // Get real category breakdown from ReceiptCategorizationService
+                let categoryBreakdown = await categorizationService.getCategoryBreakdown(for: currentMonthReceipts)
+
+                // Show categories and amounts
+                for (category, receiptsInCategory) in categoryBreakdown.categoryReceipts.sorted(by: { $0.key < $1.key }) {
+                    let categoryTotal = receiptsInCategory.reduce(0.0) { $0 + $1.amount }
+                    context += "  **\(category)**: $\(String(format: "%.2f", categoryTotal)) (\(receiptsInCategory.count) items)\n"
 
                     // List all items in this category
-                    for receipt in items.sorted(by: { $0.date > $1.date }) {
+                    for receipt in receiptsInCategory.sorted(by: { $0.date > $1.date }) {
                         context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
                     }
                 }

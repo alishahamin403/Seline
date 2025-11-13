@@ -48,7 +48,7 @@ class SelineChat {
         print("💬 User: \(userMessage)")
 
         // Build the system prompt with app context
-        let systemPrompt = buildSystemPrompt()
+        let systemPrompt = await buildSystemPrompt()
 
         // Build messages for API
         let messages = buildMessagesForAPI()
@@ -86,8 +86,8 @@ class SelineChat {
 
     // MARK: - Private: System Prompt
 
-    private func buildSystemPrompt() -> String {
-        let contextPrompt = appContext.buildContextPrompt()
+    private func buildSystemPrompt() async -> String {
+        let contextPrompt = await appContext.buildContextPrompt()
 
         return """
         You are Seline, a personal AI assistant with access to the user's calendar, events, notes, emails, receipts, and locations.
