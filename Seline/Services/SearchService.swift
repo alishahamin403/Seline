@@ -537,6 +537,20 @@ class SearchService: ObservableObject {
         // Initialize SelineChat if needed
         if selineChat == nil {
             selineChat = SelineChat(appContext: SelineAppContext(), openAIService: OpenAIService.shared)
+
+            // IMPORTANT: Sync existing conversation history to SelineChat
+            // This ensures historical chats retain context when reopened
+            if !conversationHistory.isEmpty {
+                for msg in conversationHistory {
+                    let chatMsg = ChatMessage(
+                        role: msg.isUser ? .user : .assistant,
+                        content: msg.text,
+                        timestamp: msg.timestamp
+                    )
+                    selineChat?.conversationHistory.append(chatMsg)
+                }
+                print("📝 Restored \(conversationHistory.count) messages to SelineChat context")
+            }
         }
 
         guard let chat = selineChat else {
