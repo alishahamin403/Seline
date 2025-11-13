@@ -87,11 +87,12 @@ class SelineAppContext {
 
             print("     THIS MONTH (Nov 1 - Nov 12): \(thisMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", thisMonthTotal))")
 
-            // Show sample of this month's receipt dates
-            let sampleDates = thisMonthReceipts.prefix(5).map { "\(formatDate($0.date)): \($0.title) ($\(String(format: "%.2f", $0.amount)))" }
-            if !sampleDates.isEmpty {
-                print("     Sample: \(sampleDates.joined(separator: "\n              "))")
+            // Show ALL receipts counted as this month for verification
+            print("     --- ALL NOVEMBER RECEIPTS ---")
+            for receipt in thisMonthReceipts.sorted(by: { $0.date < $1.date }) {
+                print("     • \(formatDate(receipt.date)): \(receipt.title) - $\(String(format: "%.2f", receipt.amount))")
             }
+            print("     --- END ---")
         }
         print("   Notes: \(notes.count)")
         print("   Emails: \(emails.count)")
