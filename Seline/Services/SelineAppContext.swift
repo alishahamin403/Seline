@@ -169,13 +169,13 @@ class SelineAppContext {
     // MARK: - Query Intent Extraction
 
     /// Extracts category/tag names from a user query
-    private func extractCategoryFilter(from query: String) -> UUID? {
+    private func extractCategoryFilter(from query: String) -> String? {
         let lowercaseQuery = query.lowercased()
 
         // Get all tags and check if any match the query
         for tag in tagManager.tags {
             if lowercaseQuery.contains(tag.name.lowercased()) {
-                return tag.id
+                return tag.id.uuidString
             }
         }
 
