@@ -375,7 +375,7 @@ struct TaskRowCalendar: View {
             if task.isRecurring {
                 Image(systemName: "repeat")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color.shadcnPrimary.opacity(0.7))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             }
         }
         .padding(.horizontal, 16)
