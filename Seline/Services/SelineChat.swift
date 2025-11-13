@@ -78,8 +78,8 @@ class SelineChat {
     }
 
     /// Get context size estimate (for display)
-    func getContextSizeEstimate() -> String {
-        let contextPrompt = appContext.buildContextPrompt()
+    func getContextSizeEstimate() async -> String {
+        let contextPrompt = await appContext.buildContextPrompt()
         let estimatedTokens = contextPrompt.count / 4  // Rough estimate
         return "\(estimatedTokens) tokens"
     }
