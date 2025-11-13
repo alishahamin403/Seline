@@ -451,7 +451,7 @@ class SelineAppContext {
 
                     // Include full note content, formatted nicely
                     let contentLines = note.content.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
-                    let lineLimit = 500  // Show up to 500 lines per note (covers most notes including long statements)
+                    let lineLimit = 1000  // Show up to 1000 lines per note (covers long statements and detailed notes)
 
                     for line in contentLines.prefix(lineLimit) {
                         let trimmedLine = line.trimmingCharacters(in: .whitespaces)
