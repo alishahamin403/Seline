@@ -311,8 +311,7 @@ class EmailService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: CacheKeys.lastEmailIds)
 
         // Clear custom folder cache
-        UserDefaults.standard.removeObject(forKey: CacheKeys.customFolders)
-        UserDefaults.standard.removeObject(forKey: CacheKeys.customFoldersTimestamp)
+        clearFolderCache()
 
         // Clear individual folder email caches (dynamic keys)
         let defaults = UserDefaults.standard
@@ -1283,9 +1282,9 @@ class EmailService: ObservableObject {
     }
 
     /// Get all saved email folders (with caching)
-    func fetchSavedFolders() async throws -> [CustomEmailFolder] {
-        // Check cache first
-        if isFolderCacheValid(), let cachedFolders = loadCachedFolders() {
+    func fetchSavedFolders(forceRefresh: Bool = false) async throws -> [CustomEmailFolder] {
+        // Check cache first (unless force refresh is requested)
+        if !forceRefresh && isFolderCacheValid(), let cachedFolders = loadCachedFolders() {
             print("📂 Using cached folders (\(cachedFolders.count) folders)")
             return cachedFolders
         }
@@ -1293,12 +1292,30 @@ class EmailService: ObservableObject {
         // If cache is invalid or empty, fetch from Supabase
         print("🔄 Fetching folders from Supabase...")
         let emailFolderService = await EmailFolderService.shared
-        let folders = try await emailFolderService.fetchFolders()
+        do {
+            let folders = try await emailFolderService.fetchFolders()
+            print("📂 Fetched \(folders.count) folders from Supabase")
 
-        // Cache the results
-        saveCachedFolders(folders)
+            // Cache the results
+            saveCachedFolders(folders)
 
-        return folders
+            return folders
+        } catch {
+            print("❌ Error fetching folders from Supabase: \(error)")
+            // If Supabase fetch fails, try to use cache as fallback
+            if let cachedFolders = loadCachedFolders() {
+                print("⚠️ Using stale cache as fallback (\(cachedFolders.count) folders)")
+                return cachedFolders
+            }
+            throw error
+        }
+    }
+
+    /// Force clear the folder cache (useful for debugging/recovery)
+    func clearFolderCache() {
+        UserDefaults.standard.removeObject(forKey: CacheKeys.customFolders)
+        UserDefaults.standard.removeObject(forKey: CacheKeys.customFoldersTimestamp)
+        print("🗑️ Folder cache cleared")
     }
 
     /// Create a new email folder

@@ -266,21 +266,26 @@ class EmailFolderSidebarViewModel: ObservableObject {
         isLoading = true
         Task {
             do {
+                print("📂 Loading folders...")
                 folders = try await emailService.fetchSavedFolders()
+                print("✅ Loaded \(folders.count) folders")
 
                 // Load email counts for each folder
                 for folder in folders {
                     do {
                         let count = try await emailService.getSavedEmailCount(in: folder.id)
                         folderEmailCounts[folder.id] = count
+                        print("  📧 \(folder.name): \(count) emails")
                     } catch {
+                        print("  ⚠️ Failed to count emails in \(folder.name): \(error)")
                         // Continue even if count fails
                     }
                 }
 
                 isLoading = false
             } catch {
-                print("Error loading folders: \(error)")
+                print("❌ Error loading folders: \(error)")
+                print("🐛 Error details: \(String(describing: error))")
                 isLoading = false
             }
         }
