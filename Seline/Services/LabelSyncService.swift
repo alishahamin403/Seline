@@ -187,6 +187,9 @@ actor LabelSyncService {
         // Update last sync timestamp
         try await updateLabelSyncStatus(mapping: mapping)
 
+        // Invalidate cache for this folder so the app fetches fresh data
+        await invalidateFolderCache(folderId: mapping.folderId)
+
         print("✅ Sync completed for label: \(mapping.gmailLabelName)")
     }
 
@@ -381,6 +384,19 @@ actor LabelSyncService {
         }
 
         print("✅ Email import complete for '\(labelName)': Imported \(totalImported)/\(totalFetched) emails")
+
+        // Invalidate cache for this folder so the app fetches fresh data
+        print("🔄 Invalidating cache for folder \(folderId)")
+        await invalidateFolderCache(folderId: folderId)
+    }
+
+    /// Invalidate the folder email cache so fresh data is fetched
+    private func invalidateFolderCache(folderId: UUID) async {
+        let emailService = EmailService.shared
+        // Force refresh by saving an empty timestamp so cache is considered invalid
+        UserDefaults.standard.removeObject(forKey: "cached_folder_emails_timestamp_\(folderId.uuidString)")
+        UserDefaults.standard.removeObject(forKey: "cached_folder_emails_\(folderId.uuidString)")
+        print("✅ Cache invalidated for folder \(folderId)")
     }
 
     /// Import a single email to a folder
