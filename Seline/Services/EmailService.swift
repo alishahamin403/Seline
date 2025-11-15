@@ -1216,6 +1216,27 @@ class EmailService: ObservableObject {
         return try await emailFolderService.updateFolderColor(id: id, color: color)
     }
 
+    /// Update folder sync status (for imported label folders)
+    func updateFolderSyncStatus(id: UUID, syncEnabled: Bool) async throws {
+        let client = await supabaseManager.getPostgrestClient()
+
+        struct UpdateData: Codable {
+            let sync_enabled: Bool
+            let updated_at: String
+        }
+
+        let updateData = UpdateData(
+            sync_enabled: syncEnabled,
+            updated_at: ISO8601DateFormatter().string(from: Date())
+        )
+
+        try await client
+            .from("email_folders")
+            .update(updateData)
+            .eq("id", value: id.uuidString)
+            .execute()
+    }
+
     /// Delete an email folder
     func deleteEmailFolder(id: UUID) async throws {
         let emailFolderService = await EmailFolderService.shared
@@ -1250,6 +1271,12 @@ class EmailService: ObservableObject {
     func getSavedEmailCount(in folderId: UUID) async throws -> Int {
         let emailFolderService = await EmailFolderService.shared
         return try await emailFolderService.getEmailCountInFolder(folderId: folderId)
+    }
+
+    /// Manually trigger a full label sync
+    func manualSyncLabels() async throws {
+        let labelSyncService = LabelSyncService.shared
+        try await labelSyncService.manualSyncLabels()
     }
 
     // MARK: - Error Handling

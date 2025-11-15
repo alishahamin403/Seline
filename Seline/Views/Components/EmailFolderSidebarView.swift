@@ -3,10 +3,13 @@ import SwiftUI
 struct EmailFolderSidebarView: View {
     @Binding var isPresented: Bool
     @StateObject private var viewModel = EmailFolderSidebarViewModel()
+    @StateObject private var syncProgress = SyncProgress()
     @Environment(\.colorScheme) var colorScheme
     @State private var showCreateFolderSheet = false
     @State private var newFolderName = ""
     @State private var selectedColor = "#333333"
+    @State private var showSyncResult = false
+    @State private var syncResultMessage = ""
 
     let colors = [
         "#333333", // Dark gray
@@ -17,12 +20,36 @@ struct EmailFolderSidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
+            HStack(spacing: 12) {
                 Text("Email Folders")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
+
+                // Manual sync button
+                if syncProgress.isSyncing {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.8, anchor: .center)
+                        Text("Syncing...")
+                            .font(.system(size: 12))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+                } else {
+                    Button(action: { viewModel.syncLabelsManually(with: syncProgress) }) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
 
                 Button(action: { showCreateFolderSheet = true }) {
                     Image(systemName: "plus.circle.fill")
@@ -61,16 +88,39 @@ struct EmailFolderSidebarView: View {
                         ForEach(viewModel.folders) { folder in
                             NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "folder")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .frame(width: 20)
+                                    // Folder icon with Gmail badge if imported
+                                    ZStack(alignment: .bottomTrailing) {
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .frame(width: 20, height: 20)
+
+                                        // Gmail badge for imported labels
+                                        if folder.isImported {
+                                            Image(systemName: "envelope.badge")
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .background(Circle().fill(Color.blue).frame(width: 14, height: 14))
+                                        }
+                                    }
 
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(folder.name)
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(1)
+                                        HStack(spacing: 6) {
+                                            Text(folder.name)
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
+
+                                            // Sync status indicator for imported labels
+                                            if folder.isImported {
+                                                if let lastSynced = folder.lastSyncedAt {
+                                                    let timeAgo = formatTimeAgo(since: lastSynced)
+                                                    Text(timeAgo)
+                                                        .font(.system(size: 9))
+                                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                                }
+                                            }
+                                        }
 
                                         if let count = viewModel.folderEmailCounts[folder.id] {
                                             Text("\(count) email\(count != 1 ? "s" : "")")
@@ -97,6 +147,14 @@ struct EmailFolderSidebarView: View {
                             }
                             .buttonStyle(PlainButtonStyle())
                             .contextMenu {
+                                if folder.isImported {
+                                    Button {
+                                        viewModel.toggleSyncForFolder(folder)
+                                    } label: {
+                                        Label(folder.syncEnabled ?? true ? "Disable Sync" : "Enable Sync", systemImage: "arrow.triangle.2.circlepath")
+                                    }
+                                    Divider()
+                                }
                                 Button(role: .destructive) {
                                     viewModel.deleteFolder(folder)
                                 } label: {
@@ -118,6 +176,25 @@ struct EmailFolderSidebarView: View {
         )
         .onAppear {
             viewModel.loadFolders()
+        }
+        .overlay {
+            if syncProgress.isSyncing && syncProgress.total > 0 {
+                SyncProgressOverlay(progress: syncProgress)
+            }
+        }
+        .overlay(alignment: .top) {
+            if syncProgress.isComplete {
+                SyncResultBanner(
+                    progress: syncProgress,
+                    onDismiss: {
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                            syncProgress.isComplete = false
+                        }
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .sheet(isPresented: $showCreateFolderSheet) {
             NavigationStack {
@@ -148,6 +225,29 @@ struct EmailFolderSidebarView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Helper Functions
+
+    private func formatTimeAgo(since date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        let minutes = Int(interval / 60)
+        let hours = Int(interval / 3600)
+        let days = Int(interval / 86400)
+
+        if minutes < 1 {
+            return "just now"
+        } else if minutes < 60 {
+            return "\(minutes)m"
+        } else if hours < 24 {
+            return "\(hours)h"
+        } else if days == 1 {
+            return "1d"
+        } else if days < 7 {
+            return "\(days)d"
+        } else {
+            return "older"
         }
     }
 }
@@ -208,6 +308,166 @@ class EmailFolderSidebarViewModel: ObservableObject {
                 print("Error deleting folder: \(error)")
             }
         }
+    }
+
+    func toggleSyncForFolder(_ folder: CustomEmailFolder) {
+        Task {
+            do {
+                // Update the sync_enabled flag in the database
+                let newSyncStatus = !(folder.syncEnabled ?? true)
+                try await emailService.updateFolderSyncStatus(id: folder.id, syncEnabled: newSyncStatus)
+
+                // Update local state
+                if let index = folders.firstIndex(where: { $0.id == folder.id }) {
+                    var updatedFolder = folders[index]
+                    updatedFolder.syncEnabled = newSyncStatus
+                    folders[index] = updatedFolder
+                }
+            } catch {
+                print("Error toggling sync: \(error)")
+            }
+        }
+    }
+
+    func syncLabelsManually(with progress: SyncProgress) {
+        Task {
+            do {
+                try await emailService.manualSyncLabels()
+                // Reload folders to show updated counts and sync timestamps
+                await MainActor.run {
+                    loadFolders()
+                }
+            } catch {
+                print("Error syncing labels: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Sync Progress Overlay
+
+struct SyncProgressOverlay: View {
+    @ObservedObject var progress: SyncProgress
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+
+            // Content
+            VStack(spacing: 20) {
+                // Progress indicator
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.blue.opacity(0.2), lineWidth: 3)
+                            .frame(width: 70, height: 70)
+
+                        Circle()
+                            .trim(from: 0, to: progress.progressPercentage)
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.blue, .cyan]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                            )
+                            .frame(width: 70, height: 70)
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.3), value: progress.progressPercentage)
+
+                        VStack(spacing: 2) {
+                            Text("\(Int(progress.progressPercentage * 100))%")
+                                .font(.system(.title3, design: .rounded))
+                                .fontWeight(.semibold)
+                                .foregroundColor(.blue)
+                        }
+                    }
+
+                    Text(progress.status)
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.medium)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+
+                    if progress.total > 0 {
+                        Text("\(progress.current) of \(progress.total)")
+                            .font(.caption)
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    }
+                }
+
+                // Progress bar
+                ProgressView(value: progress.progressPercentage)
+                    .tint(.blue)
+                    .frame(height: 4)
+            }
+            .padding(32)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(colorScheme == .dark ? Color(red: 0.1, green: 0.1, blue: 0.1) : Color.white)
+            )
+            .padding(40)
+        }
+    }
+}
+
+// MARK: - Sync Result Banner
+
+struct SyncResultBanner: View {
+    @ObservedObject var progress: SyncProgress
+    @Environment(\.colorScheme) var colorScheme
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                // Status icon
+                ZStack {
+                    Circle()
+                        .fill(progress.isSuccess ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: progress.isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(progress.isSuccess ? .green : .red)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(progress.isSuccess ? "Sync Successful" : "Sync Failed")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    if !progress.message.isEmpty {
+                        Text(progress.message)
+                            .font(.caption)
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer()
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        .padding(8)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(12)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color(red: 0.98, green: 0.98, blue: 0.98))
+        )
+        .padding(12)
     }
 }
 

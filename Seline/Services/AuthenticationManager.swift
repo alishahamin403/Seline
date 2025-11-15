@@ -13,8 +13,11 @@ class AuthenticationManager: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var showLocationSetup = false
+    @Published var isImportingLabels = false
+    @Published var importProgress = ImportProgress()
 
     private let supabaseManager = SupabaseManager.shared
+    private let labelSyncService = LabelSyncService.shared
 
     private init() {
         // Check for existing session on init
@@ -116,6 +119,9 @@ class AuthenticationManager: ObservableObject {
                 await TagManager.shared.loadTagsFromSupabase()
             }
 
+            // Import Gmail labels on first login
+            await importGmailLabelsIfNeeded()
+
             // Check if first-time setup is needed
             Task {
                 await checkFirstTimeSetup()
@@ -139,6 +145,37 @@ class AuthenticationManager: ObservableObject {
             print("❌ Failed to check first-time setup: \(error)")
             // If we can't load preferences, assume first-time and show setup
             self.showLocationSetup = true
+        }
+    }
+
+    private func importGmailLabelsIfNeeded() async {
+        // Check if labels have already been imported for this user
+        do {
+            let client = await supabaseManager.getPostgrestClient()
+            let response = try await client
+                .from("email_label_mappings")
+                .select("id")
+                .limit(1)
+                .execute()
+
+            // If we already have label mappings, skip import
+            if let data = response.data, !data.isEmpty {
+                print("✅ Gmail labels already imported")
+                return
+            }
+
+            // No mappings found, import labels
+            self.isImportingLabels = true
+            try await labelSyncService.importLabelsOnFirstLogin()
+            self.isImportingLabels = false
+
+            print("✅ Gmail labels imported successfully")
+
+        } catch {
+            self.isImportingLabels = false
+            print("⚠️ Failed to import Gmail labels: \(error.localizedDescription)")
+            // Don't fail authentication if label import fails
+            // User can manually sync later
         }
     }
 

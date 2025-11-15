@@ -209,6 +209,10 @@ struct CustomEmailFolder: Identifiable, Codable, Equatable {
     let color: String // Hex color code (e.g., "#84cae9")
     let createdAt: Date
     let updatedAt: Date
+    let isImportedLabel: Bool? // True if folder is imported from Gmail label
+    let gmailLabelId: String? // Gmail label ID if imported
+    let lastSyncedAt: Date? // Last sync timestamp for imported labels
+    let syncEnabled: Bool? // Whether sync is enabled for this folder
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -217,10 +221,18 @@ struct CustomEmailFolder: Identifiable, Codable, Equatable {
         case color
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case isImportedLabel = "is_imported_label"
+        case gmailLabelId = "gmail_label_id"
+        case lastSyncedAt = "last_synced_at"
+        case syncEnabled = "sync_enabled"
     }
 
     var displayColor: Color {
         Color(hex: color) ?? Color.blue
+    }
+
+    var isImported: Bool {
+        isImportedLabel ?? false
     }
 }
 
@@ -241,6 +253,7 @@ struct SavedEmail: Identifiable, Codable, Equatable {
     let timestamp: Date // Original email date
     let savedAt: Date
     let updatedAt: Date
+    let gmailLabelIds: [String]? // Gmail label IDs this email belongs to
     var attachments: [SavedEmailAttachment] = []
 
     enum CodingKeys: String, CodingKey {
@@ -259,6 +272,7 @@ struct SavedEmail: Identifiable, Codable, Equatable {
         case timestamp
         case savedAt = "saved_at"
         case updatedAt = "updated_at"
+        case gmailLabelIds = "gmail_label_ids"
     }
 
     var formattedTime: String {
