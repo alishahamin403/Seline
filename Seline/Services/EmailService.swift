@@ -1417,6 +1417,37 @@ class EmailService: ObservableObject {
         try await labelSyncService.manualSyncLabels()
     }
 
+    /// Check for new Gmail labels not yet imported
+    func checkForNewLabels() async throws -> [GmailLabel] {
+        let gmailLabelService = GmailLabelService.shared
+        let supabaseManager = SupabaseManager.shared
+
+        // Fetch all available labels from Gmail
+        let allLabels = try await gmailLabelService.fetchAllCustomLabels()
+        print("📋 Found \(allLabels.count) total labels in Gmail")
+
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            throw NSError(domain: "EmailService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+
+        // Get imported label IDs from database
+        let client = await supabaseManager.getPostgrestClient()
+        let mappingResponse = try await client
+            .from("email_label_mappings")
+            .select("gmail_label_id")
+            .eq("user_id", value: userId.uuidString)
+            .execute()
+
+        let mappings = try JSONDecoder().decode([["gmail_label_id": String]].self, from: mappingResponse.data)
+        let importedLabelIds = Set(mappings.map { $0["gmail_label_id"] ?? "" })
+
+        // Find new labels (in Gmail but not imported yet)
+        let newLabels = allLabels.filter { !importedLabelIds.contains($0.id) }
+        print("✨ Found \(newLabels.count) new labels not yet imported")
+
+        return newLabels
+    }
+
     // MARK: - Error Handling
     private func getUserFriendlyErrorMessage(_ error: Error) -> String {
         if let gmailError = error as? GmailAPIError {

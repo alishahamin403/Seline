@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GmailLabelSelectionView: View {
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var viewModel = GmailLabelSelectionViewModel()
     @Environment(\.colorScheme) var colorScheme
 
@@ -133,7 +134,10 @@ struct GmailLabelSelectionView: View {
                         }
                         .disabled(viewModel.selectedLabelIds.isEmpty || viewModel.isImporting)
 
-                        Button(action: { dismiss() }) {
+                        Button(action: {
+                            authManager.showLabelSelection = false
+                            dismiss()
+                        }) {
                             Text("Skip for Now")
                                 .font(.system(size: 14, weight: .medium))
                                 .frame(maxWidth: .infinity)
@@ -154,7 +158,10 @@ struct GmailLabelSelectionView: View {
             }
             .navigationBarBackButtonHidden(true)
             .alert("Import Complete", isPresented: $viewModel.showImportSuccess) {
-                Button("Done", action: { dismiss() })
+                Button("Done", action: {
+                    authManager.showLabelSelection = false
+                    dismiss()
+                })
             } message: {
                 Text("Successfully imported \(viewModel.importedCount) label(s)")
             }

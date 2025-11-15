@@ -269,6 +269,9 @@ class EmailFolderSidebarViewModel: ObservableObject {
     @Published var folders: [CustomEmailFolder] = []
     @Published var folderEmailCounts: [UUID: Int] = [:]
     @Published var isLoading = false
+    @Published var showNewLabelsAlert = false
+    @Published var newLabelsFound: [GmailLabel] = []
+    @Published var newLabelsToImport: Set<String> = []
 
     private let emailService = EmailService.shared
 
@@ -347,13 +350,61 @@ class EmailFolderSidebarViewModel: ObservableObject {
     func syncLabelsManually(with progress: SyncProgress) {
         Task {
             do {
+                print("🔄 Starting manual sync of existing labels...")
                 try await emailService.manualSyncLabels()
+                print("✅ Existing labels synced")
+
+                // Check for new labels
+                print("🔍 Checking for new labels...")
+                let newLabels = try await emailService.checkForNewLabels()
+
                 // Reload folders to show updated counts and sync timestamps
+                await MainActor.run {
+                    loadFolders()
+
+                    // If new labels found, show prompt to import them
+                    if !newLabels.isEmpty {
+                        print("✨ Found \(newLabels.count) new labels")
+                        showNewLabelsPrompt(newLabels: newLabels)
+                    } else {
+                        print("✅ No new labels found")
+                    }
+                }
+            } catch {
+                print("❌ Error during sync: \(error)")
+            }
+        }
+    }
+
+    private func showNewLabelsPrompt(newLabels: [GmailLabel]) {
+        self.newLabelsFound = newLabels.sorted { $0.name < $1.name }
+        self.newLabelsToImport.removeAll()
+        self.showNewLabelsAlert = true
+        print("💡 New labels available: \(newLabels.map { $0.name }.joined(separator: ", "))")
+    }
+
+    func importSelectedNewLabels() {
+        Task {
+            do {
+                let labelSyncService = LabelSyncService.shared
+                let selectedLabels = newLabelsFound.filter { newLabelsToImport.contains($0.id) }
+
+                print("📥 Importing \(selectedLabels.count) new labels...")
+                for (index, label) in selectedLabels.enumerated() {
+                    try await labelSyncService.importLabel(label, progress: (index + 1, selectedLabels.count))
+                }
+
+                print("✅ New labels imported successfully")
+                showNewLabelsAlert = false
+                newLabelsFound = []
+                newLabelsToImport = []
+
+                // Reload folders to show the new labels
                 await MainActor.run {
                     loadFolders()
                 }
             } catch {
-                print("Error syncing labels: \(error)")
+                print("❌ Error importing new labels: \(error)")
             }
         }
     }
