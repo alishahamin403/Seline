@@ -89,20 +89,10 @@ struct EmailFolderSidebarView: View {
                             NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                 HStack(spacing: 12) {
                                     // Folder icon with different colors for imported vs user-created
-                                    ZStack(alignment: .bottomTrailing) {
-                                        Image(systemName: "folder")
-                                            .font(.system(size: 16, weight: .medium))
-                                            .foregroundColor(folder.isImported ? Color(hex: "#FF9500") ?? .orange : (colorScheme == .dark ? .white : .black))
-                                            .frame(width: 20, height: 20)
-
-                                        // Gmail badge for imported labels
-                                        if folder.isImported {
-                                            Image(systemName: "envelope.badge.fill")
-                                                .font(.system(size: 10, weight: .bold))
-                                                .foregroundColor(.white)
-                                                .background(Circle().fill(Color.blue).frame(width: 14, height: 14))
-                                        }
-                                    }
+                                    Image(systemName: "folder")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(folder.isImported ? Color(hex: "#FF9500") ?? .orange : (colorScheme == .dark ? .white : .black))
+                                        .frame(width: 20, height: 20)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 6) {
