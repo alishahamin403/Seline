@@ -2147,13 +2147,15 @@ struct NoteEditView: View {
         switch documentType {
         case "bank_statement":
             return """
+            CRITICAL: Extract ALL transactions from this bank statement. NO OMISSIONS. NO SUMMARIES.
+
             Extract ONLY essential transaction and balance information from this bank statement. Your output should be MINIMAL and FOCUSED - only transactions and summary, nothing else.
 
-            WHAT TO EXTRACT (ONLY):
+            WHAT TO EXTRACT (ONLY - MANDATORY):
             ✓ Statement period dates
             ✓ Opening balance
             ✓ Closing balance
-            ✓ Every individual transaction
+            ✓ EVERY SINGLE INDIVIDUAL TRANSACTION - Do NOT skip any, do NOT summarize, INCLUDE ALL
 
             WHAT TO COMPLETELY IGNORE (EXCLUDE EVERYTHING ELSE):
             ✗ Account numbers, card numbers, any numbers identifying the account
@@ -2182,7 +2184,10 @@ struct NoteEditView: View {
             2024-09-16 | Direct Deposit | +$2,000.00 | $4,455.77
 
             CRITICAL FORMATTING RULES (MUST FOLLOW EXACTLY):
-            - EXTRACT EVERY transaction, one per line only
+            - EXTRACT EVERY SINGLE TRANSACTION - NO EXCEPTIONS, NO OMISSIONS, NO FILTERING
+            - If statement has 50 transactions, output ALL 50 transactions
+            - If statement has 200 transactions, output ALL 200 transactions
+            - One transaction per line only
             - Format EXACTLY: DATE | DESCRIPTION | AMOUNT | BALANCE
             - Use pipe character (|) to separate fields - no other delimiters
             - Amount signs: + for deposits/credits, - for withdrawals/charges

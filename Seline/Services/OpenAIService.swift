@@ -339,22 +339,25 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
-        // For detailed extraction, use larger token limit to preserve complete content
-        // Max 12000 characters = ~3000 tokens for comprehensive extraction
-        let maxContentLength = 12000
+        // For extraction, use larger character limit to ensure all transactions are captured
+        // Max 20000 characters = ~5000 tokens (bank statements with many transactions need this)
+        // GPT-4o has 128K context, so this is conservative
+        let maxContentLength = 20000
         let truncatedContent = fileContent.count > maxContentLength ? String(fileContent.prefix(maxContentLength)) + "\n[... content truncated due to length ...]" : fileContent
 
         // Build the extraction request with the key info extraction prompt
         let systemPrompt = """
-        You are a focused document extraction system. Your task is to extract ONLY KEY INFORMATION from documents.
+        You are a document extraction system. Your task is to extract information exactly as specified in the user's detailed instructions.
 
         CRITICAL RULES:
-        - Extract ONLY essential, key information - NOT comprehensive or detailed content
-        - Ignore boilerplate text, disclaimers, marketing, and non-essential information
-        - Focus on facts, figures, and actionable information
+        - Follow the EXACT output format specified in the user's instructions
+        - Extract ALL items marked with ✓ in the user's "WHAT TO EXTRACT" section
+        - For bank statements: EXTRACT EVERY SINGLE TRANSACTION - no omissions, no summarization
+        - For other documents: Extract key information as specified
+        - Ignore boilerplate text, disclaimers, marketing, and items marked to EXCLUDE
         - Do NOT include explanatory text or background information
-        - Follow the exact output format specified in the user's instructions
         - Format output as plain text with clear section headers
+        - Preserve exact formatting rules specified by the user
         """
 
         let userMessage = """
