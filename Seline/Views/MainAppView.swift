@@ -391,6 +391,9 @@ struct MainAppView: View {
             .sheet(isPresented: $authManager.showLocationSetup) {
                 LocationSetupView()
             }
+            .sheet(isPresented: $authManager.showLabelSelection) {
+                GmailLabelSelectionView()
+            }
             .sheet(item: $searchSelectedEmail) { email in
                 EmailDetailView(email: email)
             }

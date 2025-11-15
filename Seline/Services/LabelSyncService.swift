@@ -254,7 +254,7 @@ actor LabelSyncService {
     // MARK: - Individual Label Import
 
     /// Import a single label with all its emails
-    private func importLabel(_ label: GmailLabel, progress: (current: Int, total: Int)) async throws {
+    func importLabel(_ label: GmailLabel, progress: (current: Int, total: Int) = (0, 0)) async throws {
         print("📥 Starting import for label: '\(label.name)' (Gmail ID: \(label.id))")
 
         // Check if folder already exists (user may have manually created a folder with this name)

@@ -13,6 +13,7 @@ class AuthenticationManager: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var showLocationSetup = false
+    @Published var showLabelSelection = false  // Show label selection after first login
     @Published var isImportingLabels = false
     @Published var importProgress = ImportProgress()
 
@@ -179,20 +180,14 @@ class AuthenticationManager: ObservableObject {
                 return
             }
 
-            // No mappings found, import labels
-            print("🚀 Starting Gmail label import for first-time user...")
-            self.isImportingLabels = true
-            try await labelSyncService.importLabelsOnFirstLogin()
-            self.isImportingLabels = false
-
-            print("✅ Gmail labels imported successfully")
+            // No mappings found, show label selection view for first-time user
+            print("🚀 Showing label selection view for first-time user...")
+            self.showLabelSelection = true
 
         } catch {
-            self.isImportingLabels = false
-            print("❌ Failed to import Gmail labels: \(error.localizedDescription)")
+            print("❌ Failed to check label import status: \(error.localizedDescription)")
             print("🐛 Error details: \(error)")
-            // Don't fail authentication if label import fails
-            // User can manually sync later
+            // Don't fail authentication - user can manually sync later
         }
     }
 
