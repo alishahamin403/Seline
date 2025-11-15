@@ -55,6 +55,9 @@ class AuthenticationManager: ObservableObject {
             await NotesManager.shared.syncNotesOnLogin()
             await TagManager.shared.loadTagsFromSupabase()
 
+            // Sync Gmail labels (ensures labels stay up-to-date on each app launch)
+            await importGmailLabelsIfNeeded()
+
         } catch {
             // No valid session found, user needs to sign in
             self.isAuthenticated = false
@@ -163,6 +166,7 @@ class AuthenticationManager: ObservableObject {
             let response = try await client
                 .from("email_label_mappings")
                 .select("id")
+                .eq("user_id", value: userId.uuidString)
                 .limit(1)
                 .execute()
 
