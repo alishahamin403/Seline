@@ -1218,6 +1218,7 @@ class EmailService: ObservableObject {
 
     /// Update folder sync status (for imported label folders)
     func updateFolderSyncStatus(id: UUID, syncEnabled: Bool) async throws {
+        let supabaseManager = SupabaseManager.shared
         let client = await supabaseManager.getPostgrestClient()
 
         struct UpdateData: Codable {

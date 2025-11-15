@@ -64,6 +64,10 @@ struct ConversationSidebarView: View {
         )
         .shadow(color: .black.opacity(0.3), radius: 20, x: 5, y: 0)
         .frame(minWidth: 300, idealWidth: UIScreen.main.bounds.width * 0.75, maxWidth: UIScreen.main.bounds.width * 0.75)
+        .onAppear {
+            // Load saved conversations from local storage when sidebar appears
+            searchService.loadConversationHistoryLocally()
+        }
     }
 
     private var headerView: some View {

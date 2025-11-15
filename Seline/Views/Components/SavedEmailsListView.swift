@@ -407,7 +407,11 @@ struct SavedEmailDetailView: View {
         name: "Work",
         color: "#84cae9",
         createdAt: Date(),
-        updatedAt: Date()
+        updatedAt: Date(),
+        isImportedLabel: false,
+        gmailLabelId: nil,
+        lastSyncedAt: nil,
+        syncEnabled: false
     )
     SavedEmailsListView(folder: folder)
 }

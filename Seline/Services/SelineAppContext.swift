@@ -343,6 +343,21 @@ class SelineAppContext {
         }
     }
 
+    /// Detects if query is specifically about bank statements (should look in notes instead of receipts)
+    /// Examples: "show me my bank statement", "credit card statement", "amex statement"
+    private func isBankStatementQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let bankKeywords = [
+            "bank statement", "statement", "statements",
+            "american express", "amex", "visa", "mastercard", "credit card",
+            "account statement", "monthly statement", "transaction list"
+        ]
+
+        return bankKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
     /// Detects if query is related to emails
     private func isEmailsQuery(_ query: String) -> Bool {
         let lowercaseQuery = query.lowercased()
@@ -353,6 +368,104 @@ class SelineAppContext {
         }
     }
 
+    /// Detects if query is related to restaurants, stores, or specific locations
+    private func isRestaurantOrLocationQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let locationKeywords = [
+            // Restaurant/dining related
+            "restaurant", "restaurant", "cafe", "coffee", "dinner", "lunch", "breakfast", "eating", "food", "dine", "dining",
+            "bill", "cost", "price", "prices", "menu", "expect", "spend", "spending", "budget", "order",
+            // Store/shopping related
+            "store", "shop", "shopping", "retail", "price", "prices", "cost", "expensive",
+            // Generic location queries
+            "place", "location", "venue", "business", "going to", "planning to go"
+        ]
+
+        return locationKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
+    /// Extracts a restaurant or location name from the query
+    /// Examples: "Eddies", "Starbucks", "Best Buy" from queries like "what bill at Eddies" or "prices at Starbucks"
+    private func extractLocationName(from query: String) -> String? {
+        let lowercaseQuery = query.lowercased()
+
+        // Look for pattern: "[at/to/for] [NAME]"
+        let patterns = [
+            "at\\s+([A-Za-z\\s&'-]+?)(?:\\s+(?:for|to|in|with)|\\?|$)",  // at [NAME]
+            "for\\s+([A-Za-z\\s&'-]+?)(?:\\s+(?:at|in)|\\?|$)",           // for [NAME]
+            "going\\s+(?:to|for)\\s+([A-Za-z\\s&'-]+?)(?:\\s+(?:for|to|in)|\\?|$)",  // going to [NAME]
+            "visiting\\s+([A-Za-z\\s&'-]+?)(?:\\s+(?:for|to|in)|\\?|$)" // visiting [NAME]
+        ]
+
+        for patternString in patterns {
+            if let regex = try? NSRegularExpression(pattern: patternString, options: .caseInsensitive) {
+                let nsString = query as NSString
+                let range = NSRange(location: 0, length: nsString.length)
+
+                if let match = regex.firstMatch(in: query, range: range) {
+                    if let captureRange = Range(match.range(at: 1), in: query) {
+                        let locationName = String(query[captureRange])
+                            .trimmingCharacters(in: .whitespaces)
+                            .filter { !$0.isPunctuation || $0 == "-" || $0 == "&" || $0 == "'" }
+
+                        if !locationName.isEmpty && locationName.count > 1 {
+                            return locationName
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Fetch information about a specific restaurant or location (prices, menu, hours, ratings)
+    private func fetchRestaurantInfo(name: String) async throws -> [String] {
+        // Use Google Search to find restaurant information
+        let searchTerm = "\(name) restaurant prices menu hours ratings"
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "restaurant"
+
+        // Use DuckDuckGo HTML search as an alternative (no API key needed)
+        let searchURL = "https://html.duckduckgo.com/?q=\(searchTerm)&format=json&no_html=1&skip_disambig=1"
+
+        guard let url = URL(string: searchURL) else {
+            return []
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            return []
+        }
+
+        // Try to parse JSON response
+        if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let results = jsonObject["Results"] as? [[String: Any]] {
+            var info: [String] = []
+
+            for result in results.prefix(3) {
+                if let text = result["Text"] as? String {
+                    let cleanedText = text
+                        .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces)
+                    if !cleanedText.isEmpty {
+                        info.append(cleanedText)
+                    }
+                }
+            }
+
+            return info
+        }
+
+        return []
+    }
+
     /// Build context with intelligent filtering based on user query
     func buildContextPrompt(forQuery userQuery: String) async -> String {
         // Extract useful filters from the query (but don't gate sections based on keywords)
@@ -360,6 +473,11 @@ class SelineAppContext {
         let timePeriodFilter = extractTimePeriodFilter(from: userQuery)
         let locationCategoryFilter = extractLocationCategoryFilter(from: userQuery)
         let specificNewsTopic = extractNewsTopic(from: userQuery)
+        let specificLocationName = isRestaurantOrLocationQuery(userQuery) ? extractLocationName(from: userQuery) : nil
+
+        // Detect expense vs bank statement queries
+        let userAskedAboutExpenses = isExpenseQuery(userQuery)
+        let userAskedAboutBankStatement = isBankStatementQuery(userQuery)
 
         // Refresh all data
         await refresh()
@@ -425,6 +543,31 @@ class SelineAppContext {
         context += "Total Notes: \(notes.count)\n"
         context += "Total Emails: \(emails.count)\n"
         context += "Total Locations: \(locations.count)\n\n"
+
+        // Available folders for clarification
+        context += "=== AVAILABLE FOLDERS (For Clarifying Questions) ===\n"
+        context += "**EMAIL FOLDERS (from sidebar):**\n"
+
+        // Show custom email folders from sidebar with email counts
+        if !customEmailFolders.isEmpty {
+            for folder in customEmailFolders.sorted(by: { $0.name < $1.name }) {
+                let emailCount = savedEmailsByFolder[folder.id]?.count ?? 0
+                context += "  • \(folder.name): \(emailCount) emails\n"
+            }
+        } else {
+            context += "  • (No custom folders created yet)\n"
+        }
+
+        context += "\n**NOTE FOLDERS:**\n"
+        let noteFolderMap = Dictionary(grouping: notes) { note in
+            notesManager.getFolderName(for: note.folderId)
+        }
+        for folder in noteFolderMap.keys.sorted() {
+            if let folderNotes = noteFolderMap[folder] {
+                context += "  • \(folder): \(folderNotes.count) notes\n"
+            }
+        }
+        context += "\n"
 
         // Build events section from buildContextPromptInternal but without refresh
         let calendar = Calendar.current
@@ -643,7 +786,15 @@ class SelineAppContext {
 
         // Add receipts section (always included)
         context += "\n=== RECEIPTS & EXPENSES ===\n"
-            if !receipts.isEmpty {
+
+        // Add context about the data source for the user's query
+        if userAskedAboutExpenses {
+            context += "**NOTE: User asked about expenses/spending. Use the RECEIPTS data below as the primary source for their expense information.**\n\n"
+        } else if userAskedAboutBankStatement {
+            context += "**NOTE: User asked about bank/credit card statements. These are typically stored in NOTES folder. Check the NOTES section for bank statements, credit card statements, or transaction lists from American Express, Visa, Mastercard, etc.**\n\n"
+        }
+
+        if !receipts.isEmpty {
                 // Group receipts by month dynamically
                 let receiptsByMonth = Dictionary(grouping: receipts) { receipt in
                     let formatter = DateFormatter()
@@ -813,6 +964,26 @@ class SelineAppContext {
                         context += "  • \(forecast.day): \(forecast.temperature)° - \(forecast.iconName)\n"
                     }
                 }
+            }
+        }
+
+        // Add restaurant/location information section when a specific location is mentioned
+        if let locationName = specificLocationName {
+            context += "\n=== RESTAURANT/LOCATION INFO ===\n"
+            context += "User is asking about: **\(locationName)**\n\n"
+
+            do {
+                let locationInfo = try await fetchRestaurantInfo(name: locationName)
+                if !locationInfo.isEmpty {
+                    context += "**Information from web search:**\n"
+                    for info in locationInfo.prefix(3) {
+                        context += "  • \(info)\n"
+                    }
+                } else {
+                    context += "  (No specific pricing/menu information found in search)\n"
+                }
+            } catch {
+                context += "  Could not fetch restaurant information at this time\n"
             }
         }
 

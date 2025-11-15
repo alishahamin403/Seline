@@ -212,7 +212,7 @@ struct CustomEmailFolder: Identifiable, Codable, Equatable {
     let isImportedLabel: Bool? // True if folder is imported from Gmail label
     let gmailLabelId: String? // Gmail label ID if imported
     let lastSyncedAt: Date? // Last sync timestamp for imported labels
-    let syncEnabled: Bool? // Whether sync is enabled for this folder
+    var syncEnabled: Bool? // Whether sync is enabled for this folder
 
     enum CodingKeys: String, CodingKey {
         case id

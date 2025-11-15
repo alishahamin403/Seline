@@ -150,6 +150,7 @@ class AuthenticationManager: ObservableObject {
 
     private func importGmailLabelsIfNeeded() async {
         // Check if labels have already been imported for this user
+        print("🔍 Checking if Gmail labels need to be imported...")
         do {
             let client = await supabaseManager.getPostgrestClient()
             let response = try await client
@@ -158,13 +159,16 @@ class AuthenticationManager: ObservableObject {
                 .limit(1)
                 .execute()
 
+            print("📊 Label mappings check - Data empty: \(response.data.isEmpty)")
+
             // If we already have label mappings, skip import
-            if let data = response.data, !data.isEmpty {
+            if !response.data.isEmpty {
                 print("✅ Gmail labels already imported")
                 return
             }
 
             // No mappings found, import labels
+            print("🚀 Starting Gmail label import...")
             self.isImportingLabels = true
             try await labelSyncService.importLabelsOnFirstLogin()
             self.isImportingLabels = false
@@ -173,7 +177,8 @@ class AuthenticationManager: ObservableObject {
 
         } catch {
             self.isImportingLabels = false
-            print("⚠️ Failed to import Gmail labels: \(error.localizedDescription)")
+            print("❌ Failed to import Gmail labels: \(error.localizedDescription)")
+            print("🐛 Error details: \(error)")
             // Don't fail authentication if label import fails
             // User can manually sync later
         }

@@ -27,7 +27,11 @@ actor EmailFolderService {
             name: name,
             color: color,
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            isImportedLabel: false,
+            gmailLabelId: nil,
+            lastSyncedAt: nil,
+            syncEnabled: false
         )
 
         let client = await supabaseManager.getPostgrestClient()
@@ -164,6 +168,7 @@ actor EmailFolderService {
             timestamp: email.timestamp,
             savedAt: Date(),
             updatedAt: Date(),
+            gmailLabelIds: nil,
             attachments: attachments
         )
 

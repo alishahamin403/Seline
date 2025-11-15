@@ -195,20 +195,30 @@ actor LabelSyncService {
     func importLabelsOnFirstLogin() async throws {
         print("🔄 Starting Gmail label import on first login...")
 
-        let mainActor = await MainActor.shared
-        await mainActor.updateProgress(phase: "Fetching labels", current: 0, total: 0)
+        await importProgress.updateProgress(phase: "Fetching labels", current: 0, total: 0)
 
         // Fetch all custom labels from Gmail
+        print("📡 Fetching Gmail labels...")
         let labels = try await gmailLabelService.fetchAllCustomLabels()
         print("📋 Found \(labels.count) custom labels to import")
 
-        await mainActor.updateProgress(phase: "Importing labels", current: 0, total: labels.count)
+        if labels.isEmpty {
+            print("⚠️ No custom labels found! Please check if you have custom labels in Gmail (exclude system labels like INBOX, SENT, TRASH)")
+            await importProgress.updateProgress(phase: "No labels found", current: 0, total: 0)
+            return
+        }
+
+        for label in labels {
+            print("  - Label: \(label.name) (ID: \(label.id))")
+        }
+
+        await importProgress.updateProgress(phase: "Importing labels", current: 0, total: labels.count)
 
         // Import each label
         for (index, label) in labels.enumerated() {
             do {
                 try await importLabel(label, progress: (index + 1, labels.count))
-                await mainActor.updateProgress(phase: "Importing labels", current: index + 1, total: labels.count)
+                await importProgress.updateProgress(phase: "Importing labels", current: index + 1, total: labels.count)
             } catch {
                 print("⚠️ Failed to import label '\(label.name)': \(error.localizedDescription)")
                 // Continue with next label instead of failing completely
@@ -217,7 +227,7 @@ actor LabelSyncService {
         }
 
         print("✅ Label import completed")
-        await mainActor.updateProgress(phase: "Complete", current: labels.count, total: labels.count)
+        await importProgress.updateProgress(phase: "Complete", current: labels.count, total: labels.count)
     }
 
     // MARK: - Individual Label Import
@@ -323,7 +333,7 @@ actor LabelSyncService {
         // Generate AI summary (non-blocking - can fail without affecting import)
         var aiSummary: String? = nil
         do {
-            aiSummary = try await openAIService.summarizeEmail(body: fullEmailBody)
+            aiSummary = try await openAIService.summarizeEmail(subject: email.subject, body: fullEmailBody)
         } catch {
             print("⚠️ Failed to generate AI summary for email: \(error.localizedDescription)")
         }
@@ -351,16 +361,22 @@ actor LabelSyncService {
         folderId: UUID,
         color: String?
     ) async throws {
+        guard let currentUser = supabaseManager.getCurrentUser() else {
+            throw NSError(domain: "LabelSyncService", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
+
         let client = await supabaseManager.getPostgrestClient()
 
         struct LabelMapping: Codable {
+            let user_id: String
             let gmail_label_id: String
             let gmail_label_name: String
             let folder_id: String
             let gmail_label_color: String?
             let sync_status: String
 
-            init(gmailLabelId: String, gmailLabelName: String, folderId: UUID, color: String?) {
+            init(userId: UUID, gmailLabelId: String, gmailLabelName: String, folderId: UUID, color: String?) {
+                self.user_id = userId.uuidString
                 self.gmail_label_id = gmailLabelId
                 self.gmail_label_name = gmailLabelName
                 self.folder_id = folderId.uuidString
@@ -370,11 +386,14 @@ actor LabelSyncService {
         }
 
         let mapping = LabelMapping(
+            userId: currentUser.id,
             gmailLabelId: gmailLabelId,
             gmailLabelName: gmailLabelName,
             folderId: folderId,
             color: color
         )
+
+        print("📝 Inserting label mapping: user_id=\(currentUser.id.uuidString), gmail_label_id=\(gmailLabelId), folder_id=\(folderId.uuidString)")
 
         _ = try await client
             .from("email_label_mappings")
@@ -599,7 +618,11 @@ extension EmailFolderService {
             name: name,
             color: color,
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            isImportedLabel: true,
+            gmailLabelId: gmailLabelId,
+            lastSyncedAt: Date(),
+            syncEnabled: true
         )
 
         let client = await SupabaseManager.shared.getPostgrestClient()

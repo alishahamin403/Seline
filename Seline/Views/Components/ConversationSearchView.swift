@@ -48,6 +48,8 @@ struct ConversationSearchView: View {
         // ZStack with sidebar overlay
         .onAppear {
             isInputFocused = true
+            // Load saved conversations from local storage when conversation view appears
+            searchService.loadConversationHistoryLocally()
         }
         .onDisappear {
             // Generate final title and save conversation before clearing
