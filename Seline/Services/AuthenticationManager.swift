@@ -167,10 +167,10 @@ class AuthenticationManager: ObservableObject {
                 .execute()
 
             let mappingCount = response.count ?? 0
-            print("📊 Label mappings check - Found \(mappingCount) existing mappings, response data empty: \(response.data.isEmpty)")
+            print("📊 Label mappings check - Found \(mappingCount) existing mappings")
 
             // If we already have label mappings, skip import
-            if !response.data.isEmpty || mappingCount > 0 {
+            if mappingCount > 0 {
                 print("✅ Gmail labels already imported for this user")
                 return
             }
