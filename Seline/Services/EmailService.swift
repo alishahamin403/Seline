@@ -1438,8 +1438,12 @@ class EmailService: ObservableObject {
             .eq("user_id", value: userId.uuidString)
             .execute()
 
-        let mappings = try JSONDecoder().decode([["gmail_label_id": String]].self, from: mappingResponse.data)
-        let importedLabelIds = Set(mappings.map { $0["gmail_label_id"] ?? "" })
+        struct LabelMapping: Decodable {
+            let gmail_label_id: String
+        }
+
+        let mappings = try JSONDecoder().decode([LabelMapping].self, from: mappingResponse.data)
+        let importedLabelIds = Set(mappings.map { $0.gmail_label_id })
 
         // Find new labels (in Gmail but not imported yet)
         let newLabels = allLabels.filter { !importedLabelIds.contains($0.id) }
