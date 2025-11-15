@@ -254,26 +254,47 @@ actor LabelSyncService {
     private func importLabel(_ label: GmailLabel, progress: (current: Int, total: Int)) async throws {
         print("📥 Starting import for label: '\(label.name)' (Gmail ID: \(label.id))")
 
-        // Create folder for this label
-        let folderColor = getColorForLabel(label)
-        print("🎨 Folder color: \(folderColor)")
+        // Check if folder already exists (user may have manually created a folder with this name)
+        print("🔍 Checking if folder already exists...")
+        let existingFolders = try await emailFolderService.fetchFolders()
+        let existingFolder = existingFolders.first { $0.name == label.name }
 
-        let folder = try await emailFolderService.createImportedLabelFolder(
-            name: label.name,
-            color: folderColor,
-            gmailLabelId: label.id
-        )
-        print("✅ Created email folder: '\(label.name)' (Folder ID: \(folder.id))")
+        let folder: CustomEmailFolder
+        if let existing = existingFolder {
+            print("✅ Found existing folder: '\(label.name)' (Folder ID: \(existing.id))")
+            folder = existing
+        } else {
+            // Create folder for this label
+            let folderColor = getColorForLabel(label)
+            print("🎨 Folder color: \(folderColor)")
 
-        // Create label mapping
-        print("🔗 Creating label mapping in database...")
-        try await createLabelMapping(
-            gmailLabelId: label.id,
-            gmailLabelName: label.name,
-            folderId: folder.id,
-            color: label.color?.backgroundColor
-        )
-        print("✅ Label mapping created successfully")
+            folder = try await emailFolderService.createImportedLabelFolder(
+                name: label.name,
+                color: folderColor,
+                gmailLabelId: label.id
+            )
+            print("✅ Created email folder: '\(label.name)' (Folder ID: \(folder.id))")
+        }
+
+        // Create label mapping (skip if already exists)
+        print("🔗 Checking if label mapping exists...")
+        do {
+            if let existingMapping = try await getLabelMapping(gmailLabelId: label.id) {
+                print("✅ Label mapping already exists (ID: \(existingMapping.id))")
+            } else {
+                print("📝 Creating new label mapping...")
+                try await createLabelMapping(
+                    gmailLabelId: label.id,
+                    gmailLabelName: label.name,
+                    folderId: folder.id,
+                    color: label.color?.backgroundColor
+                )
+                print("✅ Label mapping created successfully")
+            }
+        } catch {
+            print("⚠️ Could not check/create label mapping: \(error.localizedDescription)")
+            // Continue anyway - mapping may not be critical
+        }
 
         // Fetch and import all emails in this label (paginated)
         print("📧 Fetching emails from Gmail label...")
