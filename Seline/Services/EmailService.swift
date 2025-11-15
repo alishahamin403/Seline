@@ -135,10 +135,12 @@ class EmailService: ObservableObject {
                 updateCacheTimestamp(for: folder)
                 saveCachedData(for: folder)
 
-                // Pre-generate AI summaries for emails without them (in background)
-                Task.detached(priority: .background) {
-                    await self.preloadAISummaries(for: mergedEmails)
-                }
+                // NOTE: AI summary pre-loading disabled to prevent unnecessary Gmail API calls
+                // AI summaries are generated on-demand when user views individual emails
+                // This reduces API quota usage and improves app performance
+                // Task.detached(priority: .background) {
+                //     await self.preloadAISummaries(for: mergedEmails)
+                // }
 
             } catch {
                 // Only update state if not cancelled
@@ -775,41 +777,37 @@ class EmailService: ObservableObject {
     @objc private func appDidBecomeActive() {
         isAppActive = true
 
-        // Fetch emails when app opens
+        // Fetch emails when app opens (from Supabase cache, not Gmail API)
         Task { @MainActor in
             await loadTodaysEmails()
         }
 
-        // Start 6-hour background polling
-        startNewEmailPolling()
+        // NOTE: Email polling disabled - using Supabase as source of truth instead
+        // Gmail API calls are expensive and unnecessary with Supabase caching
+        // Users can manually refresh if needed
     }
 
     @objc private func appDidEnterBackground() {
         isAppActive = false
-        // Keep email polling running in background for notifications
-        // The polling will continue checking for new emails every 60 seconds
+        // Stop email polling when app goes to background
+        // NOTE: No background polling - using Supabase + cached data only
+        stopNewEmailPolling()
     }
 
-    // MARK: - New Email Polling (Only when app is active)
+    // MARK: - New Email Polling (DISABLED - Using Supabase Instead)
 
     private func startNewEmailPolling() {
-        // Only start if we don't already have a timer running
-        guard newEmailTimer == nil else {
-            return
-        }
-
-        newEmailTimer = Timer.scheduledTimer(withTimeInterval: newEmailCheckInterval, repeats: true) { _ in
-            Task { @MainActor in
-                // Check for new emails even in background for notifications
-                // This enables real-time email notifications when app is backgrounded
-                await self.checkForNewEmails()
-            }
-        }
+        // DISABLED: Email polling disabled to reduce Gmail API calls
+        // All email data now comes from Supabase which is cached
+        // Users can manually refresh via pull-to-refresh or manual sync button
+        // This significantly reduces API quota usage and improves battery life
+        print("📧 Email polling disabled - using Supabase cache only")
     }
 
     private func stopNewEmailPolling() {
         newEmailTimer?.invalidate()
         newEmailTimer = nil
+        print("⏹️ Email polling stopped")
     }
 
     private func showNewEmailNotification(newEmails: [Email]) async {
@@ -1015,10 +1013,10 @@ class EmailService: ObservableObject {
     // MARK: - Background Refresh
 
     func handleBackgroundRefresh() async {
-        // Perform a quick check for new emails when app refreshes in background
-        guard !inboxEmails.isEmpty else { return }
-
-        await checkForNewEmails()
+        // NOTE: Background refresh disabled - using Supabase as source of truth
+        // No need for background Gmail API calls when data is cached in Supabase
+        // Users will see cached data which is automatically synced when they use the app
+        print("⏹️ Background refresh disabled - using Supabase cache only")
     }
 
     // MARK: - Private Methods
