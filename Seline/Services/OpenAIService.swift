@@ -352,7 +352,12 @@ class OpenAIService: ObservableObject {
         CRITICAL RULES:
         - Follow the EXACT output format specified in the user's instructions
         - Extract ALL items marked with ✓ in the user's "WHAT TO EXTRACT" section
-        - For bank statements: EXTRACT EVERY SINGLE TRANSACTION - no omissions, no summarization
+        - For bank statements: EXTRACT EVERY SINGLE DAILY INDIVIDUAL TRANSACTION
+          * Each transaction line from the statement = one line to output
+          * Do NOT skip any transactions regardless of size
+          * Do NOT aggregate, summarize, or combine transactions
+          * Do NOT filter out any transaction that appears on the statement
+          * If the statement shows 100 transactions, extract ALL 100
         - For other documents: Extract key information as specified
         - Ignore boilerplate text, disclaimers, marketing, and items marked to EXCLUDE
         - Do NOT include explanatory text or background information
@@ -373,7 +378,7 @@ class OpenAIService: ObservableObject {
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userMessage]
             ],
-            "max_tokens": 4000,  // Larger token limit for comprehensive extraction
+            "max_tokens": 8000,  // Large token limit to accommodate all transactions in bank statements
             "temperature": 0.3   // Lower temperature for more consistent, factual extraction
         ]
 
@@ -384,7 +389,7 @@ class OpenAIService: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         // Increase timeout for large file extractions (default is 60 seconds)
-        // Very large PDFs can take 5+ minutes to process
+        // Very large PDFs with many transactions can take 5+ minutes to process
         request.timeoutInterval = 300 // 5 minutes for detailed extraction of large files
 
         let (data, response) = try await URLSession.shared.data(for: request)

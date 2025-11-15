@@ -2147,7 +2147,7 @@ struct NoteEditView: View {
         switch documentType {
         case "bank_statement":
             return """
-            CRITICAL: Extract ALL transactions from this bank statement. NO OMISSIONS. NO SUMMARIES.
+            CRITICAL: Extract EVERY SINGLE DAILY INDIVIDUAL TRANSACTION. NO OMISSIONS. NO SUMMARIES. NO FILTERING.
 
             Extract ONLY essential transaction and balance information from this bank statement. Your output should be MINIMAL and FOCUSED - only transactions and summary, nothing else.
 
@@ -2155,7 +2155,9 @@ struct NoteEditView: View {
             ✓ Statement period dates
             ✓ Opening balance
             ✓ Closing balance
-            ✓ EVERY SINGLE INDIVIDUAL TRANSACTION - Do NOT skip any, do NOT summarize, INCLUDE ALL
+            ✓ EVERY SINGLE DAILY INDIVIDUAL TRANSACTION ENTRY - Do NOT skip any, do NOT summarize, do NOT aggregate
+            ✓ Each transaction represents one individual activity: one date, one description, one amount
+            ✓ If a transaction appears on the statement (even if small), MUST be included
 
             WHAT TO COMPLETELY IGNORE (EXCLUDE EVERYTHING ELSE):
             ✗ Account numbers, card numbers, any numbers identifying the account
@@ -2176,18 +2178,22 @@ struct NoteEditView: View {
             Opening Balance: [amount]
             Closing Balance: [amount]
 
-            TRANSACTIONS
+            DAILY TRANSACTIONS
             Date | Description | Amount | Balance
 
             Example only:
             2024-09-15 | AMAZON.COM | -$45.23 | $2,455.77
             2024-09-16 | Direct Deposit | +$2,000.00 | $4,455.77
+            2024-09-17 | STARBUCKS | -$5.50 | $4,450.27
+            2024-09-17 | TRADER JOES | -$45.89 | $4,404.38
 
             CRITICAL FORMATTING RULES (MUST FOLLOW EXACTLY):
-            - EXTRACT EVERY SINGLE TRANSACTION - NO EXCEPTIONS, NO OMISSIONS, NO FILTERING
-            - If statement has 50 transactions, output ALL 50 transactions
-            - If statement has 200 transactions, output ALL 200 transactions
-            - One transaction per line only
+            - EXTRACT EVERY SINGLE DAILY INDIVIDUAL TRANSACTION - NO EXCEPTIONS, NO OMISSIONS, NO FILTERING, NO SUMMARIZATION
+            - Each line in the statement transaction table = ONE transaction to extract
+            - If statement shows 50 daily transactions, output ALL 50
+            - If statement shows 200 daily transactions, output ALL 200
+            - Include ALL transactions regardless of size (even $1 transactions must be included)
+            - One transaction per output line only
             - Format EXACTLY: DATE | DESCRIPTION | AMOUNT | BALANCE
             - Use pipe character (|) to separate fields - no other delimiters
             - Amount signs: + for deposits/credits, - for withdrawals/charges
@@ -2198,6 +2204,7 @@ struct NoteEditView: View {
             - Keep descriptions SHORT and CLEAR (merchant/source name only, max 30 chars)
             - Do NOT include transaction fees or sub-items separately
             - Do NOT include running balances unless explicitly on statement
+            - Do NOT aggregate, summarize, or skip any transactions
             - Output ONLY the two sections above - nothing else
             - NO introductory text, NO explanations, NO extra sections
             - Preserve exact spacing in output (2 spaces before section names)
