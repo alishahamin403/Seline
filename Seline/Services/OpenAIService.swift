@@ -339,10 +339,11 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
-        // For extraction, use larger character limit to ensure all transactions are captured
-        // Max 20000 characters = ~5000 tokens (bank statements with many transactions need this)
-        // GPT-4o has 128K context, so this is conservative
-        let maxContentLength = 20000
+        // For extraction, use very large character limit to handle multi-page documents
+        // Max 100000 characters = ~25000 tokens
+        // GPT-4o has 128K context window, so we can safely use up to 100K input characters
+        // An 8-page statement with transaction tables is typically 40K-80K characters
+        let maxContentLength = 100000
         let truncatedContent = fileContent.count > maxContentLength ? String(fileContent.prefix(maxContentLength)) + "\n[... content truncated due to length ...]" : fileContent
 
         // Build the extraction request with the key info extraction prompt
@@ -378,7 +379,7 @@ class OpenAIService: ObservableObject {
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userMessage]
             ],
-            "max_tokens": 8000,  // Large token limit to accommodate all transactions in bank statements
+            "max_tokens": 16000,  // Very large token limit for multi-page statements with many transactions
             "temperature": 0.3   // Lower temperature for more consistent, factual extraction
         ]
 
