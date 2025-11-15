@@ -389,32 +389,34 @@ actor LabelSyncService {
         folderId: UUID,
         gmailLabelId: String
     ) async throws {
-        print("      📥 Fetching email body for: \(gmailMessageId)")
-        // Fetch full email body
-        guard let fullEmailBody = try await gmailAPIClient.fetchBodyForAI(messageId: gmailMessageId) else {
-            print("      ⚠️ Could not fetch body for email \(gmailMessageId)")
-            return
-        }
-
-        print("      📬 Fetching full email details...")
-        // Fetch full email details
-        let emails = try await gmailAPIClient.searchEmails(query: "rfc822msgid:<\(gmailMessageId)>", maxResults: 1)
-
-        guard let email = emails.first else {
+        print("      📬 Fetching email details by message ID...")
+        // Fetch full email details directly by message ID (more reliable than search)
+        guard let email = try await gmailAPIClient.fetchSingleEmail(messageId: gmailMessageId) else {
             print("      ⚠️ Could not fetch email details for \(gmailMessageId)")
             return
         }
 
         print("      📧 Email subject: \(email.subject)")
 
+        // Fetch full email body for AI summary
+        var fullEmailBody: String? = nil
+        do {
+            print("      📥 Fetching email body for AI summary...")
+            fullEmailBody = try await gmailAPIClient.fetchBodyForAI(messageId: gmailMessageId)
+        } catch {
+            print("      ⚠️ Could not fetch full body for email: \(error.localizedDescription)")
+        }
+
         // Generate AI summary (non-blocking - can fail without affecting import)
         var aiSummary: String? = nil
-        do {
-            print("      🤖 Generating AI summary...")
-            aiSummary = try await openAIService.summarizeEmail(subject: email.subject, body: fullEmailBody)
-            print("      ✅ AI summary generated")
-        } catch {
-            print("      ⚠️ Failed to generate AI summary: \(error.localizedDescription)")
+        if let body = fullEmailBody {
+            do {
+                print("      🤖 Generating AI summary...")
+                aiSummary = try await openAIService.summarizeEmail(subject: email.subject, body: body)
+                print("      ✅ AI summary generated")
+            } catch {
+                print("      ⚠️ Failed to generate AI summary: \(error.localizedDescription)")
+            }
         }
 
         // Save email to folder

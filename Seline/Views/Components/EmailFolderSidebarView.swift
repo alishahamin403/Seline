@@ -88,21 +88,16 @@ struct EmailFolderSidebarView: View {
                         ForEach(viewModel.folders) { folder in
                             NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                 HStack(spacing: 12) {
-                                    // Folder icon with color background and Gmail badge if imported
+                                    // Folder icon with Gmail indicator
                                     ZStack(alignment: .bottomTrailing) {
-                                        // Colored background circle
-                                        Circle()
-                                            .fill(folder.displayColor)
-                                            .frame(width: 32, height: 32)
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .frame(width: 20, height: 20)
 
-                                        // Folder icon on top (white for better contrast on colored background)
-                                        Image(systemName: "folder.fill")
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundColor(.white)
-
-                                        // Gmail badge for imported labels
+                                        // Gmail indicator for imported labels
                                         if folder.isImported {
-                                            Image(systemName: "envelope.badge")
+                                            Image(systemName: "envelope.badge.fill")
                                                 .font(.system(size: 10, weight: .bold))
                                                 .foregroundColor(.white)
                                                 .background(Circle().fill(Color.blue).frame(width: 14, height: 14))
