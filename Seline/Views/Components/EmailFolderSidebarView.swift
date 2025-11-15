@@ -10,6 +10,8 @@ struct EmailFolderSidebarView: View {
     @State private var selectedColor = "#333333"
     @State private var showSyncResult = false
     @State private var syncResultMessage = ""
+    @State private var showCreationError = false
+    @State private var creationErrorMessage = ""
 
     let colors = [
         "#333333", // Dark gray
@@ -206,15 +208,26 @@ struct EmailFolderSidebarView: View {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Create") {
                             if !newFolderName.trimmingCharacters(in: .whitespaces).isEmpty {
-                                viewModel.createFolder(name: newFolderName)
-                                showCreateFolderSheet = false
-                                newFolderName = ""
+                                viewModel.createFolder(name: newFolderName) { error in
+                                    if let error = error {
+                                        creationErrorMessage = error
+                                        showCreationError = true
+                                    } else {
+                                        showCreateFolderSheet = false
+                                        newFolderName = ""
+                                    }
+                                }
                             }
                         }
                         .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
             }
+        }
+        .alert("Error Creating Folder", isPresented: $showCreationError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(creationErrorMessage)
         }
     }
 
@@ -284,14 +297,29 @@ class EmailFolderSidebarViewModel: ObservableObject {
         }
     }
 
-    func createFolder(name: String) {
+    func createFolder(name: String, completion: @escaping (String?) -> Void) {
         Task {
             do {
+                print("📁 Creating folder: \(name)")
                 let newFolder = try await emailService.createEmailFolder(name: name, color: "#333333")
+                print("✅ Folder created: \(newFolder.id)")
+
+                // Clear the folder cache so the new folder is included next time
+                await emailService.clearFolderCache()
+                print("🗑️ Folder cache cleared to reflect new folder")
+
                 folders.append(newFolder)
                 folderEmailCounts[newFolder.id] = 0
+
+                await MainActor.run {
+                    completion(nil) // Success - no error
+                }
             } catch {
-                print("Error creating folder: \(error)")
+                print("❌ Error creating folder: \(error)")
+                let errorMessage = error.localizedDescription
+                await MainActor.run {
+                    completion(errorMessage) // Pass error to completion handler
+                }
             }
         }
     }

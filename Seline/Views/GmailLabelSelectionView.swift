@@ -59,7 +59,7 @@ struct GmailLabelSelectionView: View {
                                         Label("All", systemImage: "checkmark.circle.fill")
                                             .font(.system(size: 12, weight: .semibold))
                                     }
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
 
                                     Button(action: { viewModel.deselectAll() }) {
                                         Label("None", systemImage: "circle")
@@ -80,18 +80,25 @@ struct GmailLabelSelectionView: View {
                                             .fill(Color(hex: label.color?.backgroundColor ?? "#84cae9") ?? Color.blue)
                                             .frame(width: 24, height: 24)
 
-                                        // Label name
-                                        Text(label.name)
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(1)
+                                        // Label name with email count
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(label.name)
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
+
+                                            let emailCount = viewModel.labelEmailCounts[label.id] ?? 0
+                                            Text("\(emailCount) email\(emailCount == 1 ? "" : "s")")
+                                                .font(.system(size: 12, weight: .regular))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
+                                        }
 
                                         Spacer()
 
                                         // Checkbox
                                         Image(systemName: viewModel.isLabelSelected(label.id) ? "checkmark.square.fill" : "square")
                                             .font(.system(size: 18, weight: .semibold))
-                                            .foregroundColor(.blue)
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
                                     }
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 12)
@@ -128,11 +135,17 @@ struct GmailLabelSelectionView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(12)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ?
+                                        Color.white.opacity(0.15) :
+                                        Color.black.opacity(0.1)
+                                    )
+                            )
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
                         .disabled(viewModel.selectedLabelIds.isEmpty || viewModel.isImporting)
+                        .opacity(viewModel.selectedLabelIds.isEmpty || viewModel.isImporting ? 0.5 : 1.0)
 
                         Button(action: {
                             authManager.showLabelSelection = false
@@ -178,6 +191,7 @@ struct GmailLabelSelectionView: View {
 class GmailLabelSelectionViewModel: ObservableObject {
     @Published var availableLabels: [GmailLabel] = []
     @Published var selectedLabelIds: Set<String> = []
+    @Published var labelEmailCounts: [String: Int] = [:]
     @Published var isLoading = false
     @Published var isImporting = false
     @Published var showImportSuccess = false
@@ -194,6 +208,31 @@ class GmailLabelSelectionViewModel: ObservableObject {
                 let labels = try await gmailLabelService.fetchAllCustomLabels()
                 self.availableLabels = labels.sorted { $0.name < $1.name }
                 print("✅ Fetched \(labels.count) labels")
+
+                // Fetch email counts for each label
+                print("📧 Fetching email counts for labels...")
+                for label in labels {
+                    do {
+                        let (messageIds, _) = try await gmailLabelService.fetchEmailsInLabel(
+                            labelId: label.id,
+                            pageToken: nil,
+                            maxResults: 1
+                        )
+                        // Count total by checking if there are messages
+                        // We'll do a more accurate count by fetching with larger limit
+                        let (allMessageIds, _) = try await gmailLabelService.fetchEmailsInLabel(
+                            labelId: label.id,
+                            pageToken: nil,
+                            maxResults: 100
+                        )
+                        self.labelEmailCounts[label.id] = allMessageIds.count
+                        print("  📧 \(label.name): \(allMessageIds.count) emails")
+                    } catch {
+                        print("  ⚠️ Could not fetch count for \(label.name): \(error)")
+                        self.labelEmailCounts[label.id] = 0
+                    }
+                }
+
                 self.isLoading = false
             } catch {
                 print("❌ Error fetching labels: \(error)")
