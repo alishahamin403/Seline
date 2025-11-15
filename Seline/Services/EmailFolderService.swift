@@ -149,6 +149,48 @@ actor EmailFolderService {
             throw NSError(domain: "EmailFolderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
         }
 
+        let gmailMessageId = email.gmailMessageId ?? email.id
+
+        // Check if this email already exists in this folder
+        let client = await supabaseManager.getPostgrestClient()
+        do {
+            let existingResponse = try await client
+                .from("saved_emails")
+                .select("id")
+                .eq("email_folder_id", value: folderId.uuidString)
+                .eq("gmail_message_id", value: gmailMessageId)
+                .limit(1)
+                .execute()
+
+            let existingCount = existingResponse.count ?? 0
+            if existingCount > 0 {
+                print("ℹ️ Email \(gmailMessageId) already exists in folder \(folderId.uuidString), skipping duplicate")
+                // Return existing email instead of creating duplicate
+                let emails = try decoder.decode([SavedEmail].self, from: existingResponse.data)
+                return emails.first ?? SavedEmail(
+                    id: UUID(),
+                    userId: userId,
+                    emailFolderId: folderId,
+                    gmailMessageId: gmailMessageId,
+                    subject: email.subject,
+                    senderName: email.sender.name,
+                    senderEmail: email.sender.email,
+                    recipients: [],
+                    ccRecipients: [],
+                    body: email.body,
+                    snippet: email.snippet,
+                    aiSummary: aiSummary,
+                    timestamp: email.timestamp,
+                    savedAt: Date(),
+                    updatedAt: Date(),
+                    gmailLabelIds: nil
+                )
+            }
+        } catch {
+            print("⚠️ Error checking for duplicate email: \(error)")
+            // Continue with save attempt anyway
+        }
+
         let recipientEmails = email.recipients.map { $0.email }
         let ccEmails = email.ccRecipients.map { $0.email }
 
@@ -156,7 +198,7 @@ actor EmailFolderService {
             id: UUID(),
             userId: userId,
             emailFolderId: folderId,
-            gmailMessageId: email.gmailMessageId ?? email.id,
+            gmailMessageId: gmailMessageId,
             subject: email.subject,
             senderName: email.sender.name,
             senderEmail: email.sender.email,
@@ -171,8 +213,6 @@ actor EmailFolderService {
             gmailLabelIds: nil,
             attachments: attachments
         )
-
-        let client = await supabaseManager.getPostgrestClient()
 
         let response = try await client
             .from("saved_emails")
