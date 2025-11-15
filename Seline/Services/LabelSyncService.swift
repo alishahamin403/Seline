@@ -259,15 +259,29 @@ actor LabelSyncService {
         let existingFolders = try await emailFolderService.fetchFolders()
         let existingFolder = existingFolders.first { $0.name == label.name }
 
+        let folderColor = getColorForLabel(label)
+        print("🎨 Folder color: \(folderColor)")
+
         let folder: CustomEmailFolder
         if let existing = existingFolder {
             print("✅ Found existing folder: '\(label.name)' (Folder ID: \(existing.id))")
-            folder = existing
+
+            // Update folder color to match Gmail label color
+            if existing.color != folderColor {
+                print("🔄 Updating folder color from \(existing.color) to \(folderColor)")
+                do {
+                    let updatedFolder = try await emailFolderService.updateFolderColor(id: existing.id, color: folderColor)
+                    folder = updatedFolder
+                    print("✅ Folder color updated")
+                } catch {
+                    print("⚠️ Could not update folder color: \(error.localizedDescription)")
+                    folder = existing
+                }
+            } else {
+                folder = existing
+            }
         } else {
             // Create folder for this label
-            let folderColor = getColorForLabel(label)
-            print("🎨 Folder color: \(folderColor)")
-
             folder = try await emailFolderService.createImportedLabelFolder(
                 name: label.name,
                 color: folderColor,
@@ -331,9 +345,11 @@ actor LabelSyncService {
             totalFetched += messageIds.count
 
             if messageIds.isEmpty {
-                print("⚠️ Empty batch received")
+                print("📭 No emails in this label")
                 break
             }
+
+            print("📥 Processing \(messageIds.count) emails from this batch...")
 
             // Fetch full details for each message and save to folder
             for (index, messageId) in messageIds.enumerated() {
@@ -345,8 +361,10 @@ actor LabelSyncService {
                         gmailLabelId: gmailLabelId
                     )
                     totalImported += 1
+                    print("   ✅ Email imported successfully")
                 } catch {
                     print("   ⚠️ Failed to import email \(messageId): \(error.localizedDescription)")
+                    print("   🐛 Error: \(String(describing: error))")
                     // Continue with next email
                     continue
                 }
