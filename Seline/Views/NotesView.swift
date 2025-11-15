@@ -2201,131 +2201,136 @@ struct NoteEditView: View {
             """
 
         case "invoice":
-            return base + """
-            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
-            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
-            - NO underscores, NO tildes, NO backticks, NO formatting characters
-            - Use clear section headers with line breaks
-            - Double-space between sections for readability
+            return """
+            Extract ONLY KEY INFORMATION from this invoice file. Your output should be MINIMAL and FOCUSED.
+
+            WHAT TO EXTRACT (KEY INFO ONLY):
+            ✓ Vendor/company name
+            ✓ Invoice number and date
+            ✓ Due date
+            ✓ Line items (description and price only - no quantities needed)
+            ✓ Total amount due
+            ✓ Payment terms (if available)
+
+            WHAT TO COMPLETELY IGNORE (EXCLUDE EVERYTHING ELSE):
+            ✗ Full billing and shipping addresses
+            ✗ Tax identification numbers or company registration numbers
+            ✗ Payment method details or instructions
+            ✗ Legal disclaimers, terms and conditions
+            ✗ Promotional information
+            ✗ Contact information beyond company name
+            ✗ Detailed quantity breakdowns
+            ✗ Itemized tax calculations
+            ✗ Notes and special instructions
+            ✗ Any explanatory text or disclaimers
 
             OUTPUT FORMAT (EXACT):
 
-            VENDOR INFORMATION
-            [Vendor/seller name and details]
+            VENDOR
+            [Vendor name only]
 
             INVOICE DETAILS
-            Invoice Number: [number]
+            Number: [number]
             Date: [date]
-            Due Date: [date]
+            Due: [due date]
 
-            BILLING & SHIPPING
-            Bill To: [address details]
-            Ship To: [address details]
+            ITEMS
+            1. [Item description] - [Price]
+            2. [Item description] - [Price]
 
-            LINE ITEMS
-            [Each line item on its own line]
-            1. [Description] - Qty: [quantity] x [unit price] = [total price]
-            2. [Description] - Qty: [quantity] x [unit price] = [total price]
-
-            TOTALS
-            Subtotal: [amount]
-            Taxes: [amount]
-            Fees: [amount]
-            Total Due: [amount]
-
-            PAYMENT & TERMS
-            Payment Terms: [terms]
-            Payment Methods: [methods]
-            Notes: [any special instructions]
+            TOTAL: [amount due]
+            TERMS: [payment terms if available]
 
             CRITICAL FORMATTING RULES (MUST FOLLOW):
-            - Extract EVERY line item individually - no omissions
-            - Be specific with descriptions, quantities, and prices
-            - Use dashes (-) for separators within line items, NOT table pipes
-            - NO table formatting, NO markdown, NO symbols
-            - NO bold (**), NO italics (*), NO headers (#)
-            - Double-space between sections for clarity
-            - Use plain text number format: 1. 2. 3. for line items
-            - Keep descriptions clear and concise (merchant/product name)
+            - NO markdown whatsoever - NO **, NO #, NO *, NO _, NO ~, NO `
+            - NO italics, NO bold, NO headers, NO formatting characters
+            - Output PLAIN TEXT ONLY
             - Output ONLY the sections above - nothing else
+            - NO explanatory text or extra information
             """
 
         case "receipt":
-            return base + """
-            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
-            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
-            - NO underscores, NO tildes, NO backticks, NO formatting characters
-            - Use clear section headers with line breaks
-            - Double-space between sections for readability
+            return """
+            Extract ONLY KEY INFORMATION from this receipt file. Your output should be MINIMAL and FOCUSED.
+
+            WHAT TO EXTRACT (KEY INFO ONLY):
+            ✓ Merchant/store name
+            ✓ Transaction date
+            ✓ Items purchased (description and price only - no detailed quantities)
+            ✓ Total amount paid
+
+            WHAT TO COMPLETELY IGNORE (EXCLUDE EVERYTHING ELSE):
+            ✗ Full merchant address or location
+            ✗ Phone numbers or website
+            ✗ Receipt number or cashier ID
+            ✗ Transaction time
+            ✗ Detailed quantity breakdowns (qty x price format)
+            ✗ Subtotal and tax breakdown
+            ✗ Payment method details
+            ✗ Loyalty/rewards information
+            ✗ Promotions or discounts
+            ✗ Return policy
+            ✗ Any terms and conditions
 
             OUTPUT FORMAT (EXACT):
 
-            MERCHANT INFORMATION
-            Name: [merchant name]
-            Address: [full address if available]
-            Phone: [phone number if available]
-            Website: [website if available]
+            MERCHANT
+            [Store/merchant name only]
 
-            TRANSACTION DETAILS
-            Date: [date]
-            Time: [time if available]
-            Receipt Number: [number]
-            Cashier/Register: [info if available]
+            DATE
+            [Date]
 
-            ITEMS PURCHASED
-            [Each item on its own line]
-            1. [Item description] - Qty: [quantity] x [unit price] = [total]
-            2. [Item description] - Qty: [quantity] x [unit price] = [total]
+            ITEMS
+            1. [Item name] - [Price]
+            2. [Item name] - [Price]
 
-            PAYMENT SUMMARY
-            Subtotal: [amount]
-            Tax: [amount]
-            Total Paid: [amount]
-            Payment Method: [method]
-
-            ADDITIONAL INFORMATION
-            Loyalty/Rewards: [if applicable]
-            Promotions: [if applicable]
-            Return Policy: [if available]
+            TOTAL: [Amount paid]
 
             CRITICAL FORMATTING RULES (MUST FOLLOW):
-            - Extract EVERY item purchased individually - no omissions
-            - Include descriptions, quantities, and prices for all items
-            - Use dashes (-) for separators within items, NOT table pipes
-            - NO table formatting, NO markdown, NO symbols
-            - NO bold (**), NO italics (*), NO headers (#)
-            - Double-space between sections for clarity
-            - Use plain text number format: 1. 2. 3. for items
-            - Keep descriptions clear and concise
+            - NO markdown whatsoever - NO **, NO #, NO *, NO _, NO ~, NO `
+            - NO italics, NO bold, NO headers, NO formatting characters
+            - Output PLAIN TEXT ONLY
             - Output ONLY the sections above - nothing else
+            - NO explanatory text or extra information
             """
 
         default:
-            return base + """
-            FORMATTING INSTRUCTIONS (CRITICAL - NO MARKDOWN):
-            - Output PLAIN TEXT ONLY - NO markdown symbols, NO **, NO #, NO * formatting
-            - NO underscores, NO tildes, NO backticks, NO formatting characters
-            - Use clear section headers with line breaks
-            - Double-space between sections for readability
-            - Maintain document structure with proper spacing
+            return """
+            Extract ONLY KEY INFORMATION from this document. Your output should be MINIMAL and FOCUSED.
 
-            Extract the COMPLETE detailed content including:
-            - All text content in logical sections
-            - All important data, numbers, and values
-            - All details and information from the document
-            - Proper spacing between sections for readability
-            - Key facts, figures, and information organized by topic
+            WHAT TO EXTRACT (KEY INFO ONLY):
+            ✓ Main subject/title/topic of the document
+            ✓ Key facts and important numbers
+            ✓ Critical information and data points
+            ✓ Main sections/categories with essential content only
 
-            FORMATTING RULES (MUST FOLLOW):
-            - Clear section headers followed by content
-            - Line breaks between sections
-            - Double spacing between major sections
-            - NO table formatting, NO markdown symbols
-            - NO bold (**), NO italics (*), NO headers (#)
-            - Simple, clean plain text format ONLY
-            - Use plain text for any lists (line by line, no special formatting)
-            - Keep all important information and context intact
-            - NO introductory or closing text - just the content
+            WHAT TO COMPLETELY IGNORE (EXCLUDE EVERYTHING ELSE):
+            ✗ Repetitive content or summaries
+            ✗ Legal disclaimers, terms and conditions
+            ✗ Marketing or promotional content
+            ✗ Detailed explanations or background information
+            ✗ Contact information
+            ✗ Headers, footers, page numbers
+            ✗ Metadata or document properties
+            ✗ Decorative elements or formatting descriptions
+            ✗ Boilerplate text or standard disclaimers
+            ✗ Any text that doesn't add substantial value
+
+            OUTPUT FORMAT (EXACT):
+
+            [MAIN TOPIC/SUBJECT]
+            [Key facts and important data organized by topic]
+
+            CRITICAL FORMATTING RULES (MUST FOLLOW):
+            - NO markdown whatsoever - NO **, NO #, NO *, NO _, NO ~, NO `
+            - NO italics, NO bold, NO headers, NO formatting characters
+            - Output PLAIN TEXT ONLY
+            - Organize content by topic with clear section headers
+            - ONE section per main topic
+            - Short, concise content under each section
+            - NO introductory or closing text
+            - NO explanatory text or extra information
+            - Keep it brief and focused on facts only
             """
         }
     }

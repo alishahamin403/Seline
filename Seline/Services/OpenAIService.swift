@@ -344,16 +344,17 @@ class OpenAIService: ObservableObject {
         let maxContentLength = 12000
         let truncatedContent = fileContent.count > maxContentLength ? String(fileContent.prefix(maxContentLength)) + "\n[... content truncated due to length ...]" : fileContent
 
-        // Build the extraction request with the detailed prompt
+        // Build the extraction request with the key info extraction prompt
         let systemPrompt = """
-        You are a detailed document extraction system. Your task is to extract COMPLETE, detailed information from documents.
+        You are a focused document extraction system. Your task is to extract ONLY KEY INFORMATION from documents.
 
         CRITICAL RULES:
-        - Provide COMPREHENSIVE extraction, not a summary
-        - Include ALL details, numbers, dates, amounts, items, and information
-        - Preserve the structure and hierarchy of the information
-        - Do NOT summarize or condense - extract everything
-        - Format the output clearly with proper organization
+        - Extract ONLY essential, key information - NOT comprehensive or detailed content
+        - Ignore boilerplate text, disclaimers, marketing, and non-essential information
+        - Focus on facts, figures, and actionable information
+        - Do NOT include explanatory text or background information
+        - Follow the exact output format specified in the user's instructions
+        - Format output as plain text with clear section headers
         """
 
         let userMessage = """
