@@ -316,9 +316,24 @@ class EmailFolderSidebarViewModel: ObservableObject {
                 }
             } catch {
                 print("❌ Error creating folder: \(error)")
-                let errorMessage = error.localizedDescription
-                await MainActor.run {
-                    completion(errorMessage) // Pass error to completion handler
+
+                // Check if it's a duplicate key error (folder already exists)
+                let errorString = String(describing: error)
+                if errorString.contains("23505") || errorString.lowercased().contains("unique constraint") {
+                    print("ℹ️ Folder already exists, reloading folders list...")
+
+                    // Reload folders from Supabase to show the existing folder
+                    await emailService.clearFolderCache()
+                    loadFolders()
+
+                    await MainActor.run {
+                        completion("Folder '\(name)' already exists") // User-friendly message
+                    }
+                } else {
+                    let errorMessage = error.localizedDescription
+                    await MainActor.run {
+                        completion(errorMessage) // Pass error to completion handler
+                    }
                 }
             }
         }
