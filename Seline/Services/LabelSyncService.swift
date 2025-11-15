@@ -198,35 +198,42 @@ actor LabelSyncService {
         await importProgress.updateProgress(phase: "Fetching labels", current: 0, total: 0)
 
         // Fetch all custom labels from Gmail
-        print("📡 Fetching Gmail labels...")
+        print("📡 Fetching Gmail labels from Gmail API...")
         let labels = try await gmailLabelService.fetchAllCustomLabels()
         print("📋 Found \(labels.count) custom labels to import")
 
         if labels.isEmpty {
             print("⚠️ No custom labels found! Please check if you have custom labels in Gmail (exclude system labels like INBOX, SENT, TRASH)")
+            print("📝 Gmail API returned empty label list - this is expected if you don't have any custom labels")
             await importProgress.updateProgress(phase: "No labels found", current: 0, total: 0)
             return
         }
 
+        print("📋 Custom labels found:")
         for label in labels {
-            print("  - Label: \(label.name) (ID: \(label.id))")
+            print("  ✓ Label: '\(label.name)' (ID: \(label.id))")
         }
 
         await importProgress.updateProgress(phase: "Importing labels", current: 0, total: labels.count)
 
         // Import each label
+        var successCount = 0
         for (index, label) in labels.enumerated() {
             do {
+                print("➡️ Importing label \(index + 1)/\(labels.count): '\(label.name)'")
                 try await importLabel(label, progress: (index + 1, labels.count))
+                successCount += 1
                 await importProgress.updateProgress(phase: "Importing labels", current: index + 1, total: labels.count)
+                print("✅ Successfully imported label: '\(label.name)'")
             } catch {
                 print("⚠️ Failed to import label '\(label.name)': \(error.localizedDescription)")
+                print("🐛 Error details: \(String(describing: error))")
                 // Continue with next label instead of failing completely
                 continue
             }
         }
 
-        print("✅ Label import completed")
+        print("✅ Label import completed - Imported \(successCount)/\(labels.count) labels")
         await importProgress.updateProgress(phase: "Complete", current: labels.count, total: labels.count)
     }
 
@@ -234,31 +241,37 @@ actor LabelSyncService {
 
     /// Import a single label with all its emails
     private func importLabel(_ label: GmailLabel, progress: (current: Int, total: Int)) async throws {
-        print("📥 Importing label: \(label.name)")
+        print("📥 Starting import for label: '\(label.name)' (Gmail ID: \(label.id))")
 
         // Create folder for this label
         let folderColor = getColorForLabel(label)
+        print("🎨 Folder color: \(folderColor)")
+
         let folder = try await emailFolderService.createImportedLabelFolder(
             name: label.name,
             color: folderColor,
             gmailLabelId: label.id
         )
-        print("📁 Created folder: \(label.name) (ID: \(folder.id))")
+        print("✅ Created email folder: '\(label.name)' (Folder ID: \(folder.id))")
 
         // Create label mapping
+        print("🔗 Creating label mapping in database...")
         try await createLabelMapping(
             gmailLabelId: label.id,
             gmailLabelName: label.name,
             folderId: folder.id,
             color: label.color?.backgroundColor
         )
+        print("✅ Label mapping created successfully")
 
         // Fetch and import all emails in this label (paginated)
+        print("📧 Fetching emails from Gmail label...")
         try await importEmailsFromLabel(
             gmailLabelId: label.id,
             folderId: folder.id,
             labelName: label.name
         )
+        print("✅ Completed import for label: '\(label.name)'")
     }
 
     /// Import all emails from a specific label with pagination

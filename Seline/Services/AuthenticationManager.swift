@@ -152,23 +152,31 @@ class AuthenticationManager: ObservableObject {
         // Check if labels have already been imported for this user
         print("🔍 Checking if Gmail labels need to be imported...")
         do {
+            guard let userId = supabaseManager.getCurrentUser()?.id else {
+                print("⚠️ No user authenticated, skipping label import")
+                return
+            }
+
             let client = await supabaseManager.getPostgrestClient()
+
+            print("📊 Querying email_label_mappings for user: \(userId.uuidString)")
             let response = try await client
                 .from("email_label_mappings")
                 .select("id")
                 .limit(1)
                 .execute()
 
-            print("📊 Label mappings check - Data empty: \(response.data.isEmpty)")
+            let mappingCount = response.count ?? 0
+            print("📊 Label mappings check - Found \(mappingCount) existing mappings, response data empty: \(response.data.isEmpty)")
 
             // If we already have label mappings, skip import
-            if !response.data.isEmpty {
-                print("✅ Gmail labels already imported")
+            if !response.data.isEmpty || mappingCount > 0 {
+                print("✅ Gmail labels already imported for this user")
                 return
             }
 
             // No mappings found, import labels
-            print("🚀 Starting Gmail label import...")
+            print("🚀 Starting Gmail label import for first-time user...")
             self.isImportingLabels = true
             try await labelSyncService.importLabelsOnFirstLogin()
             self.isImportingLabels = false
