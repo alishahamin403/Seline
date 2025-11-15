@@ -532,11 +532,16 @@ actor LabelSyncService {
             .from("email_label_mappings")
             .select()
             .eq("gmail_label_id", value: gmailLabelId)
-            .single()
+            .limit(1)
             .execute()
 
-        let mapping = try decoder.decode(LabelMappingRecord.self, from: response.data)
-        return mapping
+        guard !response.data.isEmpty else {
+            print("ℹ️ No existing label mapping found for Gmail label: \(gmailLabelId)")
+            return nil
+        }
+
+        let mappings = try decoder.decode([LabelMappingRecord].self, from: response.data)
+        return mappings.first
     }
 
     /// Fetch all label mappings for the current user
