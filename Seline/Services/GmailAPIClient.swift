@@ -1151,7 +1151,7 @@ struct GmailMessagesList: Codable {
 
 struct GmailMessageRef: Codable {
     let id: String
-    let threadId: String
+    let threadId: String?  // Gmail API may not always return threadId
 }
 
 struct GmailMessage: Codable {
