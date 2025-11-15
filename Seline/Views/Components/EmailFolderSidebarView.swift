@@ -88,30 +88,20 @@ struct EmailFolderSidebarView: View {
                         ForEach(viewModel.folders) { folder in
                             NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                 HStack(spacing: 12) {
-                                    // Folder icon with different styles for imported vs user-created
-                                    if folder.isImported {
-                                        // Imported label folder - show colored background circle
-                                        ZStack(alignment: .bottomTrailing) {
-                                            Circle()
-                                                .fill(folder.displayColor)
-                                                .frame(width: 32, height: 32)
+                                    // Folder icon with different colors for imported vs user-created
+                                    ZStack(alignment: .bottomTrailing) {
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(folder.isImported ? Color(hex: "#FF9500") ?? .orange : (colorScheme == .dark ? .white : .black))
+                                            .frame(width: 20, height: 20)
 
-                                            Image(systemName: "folder.fill")
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundColor(.white)
-
-                                            // Gmail badge
+                                        // Gmail badge for imported labels
+                                        if folder.isImported {
                                             Image(systemName: "envelope.badge.fill")
                                                 .font(.system(size: 10, weight: .bold))
                                                 .foregroundColor(.white)
                                                 .background(Circle().fill(Color.blue).frame(width: 14, height: 14))
                                         }
-                                    } else {
-                                        // User-created folder - simple white/black folder icon
-                                        Image(systemName: "folder")
-                                            .font(.system(size: 16, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .frame(width: 20, height: 20)
                                     }
 
                                     VStack(alignment: .leading, spacing: 2) {
