@@ -203,7 +203,7 @@ actor LabelSyncService {
             let labels = try await gmailLabelService.fetchAllCustomLabels()
             print("📋 Found \(labels.count) custom labels to import")
 
-            await handleLabelImportResult(labels: labels)
+            try await handleLabelImportResult(labels: labels)
         } catch {
             print("❌ ERROR fetching Gmail labels: \(error.localizedDescription)")
             print("🐛 Full error: \(String(describing: error))")
