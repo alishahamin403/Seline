@@ -8,8 +8,6 @@ struct ConversationSearchView: View {
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
     @State private var showingSidebar = false
-    @State private var thinkingElapsedTime: Int = 0
-    @State private var thinkingTimer: Timer?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -126,21 +124,13 @@ struct ConversationSearchView: View {
                             ProgressView()
                                 .scaleEffect(0.8)
                                 .tint(colorScheme == .dark ? Color.white : Color.black)
-                            Text("Thinking... \(formatElapsedTime(thinkingElapsedTime))")
+                            Text("Thinking...")
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                             Spacer()
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .onAppear {
-                            startThinkingTimer()
-                        }
-                        .onChange(of: searchService.isLoadingQuestionResponse) { isLoading in
-                            if !isLoading {
-                                stopThinkingTimer()
-                            }
-                        }
                     }
                 }
                 .padding(.vertical, 16)
@@ -243,31 +233,6 @@ struct ConversationSearchView: View {
             )
     }
 
-    // MARK: - Thinking Timer Helpers
-
-    private func startThinkingTimer() {
-        thinkingElapsedTime = 0
-        thinkingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            thinkingElapsedTime += 1
-        }
-    }
-
-    private func stopThinkingTimer() {
-        thinkingTimer?.invalidate()
-        thinkingTimer = nil
-        thinkingElapsedTime = 0
-    }
-
-    private func formatElapsedTime(_ seconds: Int) -> String {
-        guard seconds > 0 else { return "" }
-        if seconds < 60 {
-            return "(\(seconds)s)"
-        } else {
-            let minutes = seconds / 60
-            let remainingSeconds = seconds % 60
-            return "(\(minutes)m \(remainingSeconds)s)"
-        }
-    }
 }
 
 struct ConversationMessageView: View {
@@ -298,13 +263,6 @@ struct ConversationMessageView: View {
                         .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
                         .textSelection(.enabled)
                         .lineLimit(nil)
-                }
-
-                // Show time taken for AI responses after streaming completes
-                if !message.isUser, let timeTaken = message.timeTakenFormatted {
-                    Text("⏱️ Took \(timeTaken) to think")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                 }
 
                 // Show related receipts for expense queries

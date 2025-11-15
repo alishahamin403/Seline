@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// Simple data context for LLM - collects all app data without pre-filtering
 /// The LLM will handle filtering, reasoning, and natural language understanding
@@ -14,7 +15,6 @@ class SelineAppContext {
     private let locationsManager: LocationsManager
     private let navigationService: NavigationService
     private let categorizationService: ReceiptCategorizationService
-
     // MARK: - Cached Data
 
     private(set) var events: [TaskItem] = []
@@ -25,6 +25,7 @@ class SelineAppContext {
     private(set) var savedEmailsByFolder: [UUID: [SavedEmail]] = [:]
     private(set) var locations: [SavedPlace] = []
     private(set) var currentDate: Date = Date()
+    private(set) var weatherData: WeatherData?
 
     init(
         taskManager: TaskManager = TaskManager.shared,
@@ -135,6 +136,19 @@ class SelineAppContext {
         // Collect all locations
         self.locations = locationsManager.savedPlaces
 
+        // Fetch weather data
+        do {
+            // Try to get current location, otherwise use default (Toronto)
+            let locationService = LocationService.shared
+            let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+
+            await weatherService.fetchWeather(for: location)
+            self.weatherData = weatherService.weatherData
+            print("🌤️ Weather data fetched")
+        } catch {
+            print("⚠️ Failed to fetch weather: \(error)")
+        }
+
         print("📦 AppContext refreshed:")
         print("   Current date: \(formatDate(currentDate))")
         print("   Events: \(events.count)")
@@ -217,11 +231,135 @@ class SelineAppContext {
         return nil
     }
 
+    /// Detects if query is related to expenses/spending
+    private func isExpenseQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let expenseKeywords = ["spend", "spending", "spent", "receipt", "receipts", "cost", "costs", "expense", "expenses", "money", "budget", "amount", "price", "paid", "how much", "total", "breakdown"]
+
+        return expenseKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
+    /// Detects if query is related to locations/places
+    private func isLocationQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let locationKeywords = ["location", "locations", "place", "places", "visit", "visited", "go to", "went to", "restaurant", "restaurants", "cafe", "cafes", "coffee", "coffee shop", "shop", "shopping", "favorite", "favourite", "starred", "bookmarked", "save", "saved", "where", "nearby", "near", "at", "eating", "eat", "ate", "dining", "dine", "recommend", "recommended"]
+
+        return locationKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
+    /// Extracts category filter from query for locations
+    private func extractLocationCategoryFilter(from query: String) -> String? {
+        let lowercaseQuery = query.lowercased()
+
+        // Get all available categories
+        let categories = locationsManager.categories
+
+        // Check if any category is mentioned in the query
+        for category in categories {
+            if lowercaseQuery.contains(category.lowercased()) {
+                return category
+            }
+        }
+
+        // Check for common category keywords
+        let commonMappings: [String: String] = [
+            "restaurant": "Restaurants",
+            "cafe": "Coffee Shops",
+            "coffee": "Coffee Shops",
+            "coffee shop": "Coffee Shops",
+            "shop": "Shopping",
+            "shopping": "Shopping",
+            "entertainment": "Entertainment",
+            "fitness": "Health & Fitness",
+            "gym": "Health & Fitness",
+            "travel": "Travel",
+            "service": "Services"
+        ]
+
+        for (keyword, categoryName) in commonMappings {
+            if lowercaseQuery.contains(keyword) && categories.contains(categoryName) {
+                return categoryName
+            }
+        }
+
+        return nil
+    }
+
+    /// Detects if query is related to weather
+    private func isWeatherQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let weatherKeywords = ["weather", "temperature", "rain", "rainy", "sunny", "forecast", "cold", "hot", "cloudy", "snow", "wind", "humid", "how's the weather", "what's the weather", "will it rain", "sunrise", "sunset"]
+
+        return weatherKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
+    /// Detects if query is related to news
+    private func isNewsQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let newsKeywords = ["news", "headlines", "happening", "latest", "tell me about", "what about", "breaking", "trending", "trump", "ai", "artificial intelligence"]
+
+        return newsKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
+    /// Extracts specific news topic from query
+    private func extractNewsTopic(from query: String) -> String? {
+        let lowercaseQuery = query.lowercased()
+
+        let commonTopics = ["trump", "ai", "artificial intelligence", "tech", "technology", "science", "business", "politics", "health", "sports", "entertainment"]
+
+        for topic in commonTopics {
+            if lowercaseQuery.contains(topic) {
+                return topic
+            }
+        }
+
+        return nil
+    }
+
+    /// Detects if query is related to notes
+    private func isNotesQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let notesKeywords = [
+            // Basic note keywords
+            "notes", "note", "reminder", "reminders", "todo", "to-do", "tasks", "ideas", "thoughts", "organized", "categories", "folders", "notes organized", "key topics",
+            // Financial statements and documents
+            "statement", "statements", "american express", "amex", "visa", "mastercard", "credit card", "bank statement", "invoice", "receipt list", "transaction", "transactions",
+            // Documents that would be stored in notes
+            "document", "documents", "contract", "agreement", "bill", "bills", "record", "records", "log", "logs", "journal", "diary", "plan", "planning",
+            // Data queries that suggest looking at notes
+            "list of", "list all", "show me all", "all my", "summarize", "summary", "breakdown", "detail", "details", "compare"
+        ]
+
+        return notesKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
+    /// Detects if query is related to emails
+    private func isEmailsQuery(_ query: String) -> Bool {
+        let lowercaseQuery = query.lowercased()
+        let emailKeywords = ["email", "emails", "sent", "inbox", "mail", "message", "messages", "correspondence", "contact", "from", "important", "unread", "draft", "archive", "folder"]
+
+        return emailKeywords.contains { keyword in
+            lowercaseQuery.contains(keyword)
+        }
+    }
+
     /// Build context with intelligent filtering based on user query
     func buildContextPrompt(forQuery userQuery: String) async -> String {
-        // Extract intent from the query
+        // Extract useful filters from the query (but don't gate sections based on keywords)
         let categoryFilter = extractCategoryFilter(from: userQuery)
         let timePeriodFilter = extractTimePeriodFilter(from: userQuery)
+        let locationCategoryFilter = extractLocationCategoryFilter(from: userQuery)
+        let specificNewsTopic = extractNewsTopic(from: userQuery)
 
         // Refresh all data
         await refresh()
@@ -237,14 +375,37 @@ class SelineAppContext {
         // Apply time period filter if detected
         if let timePeriod = timePeriodFilter {
             filteredEvents = filteredEvents.filter { event in
-                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
-                return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
+                // For recurring events, check if ANY completion falls within the time period
+                if event.isRecurring {
+                    // Include event if it has at least one completion in the time period
+                    let hasCompletionInPeriod = event.completedDates.contains { date in
+                        return date >= timePeriod.startDate && date <= timePeriod.endDate
+                    }
+                    // Also include if the event is scheduled/active during this period
+                    let eventDate = event.targetDate ?? event.scheduledTime ?? currentDate
+                    let isActiveInPeriod = eventDate <= timePeriod.endDate && (event.recurrenceEndDate == nil || event.recurrenceEndDate! >= timePeriod.startDate)
+                    return hasCompletionInPeriod || isActiveInPeriod
+                } else {
+                    // For non-recurring events, use the original date-based filtering
+                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                    return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
+                }
             }
         }
 
-        // Temporarily replace events with filtered version
+        // Filter receipts by time period if detected (apply regardless of query type)
+        var filteredReceipts = receipts
+        if let timePeriod = timePeriodFilter {
+            filteredReceipts = receipts.filter { receipt in
+                return receipt.date >= timePeriod.startDate && receipt.date <= timePeriod.endDate
+            }
+        }
+
+        // Temporarily replace events and receipts with filtered versions
         let originalEvents = self.events
+        let originalReceipts = self.receipts
         self.events = filteredEvents
+        self.receipts = filteredReceipts
 
         // Build context with filtered events (skip refresh since we just did it)
         var context = ""
@@ -443,6 +604,31 @@ class SelineAppContext {
                     context += "    All-time: \(event.completedDates.count) completions\n"
                     context += "    This month: \(thisMonthCompletions.count) completions\n"
 
+                    // Monthly breakdown
+                    let monthlyStats = Dictionary(grouping: event.completedDates) { date in
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "MMMM yyyy"
+                        return formatter.string(from: date)
+                    }
+
+                    if !monthlyStats.isEmpty {
+                        // Sort months by date (most recent first)
+                        let sortedMonths = monthlyStats.keys.sorted { month1, month2 in
+                            // Create dummy dates from the month strings for comparison
+                            let formatter = DateFormatter()
+                            formatter.dateFormat = "MMMM yyyy"
+                            let date1 = formatter.date(from: month1) ?? Date.distantPast
+                            let date2 = formatter.date(from: month2) ?? Date.distantPast
+                            return date1 > date2
+                        }
+
+                        context += "    Monthly stats:\n"
+                        for month in sortedMonths.prefix(6) {
+                            let count = monthlyStats[month]?.count ?? 0
+                            context += "      \(month): \(count) completions\n"
+                        }
+                    }
+
                     if !thisMonthCompletions.isEmpty {
                         let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
                         context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
@@ -455,11 +641,375 @@ class SelineAppContext {
             context += "  No events\n"
         }
 
-        // Restore original events
-        self.events = originalEvents
+        // Add receipts section (always included)
+        context += "\n=== RECEIPTS & EXPENSES ===\n"
+            if !receipts.isEmpty {
+                // Group receipts by month dynamically
+                let receiptsByMonth = Dictionary(grouping: receipts) { receipt in
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "MMMM yyyy"
+                    return formatter.string(from: receipt.date)
+                }
 
-        // Note: For brevity, not including receipts/notes/emails sections in filtered query response
-        // Those would be added similarly if needed
+                // Get current month for detection
+                let calendar = Calendar.current
+                let currentMonthFormatter = DateFormatter()
+                currentMonthFormatter.dateFormat = "MMMM yyyy"
+                let currentMonthStr = currentMonthFormatter.string(from: currentDate)
+
+                // Sort months: current month first, then others by recency
+                let sortedMonths = receiptsByMonth.keys.sorted { month1, month2 in
+                    if month1 == currentMonthStr { return true }
+                    if month2 == currentMonthStr { return false }
+                    return month1 > month2  // Most recent first
+                }
+
+                for month in sortedMonths.prefix(3) {
+                    guard let items = receiptsByMonth[month] else { continue }
+
+                    let total = items.reduce(0.0) { $0 + $1.amount }
+                    let isCurrentMonth = (month == currentMonthStr)
+
+                    context += "\n**\(month)**\(isCurrentMonth ? " (Current Month)" : ""): \(items.count) receipts, Total: $\(String(format: "%.2f", total))\n"
+
+                    // Get real category breakdown for this month using ReceiptCategorizationService
+                    let categoryBreakdown = await categorizationService.getCategoryBreakdown(for: items)
+
+                    // Show categories and amounts
+                    for (category, receiptsInCategory) in categoryBreakdown.categoryReceipts.sorted(by: { $0.key < $1.key }) {
+                        let categoryTotal = receiptsInCategory.reduce(0.0) { $0 + $1.amount }
+                        context += "  **\(category)**: $\(String(format: "%.2f", categoryTotal)) (\(receiptsInCategory.count) items)\n"
+
+                        // Show all items for current month, summary for previous months
+                        if isCurrentMonth {
+                            for receipt in receiptsInCategory.sorted(by: { $0.date > $1.date }) {
+                                context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
+                            }
+                        }
+                    }
+                }
+            } else {
+                context += "  No receipts\n"
+            }
+
+        // Add locations section (always included)
+        context += "\n=== SAVED LOCATIONS ===\n"
+
+        // Filter locations by category if specified
+        var filteredLocations = locations
+        if let locationCategory = locationCategoryFilter {
+            filteredLocations = filteredLocations.filter { $0.category == locationCategory }
+        }
+
+        if !filteredLocations.isEmpty {
+                // Separate favorites from other locations
+                let favorites = filteredLocations.filter { $0.isFavourite }
+                let nonFavorites = filteredLocations.filter { !$0.isFavourite }
+
+                // Show favorites first
+                if !favorites.isEmpty {
+                    context += "\n**FAVORITES** (\(favorites.count) locations):\n"
+                    for place in favorites.sorted(by: { $0.displayName < $1.displayName }) {
+                        context += "  ★ \(place.displayName)\n"
+                        context += "    Address: \(place.address)\n"
+
+                        // Geographic info
+                        let geoInfo = [place.city, place.province, place.country].compactMap { $0 }.joined(separator: ", ")
+                        if !geoInfo.isEmpty {
+                            context += "    Location: \(geoInfo)\n"
+                        }
+
+                        // Ratings
+                        if let googleRating = place.rating {
+                            context += "    Google Rating: ⭐ \(String(format: "%.1f", googleRating))/5.0\n"
+                        }
+                        if let userRating = place.userRating {
+                            context += "    Your Rating: ⭐ \(userRating)/10\n"
+                        }
+
+                        // Cuisine for restaurants
+                        if let cuisine = place.userCuisine {
+                            context += "    Cuisine: \(cuisine)\n"
+                        }
+
+                        // User notes
+                        if let notes = place.userNotes, !notes.isEmpty {
+                            context += "    Notes: \(notes)\n"
+                        }
+
+                        // Phone
+                        if let phone = place.phone, !phone.isEmpty {
+                            context += "    Phone: \(phone)\n"
+                        }
+
+                        context += "\n"
+                    }
+                }
+
+                // Group non-favorites by category
+                if !nonFavorites.isEmpty {
+                    let locationsByCategory = Dictionary(grouping: nonFavorites) { $0.category }
+                    let sortedCategories = locationsByCategory.keys.sorted()
+
+                    for category in sortedCategories {
+                        guard let placesInCategory = locationsByCategory[category] else { continue }
+
+                        context += "\n**\(category.uppercased())** (\(placesInCategory.count) locations):\n"
+
+                        for place in placesInCategory.sorted(by: { $0.displayName < $1.displayName }) {
+                            context += "  • \(place.displayName)\n"
+                            context += "    Address: \(place.address)\n"
+
+                            // Geographic info
+                            let geoInfo = [place.city, place.province, place.country].compactMap { $0 }.joined(separator: ", ")
+                            if !geoInfo.isEmpty {
+                                context += "    Location: \(geoInfo)\n"
+                            }
+
+                            // Ratings
+                            if let googleRating = place.rating {
+                                context += "    Google Rating: ⭐ \(String(format: "%.1f", googleRating))/5.0\n"
+                            }
+                            if let userRating = place.userRating {
+                                context += "    Your Rating: ⭐ \(userRating)/10\n"
+                            }
+
+                            // Cuisine for restaurants
+                            if let cuisine = place.userCuisine {
+                                context += "    Cuisine: \(cuisine)\n"
+                            }
+
+                            // User notes
+                            if let notes = place.userNotes, !notes.isEmpty {
+                                context += "    Notes: \(notes)\n"
+                            }
+
+                            // Phone
+                            if let phone = place.phone, !phone.isEmpty {
+                                context += "    Phone: \(phone)\n"
+                            }
+
+                            context += "\n"
+                        }
+                    }
+                }
+            } else {
+                context += "  No saved locations\n"
+            }
+
+        // Add weather section (always included)
+        if weatherData != nil {
+            context += "\n=== CURRENT WEATHER ===\n"
+            if let weather = weatherData {
+                context += "Location: \(weather.locationName)\n"
+                context += "Temperature: \(weather.temperature)°\n"
+                context += "Conditions: \(weather.description)\n"
+                context += "Sunrise: \(formatTime(weather.sunrise))\n"
+                context += "Sunset: \(formatTime(weather.sunset))\n"
+
+                if !weather.dailyForecasts.isEmpty {
+                    context += "\n**6-Day Forecast:**\n"
+                    for forecast in weather.dailyForecasts.prefix(6) {
+                        context += "  • \(forecast.day): \(forecast.temperature)° - \(forecast.iconName)\n"
+                    }
+                }
+            }
+        }
+
+        // Add news section (always included)
+        context += "\n=== NEWS ===\n"
+
+        // Fetch web news based on topic
+        let newsQuery = specificNewsTopic ?? "news"
+        do {
+            let headlines = try await fetchWebNews(topic: newsQuery)
+            if !headlines.isEmpty {
+                context += "**Top Headlines on \(newsQuery.uppercased())**:\n\n"
+                for (index, headline) in headlines.prefix(5).enumerated() {
+                    context += "\(index + 1). \(headline)\n\n"
+                }
+            } else {
+                context += "  No headlines found\n"
+            }
+        } catch {
+            context += "  Could not fetch news at this time\n"
+        }
+
+        // Add notes section (always included)
+        context += "\n=== NOTES ===\n"
+
+        if !notes.isEmpty {
+            // Group notes by folder
+            let notesByFolder = Dictionary(grouping: notes) { note in
+                notesManager.getFolderName(for: note.folderId)
+            }
+
+            let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
+                if folder1.lowercased().contains("receipt") { return false }
+                if folder2.lowercased().contains("receipt") { return false }
+                return folder1 < folder2
+            }
+
+            for folder in sortedFolders {
+                guard let folderNotes = notesByFolder[folder] else { continue }
+
+                // Skip Receipts folder - shown in expenses section
+                if folder.lowercased().contains("receipt") {
+                    continue
+                }
+
+                context += "\n**\(folder)** (\(folderNotes.count) notes):\n"
+
+                // Show most recent notes first
+                for note in folderNotes.sorted(by: { $0.dateModified > $1.dateModified }).prefix(15) {
+                    let lastModified = formatDate(note.dateModified)
+                    context += "  • **\(note.title)** (Updated: \(lastModified))\n"
+
+                    // Include FULL note content - important for detailed notes like transaction lists
+                    let noteContent = note.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !noteContent.isEmpty {
+                        // Split into lines and add with proper indentation
+                        let contentLines = noteContent.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                        for line in contentLines {
+                            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                            if !trimmedLine.isEmpty {
+                                context += "    \(trimmedLine)\n"
+                            }
+                        }
+                    }
+
+                    context += "\n"
+                }
+
+                if folderNotes.count > 15 {
+                    context += "  ... and \(folderNotes.count - 15) more notes in this folder\n"
+                }
+            }
+        } else {
+            context += "  No notes found\n"
+        }
+
+        // Add emails section (always included)
+        context += "\n=== EMAILS ===\n"
+
+        if !emails.isEmpty {
+            // Group emails by folder status
+            let emailsByFolder = Dictionary(grouping: emails) { email in
+                if email.labels.contains("SENT") {
+                    return "Sent"
+                } else if email.labels.contains("DRAFT") {
+                    return "Drafts"
+                } else if email.labels.contains("ARCHIVED") {
+                    return "Archive"
+                } else if email.labels.contains("IMPORTANT") {
+                    return "Important"
+                } else if email.labels.contains("STARRED") {
+                    return "Starred"
+                } else {
+                    return "Inbox"
+                }
+            }
+
+            let sortedFolders = emailsByFolder.keys.sorted { folder1, folder2 in
+                if folder1 == "Inbox" { return true }
+                if folder2 == "Inbox" { return false }
+                return folder1 < folder2
+            }
+
+            for folder in sortedFolders {
+                guard let folderEmails = emailsByFolder[folder] else { continue }
+
+                context += "\n**\(folder)** (\(folderEmails.count) emails):\n"
+
+                // Show most recent emails first
+                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(10) {
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    dateFormatter.timeStyle = .short
+                    let formattedDate = dateFormatter.string(from: email.timestamp)
+
+                    let senderDisplay = email.sender.displayName
+                    let status = email.isRead ? "" : " [UNREAD]"
+                    let important = email.isImportant ? " ★" : ""
+
+                    context += "  • **\(email.subject)**\(status)\(important)\n"
+                    context += "    From: \(senderDisplay) | Date: \(formattedDate)\n"
+
+                    // Add AI summary if available
+                    if let aiSummary = email.aiSummary, !aiSummary.isEmpty {
+                        context += "    Summary: \(aiSummary)\n"
+                    }
+
+                    // Add brief content preview
+                    if let body = email.body, !body.isEmpty {
+                        let bodyPreview = String(body.prefix(150))
+                        context += "    Preview: \(bodyPreview)...\n"
+                    }
+
+                    context += "\n"
+                }
+
+                if folderEmails.count > 10 {
+                    context += "  ... and \(folderEmails.count - 10) more emails in this folder\n"
+                }
+            }
+        } else {
+            context += "  No emails found\n"
+        }
+
+        // Add custom email folders
+        if !customEmailFolders.isEmpty {
+            context += "\n**CUSTOM FOLDERS** (\(customEmailFolders.count) folders):\n"
+
+            for folder in customEmailFolders.sorted(by: { $0.name < $1.name }) {
+                guard let folderEmails = savedEmailsByFolder[folder.id], !folderEmails.isEmpty else {
+                    context += "\n**\(folder.name)** (0 emails)\n"
+                    continue
+                }
+
+                context += "\n**\(folder.name)** (\(folderEmails.count) emails):\n"
+
+                // Show most recent emails first
+                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(10) {
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    dateFormatter.timeStyle = .short
+                    let formattedDate = dateFormatter.string(from: email.timestamp)
+
+                    let senderDisplay = email.senderName ?? email.senderEmail
+                    let recipientDisplay = email.recipients.joined(separator: ", ")
+
+                    context += "  • **\(email.subject)**\n"
+                    context += "    From: \(senderDisplay) | To: \(recipientDisplay) | Date: \(formattedDate)\n"
+
+                    // Add AI summary if available
+                    if let aiSummary = email.aiSummary, !aiSummary.isEmpty {
+                        context += "    Summary: \(aiSummary)\n"
+                    }
+
+                    // Add brief content preview
+                    if let body = email.body, !body.isEmpty {
+                        let bodyPreview = String(body.prefix(150))
+                        context += "    Preview: \(bodyPreview)...\n"
+                    }
+
+                    // Show attachments if any
+                    if !email.attachments.isEmpty {
+                        context += "    Attachments: \(email.attachments.map { $0.fileName }.joined(separator: ", "))\n"
+                    }
+
+                    context += "\n"
+                }
+
+                if folderEmails.count > 10 {
+                    context += "  ... and \(folderEmails.count - 10) more emails in this folder\n"
+                }
+            }
+        }
+
+        // Restore original events and receipts
+        self.events = originalEvents
+        self.receipts = originalReceipts
 
         return context
     }
@@ -1105,6 +1655,94 @@ class SelineAppContext {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         return formatter.string(from: date)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    /// Fetch latest news headlines from web sources
+    private func fetchWebNews(topic: String) async throws -> [String] {
+        // Use DuckDuckGo news search as a free web source (no API key needed)
+        let searchTerm = topic.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "news"
+
+        // Google News RSS feed (alternative if you want RSS parsing)
+        let newsURL = "https://news.google.com/rss/search?q=\(searchTerm)&hl=en-US&gl=US&ceid=US:en"
+
+        guard let url = URL(string: newsURL) else {
+            return []
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            return []
+        }
+
+        // Parse RSS feed to extract headlines
+        let rssString = String(data: data, encoding: .utf8) ?? ""
+        return parseRSSHeadlines(rssString)
+    }
+
+    /// Parse RSS feed XML to extract headlines
+    private func parseRSSHeadlines(_ rssContent: String) -> [String] {
+        var headlines: [String] = []
+
+        // Simple regex-based parsing for RSS <item> and <title> tags
+        let itemPattern = "<item[^>]*>.*?</item>"
+        let titlePattern = "<title[^>]*>([^<]+)</title>"
+
+        if let itemRegex = try? NSRegularExpression(pattern: itemPattern, options: [.dotMatchesLineSeparators]) {
+            let nsString = rssContent as NSString
+            let itemMatches = itemRegex.matches(in: rssContent, range: NSRange(location: 0, length: nsString.length))
+
+            for match in itemMatches.prefix(10) {
+                let itemString = nsString.substring(with: match.range)
+
+                if let titleRegex = try? NSRegularExpression(pattern: titlePattern, options: []) {
+                    let titleMatches = titleRegex.matches(in: itemString, range: NSRange(location: 0, length: (itemString as NSString).length))
+
+                    if let titleMatch = titleMatches.first {
+                        let titleRange = titleMatch.range(at: 1)
+                        if titleRange.location != NSNotFound {
+                            let title = (itemString as NSString).substring(with: titleRange)
+                            // Decode HTML entities
+                            let decodedTitle = decodeHTMLEntities(title)
+                            if !decodedTitle.isEmpty && decodedTitle != "Google News" {
+                                headlines.append(decodedTitle)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return headlines
+    }
+
+    /// Decode basic HTML entities
+    private func decodeHTMLEntities(_ text: String) -> String {
+        var result = text
+        let entities: [String: String] = [
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&apos;": "'",
+            "&nbsp;": " "
+        ]
+
+        for (entity, char) in entities {
+            result = result.replacingOccurrences(of: entity, with: char)
+        }
+
+        return result
     }
 
     /// Extract date from receipt note title

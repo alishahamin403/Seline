@@ -11,6 +11,7 @@ struct SelineApp: App {
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var deepLinkHandler = DeepLinkHandler.shared
+    @StateObject private var searchService = SearchService.shared
 
     init() {
         configureSupabase()
@@ -47,6 +48,11 @@ struct SelineApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                     // App entered background - save current state
+                    // Save current conversation to history before app closes
+                    if !searchService.conversationHistory.isEmpty {
+                        searchService.saveConversationToHistory()
+                        print("💾 Current conversation saved to history before background")
+                    }
                     // The email polling timer will continue running
                     print("App entered background - email polling continues")
                 }
