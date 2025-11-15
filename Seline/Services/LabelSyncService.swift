@@ -282,22 +282,31 @@ actor LabelSyncService {
     ) async throws {
         var pageToken: String? = nil
         var totalImported = 0
+        var totalFetched = 0
         let batchSize = 50
 
-        print("🔄 Fetching emails from label '\(labelName)'...")
+        print("🔄 Starting email fetch for label '\(labelName)' (Gmail ID: \(gmailLabelId))")
 
         while true {
+            print("📡 Fetching batch of emails (pageToken: \(pageToken ?? "none"))...")
             let (messageIds, nextPageToken) = try await gmailLabelService.fetchEmailsInLabel(
                 labelId: gmailLabelId,
                 pageToken: pageToken,
                 maxResults: batchSize
             )
 
-            print("📧 Fetching \(messageIds.count) emails...")
+            print("📧 Batch returned \(messageIds.count) message IDs")
+            totalFetched += messageIds.count
+
+            if messageIds.isEmpty {
+                print("⚠️ Empty batch received")
+                break
+            }
 
             // Fetch full details for each message and save to folder
-            for messageId in messageIds {
+            for (index, messageId) in messageIds.enumerated() {
                 do {
+                    print("   ↳ Importing email \(index + 1)/\(messageIds.count): \(messageId)")
                     try await importEmailToFolder(
                         gmailMessageId: messageId,
                         folderId: folderId,
@@ -305,7 +314,7 @@ actor LabelSyncService {
                     )
                     totalImported += 1
                 } catch {
-                    print("⚠️ Failed to import email \(messageId): \(error.localizedDescription)")
+                    print("   ⚠️ Failed to import email \(messageId): \(error.localizedDescription)")
                     // Continue with next email
                     continue
                 }
@@ -314,13 +323,14 @@ actor LabelSyncService {
             // Check if there are more pages
             if let nextPageToken = nextPageToken {
                 pageToken = nextPageToken
-                print("⏭️ Fetching next page of emails...")
+                print("⏭️ More emails available, fetching next page...")
             } else {
+                print("✅ No more pages to fetch")
                 break
             }
         }
 
-        print("✅ Imported \(totalImported) emails from label '\(labelName)'")
+        print("✅ Email import complete for '\(labelName)': Imported \(totalImported)/\(totalFetched) emails")
     }
 
     /// Import a single email to a folder
@@ -329,29 +339,36 @@ actor LabelSyncService {
         folderId: UUID,
         gmailLabelId: String
     ) async throws {
+        print("      📥 Fetching email body for: \(gmailMessageId)")
         // Fetch full email body
         guard let fullEmailBody = try await gmailAPIClient.fetchBodyForAI(messageId: gmailMessageId) else {
-            print("⚠️ Could not fetch body for email \(gmailMessageId)")
+            print("      ⚠️ Could not fetch body for email \(gmailMessageId)")
             return
         }
 
+        print("      📬 Fetching full email details...")
         // Fetch full email details
         let emails = try await gmailAPIClient.searchEmails(query: "rfc822msgid:<\(gmailMessageId)>", maxResults: 1)
 
         guard let email = emails.first else {
-            print("⚠️ Could not fetch email details for \(gmailMessageId)")
+            print("      ⚠️ Could not fetch email details for \(gmailMessageId)")
             return
         }
+
+        print("      📧 Email subject: \(email.subject)")
 
         // Generate AI summary (non-blocking - can fail without affecting import)
         var aiSummary: String? = nil
         do {
+            print("      🤖 Generating AI summary...")
             aiSummary = try await openAIService.summarizeEmail(subject: email.subject, body: fullEmailBody)
+            print("      ✅ AI summary generated")
         } catch {
-            print("⚠️ Failed to generate AI summary for email: \(error.localizedDescription)")
+            print("      ⚠️ Failed to generate AI summary: \(error.localizedDescription)")
         }
 
         // Save email to folder
+        print("      💾 Saving email to folder...")
         let savedEmail = try await emailFolderService.saveEmail(
             from: email,
             to: folderId,
@@ -360,9 +377,10 @@ actor LabelSyncService {
         )
 
         // Update saved email with Gmail label IDs
+        print("      🏷️ Updating email with Gmail label ID...")
         try await updateSavedEmailLabels(savedEmailId: savedEmail.id, labelIds: [gmailLabelId])
 
-        print("✅ Saved email to folder: \(email.subject)")
+        print("      ✅ Saved email: \(email.subject)")
     }
 
     // MARK: - Database Operations
