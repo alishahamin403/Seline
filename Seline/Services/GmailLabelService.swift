@@ -13,40 +13,68 @@ class GmailLabelService {
 
     /// Fetch all custom labels from Gmail (excludes system labels like INBOX, SENT, etc.)
     func fetchAllCustomLabels() async throws -> [GmailLabel] {
-        try await refreshAccessTokenIfNeeded()
+        print("🔍 GmailLabelService.fetchAllCustomLabels() called")
 
+        print("🔄 Refreshing access token if needed...")
+        try await refreshAccessTokenIfNeeded()
+        print("✅ Token refresh complete")
+
+        print("👤 Checking for authenticated Google user...")
         guard let user = GIDSignIn.sharedInstance.currentUser else {
+            print("❌ No Google user authenticated!")
             throw GmailAPIError.notAuthenticated
         }
+        print("✅ Google user found: \(user.profile?.email ?? "unknown")")
 
         let accessToken = user.accessToken.tokenString
+        print("🔑 Access token retrieved")
 
         guard let url = URL(string: "\(baseURL)/labels") else {
+            print("❌ Invalid URL constructed")
             throw GmailAPIError.invalidURL
         }
+        print("📍 API URL: \(url.absoluteString)")
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
+        print("📡 Making API request to fetch labels...")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ Invalid HTTP response received")
             throw GmailAPIError.invalidResponse
         }
 
+        print("📊 HTTP Status Code: \(httpResponse.statusCode)")
         guard httpResponse.statusCode == 200 else {
             let errorMessage = "Failed to fetch labels (HTTP \(httpResponse.statusCode))"
+            print("❌ \(errorMessage)")
             throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
         }
 
+        print("📦 Parsing JSON response...")
         let labelsResponse = try JSONDecoder().decode(GmailLabelsResponse.self, from: data)
+        print("✅ JSON decoded successfully")
+
+        let allLabels = labelsResponse.labels ?? []
+        print("📋 Total labels from API: \(allLabels.count)")
+
+        for label in allLabels {
+            print("  - API Label: '\(label.name)' (ID: \(label.id))")
+        }
 
         // Filter out system labels (they start with "CATEGORY_" or are specific system labels)
-        let customLabels = (labelsResponse.labels ?? []).filter { label in
+        let customLabels = allLabels.filter { label in
             let systemLabels = ["INBOX", "SENT", "DRAFT", "TRASH", "SPAM", "UNREAD", "IMPORTANT", "STARRED"]
             let isSystemLabel = systemLabels.contains(label.id)
             let isCategory = label.id.starts(with: "CATEGORY_")
             return !isSystemLabel && !isCategory
+        }
+
+        print("🎯 Custom labels after filtering: \(customLabels.count)")
+        for label in customLabels {
+            print("  ✓ Custom Label: '\(label.name)' (ID: \(label.id))")
         }
 
         return customLabels

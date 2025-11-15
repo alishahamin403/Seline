@@ -199,8 +199,19 @@ actor LabelSyncService {
 
         // Fetch all custom labels from Gmail
         print("📡 Fetching Gmail labels from Gmail API...")
-        let labels = try await gmailLabelService.fetchAllCustomLabels()
-        print("📋 Found \(labels.count) custom labels to import")
+        do {
+            let labels = try await gmailLabelService.fetchAllCustomLabels()
+            print("📋 Found \(labels.count) custom labels to import")
+
+            await handleLabelImportResult(labels: labels)
+        } catch {
+            print("❌ ERROR fetching Gmail labels: \(error.localizedDescription)")
+            print("🐛 Full error: \(String(describing: error))")
+            throw error
+        }
+    }
+
+    private func handleLabelImportResult(labels: [GmailLabel]) async throws {
 
         if labels.isEmpty {
             print("⚠️ No custom labels found! Please check if you have custom labels in Gmail (exclude system labels like INBOX, SENT, TRASH)")
