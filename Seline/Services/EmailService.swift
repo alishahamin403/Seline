@@ -33,6 +33,16 @@ class EmailService: ObservableObject {
         static let inboxTimestamp = "cached_inbox_timestamp"
         static let sentTimestamp = "cached_sent_timestamp"
         static let lastEmailIds = "last_email_ids" // For tracking new emails
+
+        // Custom folder cache keys
+        static let customFolders = "cached_custom_folders"
+        static let customFoldersTimestamp = "cached_custom_folders_timestamp"
+        static func emailsInFolder(_ folderId: UUID) -> String {
+            return "cached_folder_emails_\(folderId.uuidString)"
+        }
+        static func emailsInFolderTimestamp(_ folderId: UUID) -> String {
+            return "cached_folder_emails_timestamp_\(folderId.uuidString)"
+        }
     }
 
     // Request management
@@ -293,12 +303,25 @@ class EmailService: ObservableObject {
         // Clear cache timestamps
         cacheTimestamps = [:]
 
-        // Clear UserDefaults cache
+        // Clear UserDefaults cache for inbox/sent
         UserDefaults.standard.removeObject(forKey: CacheKeys.inboxEmails)
         UserDefaults.standard.removeObject(forKey: CacheKeys.sentEmails)
         UserDefaults.standard.removeObject(forKey: CacheKeys.inboxTimestamp)
         UserDefaults.standard.removeObject(forKey: CacheKeys.sentTimestamp)
         UserDefaults.standard.removeObject(forKey: CacheKeys.lastEmailIds)
+
+        // Clear custom folder cache
+        UserDefaults.standard.removeObject(forKey: CacheKeys.customFolders)
+        UserDefaults.standard.removeObject(forKey: CacheKeys.customFoldersTimestamp)
+
+        // Clear individual folder email caches (dynamic keys)
+        let defaults = UserDefaults.standard
+        let allKeys = defaults.dictionaryRepresentation().keys
+        for key in allKeys {
+            if key.hasPrefix("cached_folder_emails_") {
+                defaults.removeObject(forKey: key)
+            }
+        }
 
         // Stop email polling
         newEmailTimer?.invalidate()
@@ -1192,10 +1215,90 @@ class EmailService: ObservableObject {
         return savedAttachments
     }
 
-    /// Get all saved email folders
+    // MARK: - Custom Folder Caching
+
+    /// Check if custom folder cache is valid (not expired)
+    private func isFolderCacheValid() -> Bool {
+        guard let timestamp = UserDefaults.standard.object(forKey: CacheKeys.customFoldersTimestamp) as? Date else {
+            return false
+        }
+        return Date().timeIntervalSince(timestamp) < cacheExpirationTime
+    }
+
+    /// Load cached custom folders
+    private func loadCachedFolders() -> [CustomEmailFolder]? {
+        guard let data = UserDefaults.standard.data(forKey: CacheKeys.customFolders) else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode([CustomEmailFolder].self, from: data)
+        } catch {
+            print("⚠️ Failed to decode cached folders: \(error)")
+            return nil
+        }
+    }
+
+    /// Save custom folders to cache
+    private func saveCachedFolders(_ folders: [CustomEmailFolder]) {
+        do {
+            let data = try JSONEncoder().encode(folders)
+            UserDefaults.standard.set(data, forKey: CacheKeys.customFolders)
+            UserDefaults.standard.set(Date(), forKey: CacheKeys.customFoldersTimestamp)
+            print("✅ Saved \(folders.count) folders to cache")
+        } catch {
+            print("❌ Failed to cache folders: \(error)")
+        }
+    }
+
+    /// Load cached emails for a specific folder
+    private func loadCachedFolderEmails(_ folderId: UUID) -> [SavedEmail]? {
+        guard let data = UserDefaults.standard.data(forKey: CacheKeys.emailsInFolder(folderId)) else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode([SavedEmail].self, from: data)
+        } catch {
+            print("⚠️ Failed to decode cached emails for folder \(folderId): \(error)")
+            return nil
+        }
+    }
+
+    /// Check if folder emails cache is valid
+    private func isFolderEmailsCacheValid(_ folderId: UUID) -> Bool {
+        guard let timestamp = UserDefaults.standard.object(forKey: CacheKeys.emailsInFolderTimestamp(folderId)) as? Date else {
+            return false
+        }
+        return Date().timeIntervalSince(timestamp) < cacheExpirationTime
+    }
+
+    /// Save folder emails to cache
+    private func saveCachedFolderEmails(_ emails: [SavedEmail], for folderId: UUID) {
+        do {
+            let data = try JSONEncoder().encode(emails)
+            UserDefaults.standard.set(data, forKey: CacheKeys.emailsInFolder(folderId))
+            UserDefaults.standard.set(Date(), forKey: CacheKeys.emailsInFolderTimestamp(folderId))
+        } catch {
+            print("❌ Failed to cache emails for folder \(folderId): \(error)")
+        }
+    }
+
+    /// Get all saved email folders (with caching)
     func fetchSavedFolders() async throws -> [CustomEmailFolder] {
+        // Check cache first
+        if isFolderCacheValid(), let cachedFolders = loadCachedFolders() {
+            print("📂 Using cached folders (\(cachedFolders.count) folders)")
+            return cachedFolders
+        }
+
+        // If cache is invalid or empty, fetch from Supabase
+        print("🔄 Fetching folders from Supabase...")
         let emailFolderService = await EmailFolderService.shared
-        return try await emailFolderService.fetchFolders()
+        let folders = try await emailFolderService.fetchFolders()
+
+        // Cache the results
+        saveCachedFolders(folders)
+
+        return folders
     }
 
     /// Create a new email folder
@@ -1244,10 +1347,23 @@ class EmailService: ObservableObject {
         try await emailFolderService.deleteFolder(id: id)
     }
 
-    /// Get all saved emails in a folder
-    func fetchSavedEmails(in folderId: UUID) async throws -> [SavedEmail] {
+    /// Get all saved emails in a folder (with caching)
+    func fetchSavedEmails(in folderId: UUID, forceRefresh: Bool = false) async throws -> [SavedEmail] {
+        // Check cache first
+        if !forceRefresh && isFolderEmailsCacheValid(folderId), let cachedEmails = loadCachedFolderEmails(folderId) {
+            print("📧 Using cached emails for folder (\(cachedEmails.count) emails)")
+            return cachedEmails
+        }
+
+        // If cache is invalid or force refresh, fetch from Supabase
+        print("🔄 Fetching emails from Supabase for folder...")
         let emailFolderService = await EmailFolderService.shared
-        return try await emailFolderService.fetchEmailsInFolder(folderId: folderId)
+        let emails = try await emailFolderService.fetchEmailsInFolder(folderId: folderId)
+
+        // Cache the results
+        saveCachedFolderEmails(emails, for: folderId)
+
+        return emails
     }
 
     /// Search saved emails in a folder
@@ -1268,10 +1384,16 @@ class EmailService: ObservableObject {
         try await emailFolderService.deleteSavedEmail(id: id)
     }
 
-    /// Get email count in a folder
+    /// Get email count in a folder (uses cached data if available)
     func getSavedEmailCount(in folderId: UUID) async throws -> Int {
-        let emailFolderService = await EmailFolderService.shared
-        return try await emailFolderService.getEmailCountInFolder(folderId: folderId)
+        // Try to use cached emails first
+        if isFolderEmailsCacheValid(folderId), let cachedEmails = loadCachedFolderEmails(folderId) {
+            return cachedEmails.count
+        }
+
+        // If cache invalid, fetch emails (which also caches them)
+        let emails = try await fetchSavedEmails(in: folderId)
+        return emails.count
     }
 
     /// Manually trigger a full label sync
