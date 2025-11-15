@@ -134,6 +134,12 @@ actor EmailFolderService {
             .delete()
             .eq("id", value: id.uuidString)
             .execute()
+
+        print("✅ Deleted folder \(id.uuidString) from Supabase")
+
+        // Clear the folder cache so the deleted folder doesn't reappear on app rebuild
+        let emailService = EmailService.shared
+        emailService.clearFolderCache()
     }
 
     // MARK: - Saved Email Operations
