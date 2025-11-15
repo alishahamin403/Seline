@@ -123,7 +123,7 @@ struct EmailAttachment: Identifiable, Codable, Equatable {
 
 struct Email: Identifiable, Codable, Equatable {
     let id: String
-    let threadId: String
+    let threadId: String?  // Made optional as Gmail API may not always return it
     let sender: EmailAddress
     let recipients: [EmailAddress]
     let ccRecipients: [EmailAddress]
