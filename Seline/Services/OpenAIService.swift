@@ -339,31 +339,22 @@ class OpenAIService: ObservableObject {
             throw SummaryError.invalidURL
         }
 
-        // For extraction, use very large character limit to handle multi-page documents
-        // Max 100000 characters = ~25000 tokens
-        // GPT-4o has 128K context window, so we can safely use up to 100K input characters
-        // An 8-page statement with transaction tables is typically 40K-80K characters
-        let maxContentLength = 100000
-        let truncatedContent = fileContent.count > maxContentLength ? String(fileContent.prefix(maxContentLength)) + "\n[... content truncated due to length ...]" : fileContent
+        // For extraction, limit to approximately 3 pages of content
+        // Max 10000 characters = ~2500 tokens (approximately 3-4 pages of text)
+        let maxContentLength = 10000
+        let truncatedContent = fileContent.count > maxContentLength ? String(fileContent.prefix(maxContentLength)) + "\n[... document exceeds 3-page limit, rest truncated ...]" : fileContent
 
-        // Build the extraction request with the key info extraction prompt
+        // Build the extraction request with a simple raw text extraction prompt
         let systemPrompt = """
-        You are a document extraction system. Your task is to extract information exactly as specified in the user's detailed instructions.
+        You are a document text extraction system. Your task is to extract and preserve the raw text content from documents.
 
-        CRITICAL RULES:
-        - Follow the EXACT output format specified in the user's instructions
-        - Extract ALL items marked with ✓ in the user's "WHAT TO EXTRACT" section
-        - For bank statements: EXTRACT EVERY SINGLE DAILY INDIVIDUAL TRANSACTION
-          * Each transaction line from the statement = one line to output
-          * Do NOT skip any transactions regardless of size
-          * Do NOT aggregate, summarize, or combine transactions
-          * Do NOT filter out any transaction that appears on the statement
-          * If the statement shows 100 transactions, extract ALL 100
-        - For other documents: Extract key information as specified
-        - Ignore boilerplate text, disclaimers, marketing, and items marked to EXCLUDE
-        - Do NOT include explanatory text or background information
-        - Format output as plain text with clear section headers
-        - Preserve exact formatting rules specified by the user
+        RULES:
+        - Extract the raw text content as-is from the document
+        - Preserve the original structure and formatting
+        - Do NOT summarize or condense content
+        - Do NOT add interpretations or modifications
+        - Remove only obvious boilerplate (page headers/footers, form fields, account numbers)
+        - Keep all substantive content intact
         """
 
         let userMessage = """
@@ -374,13 +365,13 @@ class OpenAIService: ObservableObject {
         """
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": "gpt-3.5-turbo",  // Cheaper model for simple text extraction
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userMessage]
             ],
-            "max_tokens": 16000,  // Very large token limit for multi-page statements with many transactions
-            "temperature": 0.3   // Lower temperature for more consistent, factual extraction
+            "max_tokens": 4000,  // Standard token limit for 3-page extraction
+            "temperature": 0.3   // Lower temperature for consistent extraction
         ]
 
         var request = URLRequest(url: url)
