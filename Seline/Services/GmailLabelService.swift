@@ -123,6 +123,12 @@ class GmailLabelService {
             throw GmailAPIError.invalidResponse
         }
 
+        // Handle 204 No Content (label has no emails) as a valid success
+        if httpResponse.statusCode == 204 {
+            print("📭 Label is empty (HTTP 204 - No Content)")
+            return ([], nil)
+        }
+
         guard httpResponse.statusCode == 200 else {
             let errorMessage = "Failed to fetch emails in label (HTTP \(httpResponse.statusCode))"
             throw GmailAPIError.apiError(httpResponse.statusCode, errorMessage)
