@@ -1553,10 +1553,13 @@ class TaskManager: ObservableObject {
 
         do {
             let client = await supabaseManager.getPostgrestClient()
+            // CRITICAL: Remove default 1000 row limit to fetch ALL tasks
+            // User might have 1000+ tasks, and gym task could be beyond the limit
             let response = try await client
                 .from("tasks")
                 .select("*")
                 .eq("user_id", value: userId.uuidString)
+                .limit(10000)  // Fetch up to 10,000 tasks instead of default 1000
                 .execute()
 
             let data = response.data
