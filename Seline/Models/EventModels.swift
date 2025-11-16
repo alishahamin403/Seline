@@ -1176,18 +1176,47 @@ class TaskManager: ObservableObject {
             // For bi-weekly tasks, check if it's a multiple of 14 days from the start (including day 0 = original day)
             return daysDifference >= 0 && daysDifference % 14 == 0
         case .monthly:
-            // Monthly tasks appear on the same weekday of the month
+            // Monthly tasks appear on the same weekday occurrence of the month
             let taskWeekdayComponent = calendar.component(.weekday, from: date)
             guard let dateWeekday = weekdayFromCalendarComponent(taskWeekdayComponent),
                   dateWeekday == task.weekday else { return false }
 
-            // For monthly tasks, check if this is the same weekday and appears on the same occurrence in the month
-            // For example, if the original was "2nd Monday of the month", check for 2nd Monday of each month
+            // For monthly tasks, calculate which occurrence of the weekday in the month this is
+            // Example: if original is "2nd Monday of the month", check for 2nd Monday of each month
             let startWeekOfMonth = calendar.component(.weekOfMonth, from: startDate)
-            let dateWeekOfMonth = calendar.component(.weekOfMonth, from: targetDate)
 
-            // Also check that we're at least in the same month as the original task or later
-            return daysDifference >= 0 && startWeekOfMonth == dateWeekOfMonth
+            // Calculate the nth occurrence of the weekday in the target month
+            // Get the first day of target month
+            let targetMonth = calendar.component(.month, from: targetDate)
+            let targetYear = calendar.component(.year, from: targetDate)
+
+            guard let firstDayOfMonth = calendar.date(from: DateComponents(year: targetYear, month: targetMonth, day: 1)) else {
+                return false
+            }
+
+            // Find the first occurrence of the task's weekday in this month
+            let firstWeekdayComponent = calendar.component(.weekday, from: firstDayOfMonth)
+            guard let firstWeekday = weekdayFromCalendarComponent(firstWeekdayComponent) else {
+                return false
+            }
+
+            // Calculate days until first occurrence of task's weekday
+            let taskWeekdayInt = task.weekday.calendarWeekdayComponent()
+            let firstWeekdayInt = firstWeekday.calendarWeekdayComponent()
+            let daysUntilFirstOccurrence = (taskWeekdayInt - firstWeekdayInt + 7) % 7
+
+            // Calculate the date for the nth occurrence
+            guard let firstOccurrence = calendar.date(byAdding: .day, value: daysUntilFirstOccurrence, to: firstDayOfMonth) else {
+                return false
+            }
+
+            // Add (weekOfMonth - 1) weeks to get the nth occurrence
+            guard let nthOccurrence = calendar.date(byAdding: .weekOfYear, value: startWeekOfMonth - 1, to: firstOccurrence) else {
+                return false
+            }
+
+            let nthOccurrenceStart = calendar.startOfDay(for: nthOccurrence)
+            return daysDifference >= 0 && targetDate == nthOccurrenceStart
         case .yearly:
             // Yearly tasks appear on the same date every year
             let startMonth = calendar.component(.month, from: startDate)

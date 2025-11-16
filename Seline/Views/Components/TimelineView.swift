@@ -49,16 +49,25 @@ struct TimelineView: View {
     private var scheduledTasks: [TaskItem] {
         let filtered = tasks.filter { $0.scheduledTime != nil }
 
-        // Deduplicate tasks with the same title and time (prevent duplicate recurring events)
-        // Keep only the first occurrence
+        // Deduplicate tasks with the same title, time, AND date (prevent duplicate recurring events on same day)
+        // Include targetDate in the key to ensure recurring events on different dates aren't deduplicated
         var seenEventKeys = Set<String>()
         var deduplicated: [TaskItem] = []
+        let calendar = Calendar.current
 
         for task in filtered {
             if let scheduledTime = task.scheduledTime {
-                let calendar = Calendar.current
                 let timeStr = calendar.component(.hour, from: scheduledTime).description + ":" + calendar.component(.minute, from: scheduledTime).description
-                let eventKey = "\(task.title.lowercased())|\(timeStr)"
+
+                // Include targetDate in deduplication key to distinguish same event on different dates
+                let dateStr: String
+                if let targetDate = task.targetDate {
+                    dateStr = calendar.startOfDay(for: targetDate).description
+                } else {
+                    dateStr = calendar.startOfDay(for: date).description
+                }
+
+                let eventKey = "\(task.title.lowercased())|\(timeStr)|\(dateStr)"
 
                 if !seenEventKeys.contains(eventKey) {
                     deduplicated.append(task)
