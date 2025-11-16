@@ -400,6 +400,20 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encode(emailIsImportant, forKey: .emailIsImportant)
         try container.encodeIfPresent(emailAiSummary, forKey: .emailAiSummary)
     }
+
+    // MARK: - Factory Methods for Efficient Event Creation
+
+    /// Creates a completed instance of a recurring event for a specific date
+    /// Optimized to only copy and modify necessary fields
+    func createCompletedInstance(for completionDate: Date) -> TaskItem {
+        var instance = self
+        instance.targetDate = completionDate
+        instance.scheduledTime = completionDate
+        instance.isRecurring = false
+        instance.isCompleted = true
+        instance.completedDate = completionDate
+        return instance
+    }
 }
 
 @MainActor

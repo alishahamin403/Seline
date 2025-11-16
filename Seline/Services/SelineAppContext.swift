@@ -29,17 +29,15 @@ class SelineAppContext {
 
     // MARK: - Cache Invalidation
     private var lastRefreshTime: Date = Date(timeIntervalSince1970: 0)
-    private var lastWeatherFetchTime: Date = Date(timeIntervalSince1970: 0)
     private let REFRESH_CACHE_INTERVAL: TimeInterval = 30 // seconds
-    private let WEATHER_CACHE_INTERVAL: TimeInterval = 1800 // 30 minutes
 
     private var needsRefresh: Bool {
         Date().timeIntervalSince(lastRefreshTime) > REFRESH_CACHE_INTERVAL
     }
 
-    private var needsWeatherFetch: Bool {
-        Date().timeIntervalSince(lastWeatherFetchTime) > WEATHER_CACHE_INTERVAL
-    }
+    // Tag name cache to avoid repeated lookups (O(1) instead of O(n) per call)
+    private var tagNameCache: [String: String] = [:]
+    private let tagCacheDefaultName = "Personal"
 
     init(
         taskManager: TaskManager = TaskManager.shared,
@@ -71,6 +69,9 @@ class SelineAppContext {
         print("🔄 SelineAppContext.refresh() called")
         self.currentDate = Date()
 
+        // Clear tag name cache so we pick up any new/edited tags
+        self.tagNameCache.removeAll()
+
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
 
@@ -84,7 +85,7 @@ class SelineAppContext {
                 for folder in self.customEmailFolders {
                     group.addTask {
                         do {
-                            let savedEmails = try await emailService.fetchSavedEmails(in: folder.id)
+                            let savedEmails = try await self.emailService.fetchSavedEmails(in: folder.id)
                             return (folder.id, savedEmails)
                         } catch {
                             print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
@@ -160,23 +161,9 @@ class SelineAppContext {
         // Collect all locations
         self.locations = locationsManager.savedPlaces
 
-        // Fetch weather data (only if cache expired - 30 min TTL)
-        if needsWeatherFetch {
-            do {
-                // Try to get current location, otherwise use default (Toronto)
-                let locationService = LocationService.shared
-                let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
-
-                await weatherService.fetchWeather(for: location)
-                self.weatherData = weatherService.weatherData
-                self.lastWeatherFetchTime = Date()
-                print("🌤️ Weather data fetched (fresh)")
-            } catch {
-                print("⚠️ Failed to fetch weather: \(error)")
-            }
-        } else {
-            print("🌤️ Weather data cached (not fetching)")
-        }
+        // NOTE: Weather data is NOT fetched here anymore
+        // It's only fetched on-demand when user asks weather-related questions
+        // This avoids unnecessary API calls on every refresh
 
         // Mark refresh as complete for cache validation
         self.lastRefreshTime = Date()
@@ -521,28 +508,31 @@ class SelineAppContext {
             print("✅ AppContext using cache (not refreshing)")
         }
 
+        // Fetch weather on-demand only if user asks about it
+        if isWeatherQuery(userQuery) && weatherData == nil {
+            do {
+                let locationService = LocationService.shared
+                let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+                await weatherService.fetchWeather(for: location)
+                self.weatherData = weatherService.weatherData
+                print("🌤️ Weather data fetched on-demand for user query")
+            } catch {
+                print("⚠️ Failed to fetch weather on-demand: \(error)")
+            }
+        }
+
         // Filter events based on extracted intent
         var filteredEvents = events
 
         // For recurring events: convert them to actual completion instances
         // This allows LLM to answer "when was my last X?" questions
-        var expandedEvents: [TaskItem] = []
-        for event in filteredEvents {
-            if event.isRecurring && !event.completedDates.isEmpty {
-                // Create a pseudo-event for each completion date
-                // so LLM sees them as actual past events
-                for completionDate in event.completedDates {
-                    var completedInstance = event
-                    completedInstance.targetDate = completionDate
-                    completedInstance.scheduledTime = completionDate
-                    completedInstance.isRecurring = false  // Mark as single instance for LLM
-                    completedInstance.isCompleted = true
-                    completedInstance.completedDate = completionDate
-                    expandedEvents.append(completedInstance)
-                }
-            } else {
-                expandedEvents.append(event)
+        // Optimized: Use lazy sequence to avoid materializing all copies upfront
+        let expandedEvents = filteredEvents.flatMap { event -> [TaskItem] in
+            guard event.isRecurring && !event.completedDates.isEmpty else {
+                return [event]
             }
+            // Create completed instances for each historical completion
+            return event.completedDates.map { event.createCompletedInstance(for: $0) }
         }
         filteredEvents = expandedEvents
 
@@ -1936,8 +1926,17 @@ class SelineAppContext {
 
     /// Get the category name for an event given its tagId
     private func getCategoryName(for tagId: String?) -> String {
-        guard let tagId = tagId else { return "Personal" }
-        return tagManager.getTag(by: tagId)?.name ?? "Personal"
+        guard let tagId = tagId else { return tagCacheDefaultName }
+
+        // Check cache first (O(1))
+        if let cachedName = tagNameCache[tagId] {
+            return cachedName
+        }
+
+        // If not in cache, lookup and store (O(n) only on first access)
+        let name = tagManager.getTag(by: tagId)?.name ?? tagCacheDefaultName
+        tagNameCache[tagId] = name
+        return name
     }
 
     /// Get formatted time info for an event
