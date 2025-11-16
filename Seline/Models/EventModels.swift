@@ -1556,10 +1556,10 @@ class TaskManager: ObservableObject {
             print("🔍 Loading tasks for user_id: \(userId.uuidString)")
 
             // CRITICAL: User has 4000+ tasks but PostgREST default limit is 1000 per request
-            // Strategy: Load recurring tasks first (gym task is recurring), then recent tasks
+            // Strategy: Load by categories to ensure we get all important tasks
             var allTasksArray: [[String: Any]] = []
 
-            // Step 1: Load ALL recurring tasks (usually much fewer than 1000)
+            // Step 1: Load ALL recurring tasks (gym task is recurring)
             print("📦 Loading recurring tasks...")
             let recurringResponse = try await client
                 .from("tasks")
@@ -1576,7 +1576,28 @@ class TaskManager: ObservableObject {
                 print("📦 Loaded \(recurringArray.count) recurring tasks")
             }
 
-            // Step 2: Load most recent non-recurring tasks (last 1000)
+            // Step 2: Load all tasks with target dates (calendar/scheduled events)
+            // This captures calendar sync events and work events with specific dates
+            print("📦 Loading tasks with target dates...")
+            let datedResponse = try await client
+                .from("tasks")
+                .select("*")
+                .eq("user_id", value: userId.uuidString)
+                .neq("target_date", value: "null")  // Has a target date
+                .order("target_date", ascending: false)
+                .limit(1000)
+                .execute()
+
+            let datedData = datedResponse.data
+            if !datedData.isEmpty,
+               let datedArray = try? JSONSerialization.jsonObject(with: datedData, options: []) as? [[String: Any]] {
+                let existingIds = Set(allTasksArray.compactMap { $0["id"] as? String })
+                let newTasks = datedArray.filter { !existingIds.contains($0["id"] as? String ?? "") }
+                allTasksArray.append(contentsOf: newTasks)
+                print("📦 Loaded \(newTasks.count) tasks with target dates")
+            }
+
+            // Step 3: Load most recent non-recurring tasks (last 1000) as fallback
             print("📦 Loading recent non-recurring tasks...")
             let recentResponse = try await client
                 .from("tasks")
