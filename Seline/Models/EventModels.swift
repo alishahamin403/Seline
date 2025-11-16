@@ -1699,6 +1699,7 @@ class TaskManager: ObservableObject {
         // Parse email attachment fields
         if let emailId = taskDict["email_id"] as? String {
             taskItem.emailId = emailId
+            print("📧 Loaded email ID from Supabase: \(emailId)")
         }
 
         if let emailSubject = taskDict["email_subject"] as? String {
@@ -1727,6 +1728,10 @@ class TaskManager: ObservableObject {
 
         if let emailIsImportant = taskDict["email_is_important"] as? Bool {
             taskItem.emailIsImportant = emailIsImportant
+        }
+
+        if taskItem.emailId != nil {
+            print("✅ Successfully loaded task '\(taskItem.title)' with email data from Supabase")
         }
 
         // Parse completed occurrences for recurring tasks (from new Supabase column)
@@ -1794,6 +1799,15 @@ class TaskManager: ObservableObject {
         do {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
 
+            // Debug: Log email data being sent
+            if task.emailId != nil {
+                print("📧 Task has email data - sending to Supabase:")
+                print("   Task ID: \(task.id)")
+                print("   Email ID: \(task.emailId ?? "nil")")
+                print("   Email Subject: \(task.emailSubject ?? "nil")")
+                print("   Email Body Length: \(task.emailBody?.count ?? 0) chars")
+            }
+
             let client = await supabaseManager.getPostgrestClient()
 
             try await client
@@ -1801,6 +1815,10 @@ class TaskManager: ObservableObject {
                 .update(taskData)
                 .eq("id", value: task.id)
                 .execute()
+
+            if task.emailId != nil {
+                print("✅ Email data synced to Supabase for task: \(task.id)")
+            }
 
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")

@@ -254,6 +254,10 @@ struct AddEventFromEmailView: View {
             updatedTask.emailIsImportant = email.isImportant
             updatedTask.emailAiSummary = email.aiSummary
 
+            // Store the task ID for later retrieval
+            let taskId = updatedTask.id
+            let taskWeekday = updatedTask.weekday
+
             // Update the task in TaskManager
             taskManager.editTask(updatedTask)
 
@@ -265,9 +269,20 @@ struct AddEventFromEmailView: View {
             dismiss()
 
             // Sync to Supabase in background (fire and forget)
-            // This ensures email data is persisted, but doesn't block the UI
+            // Fetch the task from taskManager to ensure we have the final version with email data
             Task {
-                await taskManager.updateTaskInSupabase(updatedTask)
+                // Wait briefly for editTask's async operations to complete
+                try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
+
+                // Fetch the current task from taskManager to ensure it has email data
+                if let taskFromManager = taskManager.tasks[taskWeekday]?.first(where: { $0.id == taskId }) {
+                    print("📧 Syncing task with email data to Supabase: \(taskId)")
+                    print("   Email ID: \(taskFromManager.emailId ?? "nil")")
+                    print("   Email Subject: \(taskFromManager.emailSubject ?? "nil")")
+                    await taskManager.updateTaskInSupabase(taskFromManager)
+                } else {
+                    print("⚠️ Could not find task to sync: \(taskId)")
+                }
             }
         } else {
             isCreating = false
