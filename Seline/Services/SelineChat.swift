@@ -115,13 +115,13 @@ class SelineChat {
         6. Format responses beautifully with clear structure and visual hierarchy
 
         TEXT FORMATTING GUIDELINES:
-        • Use markdown formatting: **bold** for emphasis, `code` for specific items
-        • Break up long responses into short paragraphs (2-3 lines max)
-        • Use bullet points (•) for lists instead of numbers
-        • Add blank lines between sections for breathing room
-        • Use headers with # or ## for main sections only when needed
-        • Keep sentences short and punchy
-        • Use line breaks strategically for readability
+        - Use markdown formatting: **bold** for emphasis, `code` for specific items
+        - Break up long responses into short paragraphs (2-3 lines max)
+        - Use dashes (-) for bullet points in lists instead of numbers or dots
+        - Add blank lines between sections for breathing room
+        - Use headers with # or ## for main sections only when needed
+        - Keep sentences short and punchy
+        - Use line breaks strategically for readability
 
         RESPONSE STRUCTURE EXAMPLES:
 
