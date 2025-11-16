@@ -428,8 +428,13 @@ class TaskManager: ObservableObject {
     private let authManager = AuthenticationManager.shared
 
     private init() {
+        print("🧹 CLEARING LOCAL TASK CACHE - FORCING FRESH LOAD FROM SUPABASE")
+        // Clear corrupted local cache - will force fresh load from Supabase
+        userDefaults.removeObject(forKey: tasksKey)
+
         initializeEmptyDays()
-        loadTasks()
+        // Skip loading from local cache since we just cleared it
+        // loadTasks() is intentionally NOT called
 
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadTasksFromSupabase() after user authenticates
