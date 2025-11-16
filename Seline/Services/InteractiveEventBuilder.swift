@@ -227,9 +227,16 @@ class InteractiveEventBuilder {
             return nextMonday
         }
 
-        // Try ISO8601 format
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: text) {
+        // Try ISO8601 format (with timezone support)
+        let iso8601Formatter = ISO8601DateFormatter()
+        iso8601Formatter.formatOptions = [.withInternetDateTime]
+        if let date = iso8601Formatter.date(from: text) {
+            return date
+        }
+
+        // Fallback: Try basic ISO8601 format
+        let basicISO8601 = ISO8601DateFormatter()
+        if let date = basicISO8601.date(from: text) {
             return date
         }
 

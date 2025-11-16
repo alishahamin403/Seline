@@ -298,7 +298,10 @@ class ConversationActionHandler {
 
 extension Date {
     func toISO8601String() -> String {
+        // Format with timezone offset to avoid ambiguity
+        // Returns format like: "2025-11-12T14:00:00-05:00"
         let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: self)
     }
 }

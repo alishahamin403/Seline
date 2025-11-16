@@ -393,9 +393,18 @@ struct AggregateOperation: OperationProtocol {
             case "status":
                 key = item.status
             case "date":
+                // Format date using calendar components to ensure consistent grouping
+                // This extracts the date in the user's local timezone
+                let calendar = Calendar.current
+                let components = calendar.dateComponents([.year, .month, .day], from: item.date)
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
-                key = formatter.string(from: item.date)
+                // Reconstruct date from components to ensure proper local timezone representation
+                if let dateFromComponents = calendar.date(from: components) {
+                    key = formatter.string(from: dateFromComponents)
+                } else {
+                    key = formatter.string(from: item.date)
+                }
             default:
                 key = "Other"
             }

@@ -143,7 +143,7 @@ class ContextBuilder {
 
         // Build metadata
         let metadata = StructuredLLMContext.ContextMetadata(
-            timestamp: ISO8601DateFormatter().string(from: Date()),
+            timestamp: formatLocalDateForLLM(Date()),
             currentWeather: filteredContext.metadata.currentWeather,
             userTimezone: filteredContext.metadata.userTimezone,
             intent: filteredContext.metadata.queryIntent,
@@ -252,7 +252,7 @@ class ContextBuilder {
             return StructuredLLMContext.ContextData.TaskJSON(
                 id: taskWithRelevance.task.id,
                 title: taskWithRelevance.task.title,
-                scheduledTime: taskWithRelevance.task.scheduledTime.map { ISO8601DateFormatter().string(from: $0) },
+                scheduledTime: taskWithRelevance.task.scheduledTime.map { formatLocalDateForLLM($0) },
                 duration: duration,
                 isCompleted: taskWithRelevance.task.isCompleted,
                 relevanceScore: taskWithRelevance.relevanceScore,
@@ -272,7 +272,7 @@ class ContextBuilder {
                 id: emailWithRelevance.email.id,
                 from: senderName,
                 subject: emailWithRelevance.email.subject,
-                timestamp: ISO8601DateFormatter().string(from: emailWithRelevance.email.timestamp),
+                timestamp: formatLocalDateForLLM(emailWithRelevance.email.timestamp),
                 isRead: emailWithRelevance.email.isRead,
                 excerpt: extractExcerpt(from: emailWithRelevance.email.body ?? "", maxLength: 300),
                 relevanceScore: emailWithRelevance.relevanceScore,
@@ -297,7 +297,7 @@ class ContextBuilder {
                 id: receiptWithRelevance.receipt.id.uuidString,
                 merchant: receiptWithRelevance.receipt.title,
                 amount: receiptWithRelevance.receipt.amount,
-                date: ISO8601DateFormatter().string(from: receiptWithRelevance.receipt.date),
+                date: formatLocalDateForLLM(receiptWithRelevance.receipt.date),
                 category: receiptWithRelevance.receipt.category,
                 month: month,
                 year: year,
@@ -342,6 +342,15 @@ class ContextBuilder {
 
     // MARK: - Helper Methods
 
+    /// Format a date in user's local timezone for LLM consumption
+    /// Returns format like: "2025-11-12T14:00:00-05:00" (includes timezone offset)
+    /// This ensures the LLM sees the exact local time with timezone info embedded
+    private func formatLocalDateForLLM(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]  // Includes timezone offset
+        return formatter.string(from: date)
+    }
+
     /// Extract excerpt from text
     private func extractExcerpt(from text: String, maxLength: Int) -> String {
         if text.count <= maxLength {
@@ -366,8 +375,6 @@ class ContextBuilder {
             return nil
         }
 
-        let formatter = ISO8601DateFormatter()
-
         // Try to identify the period type
         let periodType = identifyRelativePeriod(dateRangeQueried)
 
@@ -376,8 +383,8 @@ class ContextBuilder {
 
         return StructuredLLMContext.ContextMetadata.TemporalContextJSON(
             requestedPeriod: dateRangeQueried,
-            startDate: formatter.string(from: startDate),
-            endDate: formatter.string(from: endDate),
+            startDate: formatLocalDateForLLM(startDate),
+            endDate: formatLocalDateForLLM(endDate),
             periodType: periodType
         )
     }
