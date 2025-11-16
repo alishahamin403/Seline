@@ -229,7 +229,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var description: String? // Optional description field for additional event details
     var isCompleted: Bool
     var completedDate: Date?
-    let weekday: WeekDay
+    var weekday: WeekDay
     var createdAt: Date
     var isRecurring: Bool
     var recurrenceFrequency: RecurrenceFrequency?
