@@ -27,18 +27,6 @@ class SelineAppContext {
     private(set) var currentDate: Date = Date()
     private(set) var weatherData: WeatherData?
 
-    // MARK: - Cache Invalidation
-    private var lastRefreshTime: Date = Date(timeIntervalSince1970: 0)
-    private let REFRESH_CACHE_INTERVAL: TimeInterval = 30 // seconds
-
-    private var needsRefresh: Bool {
-        Date().timeIntervalSince(lastRefreshTime) > REFRESH_CACHE_INTERVAL
-    }
-
-    // Tag name cache to avoid repeated lookups (O(1) instead of O(n) per call)
-    private var tagNameCache: [String: String] = [:]
-    private let tagCacheDefaultName = "Personal"
-
     init(
         taskManager: TaskManager = TaskManager.shared,
         tagManager: TagManager = TagManager.shared,
@@ -69,36 +57,23 @@ class SelineAppContext {
         print("🔄 SelineAppContext.refresh() called")
         self.currentDate = Date()
 
-        // Clear tag name cache so we pick up any new/edited tags
-        self.tagNameCache.removeAll()
-
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
 
-        // Collect custom email folders and their saved emails (in parallel for speed)
+        // Collect custom email folders and their saved emails
         do {
             self.customEmailFolders = try await emailService.fetchSavedFolders()
             print("📧 Found \(self.customEmailFolders.count) custom email folders")
 
-            // Load emails for each folder IN PARALLEL (not sequential)
-            await withTaskGroup(of: (UUID, [SavedEmail]).self) { group in
-                for folder in self.customEmailFolders {
-                    group.addTask {
-                        do {
-                            let savedEmails = try await self.emailService.fetchSavedEmails(in: folder.id)
-                            return (folder.id, savedEmails)
-                        } catch {
-                            print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
-                            return (folder.id, [])
-                        }
-                    }
-                }
-
-                for await (folderId, emails) in group {
-                    self.savedEmailsByFolder[folderId] = emails
-                    if let folder = self.customEmailFolders.first(where: { $0.id == folderId }) {
-                        print("  • \(folder.name): \(emails.count) emails")
-                    }
+            // Load emails for each folder
+            for folder in self.customEmailFolders {
+                do {
+                    let savedEmails = try await emailService.fetchSavedEmails(in: folder.id)
+                    self.savedEmailsByFolder[folder.id] = savedEmails
+                    print("  • \(folder.name): \(savedEmails.count) emails")
+                } catch {
+                    print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
+                    self.savedEmailsByFolder[folder.id] = []
                 }
             }
         } catch {
@@ -161,12 +136,18 @@ class SelineAppContext {
         // Collect all locations
         self.locations = locationsManager.savedPlaces
 
-        // NOTE: Weather data is NOT fetched here anymore
-        // It's only fetched on-demand when user asks weather-related questions
-        // This avoids unnecessary API calls on every refresh
+        // Fetch weather data
+        do {
+            // Try to get current location, otherwise use default (Toronto)
+            let locationService = LocationService.shared
+            let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
 
-        // Mark refresh as complete for cache validation
-        self.lastRefreshTime = Date()
+            await weatherService.fetchWeather(for: location)
+            self.weatherData = weatherService.weatherData
+            print("🌤️ Weather data fetched")
+        } catch {
+            print("⚠️ Failed to fetch weather: \(error)")
+        }
 
         print("📦 AppContext refreshed:")
         print("   Current date: \(formatDate(currentDate))")
@@ -498,43 +479,11 @@ class SelineAppContext {
         let userAskedAboutExpenses = isExpenseQuery(userQuery)
         let userAskedAboutBankStatement = isBankStatementQuery(userQuery)
 
-        // Only refresh if cache expired (30 second TTL)
-        // This prevents full refresh on every LLM query
-        if needsRefresh {
-            await refresh()
-            self.lastRefreshTime = Date()
-            print("✅ AppContext refreshed (fresh)")
-        } else {
-            print("✅ AppContext using cache (not refreshing)")
-        }
-
-        // Fetch weather on-demand only if user asks about it
-        if isWeatherQuery(userQuery) && weatherData == nil {
-            do {
-                let locationService = LocationService.shared
-                let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
-                await weatherService.fetchWeather(for: location)
-                self.weatherData = weatherService.weatherData
-                print("🌤️ Weather data fetched on-demand for user query")
-            } catch {
-                print("⚠️ Failed to fetch weather on-demand: \(error)")
-            }
-        }
+        // Refresh all data
+        await refresh()
 
         // Filter events based on extracted intent
         var filteredEvents = events
-
-        // For recurring events: convert them to actual completion instances
-        // This allows LLM to answer "when was my last X?" questions
-        // Optimized: Use lazy sequence to avoid materializing all copies upfront
-        let expandedEvents = filteredEvents.flatMap { event -> [TaskItem] in
-            guard event.isRecurring && !event.completedDates.isEmpty else {
-                return [event]
-            }
-            // Create completed instances for each historical completion
-            return event.completedDates.map { event.createCompletedInstance(for: $0) }
-        }
-        filteredEvents = expandedEvents
 
         // Apply category filter if detected
         if let categoryId = categoryFilter {
@@ -544,8 +493,21 @@ class SelineAppContext {
         // Apply time period filter if detected
         if let timePeriod = timePeriodFilter {
             filteredEvents = filteredEvents.filter { event in
-                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
-                return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
+                // For recurring events, check if ANY completion falls within the time period
+                if event.isRecurring {
+                    // Include event if it has at least one completion in the time period
+                    let hasCompletionInPeriod = event.completedDates.contains { date in
+                        return date >= timePeriod.startDate && date <= timePeriod.endDate
+                    }
+                    // Also include if the event is scheduled/active during this period
+                    let eventDate = event.targetDate ?? event.scheduledTime ?? currentDate
+                    let isActiveInPeriod = eventDate <= timePeriod.endDate && (event.recurrenceEndDate == nil || event.recurrenceEndDate! >= timePeriod.startDate)
+                    return hasCompletionInPeriod || isActiveInPeriod
+                } else {
+                    // For non-recurring events, use the original date-based filtering
+                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                    return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
+                }
             }
         }
 
@@ -768,9 +730,56 @@ class SelineAppContext {
                     context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
                 }
             }
-            // NOTE: Recurring events are NOT included in LLM context
-            // They cause confusion for queries like "when was my last haircut?"
-            // Anchor dates and next occurrences don't answer user's questions
+            // RECURRING EVENTS SUMMARY with completion stats
+            let recurringEvents = events.filter { $0.isRecurring }
+            if !recurringEvents.isEmpty {
+                context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
+                for event in recurringEvents {
+                    let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
+
+                    let thisMonthCompletions = event.completedDates.filter { date in
+                        let dateComponents = calendar.dateComponents([.month, .year], from: date)
+                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
+                    }
+
+                    let categoryName = getCategoryName(for: event.tagId)
+                    context += "  • \(event.title) [\(categoryName)]\n"
+                    context += "    All-time: \(event.completedDates.count) completions\n"
+                    context += "    This month: \(thisMonthCompletions.count) completions\n"
+
+                    // Monthly breakdown
+                    let monthlyStats = Dictionary(grouping: event.completedDates) { date in
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "MMMM yyyy"
+                        return formatter.string(from: date)
+                    }
+
+                    if !monthlyStats.isEmpty {
+                        // Sort months by date (most recent first)
+                        let sortedMonths = monthlyStats.keys.sorted { month1, month2 in
+                            // Create dummy dates from the month strings for comparison
+                            let formatter = DateFormatter()
+                            formatter.dateFormat = "MMMM yyyy"
+                            let date1 = formatter.date(from: month1) ?? Date.distantPast
+                            let date2 = formatter.date(from: month2) ?? Date.distantPast
+                            return date1 > date2
+                        }
+
+                        context += "    Monthly stats:\n"
+                        for month in sortedMonths.prefix(6) {
+                            let count = monthlyStats[month]?.count ?? 0
+                            context += "      \(month): \(count) completions\n"
+                        }
+                    }
+
+                    if !thisMonthCompletions.isEmpty {
+                        let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
+                        context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
+                    } else {
+                        context += "    No completions this month\n"
+                    }
+                }
+            }
         } else {
             context += "  No events\n"
         }
@@ -786,14 +795,18 @@ class SelineAppContext {
         }
 
         if !receipts.isEmpty {
-                // Group receipts by month dynamically (use static formatter for performance)
+                // Group receipts by month dynamically
                 let receiptsByMonth = Dictionary(grouping: receipts) { receipt in
-                    Self.dateFormatterMedium.string(from: receipt.date)
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "MMMM yyyy"
+                    return formatter.string(from: receipt.date)
                 }
 
                 // Get current month for detection
                 let calendar = Calendar.current
-                let currentMonthStr = Self.dateFormatterMedium.string(from: currentDate)
+                let currentMonthFormatter = DateFormatter()
+                currentMonthFormatter.dateFormat = "MMMM yyyy"
+                let currentMonthStr = currentMonthFormatter.string(from: currentDate)
 
                 // Sort months: current month first, then others by recency
                 let sortedMonths = receiptsByMonth.keys.sorted { month1, month2 in
@@ -1177,16 +1190,15 @@ class SelineAppContext {
     }
 
     private func buildContextPromptInternal() async -> String {
-        // Only refresh if cache expired (30 second TTL)
-        if needsRefresh {
-            await refresh()
-            self.lastRefreshTime = Date()
-        }
+        // Refresh all data including custom email folders
+        await refresh()
 
         var context = ""
 
-        // Current date context (use static formatter for performance)
-        let dateFormatter = Self.dateFormatterFull
+        // Current date context
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .full
+        dateFormatter.timeStyle = .short
 
         context += "=== CURRENT DATE ===\n"
         context += dateFormatter.string(from: currentDate) + "\n\n"
@@ -1201,28 +1213,7 @@ class SelineAppContext {
 
         // Events detail - Comprehensive with categories, temporal organization, and all-day status
         context += "=== EVENTS & CALENDAR ===\n"
-
-        // Expand recurring events into their completion instances
-        // This allows LLM to accurately answer "when was my last X?" questions
-        var expandedEvents: [TaskItem] = []
-        for event in events {
-            if event.isRecurring && !event.completedDates.isEmpty {
-                // Create pseudo-events for each completion date
-                for completionDate in event.completedDates {
-                    var completedInstance = event
-                    completedInstance.targetDate = completionDate
-                    completedInstance.scheduledTime = completionDate
-                    completedInstance.isRecurring = false  // Mark as single instance
-                    completedInstance.isCompleted = true
-                    completedInstance.completedDate = completionDate
-                    expandedEvents.append(completedInstance)
-                }
-            } else {
-                expandedEvents.append(event)
-            }
-        }
-
-        if !expandedEvents.isEmpty {
+        if !events.isEmpty {
             let calendar = Calendar.current
 
             // Organize events by temporal proximity
@@ -1232,19 +1223,59 @@ class SelineAppContext {
             var upcoming: [TaskItem] = []
             var past: [TaskItem] = []
 
-            for event in expandedEvents {
-                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+            for event in events {
+                if event.isRecurring {
+                    // For recurring events, check which sections they appear in
+                    // A daily event might appear in Today, Tomorrow, AND This Week, etc.
 
-                if calendar.isDateInToday(eventDate) {
-                    today.append(event)
-                } else if calendar.isDateInTomorrow(eventDate) {
-                    tomorrow.append(event)
-                } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
-                    thisWeek.append(event)
-                } else if eventDate > currentDate {
-                    upcoming.append(event)
+                    let todayDate = currentDate
+                    let tomorrowDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+                    let dayAfterTomorrowDate = calendar.date(byAdding: .day, value: 2, to: currentDate)!
+
+                    if shouldEventOccurOn(event, date: todayDate) {
+                        today.append(event)
+                    }
+
+                    if shouldEventOccurOn(event, date: tomorrowDate) {
+                        tomorrow.append(event)
+                    }
+
+                    if shouldEventOccurOn(event, date: dayAfterTomorrowDate) {
+                        thisWeek.append(event)
+                    } else {
+                        // If it doesn't occur in the next 2 days, check if it occurs within the week
+                        var hasUpcomingOccurrence = false
+                        for daysAhead in 3...7 {
+                            if let checkDate = calendar.date(byAdding: .day, value: daysAhead, to: currentDate),
+                               shouldEventOccurOn(event, date: checkDate) {
+                                thisWeek.append(event)
+                                hasUpcomingOccurrence = true
+                                break
+                            }
+                        }
+
+                        // If still no occurrence found, check further ahead
+                        if !hasUpcomingOccurrence {
+                            if let nextDate = getNextOccurrenceDate(for: event, after: calendar.date(byAdding: .day, value: 7, to: currentDate)!) {
+                                upcoming.append(event)
+                            }
+                        }
+                    }
                 } else {
-                    past.append(event)
+                    // For non-recurring events, use the original date logic
+                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+
+                    if calendar.isDateInToday(eventDate) {
+                        today.append(event)
+                    } else if calendar.isDateInTomorrow(eventDate) {
+                        tomorrow.append(event)
+                    } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                        thisWeek.append(event)
+                    } else if eventDate > currentDate {
+                        upcoming.append(event)
+                    } else {
+                        past.append(event)
+                    }
                 }
             }
 
@@ -1926,17 +1957,8 @@ class SelineAppContext {
 
     /// Get the category name for an event given its tagId
     private func getCategoryName(for tagId: String?) -> String {
-        guard let tagId = tagId else { return tagCacheDefaultName }
-
-        // Check cache first (O(1))
-        if let cachedName = tagNameCache[tagId] {
-            return cachedName
-        }
-
-        // If not in cache, lookup and store (O(n) only on first access)
-        let name = tagManager.getTag(by: tagId)?.name ?? tagCacheDefaultName
-        tagNameCache[tagId] = name
-        return name
+        guard let tagId = tagId else { return "Personal" }
+        return tagManager.getTag(by: tagId)?.name ?? "Personal"
     }
 
     /// Get formatted time info for an event
@@ -2033,24 +2055,4 @@ class SelineAppContext {
 
         return nil
     }
-
-    // MARK: - Static Date Formatters (Performance Optimization)
-    private static let dateFormatterFull: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
-    private static let dateFormatterMedium: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter
-    }()
-
-    private static let dateFormatterShort: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter
-    }()
 }
