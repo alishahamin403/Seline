@@ -334,14 +334,27 @@ struct ViewEventView: View {
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
 
                             if let emailBody = task.emailBody, !emailBody.isEmpty {
-                                ScrollView {
-                                    Text(stripHTMLTags(from: emailBody))
-                                        .font(.system(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                        .multilineTextAlignment(.leading)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                // Check if email body contains HTML
+                                if emailBody.contains("<") {
+                                    // Display as HTML (same logic as EmailDetailView)
+                                    ZoomableHTMLContentView(htmlContent: emailBody)
+                                        .frame(height: 300)
+                                        .background(
+                                            colorScheme == .dark ?
+                                                Color.black :
+                                                Color.white
+                                        )
+                                } else {
+                                    // Display as plain text
+                                    ScrollView {
+                                        Text(emailBody)
+                                            .font(.system(size: 14, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                            .multilineTextAlignment(.leading)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(maxHeight: 300)
                                 }
-                                .frame(maxHeight: 300)
                             } else if let snippet = task.emailSnippet {
                                 Text(snippet)
                                     .font(.system(size: 14, weight: .regular))

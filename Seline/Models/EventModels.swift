@@ -1778,7 +1778,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func updateTaskInSupabase(_ task: TaskItem) async {
+    public func updateTaskInSupabase(_ task: TaskItem) async {
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             return

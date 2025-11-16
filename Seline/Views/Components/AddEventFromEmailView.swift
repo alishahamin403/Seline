@@ -261,22 +261,30 @@ struct AddEventFromEmailView: View {
             let taskId = updatedTask.id
             let taskWeekday = updatedTask.weekday
 
-            // Update the task in TaskManager (this includes syncing email data to Supabase)
-            taskManager.editTask(updatedTask)
-            print("✅ Task updated with email data and synced to Supabase: \(updatedTask.id)")
-            print("   Email ID: \(updatedTask.emailId ?? "nil")")
-            print("   Email Subject: \(updatedTask.emailSubject ?? "nil")")
+            // CRITICAL: Use async sync to ensure Supabase save completes before dismissing
+            // This prevents events from disappearing on app rebuild due to incomplete sync
+            Task {
+                // First update locally and start async sync
+                self.taskManager.editTask(updatedTask)
+                print("✅ Task updated with email data: \(updatedTask.id)")
+                print("   Email ID: \(updatedTask.emailId ?? "nil")")
+                print("   Email Subject: \(updatedTask.emailSubject ?? "nil")")
 
-            // Provide haptic feedback immediately
-            HapticManager.shared.success()
+                // Wait for Supabase sync to complete
+                await self.taskManager.updateTaskInSupabase(updatedTask)
+                print("✅ Task synced to Supabase successfully")
 
-            // Dismiss immediately so user gets instant feedback
-            print("👋 Dismissing AddEventFromEmailView")
+                // Provide haptic feedback after successful sync
+                HapticManager.shared.success()
 
-            // Close the sheet using binding
-            withAnimation {
-                isPresented = false
-                isCreating = false
+                // Dismiss only after sync completes
+                DispatchQueue.main.async {
+                    print("👋 Dismissing AddEventFromEmailView")
+                    withAnimation {
+                        self.isPresented = false
+                        self.isCreating = false
+                    }
+                }
             }
         } else {
             print("❌ ERROR: Could not find newly created task '\(eventTitle)' in taskManager")
