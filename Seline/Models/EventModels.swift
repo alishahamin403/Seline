@@ -1527,6 +1527,7 @@ class TaskManager: ObservableObject {
     // MARK: - Supabase Integration
 
     func loadTasksFromSupabase() async {
+        print("🔥 loadTasksFromSupabase CALLED!")
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("User not authenticated, loading local tasks only")
@@ -1561,6 +1562,15 @@ class TaskManager: ObservableObject {
 
             // Parse the response data into TaskItem objects
             if let tasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
+                print("📦 Received \(tasksArray.count) tasks from Supabase")
+
+                // Check if gym task is in response
+                if let gymTask = tasksArray.first(where: { ($0["title"] as? String)?.lowercased().contains("gym") ?? false }) {
+                    print("🏋️ Found gym task in Supabase response! is_recurring: \(gymTask["is_recurring"] ?? "nil")")
+                } else {
+                    print("🏋️ GYM TASK NOT FOUND IN SUPABASE RESPONSE!")
+                }
+
                 var supabaseTasks: [TaskItem] = []
 
                 for taskDict in tasksArray {
