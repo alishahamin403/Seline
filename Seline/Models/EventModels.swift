@@ -1723,24 +1723,48 @@ class TaskManager: ObservableObject {
         }
 
         // Parse completed occurrences for recurring tasks (from new Supabase column)
-        if let completedOccurrencesJson = taskDict["completed_occurrences"] as? String,
-           !completedOccurrencesJson.isEmpty,
-           let jsonData = completedOccurrencesJson.data(using: .utf8),
-           let dateStrings = try? JSONSerialization.jsonObject(with: jsonData) as? [String] {
-            let formatter = ISO8601DateFormatter()
-            taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
-            if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
-                print("📥 Restored \(taskItem.completedDates.count) completed occurrences for recurring task '\(taskItem.title)' from Supabase")
+        // Handle multiple formats: direct array (PostgREST), JSON string, old format
+        var dateStrings: [String] = []
+
+        // Try direct array format first (PostgREST returns TIMESTAMP[] as [String])
+        if let completedArray = taskDict["completed_occurrences"] as? [String] {
+            dateStrings = completedArray
+        } else if let completedArray = taskDict["completed_occurrences"] as? [Any] {
+            // Handle [Any] format that might come from parsing
+            dateStrings = completedArray.compactMap { $0 as? String }
+        } else if let completedOccurrencesJson = taskDict["completed_occurrences"] as? String,
+                  !completedOccurrencesJson.isEmpty {
+            // Try JSON string format
+            if let jsonData = completedOccurrencesJson.data(using: .utf8),
+               let parsedStrings = try? JSONSerialization.jsonObject(with: jsonData) as? [String] {
+                dateStrings = parsedStrings
             }
         } else if let completedDatesJson = taskDict["completed_dates_json"] as? String,
                   !completedDatesJson.isEmpty,
                   let jsonData = completedDatesJson.data(using: .utf8),
-                  let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
+                  let parsedStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
             // Fallback: Read from old JSON column format
-            let formatter = ISO8601DateFormatter()
-            taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
+            dateStrings = parsedStrings
+        }
+
+        // Parse dates from strings, handling both ISO8601 and PostgreSQL formats
+        if !dateStrings.isEmpty {
+            let iso8601Formatter = ISO8601DateFormatter()
+            let postgresFormatter = DateFormatter()
+            postgresFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            postgresFormatter.timeZone = TimeZone(abbreviation: "UTC")
+
+            taskItem.completedDates = dateStrings.compactMap { dateStr in
+                // Try ISO8601 first
+                if let date = iso8601Formatter.date(from: dateStr) {
+                    return date
+                }
+                // Fall back to PostgreSQL format
+                return postgresFormatter.date(from: dateStr)
+            }
+
             if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
-                print("📥 Restored \(taskItem.completedDates.count) completed dates (from old format) for recurring task '\(taskItem.title)'")
+                print("📥 Restored \(taskItem.completedDates.count) completed occurrences for recurring task '\(taskItem.title)' from Supabase")
             }
         }
 
