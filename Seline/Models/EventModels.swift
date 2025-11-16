@@ -794,6 +794,19 @@ class TaskManager: ObservableObject {
         }
     }
 
+    /// Edit task and wait for Supabase sync to complete (used for email attachments)
+    /// This method waits for the Supabase save to finish before returning
+    func editTaskAndSync(_ updatedTask: TaskItem) async {
+        // First, perform the local edit
+        editTask(updatedTask)
+
+        // Wait a brief moment for the local state to update
+        try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
+
+        // Now sync directly with Supabase to ensure the task with email data is saved
+        await updateTaskInSupabase(updatedTask)
+    }
+
     private func removeAllRecurringInstances(_ task: TaskItem) {
         // Remove all instances of this recurring task from all weekdays
         for weekday in WeekDay.allCases {

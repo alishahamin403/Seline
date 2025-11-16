@@ -254,17 +254,22 @@ struct AddEventFromEmailView: View {
             updatedTask.emailIsImportant = email.isImportant
             updatedTask.emailAiSummary = email.aiSummary
 
-            // Update the task in TaskManager
-            taskManager.editTask(updatedTask)
-        }
+            // Update the task in TaskManager and wait for Supabase sync to complete
+            // This is critical - we must wait for the task to be saved to Supabase before dismissing
+            Task {
+                await taskManager.editTaskAndSync(updatedTask)
 
-        // Provide haptic feedback
-        HapticManager.shared.success()
+                // Provide haptic feedback only after Supabase sync completes
+                HapticManager.shared.success()
 
-        // Delay dismissal slightly for better UX
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Now safe to dismiss
+                DispatchQueue.main.async {
+                    isCreating = false
+                    dismiss()
+                }
+            }
+        } else {
             isCreating = false
-            dismiss()
         }
     }
 }
