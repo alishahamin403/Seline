@@ -229,7 +229,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var description: String? // Optional description field for additional event details
     var isCompleted: Bool
     var completedDate: Date?
-    var weekday: WeekDay
+    let weekday: WeekDay
     var createdAt: Date
     var isRecurring: Bool
     var recurrenceFrequency: RecurrenceFrequency?
@@ -400,20 +400,6 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encode(emailIsImportant, forKey: .emailIsImportant)
         try container.encodeIfPresent(emailAiSummary, forKey: .emailAiSummary)
     }
-
-    // MARK: - Factory Methods for Efficient Event Creation
-
-    /// Creates a completed instance of a recurring event for a specific date
-    /// Optimized to only copy and modify necessary fields
-    func createCompletedInstance(for completionDate: Date) -> TaskItem {
-        var instance = self
-        instance.targetDate = completionDate
-        instance.scheduledTime = completionDate
-        instance.isRecurring = false
-        instance.isCompleted = true
-        instance.completedDate = completionDate
-        return instance
-    }
 }
 
 @MainActor
@@ -428,13 +414,8 @@ class TaskManager: ObservableObject {
     private let authManager = AuthenticationManager.shared
 
     private init() {
-        print("🧹 CLEARING LOCAL TASK CACHE - FORCING FRESH LOAD FROM SUPABASE")
-        // Clear corrupted local cache - will force fresh load from Supabase
-        userDefaults.removeObject(forKey: tasksKey)
-
         initializeEmptyDays()
-        // Skip loading from local cache since we just cleared it
-        // loadTasks() is intentionally NOT called
+        loadTasks()
 
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadTasksFromSupabase() after user authenticates
@@ -451,8 +432,6 @@ class TaskManager: ObservableObject {
 
     func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, tagId: String? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-        print("📝 addTask called: title='\(title)', weekday=\(weekday), isRecurring=\(isRecurring)")
 
         // Use provided target date, or default to the current week's date for this weekday
         let finalTargetDate = targetDate ?? weekday.dateForCurrentWeek()
@@ -472,7 +451,6 @@ class TaskManager: ObservableObject {
         newTaskWithTag.tagId = tagId
         tasks[weekday]?.append(newTaskWithTag)
         saveTasks()
-        print("💾 Task saved to local cache")
 
         // Schedule notification if reminder is set
         if let reminderTime = reminderTime, reminderTime != .none, let scheduledTime = scheduledTime {
@@ -735,10 +713,22 @@ class TaskManager: ObservableObject {
                 // Remove from old weekday
                 tasks[updatedTask.weekday]?.remove(at: index)
 
-                // Create a copy of the updated task with the new weekday
-                // IMPORTANT: Must preserve ALL fields (description, email data, etc.)
-                var finalTaskCopy = updatedTask
-                finalTaskCopy.weekday = newWeekday
+                // Create task with correct weekday
+                let newTask = TaskItem(
+                    title: updatedTask.title,
+                    weekday: newWeekday,
+                    scheduledTime: updatedTask.scheduledTime,
+                    targetDate: updatedTask.targetDate,
+                    isRecurring: updatedTask.isRecurring,
+                    recurrenceFrequency: updatedTask.recurrenceFrequency,
+                    parentRecurringTaskId: updatedTask.parentRecurringTaskId
+                )
+                var finalTaskCopy = newTask
+                finalTaskCopy.id = updatedTask.id
+                finalTaskCopy.isCompleted = updatedTask.isCompleted
+                finalTaskCopy.completedDate = updatedTask.completedDate
+                finalTaskCopy.createdAt = updatedTask.createdAt
+                finalTaskCopy.isDeleted = updatedTask.isDeleted
 
                 // Ensure the weekday array exists
                 if tasks[newWeekday] == nil {
@@ -788,19 +778,6 @@ class TaskManager: ObservableObject {
                 await createRecurringInstances(for: finalTask, frequency: frequency)
             }
         }
-    }
-
-    /// Edit task and wait for Supabase sync to complete (used for email attachments)
-    /// This method waits for the Supabase save to finish before returning
-    func editTaskAndSync(_ updatedTask: TaskItem) async {
-        // First, perform the local edit
-        editTask(updatedTask)
-
-        // Wait a brief moment for the local state to update
-        try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds
-
-        // Now sync directly with Supabase to ensure the task with email data is saved
-        await updateTaskInSupabase(updatedTask)
     }
 
     private func removeAllRecurringInstances(_ task: TaskItem) {
@@ -955,6 +932,8 @@ class TaskManager: ObservableObject {
         let allTasks = tasks.values.flatMap { $0 }
         let recurringTasks = allTasks.filter { $0.isRecurring }
 
+        if !recurringTasks.isEmpty {
+        }
 
         let filteredTasks = allTasks.filter { task in
             // First filter out deleted tasks
@@ -1168,9 +1147,7 @@ class TaskManager: ObservableObject {
         let targetDate = calendar.startOfDay(for: date)
 
         // Don't show tasks before their start date
-        guard targetDate >= startDate else {
-            return false
-        }
+        guard targetDate >= startDate else { return false }
 
         // Check if the task is within its recurrence end date
         if let endDate = task.recurrenceEndDate, targetDate > endDate {
@@ -1522,7 +1499,6 @@ class TaskManager: ObservableObject {
     // MARK: - Supabase Integration
 
     func loadTasksFromSupabase() async {
-        print("🔥 loadTasksFromSupabase CALLED!")
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("User not authenticated, loading local tasks only")
@@ -1543,8 +1519,6 @@ class TaskManager: ObservableObject {
 
         do {
             let client = await supabaseManager.getPostgrestClient()
-            print("🔥 Loading tasks from Supabase for user: \(userId.uuidString)")
-
             let response = try await client
                 .from("tasks")
                 .select("*")
@@ -1559,53 +1533,34 @@ class TaskManager: ObservableObject {
 
             // Parse the response data into TaskItem objects
             if let tasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
-                print("📦 Received \(tasksArray.count) tasks from Supabase")
-
                 var supabaseTasks: [TaskItem] = []
 
                 for taskDict in tasksArray {
                     if let taskItem = await parseTaskFromSupabase(taskDict) {
-                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil"), completedDates: \(taskItem.completedDates.count)")
+                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil")")
                         supabaseTasks.append(taskItem)
-                    } else {
-                        if let rawTitle = taskDict["title"] as? String {
-                            print("❌ Failed to parse task: '\(rawTitle)' from Supabase")
-                        }
                     }
                 }
 
-                // Merge Supabase data with existing local tasks
+                // Update local tasks with Supabase data
                 await MainActor.run {
-                    // Start with existing local tasks
-                    var mergedTasks = self.tasks
-
-                    // Update or add tasks from Supabase
-                    for supabaseTask in supabaseTasks {
-                        if mergedTasks[supabaseTask.weekday] != nil {
-                            // Update existing weekday's tasks
-                            if let index = mergedTasks[supabaseTask.weekday]?.firstIndex(where: { $0.id == supabaseTask.id }) {
-                                // Update existing task with Supabase data
-                                mergedTasks[supabaseTask.weekday]?[index] = supabaseTask
-                            } else {
-                                // Task exists in Supabase but not locally - add it
-                                mergedTasks[supabaseTask.weekday]?.append(supabaseTask)
-                            }
-                        } else {
-                            // Initialize weekday with this task
-                            mergedTasks[supabaseTask.weekday] = [supabaseTask]
-                        }
+                    var tasksByWeekday: [WeekDay: [TaskItem]] = [:]
+                    for weekday in WeekDay.allCases {
+                        tasksByWeekday[weekday] = supabaseTasks.filter { $0.weekday == weekday }
                     }
 
-                    self.tasks = mergedTasks
+                    self.tasks = tasksByWeekday
                     initializeEmptyDays()
 
-                    // IMPORTANT: Save merged tasks to local cache so they persist across rebuilds
+                    // IMPORTANT: Save loaded tasks to local cache so they persist across rebuilds
                     // This ensures email attachments and all data are available even if Supabase is unreachable
                     self.saveTasks()
 
                     // Check if any recurring tasks were fixed (marked incomplete)
+                    let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
                     let tasksNeedingFix = supabaseTasks.filter { task in
-                        if let originalTask = tasksArray.first(where: { ($0["id"] as? String) == task.id }),
+                        if let originalArray = originalTasksArray,
+                           let originalTask = originalArray.first(where: { ($0["id"] as? String) == task.id }),
                            let wasCompleted = originalTask["is_completed"] as? Bool {
                             return task.isRecurring && wasCompleted && !task.isCompleted
                         }
@@ -1654,21 +1609,8 @@ class TaskManager: ObservableObject {
             // This is handled silently - no warning needed
         }
 
-        // Parse is_recurring - handle multiple formats (Bool, Int, String)
-        var isRecurringValue = false
-        if let boolValue = taskDict["is_recurring"] as? Bool {
-            isRecurringValue = boolValue
-        } else if let intValue = taskDict["is_recurring"] as? Int {
-            isRecurringValue = intValue != 0
-        } else if let stringValue = taskDict["is_recurring"] as? String {
-            isRecurringValue = stringValue.lowercased() == "true" || stringValue == "1"
-        }
-        taskItem.isRecurring = isRecurringValue
-
-        print("🔍 Parsed is_recurring for '\(title)': \(isRecurringValue)")
-
         // Check if this is a recurring task
-        if isRecurringValue {
+        if let isRecurring = taskDict["is_recurring"] as? Bool, isRecurring {
             // IMPORTANT: Recurring tasks should NEVER be marked as completed
             // If a recurring task was accidentally marked complete, fix it
             if isCompleted {
@@ -1689,6 +1631,10 @@ class TaskManager: ObservableObject {
             if let completedDateString = taskDict["completed_date"] as? String {
                 taskItem.completedDate = ISO8601DateFormatter().date(from: completedDateString)
             }
+        }
+
+        if let isRecurring = taskDict["is_recurring"] as? Bool {
+            taskItem.isRecurring = isRecurring
         }
 
         if let frequencyString = taskDict["recurrence_frequency"] as? String {
@@ -1726,7 +1672,6 @@ class TaskManager: ObservableObject {
         // Parse email attachment fields
         if let emailId = taskDict["email_id"] as? String {
             taskItem.emailId = emailId
-            print("📧 Loaded email ID from Supabase: \(emailId)")
         }
 
         if let emailSubject = taskDict["email_subject"] as? String {
@@ -1757,53 +1702,15 @@ class TaskManager: ObservableObject {
             taskItem.emailIsImportant = emailIsImportant
         }
 
-        if taskItem.emailId != nil {
-            print("✅ Successfully loaded task '\(taskItem.title)' with email data from Supabase")
-        }
-
-        // Parse completed occurrences for recurring tasks (from new Supabase column)
-        // Handle multiple formats: direct array (PostgREST), JSON string, old format
-        var dateStrings: [String] = []
-
-        // Try direct array format first (PostgREST returns TIMESTAMP[] as [String])
-        if let completedArray = taskDict["completed_occurrences"] as? [String] {
-            dateStrings = completedArray
-        } else if let completedArray = taskDict["completed_occurrences"] as? [Any] {
-            // Handle [Any] format that might come from parsing
-            dateStrings = completedArray.compactMap { $0 as? String }
-        } else if let completedOccurrencesJson = taskDict["completed_occurrences"] as? String,
-                  !completedOccurrencesJson.isEmpty {
-            // Try JSON string format
-            if let jsonData = completedOccurrencesJson.data(using: .utf8),
-               let parsedStrings = try? JSONSerialization.jsonObject(with: jsonData) as? [String] {
-                dateStrings = parsedStrings
-            }
-        } else if let completedDatesJson = taskDict["completed_dates_json"] as? String,
-                  !completedDatesJson.isEmpty,
-                  let jsonData = completedDatesJson.data(using: .utf8),
-                  let parsedStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
-            // Fallback: Read from old JSON column format
-            dateStrings = parsedStrings
-        }
-
-        // Parse dates from strings, handling both ISO8601 and PostgreSQL formats
-        if !dateStrings.isEmpty {
-            let iso8601Formatter = ISO8601DateFormatter()
-            let postgresFormatter = DateFormatter()
-            postgresFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-            postgresFormatter.timeZone = TimeZone(abbreviation: "UTC")
-
-            taskItem.completedDates = dateStrings.compactMap { dateStr in
-                // Try ISO8601 first
-                if let date = iso8601Formatter.date(from: dateStr) {
-                    return date
-                }
-                // Fall back to PostgreSQL format
-                return postgresFormatter.date(from: dateStr)
-            }
-
+        // Parse completed dates for recurring tasks
+        if let completedDatesJson = taskDict["completed_dates_json"] as? String,
+           !completedDatesJson.isEmpty,
+           let jsonData = completedDatesJson.data(using: .utf8),
+           let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
+            let formatter = ISO8601DateFormatter()
+            taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
             if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
-                print("📥 Restored \(taskItem.completedDates.count) completed occurrences for recurring task '\(taskItem.title)' from Supabase")
+                print("📥 Restored \(taskItem.completedDates.count) completed dates for recurring task '\(taskItem.title)' from Supabase")
             }
         }
 
@@ -1821,10 +1728,6 @@ class TaskManager: ObservableObject {
     }
 
     private func saveTaskToSupabase(_ task: TaskItem) async {
-        print("🔄 saveTaskToSupabase called for: '\(task.title)'")
-        print("   isAuthenticated: \(authManager.isAuthenticated)")
-        print("   userId: \(authManager.supabaseUser?.id.uuidString ?? "nil")")
-
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("⚠️ Cannot save task to Supabase: User not authenticated")
@@ -1835,22 +1738,17 @@ class TaskManager: ObservableObject {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
             let client = await supabaseManager.getPostgrestClient()
 
-            print("📤 Upserting task to Supabase: \(task.id)")
-
             try await client
                 .from("tasks")
                 .upsert(taskData)
                 .execute()
 
-            print("✅ Task '\(task.title)' saved to Supabase successfully")
-
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
-            print("   Error details: \(String(describing: error))")
         }
     }
 
-    public func updateTaskInSupabase(_ task: TaskItem) async {
+    private func updateTaskInSupabase(_ task: TaskItem) async {
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             return
@@ -1859,15 +1757,6 @@ class TaskManager: ObservableObject {
         do {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
 
-            // Debug: Log email data being sent
-            if task.emailId != nil {
-                print("📧 Task has email data - sending to Supabase:")
-                print("   Task ID: \(task.id)")
-                print("   Email ID: \(task.emailId ?? "nil")")
-                print("   Email Subject: \(task.emailSubject ?? "nil")")
-                print("   Email Body Length: \(task.emailBody?.count ?? 0) chars")
-            }
-
             let client = await supabaseManager.getPostgrestClient()
 
             try await client
@@ -1875,10 +1764,6 @@ class TaskManager: ObservableObject {
                 .update(taskData)
                 .eq("id", value: task.id)
                 .execute()
-
-            if task.emailId != nil {
-                print("✅ Email data synced to Supabase for task: \(task.id)")
-            }
 
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")
@@ -2034,9 +1919,8 @@ class TaskManager: ObservableObject {
 
         taskData["email_is_important"] = AnyJSON.bool(task.emailIsImportant)
 
-        // Save completion data for recurring tasks
-        if !task.completedDates.isEmpty && task.isRecurring {
-            // Save as JSON array to completed_dates_json column (works with AnyJSON.string)
+        // Save completed dates for recurring tasks (as JSON array of ISO8601 strings)
+        if !task.completedDates.isEmpty {
             let completedDatesStrings = task.completedDates.map { formatter.string(from: $0) }
             if let jsonData = try? JSONEncoder().encode(completedDatesStrings),
                let jsonString = String(data: jsonData, encoding: .utf8) {
@@ -2044,19 +1928,8 @@ class TaskManager: ObservableObject {
             } else {
                 taskData["completed_dates_json"] = AnyJSON.null
             }
-
-            // Also save denormalized fields for quick access
-            if let lastDate = task.completedDates.sorted().last {
-                taskData["last_completion_date"] = AnyJSON.string(formatter.string(from: lastDate))
-            } else {
-                taskData["last_completion_date"] = AnyJSON.null
-            }
-            // Save the count of completions
-            taskData["completion_count"] = AnyJSON.string(String(task.completedDates.count))
         } else {
             taskData["completed_dates_json"] = AnyJSON.null
-            taskData["last_completion_date"] = AnyJSON.null
-            taskData["completion_count"] = AnyJSON.string("0")
         }
 
         // Note: email_ai_summary column doesn't exist in Supabase yet, so we don't sync it
@@ -2536,7 +2409,7 @@ class TaskManager: ObservableObject {
     // MARK: - Calendar Sync Methods
 
     /// Sync calendar events from iPhone's native Calendar app
-    /// Syncs events from past 12 months to 3 months ahead (allows historical event search)
+    /// Only syncs events from current month onwards (3-month rolling window)
     @MainActor
     func syncCalendarEvents() async {
         let newEvents = await CalendarSyncService.shared.fetchNewCalendarEvents()

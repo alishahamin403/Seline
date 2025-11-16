@@ -334,27 +334,14 @@ struct ViewEventView: View {
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
 
                             if let emailBody = task.emailBody, !emailBody.isEmpty {
-                                // Check if email body contains HTML
-                                if emailBody.contains("<") {
-                                    // Display as HTML (same logic as EmailDetailView)
-                                    ZoomableHTMLContentView(htmlContent: emailBody)
-                                        .frame(height: 300)
-                                        .background(
-                                            colorScheme == .dark ?
-                                                Color.black :
-                                                Color.white
-                                        )
-                                } else {
-                                    // Display as plain text
-                                    ScrollView {
-                                        Text(emailBody)
-                                            .font(.system(size: 14, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                            .multilineTextAlignment(.leading)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .frame(maxHeight: 300)
+                                ScrollView {
+                                    Text(emailBody)
+                                        .font(.system(size: 14, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
+                                .frame(maxHeight: 300)
                             } else if let snippet = task.emailSnippet {
                                 Text(snippet)
                                     .font(.system(size: 14, weight: .regular))
@@ -408,38 +395,5 @@ struct ViewEventView: View {
             onDelete: { _ in print("Delete tapped") },
             onDeleteRecurringSeries: { _ in print("Delete series tapped") }
         )
-    }
-}
-
-// MARK: - Helper Functions
-
-extension ViewEventView {
-    private func stripHTMLTags(from html: String) -> String {
-        var text = html
-
-        // Remove script and style tags with their content
-        text = text.replacingOccurrences(
-            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
-            with: "",
-            options: .regularExpression
-        )
-
-        // Remove all HTML tags
-        text = text.replacingOccurrences(
-            of: "<[^>]+>",
-            with: "",
-            options: .regularExpression
-        )
-
-        // Decode common HTML entities
-        let entities = [
-            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
-            "&quot;": "\"", "&apos;": "'"
-        ]
-        for (entity, replacement) in entities {
-            text = text.replacingOccurrences(of: entity, with: replacement)
-        }
-
-        return text
     }
 }

@@ -2,8 +2,8 @@ import SwiftUI
 
 struct AddEventFromEmailView: View {
     let email: Email
-    @Binding var isPresented: Bool
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var taskManager = TaskManager.shared
 
     @State private var eventTitle: String = ""
@@ -36,7 +36,7 @@ struct AddEventFromEmailView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        isPresented = false
+                        dismiss()
                     }
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
@@ -208,7 +208,6 @@ struct AddEventFromEmailView: View {
 
     private func createEvent() {
         isCreating = true
-        print("🔄 Creating event: '\(eventTitle)'")
 
         // Determine the weekday from the selected date
         let calendar = Calendar.current
@@ -244,8 +243,6 @@ struct AddEventFromEmailView: View {
 
         // Get the newly created task and attach email data
         if let newTask = taskManager.tasks[weekday]?.first(where: { $0.title == eventTitle }) {
-            print("✅ Task created successfully with ID: \(newTask.id)")
-
             var updatedTask = newTask
             updatedTask.emailId = email.id
             updatedTask.emailSubject = email.subject
@@ -257,45 +254,21 @@ struct AddEventFromEmailView: View {
             updatedTask.emailIsImportant = email.isImportant
             updatedTask.emailAiSummary = email.aiSummary
 
-            // Store the task ID for later retrieval
-            let taskId = updatedTask.id
-            let taskWeekday = updatedTask.weekday
+            // Update the task in TaskManager
+            taskManager.editTask(updatedTask)
+        }
 
-            // CRITICAL: Use async sync to ensure Supabase save completes before dismissing
-            // This prevents events from disappearing on app rebuild due to incomplete sync
-            Task {
-                // First update locally and start async sync
-                self.taskManager.editTask(updatedTask)
-                print("✅ Task updated with email data: \(updatedTask.id)")
-                print("   Email ID: \(updatedTask.emailId ?? "nil")")
-                print("   Email Subject: \(updatedTask.emailSubject ?? "nil")")
+        // Provide haptic feedback
+        HapticManager.shared.success()
 
-                // Wait for Supabase sync to complete
-                await self.taskManager.updateTaskInSupabase(updatedTask)
-                print("✅ Task synced to Supabase successfully")
-
-                // Provide haptic feedback after successful sync
-                HapticManager.shared.success()
-
-                // Dismiss only after sync completes
-                DispatchQueue.main.async {
-                    print("👋 Dismissing AddEventFromEmailView")
-                    withAnimation {
-                        self.isPresented = false
-                        self.isCreating = false
-                    }
-                }
-            }
-        } else {
-            print("❌ ERROR: Could not find newly created task '\(eventTitle)' in taskManager")
-            withAnimation {
-                isCreating = false
-            }
+        // Delay dismissal slightly for better UX
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isCreating = false
+            dismiss()
         }
     }
 }
 
 #Preview {
-    @State var isPresented = true
-    return AddEventFromEmailView(email: Email.sampleEmails[0], isPresented: $isPresented)
+    AddEventFromEmailView(email: Email.sampleEmails[0])
 }
