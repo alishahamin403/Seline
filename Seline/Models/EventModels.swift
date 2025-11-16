@@ -1555,6 +1555,7 @@ class TaskManager: ObservableObject {
             let client = await supabaseManager.getPostgrestClient()
             // CRITICAL: Remove default 1000 row limit to fetch ALL tasks
             // User might have 1000+ tasks, and gym task could be beyond the limit
+            print("🔍 Loading tasks for user_id: \(userId.uuidString)")
             let response = try await client
                 .from("tasks")
                 .select("*")
@@ -1574,9 +1575,14 @@ class TaskManager: ObservableObject {
 
                 // Check if gym task is in response
                 if let gymTask = tasksArray.first(where: { ($0["title"] as? String)?.lowercased().contains("gym") ?? false }) {
-                    print("🏋️ Found gym task in Supabase response! is_recurring: \(gymTask["is_recurring"] ?? "nil")")
+                    let gymUserId = gymTask["user_id"] as? String ?? "nil"
+                    print("🏋️ Found gym task in Supabase response!")
+                    print("   user_id: \(gymUserId)")
+                    print("   is_recurring: \(gymTask["is_recurring"] ?? "nil")")
+                    print("   Expected user_id: \(userId.uuidString)")
                 } else {
                     print("🏋️ GYM TASK NOT FOUND IN SUPABASE RESPONSE!")
+                    print("   Fetched \(tasksArray.count) total tasks for user_id: \(userId.uuidString)")
                 }
 
                 var supabaseTasks: [TaskItem] = []
