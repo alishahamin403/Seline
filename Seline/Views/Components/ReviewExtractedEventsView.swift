@@ -160,7 +160,7 @@ struct ReviewExtractedEventsView: View {
                                 Text("\(selectedCount) of \(extractionResponse.events.count)")
                                     .font(.caption)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.black)
+                                    .foregroundColor(.primary)
                             }
                             .padding(.vertical, 4)
                         }
@@ -179,7 +179,7 @@ struct ReviewExtractedEventsView: View {
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 48)
-                                .background(selectedCount > 0 ? Color.black : Color.gray)
+                                .background(selectedCount > 0 ? Color.blue : Color.gray)
                                 .cornerRadius(8)
                         }
                         .disabled(selectedCount == 0 || isCreatingEvents)
@@ -188,10 +188,11 @@ struct ReviewExtractedEventsView: View {
                             Text("Cancel")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                                .foregroundColor(.black)
-                                .opacity(0.6)
+                                .foregroundColor(.primary)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 48)
+                                .background(Color(UIColor.systemGray6))
+                                .cornerRadius(8)
                         }
                         .disabled(isCreatingEvents)
                     }
@@ -205,7 +206,7 @@ struct ReviewExtractedEventsView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 56))
-                            .foregroundColor(.black)
+                            .foregroundColor(.green)
 
                         VStack(spacing: 6) {
                             Text("\(createdCount) Event\(createdCount == 1 ? "" : "s") Created")
@@ -229,7 +230,7 @@ struct ReviewExtractedEventsView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.black)
+                            .background(Color.blue)
                             .cornerRadius(8)
                     }
                     .padding(16)
@@ -488,13 +489,13 @@ struct SimpleEventCard: View {
                             if !showStartTimePicker {
                                 Button(action: { showStartTimePicker = true }) {
                                     Image(systemName: "pencil.circle.fill")
-                                        .foregroundColor(.black)
+                                        .foregroundColor(.primary)
                                         .opacity(0.5)
                                 }
                             } else {
                                 Button(action: { showStartTimePicker = false }) {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.black)
+                                        .foregroundColor(.primary)
                                 }
                             }
                         }
@@ -553,13 +554,13 @@ struct SimpleEventCard: View {
                                 if !showEndTimePicker {
                                     Button(action: { showEndTimePicker = true }) {
                                         Image(systemName: "pencil.circle.fill")
-                                            .foregroundColor(.black)
+                                            .foregroundColor(.primary)
                                             .opacity(0.5)
                                     }
                                 } else {
                                     Button(action: { showEndTimePicker = false }) {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.black)
+                                            .foregroundColor(.primary)
                                     }
                                 }
                             }
