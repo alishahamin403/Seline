@@ -2,8 +2,8 @@ import SwiftUI
 
 struct AddEventFromEmailView: View {
     let email: Email
+    @Binding var isPresented: Bool
     @Environment(\.colorScheme) var colorScheme
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var taskManager = TaskManager.shared
 
     @State private var eventTitle: String = ""
@@ -36,7 +36,7 @@ struct AddEventFromEmailView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        dismiss()
+                        isPresented = false
                     }
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
@@ -208,6 +208,7 @@ struct AddEventFromEmailView: View {
 
     private func createEvent() {
         isCreating = true
+        print("🔄 Creating event: '\(eventTitle)'")
 
         // Determine the weekday from the selected date
         let calendar = Calendar.current
@@ -243,6 +244,8 @@ struct AddEventFromEmailView: View {
 
         // Get the newly created task and attach email data
         if let newTask = taskManager.tasks[weekday]?.first(where: { $0.title == eventTitle }) {
+            print("✅ Task created successfully with ID: \(newTask.id)")
+
             var updatedTask = newTask
             updatedTask.emailId = email.id
             updatedTask.emailSubject = email.subject
@@ -265,8 +268,13 @@ struct AddEventFromEmailView: View {
             HapticManager.shared.success()
 
             // Dismiss immediately so user gets instant feedback
-            isCreating = false
-            dismiss()
+            print("👋 Dismissing AddEventFromEmailView")
+
+            // Close the sheet using binding
+            withAnimation {
+                isPresented = false
+                isCreating = false
+            }
 
             // Sync to Supabase in background (fire and forget)
             // Fetch the task from taskManager to ensure we have the final version with email data
@@ -285,11 +293,15 @@ struct AddEventFromEmailView: View {
                 }
             }
         } else {
-            isCreating = false
+            print("❌ ERROR: Could not find newly created task '\(eventTitle)' in taskManager")
+            withAnimation {
+                isCreating = false
+            }
         }
     }
 }
 
 #Preview {
-    AddEventFromEmailView(email: Email.sampleEmails[0])
+    @State var isPresented = true
+    return AddEventFromEmailView(email: Email.sampleEmails[0], isPresented: $isPresented)
 }

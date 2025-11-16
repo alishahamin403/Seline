@@ -103,7 +103,7 @@ struct EmailDetailView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showAddEventSheet) {
-            AddEventFromEmailView(email: fullEmail ?? email)
+            AddEventFromEmailView(email: fullEmail ?? email, isPresented: $showAddEventSheet)
         }
         .sheet(isPresented: $showSaveFolderSheet) {
             SaveFolderSelectionSheet(email: email, isPresented: $showSaveFolderSheet)
