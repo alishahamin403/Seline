@@ -1,5 +1,10 @@
 import SwiftUI
 
+// Notification name for folder creation
+extension NSNotification.Name {
+    static let emailFolderCreated = NSNotification.Name("emailFolderCreated")
+}
+
 struct SaveFolderSelectionSheet: View {
     let email: Email
     @Binding var isPresented: Bool
@@ -261,6 +266,13 @@ struct SaveFolderSelectionSheet: View {
                     color: "#84cae9" // Default color (not shown in UI)
                 )
                 _ = try await EmailService.shared.saveEmailToFolder(email, folderId: newFolder.id)
+
+                // Clear the folder cache so sidebar reflects the new folder
+                EmailService.shared.clearFolderCache()
+
+                // Post notification so sidebar can reload
+                NotificationCenter.default.post(name: NSNotification.Name.emailFolderCreated, object: newFolder)
+
                 isPresented = false
                 isSaving = false
             } catch {

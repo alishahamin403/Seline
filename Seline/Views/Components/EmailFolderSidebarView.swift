@@ -267,6 +267,24 @@ class EmailFolderSidebarViewModel: ObservableObject {
     @Published var newLabelsToImport: Set<String> = []
 
     private let emailService = EmailService.shared
+    private var notificationObserver: NSObjectProtocol?
+
+    init() {
+        // Listen for folder creation notifications from SaveFolderSelectionSheet
+        notificationObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.emailFolderCreated,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.loadFolders()
+        }
+    }
+
+    deinit {
+        if let observer = notificationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     func loadFolders() {
         isLoading = true
@@ -305,7 +323,7 @@ class EmailFolderSidebarViewModel: ObservableObject {
                 print("✅ Folder created: \(newFolder.id)")
 
                 // Clear the folder cache so the new folder is included next time
-                await emailService.clearFolderCache()
+                emailService.clearFolderCache()
                 print("🗑️ Folder cache cleared to reflect new folder")
 
                 folders.append(newFolder)
@@ -323,7 +341,7 @@ class EmailFolderSidebarViewModel: ObservableObject {
                     print("ℹ️ Folder already exists, reloading folders list...")
 
                     // Reload folders from Supabase to show the existing folder
-                    await emailService.clearFolderCache()
+                    emailService.clearFolderCache()
                     loadFolders()
 
                     await MainActor.run {
