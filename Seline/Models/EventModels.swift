@@ -1201,8 +1201,8 @@ class TaskManager: ObservableObject {
             }
 
             // Calculate days until first occurrence of task's weekday
-            let taskWeekdayInt = task.weekday.calendarWeekdayComponent()
-            let firstWeekdayInt = firstWeekday.calendarWeekdayComponent()
+            let taskWeekdayInt = task.weekday.calendarWeekday
+            let firstWeekdayInt = firstWeekday.calendarWeekday
             let daysUntilFirstOccurrence = (taskWeekdayInt - firstWeekdayInt + 7) % 7
 
             // Calculate the date for the nth occurrence
