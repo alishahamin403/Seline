@@ -474,9 +474,17 @@ struct ShadcnCalendar: View {
 
     @State private var currentMonth = Date()
     @State private var dragStartX: CGFloat = 0
+    // Cache event counts by date to avoid N+1 lookups
+    @State private var eventCountsByDate: [String: Int] = [:]
+    @State private var cachedMonthForEvents: Date?
 
     private var calendar: Calendar {
         Calendar.current
+    }
+
+    /// Cached event counts for current month (pre-computed in onChange)
+    private var monthEventCountsCache: [String: Int] {
+        eventCountsByDate
     }
 
     private var monthYearFormatter: DateFormatter {
@@ -586,11 +594,14 @@ struct ShadcnCalendar: View {
             // Calendar grid
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
                 ForEach(daysInMonth, id: \.self) { date in
+                    let key = calendar.dateComponents([.year, .month, .day], from: date).description
+                    let hasEvents = (monthEventCountsCache[key] ?? 0) > 0
+
                     ShadcnDayCell(
                         date: date,
                         selectedDate: $selectedDate,
                         currentMonth: currentMonth,
-                        hasEvents: taskManager.getAllTasks(for: date).count > 0,
+                        hasEvents: hasEvents,
                         colorScheme: colorScheme,
                         onTap: {
                             selectedDate = date
@@ -601,6 +612,34 @@ struct ShadcnCalendar: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
+            .onAppear {
+                // Pre-compute event counts on first appearance
+                let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
+                var counts: [String: Int] = [:]
+
+                for date in daysInMonth {
+                    let key = calendar.dateComponents([.year, .month, .day], from: date).description
+                    let eventCount = taskManager.getAllTasks(for: date).count
+                    counts[key] = eventCount
+                }
+
+                eventCountsByDate = counts
+                cachedMonthForEvents = monthStart
+            }
+            .onChange(of: currentMonth) { _ in
+                // Pre-compute event counts when month changes (batch operation, not per-cell)
+                let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
+                var counts: [String: Int] = [:]
+
+                for date in daysInMonth {
+                    let key = calendar.dateComponents([.year, .month, .day], from: date).description
+                    let eventCount = taskManager.getAllTasks(for: date).count
+                    counts[key] = eventCount
+                }
+
+                eventCountsByDate = counts
+                cachedMonthForEvents = monthStart
+            }
             .gesture(
                 DragGesture()
                     .onChanged { value in
