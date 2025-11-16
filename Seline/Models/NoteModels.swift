@@ -1554,13 +1554,11 @@ class NotesManager: ObservableObject {
         if dateCreated == nil {
             formatter.formatOptions = [.withInternetDateTime]
             dateCreated = formatter.date(from: data.date_created)
-            print("⚠️ Parsed date_created without fractional seconds: \(data.date_created)")
         }
 
         if dateModified == nil {
             formatter.formatOptions = [.withInternetDateTime]
             dateModified = formatter.date(from: data.date_modified)
-            print("⚠️ Parsed date_modified without fractional seconds: \(data.date_modified)")
         }
 
         guard let dateCreated = dateCreated else {
