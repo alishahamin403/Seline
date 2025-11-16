@@ -118,10 +118,10 @@ class CalendarSyncService {
 
     // MARK: - Event Fetching & Filtering (READ-ONLY)
 
-    /// Fetch calendar events from current month onwards (3-month rolling window)
+    /// Fetch calendar events from past year to 3 months ahead
     /// This is a READ-ONLY operation - no modifications to the calendar
-    /// Only fetches 3 months forward to prevent crashes with 1000+ events on first sync
-    /// - Returns: Array of calendar events from this month + next 3 months
+    /// Fetches 12 months back to allow LLM to search historical events + 3 months forward
+    /// - Returns: Array of calendar events from past 12 months + next 3 months
     func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
@@ -136,14 +136,16 @@ class CalendarSyncService {
         // Get the first day of the current month
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
 
-        // Create a predicate to fetch events from current month onwards (READ-ONLY)
-        // LIMITED TO 3-MONTH ROLLING WINDOW to prevent crashes with large event libraries
-        // This ensures manageable sync on first launch even with 1000+ calendar events
+        // Create a predicate to fetch events from PAST YEAR to 3 MONTHS AHEAD (READ-ONLY)
+        // Include past year (12 months back) to allow LLM to find historical events
+        // Plus 3 months ahead for upcoming events
+        // This ensures users can query past events like "when was my last haircut?"
+        let startDate = calendar.date(byAdding: .month, value: -12, to: now) ?? now
         let endDate = calendar.date(byAdding: .month, value: 3, to: currentMonthStart) ?? now
 
         // Get all calendars (nil = all calendars)
         let allCalendars = eventStore.calendars(for: .event)
-        let predicate = eventStore.predicateForEvents(withStart: currentMonthStart, end: endDate, calendars: allCalendars)
+        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: allCalendars)
 
         // ⚠️ READ-ONLY: eventStore.events(matching:) only reads, does not modify
         let allEvents = eventStore.events(matching: predicate)

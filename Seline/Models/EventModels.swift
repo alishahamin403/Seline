@@ -2409,7 +2409,7 @@ class TaskManager: ObservableObject {
     // MARK: - Calendar Sync Methods
 
     /// Sync calendar events from iPhone's native Calendar app
-    /// Only syncs events from current month onwards (3-month rolling window)
+    /// Syncs events from past 12 months to 3 months ahead (allows historical event search)
     @MainActor
     func syncCalendarEvents() async {
         let newEvents = await CalendarSyncService.shared.fetchNewCalendarEvents()
