@@ -335,7 +335,7 @@ struct ViewEventView: View {
 
                             if let emailBody = task.emailBody, !emailBody.isEmpty {
                                 ScrollView {
-                                    Text(emailBody)
+                                    Text(stripHTMLTags(from: emailBody))
                                         .font(.system(size: 14, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                         .multilineTextAlignment(.leading)
@@ -395,5 +395,38 @@ struct ViewEventView: View {
             onDelete: { _ in print("Delete tapped") },
             onDeleteRecurringSeries: { _ in print("Delete series tapped") }
         )
+    }
+}
+
+// MARK: - Helper Functions
+
+extension ViewEventView {
+    private func stripHTMLTags(from html: String) -> String {
+        var text = html
+
+        // Remove script and style tags with their content
+        text = text.replacingOccurrences(
+            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Remove all HTML tags
+        text = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Decode common HTML entities
+        let entities = [
+            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+            "&quot;": "\"", "&apos;": "'"
+        ]
+        for (entity, replacement) in entities {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        return text
     }
 }
