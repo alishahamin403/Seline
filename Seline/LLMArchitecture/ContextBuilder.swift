@@ -62,9 +62,13 @@ struct StructuredLLMContext: Encodable {
         struct TaskJSON: Encodable {
             let id: String
             let title: String
-            let scheduledTime: String?
+            let targetDate: String?  // The intended date for this event
+            let scheduledTime: String?  // Time of day for the event
+            let endTime: String?  // End time if applicable
             let duration: Int?  // minutes
             let isCompleted: Bool
+            let weekday: String?  // Monday, Tuesday, etc.
+            let description: String?  // Event description/details
             let relevanceScore: Double
             let matchType: String
         }
@@ -252,9 +256,13 @@ class ContextBuilder {
             return StructuredLLMContext.ContextData.TaskJSON(
                 id: taskWithRelevance.task.id,
                 title: taskWithRelevance.task.title,
+                targetDate: taskWithRelevance.task.targetDate.map { ISO8601DateFormatter().string(from: $0) },
                 scheduledTime: taskWithRelevance.task.scheduledTime.map { ISO8601DateFormatter().string(from: $0) },
+                endTime: taskWithRelevance.task.endTime.map { ISO8601DateFormatter().string(from: $0) },
                 duration: duration,
                 isCompleted: taskWithRelevance.task.isCompleted,
+                weekday: taskWithRelevance.task.weekday.displayName,
+                description: taskWithRelevance.task.description,
                 relevanceScore: taskWithRelevance.relevanceScore,
                 matchType: taskWithRelevance.matchType.rawValue
             )
