@@ -5066,18 +5066,6 @@ class OpenAIService: ObservableObject {
                let nextWeekStart = calendar.date(byAdding: .day, value: 7, to: thisWeekStart) {
                 // Generate all 7 days of next week (Monday to Sunday)
                 targetDates = (0...6).compactMap { calendar.date(byAdding: .day, value: $0, to: nextWeekStart) }
-
-                // Debug logging
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
-                print("📅 DEBUG: Current date = \(dateFormatter.string(from: currentDate))")
-                print("📅 DEBUG: This week starts = \(dateFormatter.string(from: thisWeekStart))")
-                print("📅 DEBUG: Next week starts = \(dateFormatter.string(from: nextWeekStart))")
-                print("📅 DEBUG: Next week target dates:")
-                for date in targetDates {
-                    print("  - \(dateFormatter.string(from: date))")
-                }
-
                 queryDescription = "next week"
             }
         } else if query.contains("next month") || query.contains("upcoming month") {
@@ -5110,10 +5098,6 @@ class OpenAIService: ObservableObject {
             let targetMonth = calendar.component(.month, from: targetDate)
             let targetYear = calendar.component(.year, from: targetDate)
 
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "EEEE, MMMM d"
-            print("📅 DEBUG: Checking events for \(dateFormatter.string(from: targetDate)) (weekday=\(targetWeekday), day=\(targetDay))")
-
             for event in allEvents {
                 // Check if event occurs on this target date
                 let isMatch: Bool
@@ -5122,9 +5106,6 @@ class OpenAIService: ObservableObject {
                     // For recurring events, check if it recurs on this date based on frequency
                     let eventWeekday = event.weekday.calendarWeekday
                     isMatch = shouldEventOccurOnDate(event: event, targetWeekday: targetWeekday, targetDay: targetDay, calendar: calendar)
-                    if isMatch {
-                        print("  ✅ RECURRING event '\(event.title)' matches (weekday \(event.weekday.displayName))")
-                    }
                 } else {
                     // For one-time events, check if the date matches
                     let eventDate = event.targetDate ?? event.createdAt
@@ -5132,12 +5113,6 @@ class OpenAIService: ObservableObject {
                     let eventMonth = calendar.component(.month, from: eventDate)
                     let eventYear = calendar.component(.year, from: eventDate)
                     isMatch = (eventDay == targetDay && eventMonth == targetMonth && eventYear == targetYear)
-
-                    if isMatch {
-                        print("  ✅ ONE-TIME event '\(event.title)' matches (target date: \(eventDay)/\(eventMonth)/\(eventYear))")
-                    } else if eventDay == targetDay && (eventMonth != targetMonth || eventYear != targetYear) {
-                        print("  ❌ ONE-TIME event '\(event.title)' has wrong month/year: \(eventDay)/\(eventMonth)/\(eventYear) vs \(targetDay)/\(targetMonth)/\(targetYear)")
-                    }
                 }
 
                 if isMatch && !matchingEvents.contains(where: { $0.id == event.id }) {
