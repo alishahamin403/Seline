@@ -1960,11 +1960,11 @@ class TaskManager: ObservableObject {
             } else {
                 taskData["last_completion_date"] = AnyJSON.null
             }
-            taskData["completion_count"] = AnyJSON.int(task.completedDates.count)
+            taskData["completion_count"] = AnyJSON.string(String(task.completedDates.count))
         } else {
             taskData["completed_occurrences"] = AnyJSON.null
             taskData["last_completion_date"] = AnyJSON.null
-            taskData["completion_count"] = AnyJSON.int(0)
+            taskData["completion_count"] = AnyJSON.string("0")
         }
 
         // Note: email_ai_summary column doesn't exist in Supabase yet, so we don't sync it
