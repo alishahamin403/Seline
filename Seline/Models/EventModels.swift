@@ -1576,28 +1576,8 @@ class TaskManager: ObservableObject {
                 print("📦 Loaded \(recurringArray.count) recurring tasks")
             }
 
-            // Step 2: Load all tasks with target dates (calendar/scheduled events)
-            // This captures calendar sync events and work events with specific dates
-            print("📦 Loading tasks with target dates...")
-            let datedResponse = try await client
-                .from("tasks")
-                .select("*")
-                .eq("user_id", value: userId.uuidString)
-                .neq("target_date", value: "null")  // Has a target date
-                .order("target_date", ascending: false)
-                .limit(1000)
-                .execute()
-
-            let datedData = datedResponse.data
-            if !datedData.isEmpty,
-               let datedArray = try? JSONSerialization.jsonObject(with: datedData, options: []) as? [[String: Any]] {
-                let existingIds = Set(allTasksArray.compactMap { $0["id"] as? String })
-                let newTasks = datedArray.filter { !existingIds.contains($0["id"] as? String ?? "") }
-                allTasksArray.append(contentsOf: newTasks)
-                print("📦 Loaded \(newTasks.count) tasks with target dates")
-            }
-
-            // Step 3: Load most recent non-recurring tasks (last 1000) as fallback
+            // Step 2: Load recent non-recurring tasks (by created_at DESC)
+            // This captures calendar sync and work events
             print("📦 Loading recent non-recurring tasks...")
             let recentResponse = try await client
                 .from("tasks")
