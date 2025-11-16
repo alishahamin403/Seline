@@ -1553,72 +1553,23 @@ class TaskManager: ObservableObject {
 
         do {
             let client = await supabaseManager.getPostgrestClient()
-            print("🔍 Loading tasks for user_id: \(userId.uuidString)")
+            print("🔥 Loading tasks from Supabase for user: \(userId.uuidString)")
 
-            // CRITICAL: User has 4000+ tasks but PostgREST default limit is 1000 per request
-            // Strategy: Load by categories to ensure we get all important tasks
-            var allTasksArray: [[String: Any]] = []
-
-            // Step 1: Load ALL recurring tasks (gym task is recurring)
-            print("📦 Loading recurring tasks...")
-            let recurringResponse = try await client
+            let response = try await client
                 .from("tasks")
                 .select("*")
                 .eq("user_id", value: userId.uuidString)
-                .eq("is_recurring", value: true)
-                .limit(1000)
                 .execute()
 
-            let recurringData = recurringResponse.data
-            if !recurringData.isEmpty,
-               let recurringArray = try? JSONSerialization.jsonObject(with: recurringData, options: []) as? [[String: Any]] {
-                allTasksArray.append(contentsOf: recurringArray)
-                print("📦 Loaded \(recurringArray.count) recurring tasks")
-            }
-
-            // Step 2: Load recent non-recurring tasks (by created_at DESC)
-            // This captures calendar sync and work events
-            print("📦 Loading recent non-recurring tasks...")
-            let recentResponse = try await client
-                .from("tasks")
-                .select("*")
-                .eq("user_id", value: userId.uuidString)
-                .eq("is_recurring", value: false)
-                .order("created_at", ascending: false)  // Most recent first
-                .limit(1000)
-                .execute()
-
-            let recentData = recentResponse.data
-            if !recentData.isEmpty,
-               let recentArray = try? JSONSerialization.jsonObject(with: recentData, options: []) as? [[String: Any]] {
-                // Only add if not already in allTasksArray
-                let existingIds = Set(allTasksArray.compactMap { $0["id"] as? String })
-                let newTasks = recentArray.filter { !existingIds.contains($0["id"] as? String ?? "") }
-                allTasksArray.append(contentsOf: newTasks)
-                print("📦 Loaded \(newTasks.count) recent non-recurring tasks")
-            }
-
-            if allTasksArray.isEmpty {
+            let data = response.data
+            if data.isEmpty {
                 print("No tasks data received from Supabase")
                 return
             }
 
             // Parse the response data into TaskItem objects
-            print("📦 Total received: \(allTasksArray.count) tasks from Supabase")
-            if true {
-                let tasksArray = allTasksArray
-
-                // Check if gym task is in response
-                if let gymTask = tasksArray.first(where: { ($0["title"] as? String)?.lowercased().contains("gym") ?? false }) {
-                    let gymUserId = gymTask["user_id"] as? String ?? "nil"
-                    print("🏋️ Found gym task in Supabase response!")
-                    print("   user_id: \(gymUserId)")
-                    print("   is_recurring: \(gymTask["is_recurring"] ?? "nil")")
-                    print("   Expected user_id: \(userId.uuidString)")
-                } else {
-                    print("🏋️ GYM TASK NOT FOUND IN SUPABASE RESPONSE!")
-                    print("   Fetched \(tasksArray.count) total tasks for user_id: \(userId.uuidString)")
-                }
+            if let tasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
+                print("📦 Received \(tasksArray.count) tasks from Supabase")
 
                 var supabaseTasks: [TaskItem] = []
 
