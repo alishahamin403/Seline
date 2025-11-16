@@ -153,7 +153,7 @@ class AuthenticationManager: ObservableObject {
     }
 
     private func importGmailLabelsIfNeeded() async {
-        // Check if labels have already been imported for this user
+        // Check if user has already been shown the label selection popup
         print("🔍 Checking if Gmail labels need to be imported...")
         do {
             guard let userId = supabaseManager.getCurrentUser()?.id else {
@@ -161,27 +161,39 @@ class AuthenticationManager: ObservableObject {
                 return
             }
 
+            let userIdString = userId.uuidString
+            let labelSelectionKey = "hasSeenLabelSelection_\(userIdString)"
+
+            // Check if we've already shown this user the label selection popup
+            let hasSeenLabelSelection = UserDefaults.standard.bool(forKey: labelSelectionKey)
+            if hasSeenLabelSelection {
+                print("ℹ️ User has already been shown label selection popup, skipping...")
+                return
+            }
+
             let client = await supabaseManager.getPostgrestClient()
 
-            print("📊 Querying email_label_mappings for user: \(userId.uuidString)")
+            print("📊 Querying email_label_mappings for user: \(userIdString)")
             let response = try await client
                 .from("email_label_mappings")
                 .select("id")
-                .eq("user_id", value: userId.uuidString)
+                .eq("user_id", value: userIdString)
                 .limit(1)
                 .execute()
 
             let mappingCount = response.count ?? 0
             print("📊 Label mappings check - Found \(mappingCount) existing mappings")
 
-            // If we already have label mappings, skip import
+            // If we already have label mappings, mark as seen and skip showing popup
             if mappingCount > 0 {
                 print("✅ Gmail labels already imported for this user")
+                UserDefaults.standard.set(true, forKey: labelSelectionKey)
                 return
             }
 
-            // No mappings found, show label selection view for first-time user
+            // No mappings found AND user hasn't been shown popup yet, show label selection view
             print("🚀 Showing label selection view for first-time user...")
+            UserDefaults.standard.set(true, forKey: labelSelectionKey)
             self.showLabelSelection = true
 
         } catch {
