@@ -2030,11 +2030,18 @@ class TaskManager: ObservableObject {
 
         taskData["email_is_important"] = AnyJSON.bool(task.emailIsImportant)
 
-        // Save denormalized completion fields for quick access
-        // Note: We sync the last completion date and count, but not the full array
-        // The full completed_occurrences array is loaded from Supabase on startup
+        // Save completion data for recurring tasks
         if !task.completedDates.isEmpty && task.isRecurring {
-            // Save the last completion date
+            // Save as JSON array to completed_dates_json column (works with AnyJSON.string)
+            let completedDatesStrings = task.completedDates.map { formatter.string(from: $0) }
+            if let jsonData = try? JSONEncoder().encode(completedDatesStrings),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                taskData["completed_dates_json"] = AnyJSON.string(jsonString)
+            } else {
+                taskData["completed_dates_json"] = AnyJSON.null
+            }
+
+            // Also save denormalized fields for quick access
             if let lastDate = task.completedDates.sorted().last {
                 taskData["last_completion_date"] = AnyJSON.string(formatter.string(from: lastDate))
             } else {
@@ -2043,6 +2050,7 @@ class TaskManager: ObservableObject {
             // Save the count of completions
             taskData["completion_count"] = AnyJSON.string(String(task.completedDates.count))
         } else {
+            taskData["completed_dates_json"] = AnyJSON.null
             taskData["last_completion_date"] = AnyJSON.null
             taskData["completion_count"] = AnyJSON.string("0")
         }
