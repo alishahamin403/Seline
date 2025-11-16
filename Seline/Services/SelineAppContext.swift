@@ -485,10 +485,27 @@ class SelineAppContext {
         // Filter events based on extracted intent
         var filteredEvents = events
 
-        // REMOVE recurring events - send only actual completed events to LLM
-        // Recurring events cause confusion (e.g., "when was my last haircut?")
-        // because anchor dates and next occurrences don't answer user questions
-        filteredEvents = filteredEvents.filter { !$0.isRecurring }
+        // For recurring events: convert them to actual completion instances
+        // This allows LLM to answer "when was my last X?" questions
+        var expandedEvents: [TaskItem] = []
+        for event in filteredEvents {
+            if event.isRecurring && !event.completedDates.isEmpty {
+                // Create a pseudo-event for each completion date
+                // so LLM sees them as actual past events
+                for completionDate in event.completedDates {
+                    var completedInstance = event
+                    completedInstance.targetDate = completionDate
+                    completedInstance.scheduledTime = completionDate
+                    completedInstance.isRecurring = false  // Mark as single instance for LLM
+                    completedInstance.isCompleted = true
+                    completedInstance.completedDate = completionDate
+                    expandedEvents.append(completedInstance)
+                }
+            } else {
+                expandedEvents.append(event)
+            }
+        }
+        filteredEvents = expandedEvents
 
         // Apply category filter if detected
         if let categoryId = categoryFilter {
@@ -1159,10 +1176,27 @@ class SelineAppContext {
         // Events detail - Comprehensive with categories, temporal organization, and all-day status
         context += "=== EVENTS & CALENDAR ===\n"
 
-        // Remove recurring events from context - they don't answer questions like "when was my last..."
-        let nonRecurringEvents = events.filter { !$0.isRecurring }
+        // Expand recurring events into their completion instances
+        // This allows LLM to accurately answer "when was my last X?" questions
+        var expandedEvents: [TaskItem] = []
+        for event in events {
+            if event.isRecurring && !event.completedDates.isEmpty {
+                // Create pseudo-events for each completion date
+                for completionDate in event.completedDates {
+                    var completedInstance = event
+                    completedInstance.targetDate = completionDate
+                    completedInstance.scheduledTime = completionDate
+                    completedInstance.isRecurring = false  // Mark as single instance
+                    completedInstance.isCompleted = true
+                    completedInstance.completedDate = completionDate
+                    expandedEvents.append(completedInstance)
+                }
+            } else {
+                expandedEvents.append(event)
+            }
+        }
 
-        if !nonRecurringEvents.isEmpty {
+        if !expandedEvents.isEmpty {
             let calendar = Calendar.current
 
             // Organize events by temporal proximity
@@ -1172,7 +1206,7 @@ class SelineAppContext {
             var upcoming: [TaskItem] = []
             var past: [TaskItem] = []
 
-            for event in nonRecurringEvents {
+            for event in expandedEvents {
                 let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
 
                 if calendar.isDateInToday(eventDate) {

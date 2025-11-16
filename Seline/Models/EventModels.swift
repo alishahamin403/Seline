@@ -1702,15 +1702,25 @@ class TaskManager: ObservableObject {
             taskItem.emailIsImportant = emailIsImportant
         }
 
-        // Parse completed dates for recurring tasks
-        if let completedDatesJson = taskDict["completed_dates_json"] as? String,
-           !completedDatesJson.isEmpty,
-           let jsonData = completedDatesJson.data(using: .utf8),
-           let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
+        // Parse completed occurrences for recurring tasks (from new Supabase column)
+        if let completedOccurrencesJson = taskDict["completed_occurrences"] as? String,
+           !completedOccurrencesJson.isEmpty,
+           let jsonData = completedOccurrencesJson.data(using: .utf8),
+           let dateStrings = try? JSONSerialization.jsonObject(with: jsonData) as? [String] {
             let formatter = ISO8601DateFormatter()
             taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
             if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
-                print("📥 Restored \(taskItem.completedDates.count) completed dates for recurring task '\(taskItem.title)' from Supabase")
+                print("📥 Restored \(taskItem.completedDates.count) completed occurrences for recurring task '\(taskItem.title)' from Supabase")
+            }
+        } else if let completedDatesJson = taskDict["completed_dates_json"] as? String,
+                  !completedDatesJson.isEmpty,
+                  let jsonData = completedDatesJson.data(using: .utf8),
+                  let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
+            // Fallback: Read from old JSON column format
+            let formatter = ISO8601DateFormatter()
+            taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
+            if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
+                print("📥 Restored \(taskItem.completedDates.count) completed dates (from old format) for recurring task '\(taskItem.title)'")
             }
         }
 
@@ -1919,17 +1929,28 @@ class TaskManager: ObservableObject {
 
         taskData["email_is_important"] = AnyJSON.bool(task.emailIsImportant)
 
-        // Save completed dates for recurring tasks (as JSON array of ISO8601 strings)
-        if !task.completedDates.isEmpty {
+        // Save completed occurrences for recurring tasks as TIMESTAMP[] array
+        if !task.completedDates.isEmpty && task.isRecurring {
             let completedDatesStrings = task.completedDates.map { formatter.string(from: $0) }
-            if let jsonData = try? JSONEncoder().encode(completedDatesStrings),
+            // Store as JSON array that PostgreSQL can parse as TIMESTAMP[]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: completedDatesStrings),
                let jsonString = String(data: jsonData, encoding: .utf8) {
-                taskData["completed_dates_json"] = AnyJSON.string(jsonString)
+                taskData["completed_occurrences"] = AnyJSON.string(jsonString)
             } else {
-                taskData["completed_dates_json"] = AnyJSON.null
+                taskData["completed_occurrences"] = AnyJSON.null
             }
+
+            // Also save denormalized fields for quick access
+            if let lastDate = task.completedDates.sorted().last {
+                taskData["last_completion_date"] = AnyJSON.string(formatter.string(from: lastDate))
+            } else {
+                taskData["last_completion_date"] = AnyJSON.null
+            }
+            taskData["completion_count"] = AnyJSON.int(task.completedDates.count)
         } else {
-            taskData["completed_dates_json"] = AnyJSON.null
+            taskData["completed_occurrences"] = AnyJSON.null
+            taskData["last_completion_date"] = AnyJSON.null
+            taskData["completion_count"] = AnyJSON.int(0)
         }
 
         // Note: email_ai_summary column doesn't exist in Supabase yet, so we don't sync it
