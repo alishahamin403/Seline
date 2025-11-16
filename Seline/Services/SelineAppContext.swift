@@ -485,6 +485,11 @@ class SelineAppContext {
         // Filter events based on extracted intent
         var filteredEvents = events
 
+        // REMOVE recurring events - send only actual completed events to LLM
+        // Recurring events cause confusion (e.g., "when was my last haircut?")
+        // because anchor dates and next occurrences don't answer user questions
+        filteredEvents = filteredEvents.filter { !$0.isRecurring }
+
         // Apply category filter if detected
         if let categoryId = categoryFilter {
             filteredEvents = filteredEvents.filter { $0.tagId == categoryId }
@@ -493,21 +498,8 @@ class SelineAppContext {
         // Apply time period filter if detected
         if let timePeriod = timePeriodFilter {
             filteredEvents = filteredEvents.filter { event in
-                // For recurring events, check if ANY completion falls within the time period
-                if event.isRecurring {
-                    // Include event if it has at least one completion in the time period
-                    let hasCompletionInPeriod = event.completedDates.contains { date in
-                        return date >= timePeriod.startDate && date <= timePeriod.endDate
-                    }
-                    // Also include if the event is scheduled/active during this period
-                    let eventDate = event.targetDate ?? event.scheduledTime ?? currentDate
-                    let isActiveInPeriod = eventDate <= timePeriod.endDate && (event.recurrenceEndDate == nil || event.recurrenceEndDate! >= timePeriod.startDate)
-                    return hasCompletionInPeriod || isActiveInPeriod
-                } else {
-                    // For non-recurring events, use the original date-based filtering
-                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
-                    return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
-                }
+                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
             }
         }
 
@@ -730,56 +722,9 @@ class SelineAppContext {
                     context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
                 }
             }
-            // RECURRING EVENTS SUMMARY with completion stats
-            let recurringEvents = events.filter { $0.isRecurring }
-            if !recurringEvents.isEmpty {
-                context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
-                for event in recurringEvents {
-                    let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
-
-                    let thisMonthCompletions = event.completedDates.filter { date in
-                        let dateComponents = calendar.dateComponents([.month, .year], from: date)
-                        return dateComponents.month == currentMonth.month && dateComponents.year == currentMonth.year
-                    }
-
-                    let categoryName = getCategoryName(for: event.tagId)
-                    context += "  • \(event.title) [\(categoryName)]\n"
-                    context += "    All-time: \(event.completedDates.count) completions\n"
-                    context += "    This month: \(thisMonthCompletions.count) completions\n"
-
-                    // Monthly breakdown
-                    let monthlyStats = Dictionary(grouping: event.completedDates) { date in
-                        let formatter = DateFormatter()
-                        formatter.dateFormat = "MMMM yyyy"
-                        return formatter.string(from: date)
-                    }
-
-                    if !monthlyStats.isEmpty {
-                        // Sort months by date (most recent first)
-                        let sortedMonths = monthlyStats.keys.sorted { month1, month2 in
-                            // Create dummy dates from the month strings for comparison
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "MMMM yyyy"
-                            let date1 = formatter.date(from: month1) ?? Date.distantPast
-                            let date2 = formatter.date(from: month2) ?? Date.distantPast
-                            return date1 > date2
-                        }
-
-                        context += "    Monthly stats:\n"
-                        for month in sortedMonths.prefix(6) {
-                            let count = monthlyStats[month]?.count ?? 0
-                            context += "      \(month): \(count) completions\n"
-                        }
-                    }
-
-                    if !thisMonthCompletions.isEmpty {
-                        let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
-                        context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
-                    } else {
-                        context += "    No completions this month\n"
-                    }
-                }
-            }
+            // NOTE: Recurring events are NOT included in LLM context
+            // They cause confusion for queries like "when was my last haircut?"
+            // Anchor dates and next occurrences don't answer user's questions
         } else {
             context += "  No events\n"
         }
@@ -1213,7 +1158,11 @@ class SelineAppContext {
 
         // Events detail - Comprehensive with categories, temporal organization, and all-day status
         context += "=== EVENTS & CALENDAR ===\n"
-        if !events.isEmpty {
+
+        // Remove recurring events from context - they don't answer questions like "when was my last..."
+        let nonRecurringEvents = events.filter { !$0.isRecurring }
+
+        if !nonRecurringEvents.isEmpty {
             let calendar = Calendar.current
 
             // Organize events by temporal proximity
@@ -1223,59 +1172,19 @@ class SelineAppContext {
             var upcoming: [TaskItem] = []
             var past: [TaskItem] = []
 
-            for event in events {
-                if event.isRecurring {
-                    // For recurring events, check which sections they appear in
-                    // A daily event might appear in Today, Tomorrow, AND This Week, etc.
+            for event in nonRecurringEvents {
+                let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
 
-                    let todayDate = currentDate
-                    let tomorrowDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
-                    let dayAfterTomorrowDate = calendar.date(byAdding: .day, value: 2, to: currentDate)!
-
-                    if shouldEventOccurOn(event, date: todayDate) {
-                        today.append(event)
-                    }
-
-                    if shouldEventOccurOn(event, date: tomorrowDate) {
-                        tomorrow.append(event)
-                    }
-
-                    if shouldEventOccurOn(event, date: dayAfterTomorrowDate) {
-                        thisWeek.append(event)
-                    } else {
-                        // If it doesn't occur in the next 2 days, check if it occurs within the week
-                        var hasUpcomingOccurrence = false
-                        for daysAhead in 3...7 {
-                            if let checkDate = calendar.date(byAdding: .day, value: daysAhead, to: currentDate),
-                               shouldEventOccurOn(event, date: checkDate) {
-                                thisWeek.append(event)
-                                hasUpcomingOccurrence = true
-                                break
-                            }
-                        }
-
-                        // If still no occurrence found, check further ahead
-                        if !hasUpcomingOccurrence {
-                            if let nextDate = getNextOccurrenceDate(for: event, after: calendar.date(byAdding: .day, value: 7, to: currentDate)!) {
-                                upcoming.append(event)
-                            }
-                        }
-                    }
+                if calendar.isDateInToday(eventDate) {
+                    today.append(event)
+                } else if calendar.isDateInTomorrow(eventDate) {
+                    tomorrow.append(event)
+                } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
+                    thisWeek.append(event)
+                } else if eventDate > currentDate {
+                    upcoming.append(event)
                 } else {
-                    // For non-recurring events, use the original date logic
-                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
-
-                    if calendar.isDateInToday(eventDate) {
-                        today.append(event)
-                    } else if calendar.isDateInTomorrow(eventDate) {
-                        tomorrow.append(event)
-                    } else if calendar.isDate(eventDate, inSameDayAs: currentDate.addingTimeInterval(2*24*3600)) {
-                        thisWeek.append(event)
-                    } else if eventDate > currentDate {
-                        upcoming.append(event)
-                    } else {
-                        past.append(event)
-                    }
+                    past.append(event)
                 }
             }
 
