@@ -1658,11 +1658,7 @@ class TaskManager: ObservableObject {
         // IMPORTANT: Don't set completed date for recurring tasks
         if !taskItem.isRecurring {
             if let completedDateString = taskDict["completed_date"] as? String {
-                if let parsedDate = ISO8601DateFormatter().date(from: completedDateString) {
-                    taskItem.completedDate = parsedDate
-                } else {
-                    print("⚠️ Failed to parse completedDate for task '\(title)': \(completedDateString)")
-                }
+                taskItem.completedDate = ISO8601DateFormatter().date(from: completedDateString)
             }
         }
 
@@ -1675,11 +1671,7 @@ class TaskManager: ObservableObject {
         }
 
         if let endDateString = taskDict["recurrence_end_date"] as? String {
-            if let parsedDate = ISO8601DateFormatter().date(from: endDateString) {
-                taskItem.recurrenceEndDate = parsedDate
-            } else {
-                print("⚠️ Failed to parse recurrenceEndDate for task '\(title)': \(endDateString)")
-            }
+            taskItem.recurrenceEndDate = ISO8601DateFormatter().date(from: endDateString)
         }
 
         if let parentId = taskDict["parent_recurring_task_id"] as? String {
@@ -1687,27 +1679,15 @@ class TaskManager: ObservableObject {
         }
 
         if let scheduledTimeString = taskDict["scheduled_time"] as? String {
-            if let parsedDate = ISO8601DateFormatter().date(from: scheduledTimeString) {
-                taskItem.scheduledTime = parsedDate
-            } else {
-                print("⚠️ Failed to parse scheduledTime for task '\(title)': \(scheduledTimeString)")
-            }
+            taskItem.scheduledTime = ISO8601DateFormatter().date(from: scheduledTimeString)
         }
 
         if let endTimeString = taskDict["end_time"] as? String {
-            if let parsedDate = ISO8601DateFormatter().date(from: endTimeString) {
-                taskItem.endTime = parsedDate
-            } else {
-                print("⚠️ Failed to parse endTime for task '\(title)': \(endTimeString)")
-            }
+            taskItem.endTime = ISO8601DateFormatter().date(from: endTimeString)
         }
 
         if let targetDateString = taskDict["target_date"] as? String {
-            if let parsedDate = ISO8601DateFormatter().date(from: targetDateString) {
-                taskItem.targetDate = parsedDate
-            } else {
-                print("⚠️ Failed to parse targetDate for task '\(title)': \(targetDateString)")
-            }
+            taskItem.targetDate = ISO8601DateFormatter().date(from: targetDateString)
         }
 
         if let reminderTimeString = taskDict["reminder_time"] as? String {
@@ -1740,11 +1720,7 @@ class TaskManager: ObservableObject {
         }
 
         if let emailTimestampString = taskDict["email_timestamp"] as? String {
-            if let parsedDate = ISO8601DateFormatter().date(from: emailTimestampString) {
-                taskItem.emailTimestamp = parsedDate
-            } else {
-                print("⚠️ Failed to parse emailTimestamp for task '\(title)': \(emailTimestampString)")
-            }
+            taskItem.emailTimestamp = ISO8601DateFormatter().date(from: emailTimestampString)
         }
 
         if let emailBody = taskDict["email_body"] as? String {
@@ -1761,14 +1737,7 @@ class TaskManager: ObservableObject {
            let jsonData = completedDatesJson.data(using: .utf8),
            let dateStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
             let formatter = ISO8601DateFormatter()
-            let parsedDates = dateStrings.compactMap { formatter.date(from: $0) }
-            let failedCount = dateStrings.count - parsedDates.count
-
-            if failedCount > 0 {
-                print("⚠️ Failed to parse \(failedCount) out of \(dateStrings.count) completed dates for recurring task '\(taskItem.title)'")
-            }
-
-            taskItem.completedDates = parsedDates
+            taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
             if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
                 print("📥 Restored \(taskItem.completedDates.count) completed dates for recurring task '\(taskItem.title)' from Supabase")
             }
