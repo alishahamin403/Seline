@@ -1571,17 +1571,32 @@ class TaskManager: ObservableObject {
                     }
                 }
 
-                // Update local tasks with Supabase data
+                // Merge Supabase data with existing local tasks
                 await MainActor.run {
-                    var tasksByWeekday: [WeekDay: [TaskItem]] = [:]
-                    for weekday in WeekDay.allCases {
-                        tasksByWeekday[weekday] = supabaseTasks.filter { $0.weekday == weekday }
+                    // Start with existing local tasks
+                    var mergedTasks = self.tasks
+
+                    // Update or add tasks from Supabase
+                    for supabaseTask in supabaseTasks {
+                        if mergedTasks[supabaseTask.weekday] != nil {
+                            // Update existing weekday's tasks
+                            if let index = mergedTasks[supabaseTask.weekday]?.firstIndex(where: { $0.id == supabaseTask.id }) {
+                                // Update existing task with Supabase data
+                                mergedTasks[supabaseTask.weekday]?[index] = supabaseTask
+                            } else {
+                                // Task exists in Supabase but not locally - add it
+                                mergedTasks[supabaseTask.weekday]?.append(supabaseTask)
+                            }
+                        } else {
+                            // Initialize weekday with this task
+                            mergedTasks[supabaseTask.weekday] = [supabaseTask]
+                        }
                     }
 
-                    self.tasks = tasksByWeekday
+                    self.tasks = mergedTasks
                     initializeEmptyDays()
 
-                    // IMPORTANT: Save loaded tasks to local cache so they persist across rebuilds
+                    // IMPORTANT: Save merged tasks to local cache so they persist across rebuilds
                     // This ensures email attachments and all data are available even if Supabase is unreachable
                     self.saveTasks()
 
@@ -1817,6 +1832,8 @@ class TaskManager: ObservableObject {
                 .from("tasks")
                 .upsert(taskData)
                 .execute()
+
+            print("✅ Task '\(task.title)' saved to Supabase successfully")
 
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
