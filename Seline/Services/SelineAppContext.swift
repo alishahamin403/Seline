@@ -27,6 +27,20 @@ class SelineAppContext {
     private(set) var currentDate: Date = Date()
     private(set) var weatherData: WeatherData?
 
+    // MARK: - Cache Invalidation
+    private var lastRefreshTime: Date = Date(timeIntervalSince1970: 0)
+    private var lastWeatherFetchTime: Date = Date(timeIntervalSince1970: 0)
+    private let REFRESH_CACHE_INTERVAL: TimeInterval = 30 // seconds
+    private let WEATHER_CACHE_INTERVAL: TimeInterval = 1800 // 30 minutes
+
+    private var needsRefresh: Bool {
+        Date().timeIntervalSince(lastRefreshTime) > REFRESH_CACHE_INTERVAL
+    }
+
+    private var needsWeatherFetch: Bool {
+        Date().timeIntervalSince(lastWeatherFetchTime) > WEATHER_CACHE_INTERVAL
+    }
+
     init(
         taskManager: TaskManager = TaskManager.shared,
         tagManager: TagManager = TagManager.shared,
@@ -60,20 +74,30 @@ class SelineAppContext {
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
 
-        // Collect custom email folders and their saved emails
+        // Collect custom email folders and their saved emails (in parallel for speed)
         do {
             self.customEmailFolders = try await emailService.fetchSavedFolders()
             print("📧 Found \(self.customEmailFolders.count) custom email folders")
 
-            // Load emails for each folder
-            for folder in self.customEmailFolders {
-                do {
-                    let savedEmails = try await emailService.fetchSavedEmails(in: folder.id)
-                    self.savedEmailsByFolder[folder.id] = savedEmails
-                    print("  • \(folder.name): \(savedEmails.count) emails")
-                } catch {
-                    print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
-                    self.savedEmailsByFolder[folder.id] = []
+            // Load emails for each folder IN PARALLEL (not sequential)
+            await withTaskGroup(of: (UUID, [SavedEmail]).self) { group in
+                for folder in self.customEmailFolders {
+                    group.addTask {
+                        do {
+                            let savedEmails = try await emailService.fetchSavedEmails(in: folder.id)
+                            return (folder.id, savedEmails)
+                        } catch {
+                            print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
+                            return (folder.id, [])
+                        }
+                    }
+                }
+
+                for await (folderId, emails) in group {
+                    self.savedEmailsByFolder[folderId] = emails
+                    if let folder = self.customEmailFolders.first(where: { $0.id == folderId }) {
+                        print("  • \(folder.name): \(emails.count) emails")
+                    }
                 }
             }
         } catch {
@@ -136,18 +160,26 @@ class SelineAppContext {
         // Collect all locations
         self.locations = locationsManager.savedPlaces
 
-        // Fetch weather data
-        do {
-            // Try to get current location, otherwise use default (Toronto)
-            let locationService = LocationService.shared
-            let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+        // Fetch weather data (only if cache expired - 30 min TTL)
+        if needsWeatherFetch {
+            do {
+                // Try to get current location, otherwise use default (Toronto)
+                let locationService = LocationService.shared
+                let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
 
-            await weatherService.fetchWeather(for: location)
-            self.weatherData = weatherService.weatherData
-            print("🌤️ Weather data fetched")
-        } catch {
-            print("⚠️ Failed to fetch weather: \(error)")
+                await weatherService.fetchWeather(for: location)
+                self.weatherData = weatherService.weatherData
+                self.lastWeatherFetchTime = Date()
+                print("🌤️ Weather data fetched (fresh)")
+            } catch {
+                print("⚠️ Failed to fetch weather: \(error)")
+            }
+        } else {
+            print("🌤️ Weather data cached (not fetching)")
         }
+
+        // Mark refresh as complete for cache validation
+        self.lastRefreshTime = Date()
 
         print("📦 AppContext refreshed:")
         print("   Current date: \(formatDate(currentDate))")
@@ -479,8 +511,15 @@ class SelineAppContext {
         let userAskedAboutExpenses = isExpenseQuery(userQuery)
         let userAskedAboutBankStatement = isBankStatementQuery(userQuery)
 
-        // Refresh all data
-        await refresh()
+        // Only refresh if cache expired (30 second TTL)
+        // This prevents full refresh on every LLM query
+        if needsRefresh {
+            await refresh()
+            self.lastRefreshTime = Date()
+            print("✅ AppContext refreshed (fresh)")
+        } else {
+            print("✅ AppContext using cache (not refreshing)")
+        }
 
         // Filter events based on extracted intent
         var filteredEvents = events
@@ -757,18 +796,14 @@ class SelineAppContext {
         }
 
         if !receipts.isEmpty {
-                // Group receipts by month dynamically
+                // Group receipts by month dynamically (use static formatter for performance)
                 let receiptsByMonth = Dictionary(grouping: receipts) { receipt in
-                    let formatter = DateFormatter()
-                    formatter.dateFormat = "MMMM yyyy"
-                    return formatter.string(from: receipt.date)
+                    Self.dateFormatterMedium.string(from: receipt.date)
                 }
 
                 // Get current month for detection
                 let calendar = Calendar.current
-                let currentMonthFormatter = DateFormatter()
-                currentMonthFormatter.dateFormat = "MMMM yyyy"
-                let currentMonthStr = currentMonthFormatter.string(from: currentDate)
+                let currentMonthStr = Self.dateFormatterMedium.string(from: currentDate)
 
                 // Sort months: current month first, then others by recency
                 let sortedMonths = receiptsByMonth.keys.sorted { month1, month2 in
@@ -1152,15 +1187,16 @@ class SelineAppContext {
     }
 
     private func buildContextPromptInternal() async -> String {
-        // Refresh all data including custom email folders
-        await refresh()
+        // Only refresh if cache expired (30 second TTL)
+        if needsRefresh {
+            await refresh()
+            self.lastRefreshTime = Date()
+        }
 
         var context = ""
 
-        // Current date context
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .full
-        dateFormatter.timeStyle = .short
+        // Current date context (use static formatter for performance)
+        let dateFormatter = Self.dateFormatterFull
 
         context += "=== CURRENT DATE ===\n"
         context += dateFormatter.string(from: currentDate) + "\n\n"
@@ -1998,4 +2034,24 @@ class SelineAppContext {
 
         return nil
     }
+
+    // MARK: - Static Date Formatters (Performance Optimization)
+    private static let dateFormatterFull: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static let dateFormatterMedium: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }()
+
+    private static let dateFormatterShort: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter
+    }()
 }
