@@ -5061,10 +5061,8 @@ class OpenAIService: ObservableObject {
                 queryDescription = "tomorrow"
             }
         } else if query.contains("next week") || query.contains("upcoming week") {
-            // Calculate Monday of current week first, then add 7 days for Monday of next week
-            if let thisWeekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: currentDate)),
-               let nextWeekStart = calendar.date(byAdding: .day, value: 7, to: thisWeekStart) {
-                // Generate all 7 days of next week (Monday to Sunday)
+            if let nextWeekStart = calendar.date(byAdding: .day, value: 1, to: currentDate),
+               let nextWeekEnd = calendar.date(byAdding: .day, value: 7, to: currentDate) {
                 targetDates = (0...6).compactMap { calendar.date(byAdding: .day, value: $0, to: nextWeekStart) }
                 queryDescription = "next week"
             }
