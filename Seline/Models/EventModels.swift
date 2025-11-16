@@ -727,22 +727,10 @@ class TaskManager: ObservableObject {
                 // Remove from old weekday
                 tasks[updatedTask.weekday]?.remove(at: index)
 
-                // Create task with correct weekday
-                let newTask = TaskItem(
-                    title: updatedTask.title,
-                    weekday: newWeekday,
-                    scheduledTime: updatedTask.scheduledTime,
-                    targetDate: updatedTask.targetDate,
-                    isRecurring: updatedTask.isRecurring,
-                    recurrenceFrequency: updatedTask.recurrenceFrequency,
-                    parentRecurringTaskId: updatedTask.parentRecurringTaskId
-                )
-                var finalTaskCopy = newTask
-                finalTaskCopy.id = updatedTask.id
-                finalTaskCopy.isCompleted = updatedTask.isCompleted
-                finalTaskCopy.completedDate = updatedTask.completedDate
-                finalTaskCopy.createdAt = updatedTask.createdAt
-                finalTaskCopy.isDeleted = updatedTask.isDeleted
+                // Create a copy of the updated task with the new weekday
+                // IMPORTANT: Must preserve ALL fields (description, email data, etc.)
+                var finalTaskCopy = updatedTask
+                finalTaskCopy.weekday = newWeekday
 
                 // Ensure the weekday array exists
                 if tasks[newWeekday] == nil {
