@@ -952,16 +952,6 @@ class TaskManager: ObservableObject {
         let allTasks = tasks.values.flatMap { $0 }
         let recurringTasks = allTasks.filter { $0.isRecurring }
 
-        // DEBUG: Check for gym task
-        if let gymTask = allTasks.first(where: { $0.title.lowercased().contains("gym") }) {
-            print("🔍 Found gym task in allTasks: \(gymTask.title), isRecurring: \(gymTask.isRecurring), targetDate: \(gymTask.targetDate?.description ?? "nil")")
-        } else {
-            print("🔍 No gym task found in allTasks (total tasks: \(allTasks.count))")
-        }
-
-        if !recurringTasks.isEmpty {
-            print("🔍 Found \(recurringTasks.count) recurring tasks for date \(targetDate)")
-        }
 
         let filteredTasks = allTasks.filter { task in
             // First filter out deleted tasks
@@ -1176,9 +1166,6 @@ class TaskManager: ObservableObject {
 
         // Don't show tasks before their start date
         guard targetDate >= startDate else {
-            if task.title.lowercased().contains("gym") {
-                print("❌ Gym task: targetDate \(targetDate) < startDate \(startDate)")
-            }
             return false
         }
 
