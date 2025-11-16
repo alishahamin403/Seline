@@ -63,6 +63,7 @@ struct StructuredLLMContext: Encodable {
             let id: String
             let title: String
             let scheduledTime: String?
+            let dayOfWeek: String?  // Explicit day of week to prevent LLM confusion
             let duration: Int?  // minutes
             let isCompleted: Bool
             let relevanceScore: Double
@@ -240,6 +241,10 @@ class ContextBuilder {
     private func buildTasksJSON(from tasks: [TaskItemWithRelevance]?) -> [StructuredLLMContext.ContextData.TaskJSON]? {
         guard let tasks = tasks, !tasks.isEmpty else { return nil }
 
+        let calendar = Calendar.current
+        let weekdayFormatter = DateFormatter()
+        weekdayFormatter.dateFormat = "EEEE"  // Full weekday name (Monday, Tuesday, etc.)
+
         return tasks.map { taskWithRelevance in
             let duration: Int? = {
                 if let scheduled = taskWithRelevance.task.scheduledTime,
@@ -249,10 +254,16 @@ class ContextBuilder {
                 return nil
             }()
 
+            // Extract day of week from scheduled time
+            let dayOfWeek: String? = taskWithRelevance.task.scheduledTime.map { date in
+                weekdayFormatter.string(from: date)
+            }
+
             return StructuredLLMContext.ContextData.TaskJSON(
                 id: taskWithRelevance.task.id,
                 title: taskWithRelevance.task.title,
                 scheduledTime: taskWithRelevance.task.scheduledTime.map { formatLocalDateForLLM($0) },
+                dayOfWeek: dayOfWeek,
                 duration: duration,
                 isCompleted: taskWithRelevance.task.isCompleted,
                 relevanceScore: taskWithRelevance.relevanceScore,
