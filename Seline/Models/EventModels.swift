@@ -1553,25 +1553,59 @@ class TaskManager: ObservableObject {
 
         do {
             let client = await supabaseManager.getPostgrestClient()
-            // CRITICAL: Remove default 1000 row limit to fetch ALL tasks
-            // User might have 1000+ tasks, and gym task could be beyond the limit
             print("🔍 Loading tasks for user_id: \(userId.uuidString)")
-            let response = try await client
+
+            // CRITICAL: User has 4000+ tasks but PostgREST default limit is 1000 per request
+            // Strategy: Load recurring tasks first (gym task is recurring), then recent tasks
+            var allTasksArray: [[String: Any]] = []
+
+            // Step 1: Load ALL recurring tasks (usually much fewer than 1000)
+            print("📦 Loading recurring tasks...")
+            let recurringResponse = try await client
                 .from("tasks")
                 .select("*")
                 .eq("user_id", value: userId.uuidString)
-                .limit(10000)  // Fetch up to 10,000 tasks instead of default 1000
+                .eq("is_recurring", value: true)
+                .limit(1000)
                 .execute()
 
-            let data = response.data
-            if data.isEmpty {
+            let recurringData = recurringResponse.data
+            if !recurringData.isEmpty,
+               let recurringArray = try? JSONSerialization.jsonObject(with: recurringData, options: []) as? [[String: Any]] {
+                allTasksArray.append(contentsOf: recurringArray)
+                print("📦 Loaded \(recurringArray.count) recurring tasks")
+            }
+
+            // Step 2: Load most recent non-recurring tasks (last 1000)
+            print("📦 Loading recent non-recurring tasks...")
+            let recentResponse = try await client
+                .from("tasks")
+                .select("*")
+                .eq("user_id", value: userId.uuidString)
+                .eq("is_recurring", value: false)
+                .order("created_at", ascending: false)  // Most recent first
+                .limit(1000)
+                .execute()
+
+            let recentData = recentResponse.data
+            if !recentData.isEmpty,
+               let recentArray = try? JSONSerialization.jsonObject(with: recentData, options: []) as? [[String: Any]] {
+                // Only add if not already in allTasksArray
+                let existingIds = Set(allTasksArray.compactMap { $0["id"] as? String })
+                let newTasks = recentArray.filter { !existingIds.contains($0["id"] as? String ?? "") }
+                allTasksArray.append(contentsOf: newTasks)
+                print("📦 Loaded \(newTasks.count) recent non-recurring tasks")
+            }
+
+            if allTasksArray.isEmpty {
                 print("No tasks data received from Supabase")
                 return
             }
 
             // Parse the response data into TaskItem objects
-            if let tasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
-                print("📦 Received \(tasksArray.count) tasks from Supabase")
+            print("📦 Total received: \(allTasksArray.count) tasks from Supabase")
+            if true {
+                let tasksArray = allTasksArray
 
                 // Check if gym task is in response
                 if let gymTask = tasksArray.first(where: { ($0["title"] as? String)?.lowercased().contains("gym") ?? false }) {
@@ -1613,10 +1647,8 @@ class TaskManager: ObservableObject {
                     self.saveTasks()
 
                     // Check if any recurring tasks were fixed (marked incomplete)
-                    let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
                     let tasksNeedingFix = supabaseTasks.filter { task in
-                        if let originalArray = originalTasksArray,
-                           let originalTask = originalArray.first(where: { ($0["id"] as? String) == task.id }),
+                        if let originalTask = tasksArray.first(where: { ($0["id"] as? String) == task.id }),
                            let wasCompleted = originalTask["is_completed"] as? Bool {
                             return task.isRecurring && wasCompleted && !task.isCompleted
                         }
