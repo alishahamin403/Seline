@@ -947,7 +947,15 @@ class TaskManager: ObservableObject {
         let allTasks = tasks.values.flatMap { $0 }
         let recurringTasks = allTasks.filter { $0.isRecurring }
 
+        // DEBUG: Check for gym task
+        if let gymTask = allTasks.first(where: { $0.title.lowercased().contains("gym") }) {
+            print("🔍 Found gym task in allTasks: \(gymTask.title), isRecurring: \(gymTask.isRecurring), targetDate: \(gymTask.targetDate?.description ?? "nil")")
+        } else {
+            print("🔍 No gym task found in allTasks (total tasks: \(allTasks.count))")
+        }
+
         if !recurringTasks.isEmpty {
+            print("🔍 Found \(recurringTasks.count) recurring tasks for date \(targetDate)")
         }
 
         let filteredTasks = allTasks.filter { task in
@@ -1162,7 +1170,12 @@ class TaskManager: ObservableObject {
         let targetDate = calendar.startOfDay(for: date)
 
         // Don't show tasks before their start date
-        guard targetDate >= startDate else { return false }
+        guard targetDate >= startDate else {
+            if task.title.lowercased().contains("gym") {
+                print("❌ Gym task: targetDate \(targetDate) < startDate \(startDate)")
+            }
+            return false
+        }
 
         // Check if the task is within its recurrence end date
         if let endDate = task.recurrenceEndDate, targetDate > endDate {
@@ -1552,8 +1565,12 @@ class TaskManager: ObservableObject {
 
                 for taskDict in tasksArray {
                     if let taskItem = await parseTaskFromSupabase(taskDict) {
-                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil")")
+                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil"), completedDates: \(taskItem.completedDates.count)")
                         supabaseTasks.append(taskItem)
+                    } else {
+                        if let rawTitle = taskDict["title"] as? String {
+                            print("❌ Failed to parse task: '\(rawTitle)' from Supabase")
+                        }
                     }
                 }
 
