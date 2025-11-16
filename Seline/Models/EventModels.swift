@@ -2030,26 +2030,19 @@ class TaskManager: ObservableObject {
 
         taskData["email_is_important"] = AnyJSON.bool(task.emailIsImportant)
 
-        // Save completed occurrences for recurring tasks as TIMESTAMP[] array
+        // Save denormalized completion fields for quick access
+        // Note: We sync the last completion date and count, but not the full array
+        // The full completed_occurrences array is loaded from Supabase on startup
         if !task.completedDates.isEmpty && task.isRecurring {
-            let completedDatesStrings = task.completedDates.map { formatter.string(from: $0) }
-            // Store as JSON array that PostgreSQL can parse as TIMESTAMP[]
-            if let jsonData = try? JSONSerialization.data(withJSONObject: completedDatesStrings),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                taskData["completed_occurrences"] = AnyJSON.string(jsonString)
-            } else {
-                taskData["completed_occurrences"] = AnyJSON.null
-            }
-
-            // Also save denormalized fields for quick access
+            // Save the last completion date
             if let lastDate = task.completedDates.sorted().last {
                 taskData["last_completion_date"] = AnyJSON.string(formatter.string(from: lastDate))
             } else {
                 taskData["last_completion_date"] = AnyJSON.null
             }
+            // Save the count of completions
             taskData["completion_count"] = AnyJSON.string(String(task.completedDates.count))
         } else {
-            taskData["completed_occurrences"] = AnyJSON.null
             taskData["last_completion_date"] = AnyJSON.null
             taskData["completion_count"] = AnyJSON.string("0")
         }
