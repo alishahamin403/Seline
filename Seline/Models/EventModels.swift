@@ -1641,8 +1641,21 @@ class TaskManager: ObservableObject {
             // This is handled silently - no warning needed
         }
 
+        // Parse is_recurring - handle multiple formats (Bool, Int, String)
+        var isRecurringValue = false
+        if let boolValue = taskDict["is_recurring"] as? Bool {
+            isRecurringValue = boolValue
+        } else if let intValue = taskDict["is_recurring"] as? Int {
+            isRecurringValue = intValue != 0
+        } else if let stringValue = taskDict["is_recurring"] as? String {
+            isRecurringValue = stringValue.lowercased() == "true" || stringValue == "1"
+        }
+        taskItem.isRecurring = isRecurringValue
+
+        print("🔍 Parsed is_recurring for '\(title)': \(isRecurringValue)")
+
         // Check if this is a recurring task
-        if let isRecurring = taskDict["is_recurring"] as? Bool, isRecurring {
+        if isRecurringValue {
             // IMPORTANT: Recurring tasks should NEVER be marked as completed
             // If a recurring task was accidentally marked complete, fix it
             if isCompleted {
@@ -1663,10 +1676,6 @@ class TaskManager: ObservableObject {
             if let completedDateString = taskDict["completed_date"] as? String {
                 taskItem.completedDate = ISO8601DateFormatter().date(from: completedDateString)
             }
-        }
-
-        if let isRecurring = taskDict["is_recurring"] as? Bool {
-            taskItem.isRecurring = isRecurring
         }
 
         if let frequencyString = taskDict["recurrence_frequency"] as? String {
