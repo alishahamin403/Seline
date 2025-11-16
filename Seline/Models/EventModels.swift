@@ -452,6 +452,8 @@ class TaskManager: ObservableObject {
     func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, tagId: String? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
+        print("📝 addTask called: title='\(title)', weekday=\(weekday), isRecurring=\(isRecurring)")
+
         // Use provided target date, or default to the current week's date for this weekday
         let finalTargetDate = targetDate ?? weekday.dateForCurrentWeek()
         let newTask = TaskItem(
@@ -470,6 +472,7 @@ class TaskManager: ObservableObject {
         newTaskWithTag.tagId = tagId
         tasks[weekday]?.append(newTaskWithTag)
         saveTasks()
+        print("💾 Task saved to local cache")
 
         // Schedule notification if reminder is set
         if let reminderTime = reminderTime, reminderTime != .none, let scheduledTime = scheduledTime {
@@ -1818,6 +1821,10 @@ class TaskManager: ObservableObject {
     }
 
     private func saveTaskToSupabase(_ task: TaskItem) async {
+        print("🔄 saveTaskToSupabase called for: '\(task.title)'")
+        print("   isAuthenticated: \(authManager.isAuthenticated)")
+        print("   userId: \(authManager.supabaseUser?.id.uuidString ?? "nil")")
+
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("⚠️ Cannot save task to Supabase: User not authenticated")
@@ -1828,6 +1835,8 @@ class TaskManager: ObservableObject {
             let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
             let client = await supabaseManager.getPostgrestClient()
 
+            print("📤 Upserting task to Supabase: \(task.id)")
+
             try await client
                 .from("tasks")
                 .upsert(taskData)
@@ -1837,6 +1846,7 @@ class TaskManager: ObservableObject {
 
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
+            print("   Error details: \(String(describing: error))")
         }
     }
 
