@@ -206,104 +206,18 @@ struct EmailDetailView: View {
 
     // MARK: - Original Email Section
     private var originalEmailSection: some View {
-        VStack(spacing: 0) {
-            // Expandable header button (with padding)
-            Button(action: {
+        ReusableEmailBodyView(
+            htmlContent: fullEmail?.body ?? email.body,
+            plainTextContent: fullEmail?.snippet ?? email.snippet,
+            aiSummary: fullEmail?.aiSummary ?? email.aiSummary,
+            isExpanded: isOriginalEmailExpanded,
+            onToggleExpand: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isOriginalEmailExpanded.toggle()
                 }
-            }) {
-                HStack {
-                    Text("Original Email")
-                        .font(FontManager.geist(size: .body, weight: .medium))
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
-
-                    Spacer()
-
-                    Image(systemName: isOriginalEmailExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(
-                    colorScheme == .dark ?
-                        Color.white.opacity(0.05) :
-                        Color.gray.opacity(0.1)
-                )
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            // Expandable content (full width, no padding)
-            if isOriginalEmailExpanded {
-                if isLoadingFullBody {
-                    // Show loading indicator while fetching full body
-                    VStack {
-                        ShadcnSpinner(size: .medium)
-                            .padding()
-                        Text("Loading email content...")
-                            .font(FontManager.geist(size: .caption, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                    }
-                    .frame(height: 200)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        colorScheme == .dark ?
-                            Color.black :
-                            Color.white
-                    )
-                } else if let displayEmail = fullEmail ?? email as Email?,
-                          let htmlBody = displayEmail.body,
-                          !htmlBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                          htmlBody.contains("<") {
-                    // Display HTML content using WebView with zoom
-                    ZoomableHTMLContentView(htmlContent: htmlBody)
-                        .frame(height: 500)
-                        .background(
-                            colorScheme == .dark ?
-                                Color.black :
-                                Color.white
-                        )
-                } else {
-                    // Display plain text or show "no content" message
-                    let bodyText = (fullEmail ?? email).body ?? (fullEmail ?? email).snippet
-
-                    ScrollView {
-                        if bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            VStack(spacing: 12) {
-                                Image(systemName: "doc.text")
-                                    .font(.system(size: 40, weight: .light))
-                                    .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                                Text("No content available")
-                                    .font(FontManager.geist(size: .body, weight: .medium))
-                                    .foregroundColor(Color.shadcnMuted(colorScheme))
-
-                                Text("This email does not contain any readable content.")
-                                    .font(FontManager.geist(size: .caption, weight: .regular))
-                                    .foregroundColor(Color.shadcnMuted(colorScheme))
-                                    .multilineTextAlignment(.center)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(20)
-                        } else {
-                            Text(bodyText)
-                                .font(FontManager.geist(size: .body, weight: .regular))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(20)
-                        }
-                    }
-                    .frame(height: 300)
-                    .background(
-                        colorScheme == .dark ?
-                            Color.black :
-                            Color.white
-                    )
-                }
-            }
-        }
+            },
+            isLoading: isLoadingFullBody
+        )
     }
 
     // MARK: - Attachments Section

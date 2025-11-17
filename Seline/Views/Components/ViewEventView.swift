@@ -139,9 +139,62 @@ struct ViewEventView: View {
                     }
                 }
 
-                // Attached Email
+                // Attached Email (using unified email display)
                 if task.hasEmailAttachment {
-                    attachedEmailSection
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Attached Email")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                        VStack(spacing: 0) {
+                            // Email header with subject, sender, snippet, timestamp
+                            ReusableEmailHeaderView(
+                                email: nil,
+                                emailSubject: task.emailSubject,
+                                emailSenderName: task.emailSenderName,
+                                emailSenderEmail: task.emailSenderEmail,
+                                emailTimestamp: task.emailTimestamp,
+                                emailSnippet: task.emailSnippet,
+                                showSnippet: !isEmailExpanded,
+                                showTimestamp: true,
+                                style: .embedded
+                            )
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ?
+                                        Color.white.opacity(0.05) :
+                                        Color.black.opacity(0.03))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(colorScheme == .dark ?
+                                        Color.white.opacity(0.1) :
+                                        Color.black.opacity(0.1), lineWidth: 1)
+                            )
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isEmailExpanded.toggle()
+                                }
+                            }
+
+                            // Email body with AI summary when expanded
+                            if isEmailExpanded {
+                                ReusableEmailBodyView(
+                                    htmlContent: task.emailBody,
+                                    plainTextContent: task.emailSnippet,
+                                    aiSummary: task.emailAiSummary,
+                                    isExpanded: true,
+                                    onToggleExpand: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            isEmailExpanded.toggle()
+                                        }
+                                    },
+                                    isLoading: false
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer()
@@ -203,179 +256,6 @@ struct ViewEventView: View {
         }
     }
 
-    // MARK: - Attached Email Section
-
-    private var attachedEmailSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Attached Email")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isEmailExpanded.toggle()
-                }
-            }) {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Email header
-                    HStack(spacing: 12) {
-                        // Email icon
-                        ZStack {
-                            Circle()
-                                .fill(colorScheme == .dark ?
-                                    Color.white.opacity(0.2) :
-                                    Color.black.opacity(0.1))
-                                .frame(width: 40, height: 40)
-
-                            Image(systemName: "envelope.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(colorScheme == .dark ?
-                                    Color.white :
-                                    Color.black)
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let subject = task.emailSubject {
-                                Text(subject)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
-                                    .lineLimit(isEmailExpanded ? nil : 2)
-                                    .multilineTextAlignment(.leading)
-                            }
-
-                            if let senderName = task.emailSenderName {
-                                HStack(spacing: 4) {
-                                    Text("From:")
-                                        .font(.system(size: 13, weight: .regular))
-                                        .foregroundColor(Color.gray)
-
-                                    Text(senderName)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ?
-                                            Color.white.opacity(0.7) :
-                                            Color.black.opacity(0.6))
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        // Expand/collapse indicator
-                        Image(systemName: isEmailExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color.gray)
-                    }
-
-                    // Email snippet (only when collapsed)
-                    if !isEmailExpanded, let snippet = task.emailSnippet {
-                        Text(snippet)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(Color.gray)
-                            .lineLimit(3)
-                            .multilineTextAlignment(.leading)
-                            .padding(.top, 4)
-                    }
-
-                    // Email timestamp
-                    if let timestamp = task.emailTimestamp {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 11))
-                                .foregroundColor(Color.gray)
-
-                            Text(formatEmailTimestamp(timestamp))
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(Color.gray)
-                        }
-                        .padding(.top, 4)
-                    }
-
-                    // AI Summary and Full email body (only when expanded)
-                    if isEmailExpanded {
-                        Divider()
-                            .padding(.vertical, 8)
-
-                        // AI Summary Section
-                        if let aiSummary = task.emailAiSummary, !aiSummary.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black)
-
-                                    Text("AI Summary")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black)
-                                }
-
-                                Text(aiSummary)
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(colorScheme == .dark ?
-                                                Color.white.opacity(0.05) :
-                                                Color.black.opacity(0.03))
-                                    )
-                            }
-                            .padding(.bottom, 12)
-                        }
-
-                        // Original Email Body Section
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Original Email")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
-
-                            if let emailBody = task.emailBody, !emailBody.isEmpty {
-                                ScrollView {
-                                    Text(emailBody)
-                                        .font(.system(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                        .multilineTextAlignment(.leading)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .frame(maxHeight: 300)
-                            } else if let snippet = task.emailSnippet {
-                                Text(snippet)
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ?
-                            Color.white.opacity(0.05) :
-                            Color.black.opacity(0.03))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(colorScheme == .dark ?
-                            Color.white.opacity(0.1) :
-                            Color.black.opacity(0.1), lineWidth: 1)
-                )
-            }
-            .buttonStyle(PlainButtonStyle())
-        }
-    }
-
-    private func formatEmailTimestamp(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
 }
 
 #Preview {
