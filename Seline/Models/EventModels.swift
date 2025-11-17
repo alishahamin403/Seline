@@ -440,7 +440,6 @@ class TaskManager: ObservableObject {
         // CHECK FOR DUPLICATE before adding
         if let scheduledTime = scheduledTime {
             if doesEventExist(title: cleanedTitle, date: finalTargetDate, time: scheduledTime, endTime: endTime) {
-                print("⚠️ DUPLICATE PREVENTION: Event '\(cleanedTitle)' already exists on \(weekday) at this time - NOT adding")
                 return
             }
         } else {
@@ -450,7 +449,6 @@ class TaskManager: ObservableObject {
                 cleanedTitle.lowercased()
             }
             if existsOnWeekday {
-                print("⚠️ DUPLICATE PREVENTION: Event '\(cleanedTitle)' already exists on \(weekday) - NOT adding")
                 return
             }
         }
@@ -470,7 +468,6 @@ class TaskManager: ObservableObject {
         var newTaskWithTag = newTask
         newTaskWithTag.tagId = tagId
         tasks[weekday]?.append(newTaskWithTag)
-        print("✅ Added event: '\(cleanedTitle)' to \(weekday)")
         saveTasks()
 
         // Schedule notification if reminder is set
@@ -1663,12 +1660,8 @@ class TaskManager: ObservableObject {
         taskItem.createdAt = createdAt
 
         // DECRYPT task title and description after loading from Supabase
-        let titleBeforeDecrypt = taskItem.title
         do {
             taskItem = try await decryptTaskAfterLoading(taskItem)
-            if titleBeforeDecrypt != taskItem.title {
-                print("✅ Successfully decrypted: '\(titleBeforeDecrypt.prefix(40))...' → '\(taskItem.title)'")
-            }
         } catch {
             // Decryption error - task will be returned as-is (likely unencrypted legacy data)
             print("⚠️ Decryption failed for task, keeping encrypted: \(error)")
@@ -2017,7 +2010,6 @@ class TaskManager: ObservableObject {
     func syncTasksOnLogin() async {
         // CRITICAL: Decrypt cached tasks now that encryption key is ready
         // This must happen BEFORE background sync so UI shows plaintext immediately
-        print("🔐 Decrypting cached tasks now that encryption key is initialized...")
         await decryptCachedTasks()
 
         // Sync in background - don't block the UI with Supabase operations
@@ -2032,11 +2024,8 @@ class TaskManager: ObservableObject {
         let allCachedTasks = tasks.values.flatMap { $0 }
 
         guard !allCachedTasks.isEmpty else {
-            print("✅ No cached tasks to decrypt")
             return
         }
-
-        print("🔓 Attempting to decrypt \(allCachedTasks.count) cached tasks...")
 
         var decryptedTasks: [WeekDay: [TaskItem]] = [:]
 
@@ -2050,10 +2039,9 @@ class TaskManager: ObservableObject {
                 if task.title.count > 50 && (task.title.contains("+") || task.title.contains("/") || task.title.contains("=")) {
                     do {
                         let decrypted = try EncryptionManager.shared.decrypt(task.title)
-                        print("🔓 Decrypted task title: '\(task.title.prefix(30))...' → '\(decrypted)'")
                         decryptedTask.title = decrypted
                     } catch {
-                        print("⚠️ Failed to decrypt task title: \(error)")
+                        // Keep original if decryption fails
                     }
                 }
 
@@ -2076,16 +2064,13 @@ class TaskManager: ObservableObject {
         await MainActor.run {
             self.tasks = decryptedTasks
             self.saveTasks()
-            print("✅ Cached tasks decrypted and saved")
         }
     }
 
     /// Background sync that happens without blocking the UI
     private func backgroundSyncWithSupabase() async {
-        print("🔄 Starting background sync with Supabase...")
         await loadTasksFromSupabase()
         await retryFailedDeletions()
-        print("✅ Background sync complete")
     }
 
     // Retry any failed deletions that were marked as deleted locally
@@ -2571,7 +2556,6 @@ class TaskManager: ObservableObject {
             )
 
             if isDuplicate {
-                print("⚠️ DUPLICATE PREVENTION: Calendar event '\(taskItem.title)' already exists - skipping")
                 continue
             }
 
@@ -2585,7 +2569,6 @@ class TaskManager: ObservableObject {
 
             // Sync with Supabase
             await saveTaskToSupabase(taskItem)
-            print("✅ Added calendar event: '\(taskItem.title)' to \(weekday)")
             addedCount += 1
         }
 

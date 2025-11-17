@@ -43,10 +43,8 @@ extension TaskManager {
 
         // Only attempt decryption if data looks encrypted
         let titleIsEncrypted = isEncrypted(encryptedTask.title)
-        print("🔓 Title encrypted check: \(titleIsEncrypted) (length: \(encryptedTask.title.count))")
 
         if titleIsEncrypted {
-            print("🔓 Attempting to decrypt title...")
             do {
                 let decrypted = try EncryptionManager.shared.decrypt(encryptedTask.title)
 
@@ -56,30 +54,21 @@ extension TaskManager {
 
                 if decryptedStillLooksEncrypted {
                     // Decryption succeeded but produced garbage - wrong encryption key
-                    print("❌ Decryption with WRONG KEY produced gibberish, keeping original encrypted")
-                    print("   Original: \(encryptedTask.title.prefix(40))...")
-                    print("   Decrypted output still looks encrypted: \(decrypted.prefix(40))...")
                     decryptedTask.title = encryptedTask.title
                 } else {
                     // Decryption succeeded and produced valid plaintext
-                    print("✅ Title decrypted successfully")
                     decryptedTask.title = decrypted
                 }
             } catch {
                 // Decryption failed - keep original (assume plaintext despite base64 appearance)
-                print("⚠️ Decryption failed for title, keeping as plaintext: \(error)")
                 decryptedTask.title = encryptedTask.title
             }
-        } else {
-            print("ℹ️ Title not encrypted (plaintext)")
         }
 
         if let description = encryptedTask.description {
             let descIsEncrypted = isEncrypted(description)
-            print("🔓 Description encrypted check: \(descIsEncrypted)")
 
             if descIsEncrypted {
-                print("🔓 Attempting to decrypt description...")
                 do {
                     let decrypted = try EncryptionManager.shared.decrypt(description)
 
@@ -89,15 +78,12 @@ extension TaskManager {
 
                     if decryptedStillLooksEncrypted {
                         // Decryption succeeded but produced garbage - wrong encryption key
-                        print("❌ Description decrypted with WRONG KEY, keeping original")
                         decryptedTask.description = description
                     } else {
-                        print("✅ Description decrypted successfully")
                         decryptedTask.description = decrypted
                     }
                 } catch {
                     // Decryption failed - keep original (assume plaintext despite base64 appearance)
-                    print("⚠️ Decryption failed for description, keeping as plaintext: \(error)")
                     decryptedTask.description = description
                 }
             }
