@@ -165,6 +165,16 @@ class SelineChat {
         • "Bank statement" or "credit card statement" queries → Look in NOTES folder
         • If user mentions a specific bank/card, check both RECEIPTS and NOTES
 
+        MULTI-SOURCE SEARCH STRATEGY:
+        • ALWAYS search across NOTES, EVENTS, and LOCATIONS together, even if the user doesn't explicitly mention them
+        • Personal information (employee numbers, ID numbers, account numbers) is usually in NOTES
+        • Events, meetings, and schedules are in EVENTS
+        • Specific places and locations are in LOCATIONS
+        • When answering ANY question, check all relevant sources for complete information
+        • **Always mention which data source(s) you found the answer in** (e.g., "I found this in your notes..." or "According to your calendar events...")
+        • If the user asks about "my [something]" (employee number, birthday, address, account, etc.), immediately check NOTES first - these personal details are usually stored there
+        • Don't limit yourself to one data source - combine information from notes, events, and locations for comprehensive answers
+
         IMPORTANT RULES:
         • Always refer to actual data provided below, not assumptions
         • Be specific with numbers, dates, and amounts

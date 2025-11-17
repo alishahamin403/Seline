@@ -1006,55 +1006,66 @@ class SelineAppContext {
             context += "  Could not fetch news at this time\n"
         }
 
-        // Add notes section (always included)
-        context += "\n=== NOTES ===\n"
+        // Add notes section with smart relevance filtering
+        context += "\n=== NOTES (Smart Filtered) ===\n"
+        context += "NOTE: Notes are filtered by relevance to your query. Most relevant notes shown first.\n\n"
 
         if !notes.isEmpty {
-            // Group notes by folder
-            let notesByFolder = Dictionary(grouping: notes) { note in
-                notesManager.getFolderName(for: note.folderId)
-            }
+            // Filter notes by query relevance (smart multi-source search)
+            let filteredNotes = !userQuery.isEmpty ?
+                filterNotesByRelevance(notes: notes, query: userQuery) :
+                Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
 
-            let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
-                if folder1.lowercased().contains("receipt") { return false }
-                if folder2.lowercased().contains("receipt") { return false }
-                return folder1 < folder2
-            }
-
-            for folder in sortedFolders {
-                guard let folderNotes = notesByFolder[folder] else { continue }
-
-                // Skip Receipts folder - shown in expenses section
-                if folder.lowercased().contains("receipt") {
-                    continue
+            if !filteredNotes.isEmpty {
+                // Group filtered notes by folder
+                let notesByFolder = Dictionary(grouping: filteredNotes) { note in
+                    notesManager.getFolderName(for: note.folderId)
                 }
 
-                context += "\n**\(folder)** (\(folderNotes.count) notes):\n"
+                let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
+                    if folder1.lowercased().contains("receipt") { return false }
+                    if folder2.lowercased().contains("receipt") { return false }
+                    return folder1 < folder2
+                }
 
-                // Show most recent notes first
-                for note in folderNotes.sorted(by: { $0.dateModified > $1.dateModified }).prefix(15) {
-                    let lastModified = formatDate(note.dateModified)
-                    context += "  • **\(note.title)** (Updated: \(lastModified))\n"
+                for folder in sortedFolders {
+                    guard let folderNotes = notesByFolder[folder] else { continue }
 
-                    // Include FULL note content - important for detailed notes like transaction lists
-                    let noteContent = note.content.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !noteContent.isEmpty {
-                        // Split into lines and add with proper indentation
-                        let contentLines = noteContent.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
-                        for line in contentLines {
-                            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-                            if !trimmedLine.isEmpty {
-                                context += "    \(trimmedLine)\n"
-                            }
-                        }
+                    // Skip Receipts folder - shown in expenses section
+                    if folder.lowercased().contains("receipt") {
+                        continue
                     }
 
-                    context += "\n"
+                    context += "**\(folder)**:\n"
+
+                    for note in folderNotes {
+                        let lastModified = formatDate(note.dateModified)
+                        context += "  • **\(note.title)** (Updated: \(lastModified))\n"
+
+                        // Include FULL note content - important for detailed notes like transaction lists
+                        let noteContent = note.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !noteContent.isEmpty {
+                            // Split into lines and add with proper indentation
+                            let contentLines = noteContent.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                            for line in contentLines {
+                                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                                if !trimmedLine.isEmpty {
+                                    context += "    \(trimmedLine)\n"
+                                }
+                            }
+                        }
+
+                        context += "\n"
+                    }
                 }
 
-                if folderNotes.count > 15 {
-                    context += "  ... and \(folderNotes.count - 15) more notes in this folder\n"
+                // Show how many notes were filtered out
+                let totalNotes = notes.filter { !notesManager.getFolderName(for: $0.folderId).lowercased().contains("receipt") }.count
+                if filteredNotes.count < totalNotes {
+                    context += "\n(Showing \(filteredNotes.count) most relevant notes out of \(totalNotes) total)\n"
                 }
+            } else {
+                context += "  No relevant notes found for your query. Try a broader search.\n"
             }
         } else {
             context += "  No notes found\n"
@@ -2054,5 +2065,80 @@ class SelineAppContext {
         }
 
         return nil
+    }
+
+    // MARK: - Multi-Source Search Helpers
+
+    /// Extract keywords from user query for note filtering
+    private func extractKeywords(from query: String) -> Set<String> {
+        // Convert to lowercase and split by common separators
+        let lowercaseQuery = query.lowercased()
+
+        // Remove common words that don't help with searching
+        let stopwords = Set([
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+            "of", "with", "by", "from", "up", "is", "are", "was", "were", "be",
+            "have", "has", "do", "does", "did", "what", "when", "where", "why",
+            "how", "my", "your", "our", "their", "if", "that", "this", "these",
+            "as", "about", "can", "could", "would", "should", "may", "might"
+        ])
+
+        // Split by whitespace and punctuation
+        let components = lowercaseQuery.split { !$0.isLetter && !$0.isNumber }.map { String($0) }
+
+        // Filter out stopwords and very short words, keep meaningful keywords
+        let keywords = Set(components.filter { word in
+            word.count >= 3 && !stopwords.contains(word)
+        })
+
+        return keywords
+    }
+
+    /// Filter notes based on query keywords for relevance
+    /// Returns notes sorted by relevance score (highest first), limited to top 10
+    private func filterNotesByRelevance(notes: [Note], query: String) -> [Note] {
+        let keywords = extractKeywords(from: query)
+
+        if keywords.isEmpty {
+            // If no keywords, return most recent notes
+            return Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
+        }
+
+        // Score each note based on keyword matches
+        let scoredNotes = notes.map { note -> (note: Note, score: Int) in
+            var score = 0
+            let lowerTitle = note.title.lowercased()
+            let lowerContent = note.content.lowercased()
+
+            // Keywords in title get higher weight
+            for keyword in keywords {
+                if lowerTitle.contains(keyword) {
+                    score += 5
+                }
+                if lowerContent.contains(keyword) {
+                    score += 1
+                }
+            }
+
+            return (note: note, score: score)
+        }
+
+        // Filter out notes with no matches, sort by score (descending) and date
+        let filtered = scoredNotes
+            .filter { $0.score > 0 }
+            .sorted { scoreA, scoreB in
+                if scoreA.score != scoreB.score {
+                    return scoreA.score > scoreB.score
+                }
+                // If same score, sort by most recent first
+                return scoreA.note.dateModified > scoreB.note.dateModified
+            }
+
+        // If we have keyword matches, return top 10; otherwise return recent notes
+        if !filtered.isEmpty {
+            return Array(filtered.prefix(10).map { $0.note })
+        } else {
+            return Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
+        }
     }
 }
