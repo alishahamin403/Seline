@@ -64,27 +64,11 @@ struct SpendingAndETAWidget: View {
     }
 
     private func categoryIcon(_ category: String) -> String {
-        switch category {
-        case "Food": return "🍔"
-        case "Services": return "🔧"
-        case "Transportation": return "🚗"
-        case "Healthcare": return "🏥"
-        case "Entertainment": return "🎬"
-        case "Shopping": return "🛍️"
-        default: return "📦"
-        }
+        return CategoryIconProvider.icon(for: category)
     }
 
     private func categoryColor(_ category: String) -> Color {
-        switch category {
-        case "Food": return Color(red: 0.831, green: 0.647, blue: 0.455)
-        case "Services": return Color(red: 0.639, green: 0.608, blue: 0.553)
-        case "Transportation": return Color(red: 0.627, green: 0.533, blue: 0.408)
-        case "Healthcare": return Color(red: 0.831, green: 0.710, blue: 0.627)
-        case "Entertainment": return Color(red: 0.722, green: 0.627, blue: 0.537)
-        case "Shopping": return Color(red: 0.792, green: 0.722, blue: 0.659)
-        default: return Color.gray
-        }
+        return CategoryIconProvider.color(for: category)
     }
 
     private func openNavigation(to coordinate: CLLocationCoordinate2D?, address: String?) {

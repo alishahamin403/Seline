@@ -65,41 +65,11 @@ struct HorizontalCategoryCard: View {
     }
 
     private func colorForCategory(_ category: String) -> Color {
-        switch category {
-        case "Food":
-            return Color(red: 0.831, green: 0.647, blue: 0.455) // #D4A574
-        case "Services":
-            return Color(red: 0.639, green: 0.608, blue: 0.553) // #A39B8D
-        case "Transportation":
-            return Color(red: 0.627, green: 0.533, blue: 0.408) // #A08968
-        case "Healthcare":
-            return Color(red: 0.831, green: 0.710, blue: 0.627) // #D4B5A0
-        case "Entertainment":
-            return Color(red: 0.722, green: 0.627, blue: 0.537) // #B8A089
-        case "Shopping":
-            return Color(red: 0.792, green: 0.722, blue: 0.659) // #C9B8A8
-        default:
-            return Color.gray
-        }
+        return CategoryIconProvider.color(for: category)
     }
 
     private func getCategoryIcon(_ category: String) -> String {
-        switch category {
-        case "Food":
-            return "🍔"
-        case "Services":
-            return "🔧"
-        case "Transportation":
-            return "🚗"
-        case "Healthcare":
-            return "🏥"
-        case "Entertainment":
-            return "🎬"
-        case "Shopping":
-            return "🛍"
-        default:
-            return "📦"
-        }
+        return CategoryIconProvider.icon(for: category)
     }
 }
 
