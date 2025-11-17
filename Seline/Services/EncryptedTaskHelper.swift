@@ -41,33 +41,39 @@ extension TaskManager {
     func decryptTaskAfterLoading(_ encryptedTask: TaskItem) async throws -> TaskItem {
         var decryptedTask = encryptedTask
 
-        do {
-            // Only attempt decryption if data looks encrypted
-            let titleIsEncrypted = isEncrypted(encryptedTask.title)
-            print("🔓 Title encrypted check: \(titleIsEncrypted) (length: \(encryptedTask.title.count))")
+        // Only attempt decryption if data looks encrypted
+        let titleIsEncrypted = isEncrypted(encryptedTask.title)
+        print("🔓 Title encrypted check: \(titleIsEncrypted) (length: \(encryptedTask.title.count))")
 
-            if titleIsEncrypted {
-                print("🔓 Attempting to decrypt title...")
+        if titleIsEncrypted {
+            print("🔓 Attempting to decrypt title...")
+            do {
                 decryptedTask.title = try EncryptionManager.shared.decrypt(encryptedTask.title)
                 print("✅ Title decrypted successfully")
-            } else {
-                print("ℹ️ Title not encrypted (plaintext)")
+            } catch {
+                // Decryption failed - keep original (assume plaintext despite base64 appearance)
+                print("⚠️ Decryption failed for title, keeping as plaintext: \(error)")
+                decryptedTask.title = encryptedTask.title
             }
+        } else {
+            print("ℹ️ Title not encrypted (plaintext)")
+        }
 
-            if let description = encryptedTask.description {
-                let descIsEncrypted = isEncrypted(description)
-                print("🔓 Description encrypted check: \(descIsEncrypted)")
+        if let description = encryptedTask.description {
+            let descIsEncrypted = isEncrypted(description)
+            print("🔓 Description encrypted check: \(descIsEncrypted)")
 
-                if descIsEncrypted {
-                    print("🔓 Attempting to decrypt description...")
+            if descIsEncrypted {
+                print("🔓 Attempting to decrypt description...")
+                do {
                     decryptedTask.description = try EncryptionManager.shared.decrypt(description)
                     print("✅ Description decrypted successfully")
+                } catch {
+                    // Decryption failed - keep original (assume plaintext despite base64 appearance)
+                    print("⚠️ Decryption failed for description, keeping as plaintext: \(error)")
+                    decryptedTask.description = description
                 }
             }
-        } catch {
-            // Decryption failed - log but don't spam console
-            print("❌ Decryption error in decryptTaskAfterLoading: \(error)")
-            return encryptedTask
         }
 
         return decryptedTask
