@@ -1,6 +1,7 @@
 import Foundation
 import PostgREST
 import SwiftUI
+import EventKit
 
 // Color palette for tags - minimalistic, unique colors for each tag
 struct TagColorPalette {
@@ -2553,17 +2554,20 @@ class TaskManager: ObservableObject {
     // MARK: - Calendar Sync Methods
 
     /// Sync calendar events from iPhone's native Calendar app
-    /// Only syncs events from current month onwards (3-month rolling window)
+    /// Fetches all events every time app opens to catch new/modified events
+    /// Duplicate detection prevents re-adding existing events
     @MainActor
     func syncCalendarEvents() async {
-        let newEvents = await CalendarSyncService.shared.fetchNewCalendarEvents()
-        guard !newEvents.isEmpty else {
+        // Fetch ALL calendar events (not just new ones) so we catch modifications
+        let allCalendarEvents = await CalendarSyncService.shared.fetchCalendarEventsFromCurrentMonthOnwards()
+        guard !allCalendarEvents.isEmpty else {
             return
         }
 
+        var addedEvents: [EKEvent] = []
+
         // Convert EventKit events to TaskItems and add them
-        var addedCount = 0
-        for event in newEvents {
+        for event in allCalendarEvents {
             let taskItem = CalendarSyncService.shared.convertEKEventToTaskItem(event)
 
             // Check for duplicate before adding
@@ -2586,13 +2590,14 @@ class TaskManager: ObservableObject {
                 tasks[weekday] = [taskItem]
             }
 
-            // Sync with Supabase
-            await saveTaskToSupabase(taskItem)
-            addedCount += 1
+            // Calendar events are stored locally only (no Supabase sync needed)
+            addedEvents.append(event)
         }
 
-        // Mark events as synced
-        CalendarSyncService.shared.markEventsAsSynced(newEvents)
+        // Only mark newly added events as synced
+        if !addedEvents.isEmpty {
+            CalendarSyncService.shared.markEventsAsSynced(addedEvents)
+        }
 
         // Save to local storage
         saveTasks()
