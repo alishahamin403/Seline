@@ -10,7 +10,21 @@ class ReceiptCategorizationService: ObservableObject {
     private let categoryCache = NSMutableDictionary()
     private var currentUserId: String = ""
 
-    private let validCategories = ["Food", "Services", "Transportation", "Healthcare", "Entertainment", "Shopping", "Other"]
+    private let validCategories = [
+        "Food & Dining",
+        "Transportation",
+        "Healthcare",
+        "Entertainment",
+        "Shopping",
+        "Software & Subscriptions",
+        "Accommodation & Travel",
+        "Utilities & Internet",
+        "Professional Services",
+        "Auto & Vehicle",
+        "Home & Maintenance",
+        "Memberships",
+        "Other"
+    ]
 
     private init() {
         loadCategoryCache()

@@ -1578,26 +1578,47 @@ class OpenAIService: ObservableObject {
 
         let systemPrompt = """
         You are a helpful assistant that categorizes receipts and invoices.
-        Categorize the receipt into ONE of these categories only:
-        - Food
-        - Services
-        - Transportation
-        - Healthcare
-        - Entertainment
-        - Shopping
-        - Other
+        Categorize the receipt into ONE of these 13 categories only:
+        - Food & Dining (restaurants, groceries, cafes, food delivery)
+        - Transportation (Uber, Lyft, public transit, parking, tolls)
+        - Healthcare (medical services, pharmacy, dental, fitness)
+        - Entertainment (movies, games, streaming, events, hobbies)
+        - Shopping (retail, clothing, household goods, books)
+        - Software & Subscriptions (AI tools, software apps, cloud services, SaaS)
+        - Accommodation & Travel (hotels, Airbnb, flights, vacation packages, tours)
+        - Utilities & Internet (electricity, gas, water, internet, phone, cell plans)
+        - Professional Services (accountants, lawyers, consultants, contractors, tutors)
+        - Auto & Vehicle (car payments, insurance, maintenance, repairs)
+        - Home & Maintenance (home repairs, cleaning, landscaping, appliances)
+        - Memberships (gym memberships, club fees, recurring non-software subscriptions)
+        - Other (anything that doesn't fit the above)
 
-        IMPORTANT RULES - Categorize as SERVICES:
-        - Any AI/LLM subscriptions or payments (ChatGPT, Claude, Anthropic, OpenAI, Gemini, Copilot, etc.)
-        - Any software/app subscriptions (Adobe, Microsoft, Slack, etc.)
-        - Any cloud service subscriptions (AWS, Google Cloud, Azure, etc.)
-        - Any recurring subscription payments or memberships
-        - Any professional service payments (contractors, consultants, accountants, etc.)
-        - Any utility, internet, phone, or connectivity services
-        - Any maintenance, repair, or installation services
-        - Even if company name is abbreviated or vague, if it looks like a service/subscription payment → Services
+        CATEGORIZATION RULES:
 
-        IMPORTANT: Err on the side of "Services" for unclear or ambiguous company names - subscriptions and service payments are the most common "Other" misclassifications.
+        SOFTWARE & SUBSCRIPTIONS (Priority Category):
+        - AI/LLM tools: ChatGPT, OpenAI, Claude, Anthropic, Gemini, Copilot, etc.
+        - Software subscriptions: Adobe, Microsoft, Slack, Figma, Notion, etc.
+        - Cloud services: AWS, Google Cloud, Azure, DigitalOcean, etc.
+
+        ACCOMMODATION & TRAVEL:
+        - Hotels, Airbnb, hostels → Accommodation & Travel (NOT Services)
+        - Flights, travel packages, tours → Accommodation & Travel
+
+        AUTO & VEHICLE:
+        - Car payments, insurance, maintenance, repairs → Auto & Vehicle
+        - This is SEPARATE from Transportation (Uber, gas, parking)
+
+        UTILITIES & INTERNET:
+        - Internet, phone, electricity, gas, water → Utilities & Internet
+        - Mobile plans, home internet → Utilities & Internet
+
+        PROFESSIONAL SERVICES:
+        - Accountants, tax preparation, consultants, contractors, lawyers → Professional Services
+
+        MEMBERSHIPS:
+        - Gym fees, club memberships, recurring fees (NOT software subscriptions)
+
+        For ambiguous names: Use the context clues to determine the most specific category.
 
         Return ONLY the category name, nothing else.
         """
