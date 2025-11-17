@@ -435,8 +435,28 @@ class TaskManager: ObservableObject {
 
         // Use provided target date, or default to the current week's date for this weekday
         let finalTargetDate = targetDate ?? weekday.dateForCurrentWeek()
+        let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // CHECK FOR DUPLICATE before adding
+        if let scheduledTime = scheduledTime {
+            if doesEventExist(title: cleanedTitle, date: finalTargetDate, time: scheduledTime, endTime: endTime) {
+                print("⚠️ DUPLICATE PREVENTION: Event '\(cleanedTitle)' already exists on \(weekday) at this time - NOT adding")
+                return
+            }
+        } else {
+            // For tasks without scheduled time, check if title already exists on that weekday
+            let existsOnWeekday = (tasks[weekday] ?? []).contains { task in
+                task.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ==
+                cleanedTitle.lowercased()
+            }
+            if existsOnWeekday {
+                print("⚠️ DUPLICATE PREVENTION: Event '\(cleanedTitle)' already exists on \(weekday) - NOT adding")
+                return
+            }
+        }
+
         let newTask = TaskItem(
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            title: cleanedTitle,
             weekday: weekday,
             description: description,
             scheduledTime: scheduledTime,
@@ -450,6 +470,7 @@ class TaskManager: ObservableObject {
         var newTaskWithTag = newTask
         newTaskWithTag.tagId = tagId
         tasks[weekday]?.append(newTaskWithTag)
+        print("✅ Added event: '\(cleanedTitle)' to \(weekday)")
         saveTasks()
 
         // Schedule notification if reminder is set
@@ -2541,6 +2562,19 @@ class TaskManager: ObservableObject {
         for event in newEvents {
             let taskItem = CalendarSyncService.shared.convertEKEventToTaskItem(event)
 
+            // Check for duplicate before adding
+            let isDuplicate = doesEventExist(
+                title: taskItem.title,
+                date: taskItem.targetDate ?? taskItem.weekday.dateForCurrentWeek(),
+                time: taskItem.scheduledTime ?? Date(),
+                endTime: taskItem.endTime
+            )
+
+            if isDuplicate {
+                print("⚠️ DUPLICATE PREVENTION: Calendar event '\(taskItem.title)' already exists - skipping")
+                continue
+            }
+
             // Add the task to the appropriate weekday
             let weekday = taskItem.weekday
             if tasks[weekday] != nil {
@@ -2551,6 +2585,7 @@ class TaskManager: ObservableObject {
 
             // Sync with Supabase
             await saveTaskToSupabase(taskItem)
+            print("✅ Added calendar event: '\(taskItem.title)' to \(weekday)")
             addedCount += 1
         }
 
