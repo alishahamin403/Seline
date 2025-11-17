@@ -136,16 +136,6 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
-                        settingsMenuItemClearCache
-
-                        Divider()
-                            .padding(.leading, 50)
-
-                        settingsMenuItemNuclearReset
-
-                        Divider()
-                            .padding(.leading, 50)
-
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -196,62 +186,6 @@ struct SettingsView: View {
             }
 
             Spacer()
-        }
-    }
-
-    // MARK: - Clear Cache Menu Item
-    private var settingsMenuItemClearCache: some View {
-        Button(action: {
-            Task {
-                await TaskManager.shared.clearCacheAndResync()
-            }
-        }) {
-            HStack(spacing: 16) {
-                Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.orange)
-                    .frame(width: 24)
-
-                Text("Clear Cache & Resync")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.orange)
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.orange.opacity(0.3))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-        }
-    }
-
-    // MARK: - Nuclear Reset Menu Item
-    private var settingsMenuItemNuclearReset: some View {
-        Button(action: {
-            Task {
-                await TaskManager.shared.nuclearReset()
-            }
-        }) {
-            HStack(spacing: 16) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.red)
-                    .frame(width: 24)
-
-                Text("Nuclear Reset (Delete All)")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.red)
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.red.opacity(0.3))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
         }
     }
 
