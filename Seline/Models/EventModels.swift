@@ -1957,10 +1957,68 @@ class TaskManager: ObservableObject {
 
     // Called when user signs in to load their tasks
     func syncTasksOnLogin() async {
+        // CRITICAL: Decrypt cached tasks now that encryption key is ready
+        // This must happen BEFORE background sync so UI shows plaintext immediately
+        print("🔐 Decrypting cached tasks now that encryption key is initialized...")
+        await decryptCachedTasks()
+
         // Sync in background - don't block the UI with Supabase operations
         // The app already has local cache loaded, so use that for instant display
         Task {
             await backgroundSyncWithSupabase()
+        }
+    }
+
+    /// Decrypt all cached task titles/descriptions now that encryption key is ready
+    private func decryptCachedTasks() async {
+        let allCachedTasks = tasks.values.flatMap { $0 }
+
+        guard !allCachedTasks.isEmpty else {
+            print("✅ No cached tasks to decrypt")
+            return
+        }
+
+        print("🔓 Attempting to decrypt \(allCachedTasks.count) cached tasks...")
+
+        var decryptedTasks: [WeekDay: [TaskItem]] = [:]
+
+        for weekday in WeekDay.allCases {
+            var weekdayDecryptedTasks: [TaskItem] = []
+
+            for task in (tasks[weekday] ?? []) {
+                var decryptedTask = task
+
+                // Try to decrypt title if it looks encrypted
+                if task.title.count > 50 && (task.title.contains("+") || task.title.contains("/") || task.title.contains("=")) {
+                    do {
+                        let decrypted = try EncryptionManager.shared.decrypt(task.title)
+                        print("🔓 Decrypted task title: '\(task.title.prefix(30))...' → '\(decrypted)'")
+                        decryptedTask.title = decrypted
+                    } catch {
+                        print("⚠️ Failed to decrypt task title: \(error)")
+                    }
+                }
+
+                // Try to decrypt description if it exists and looks encrypted
+                if let description = task.description, description.count > 50 && (description.contains("+") || description.contains("/") || description.contains("=")) {
+                    do {
+                        decryptedTask.description = try EncryptionManager.shared.decrypt(description)
+                    } catch {
+                        // Keep original if decryption fails
+                    }
+                }
+
+                weekdayDecryptedTasks.append(decryptedTask)
+            }
+
+            decryptedTasks[weekday] = weekdayDecryptedTasks
+        }
+
+        // Update the tasks array with decrypted versions
+        await MainActor.run {
+            self.tasks = decryptedTasks
+            self.saveTasks()
+            print("✅ Cached tasks decrypted and saved")
         }
     }
 
