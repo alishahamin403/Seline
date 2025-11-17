@@ -43,15 +43,30 @@ extension TaskManager {
 
         do {
             // Only attempt decryption if data looks encrypted
-            if isEncrypted(encryptedTask.title) {
+            let titleIsEncrypted = isEncrypted(encryptedTask.title)
+            print("🔓 Title encrypted check: \(titleIsEncrypted) (length: \(encryptedTask.title.count))")
+
+            if titleIsEncrypted {
+                print("🔓 Attempting to decrypt title...")
                 decryptedTask.title = try EncryptionManager.shared.decrypt(encryptedTask.title)
+                print("✅ Title decrypted successfully")
+            } else {
+                print("ℹ️ Title not encrypted (plaintext)")
             }
-            if let description = encryptedTask.description, isEncrypted(description) {
-                decryptedTask.description = try EncryptionManager.shared.decrypt(description)
+
+            if let description = encryptedTask.description {
+                let descIsEncrypted = isEncrypted(description)
+                print("🔓 Description encrypted check: \(descIsEncrypted)")
+
+                if descIsEncrypted {
+                    print("🔓 Attempting to decrypt description...")
+                    decryptedTask.description = try EncryptionManager.shared.decrypt(description)
+                    print("✅ Description decrypted successfully")
+                }
             }
         } catch {
             // Decryption failed - log but don't spam console
-            // This shouldn't happen if isEncrypted() works correctly
+            print("❌ Decryption error in decryptTaskAfterLoading: \(error)")
             return encryptedTask
         }
 

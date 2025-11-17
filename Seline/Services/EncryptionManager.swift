@@ -94,16 +94,19 @@ class EncryptionManager: ObservableObject {
     /// - Throws: EncryptionError if decryption fails or key not initialized
     func decrypt(_ encryptedBase64: String) throws -> String {
         guard let key = encryptionKey else {
+            print("🔐 [DECRYPT] ❌ KEY NOT INITIALIZED")
             throw EncryptionError.keyNotInitialized
         }
 
         guard let combined = Data(base64Encoded: encryptedBase64) else {
+            print("🔐 [DECRYPT] ❌ INVALID BASE64 - input length: \(encryptedBase64.count)")
             throw EncryptionError.invalidBase64
         }
 
         // Extract nonce (first 12 bytes) and ciphertext+tag (remaining)
         let nonceSize = 12 // AES-GCM nonce size
         guard combined.count > nonceSize else {
+            print("🔐 [DECRYPT] ❌ INVALID CIPHERTEXT SIZE - combined: \(combined.count) bytes, need > \(nonceSize)")
             throw EncryptionError.invalidCiphertext
         }
 
@@ -111,6 +114,7 @@ class EncryptionManager: ObservableObject {
         let ciphertextAndTag = combined.dropFirst(nonceSize)
 
         guard let nonce = try? AES.GCM.Nonce(data: nonceData) else {
+            print("🔐 [DECRYPT] ❌ INVALID NONCE")
             throw EncryptionError.invalidNonce
         }
 
@@ -119,9 +123,11 @@ class EncryptionManager: ObservableObject {
         let decryptedData = try AES.GCM.open(sealedBox, using: key)
 
         guard let plaintext = String(data: decryptedData, encoding: .utf8) else {
+            print("🔐 [DECRYPT] ❌ DECODING ERROR - decrypted \(decryptedData.count) bytes but not valid UTF-8")
             throw EncryptionError.decodingError
         }
 
+        print("🔐 [DECRYPT] ✅ SUCCESS - encrypted \(encryptedBase64.count) chars → plaintext \(plaintext.count) chars: '\(plaintext.prefix(30))'")
         return plaintext
     }
 

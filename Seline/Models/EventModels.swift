@@ -961,10 +961,16 @@ class TaskManager: ObservableObject {
             }
         }
 
-        // Removed repetitive logging - this was printing hundreds of times per app session
-        // if !recurringTasks.isEmpty {
-        //     print("📋 Returning \(filteredTasks.count) tasks for \(weekday.displayName)")
-        // }
+        // CRITICAL DEBUG: Log actual task titles being returned to UI
+        if !filteredTasks.isEmpty {
+            print("📱 UI will display \(filteredTasks.count) tasks for \(weekday.displayName):")
+            for task in filteredTasks {
+                let titleLength = task.title.count
+                let isTitleEncrypted = task.title.count > 50 && (task.title.contains("+") || task.title.contains("/") || task.title.contains("="))
+                let indicator = isTitleEncrypted ? "🔴 ENCRYPTED" : "🟢 PLAINTEXT"
+                print("  ┗ \(indicator) (\(titleLength) chars): \(task.title.prefix(50))")
+            }
+        }
 
         return filteredTasks.sorted { task1, task2 in
             // Sort by scheduled time if available, otherwise by creation date
@@ -1413,6 +1419,15 @@ class TaskManager: ObservableObject {
     private func saveTasks() {
         let allTasks = tasks.values.flatMap { $0 }
 
+        // CRITICAL DEBUG: Check what we're about to save to UserDefaults
+        print("💾 Saving \(allTasks.count) tasks to UserDefaults:")
+        for task in allTasks.prefix(5) {
+            let titleLength = task.title.count
+            let isTitleEncrypted = task.title.count > 50 && (task.title.contains("+") || task.title.contains("/") || task.title.contains("="))
+            let indicator = isTitleEncrypted ? "🔴 ENCRYPTED" : "🟢 PLAINTEXT"
+            print("  ┗ \(indicator) (\(titleLength) chars): \(task.title.prefix(50))")
+        }
+
         // Log all recurring tasks with their completed dates before saving
         let recurringTasks = allTasks.filter { $0.isRecurring }
         if !recurringTasks.isEmpty {
@@ -1444,6 +1459,15 @@ class TaskManager: ObservableObject {
             print("📂 No saved tasks found in local storage, adding sample tasks")
             addSampleTasks()
             return
+        }
+
+        // CRITICAL DEBUG: Check what we loaded from local storage
+        print("📂 Loaded \(savedTasks.count) tasks from UserDefaults:")
+        for task in savedTasks.prefix(5) {
+            let titleLength = task.title.count
+            let isTitleEncrypted = task.title.count > 50 && (task.title.contains("+") || task.title.contains("/") || task.title.contains("="))
+            let indicator = isTitleEncrypted ? "🔴 ENCRYPTED" : "🟢 PLAINTEXT"
+            print("  ┗ \(indicator) (\(titleLength) chars): \(task.title.prefix(50))")
         }
 
         // Fix any recurring tasks that were accidentally marked as completed
@@ -1603,10 +1627,12 @@ class TaskManager: ObservableObject {
 
         // DECRYPT task title and description after loading from Supabase
         do {
+            print("🔓 Decrypting task from Supabase: title length = \(taskItem.title.count) chars")
             taskItem = try await decryptTaskAfterLoading(taskItem)
+            print("✅ Decryption successful: title length = \(taskItem.title.count) chars")
         } catch {
             // Decryption error - task will be returned as-is (likely unencrypted legacy data)
-            // This is handled silently - no warning needed
+            print("❌ Decryption error for task ID \(id): \(error)")
         }
 
         // Check if this is a recurring task
@@ -1735,13 +1761,19 @@ class TaskManager: ObservableObject {
         }
 
         do {
-            let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
+            // CRITICAL FIX: Encrypt task before saving to Supabase
+            print("🔐 Encrypting task: '\(task.title)' before saving to Supabase")
+            let encryptedTask = try await encryptTaskBeforeSaving(task)
+            print("🔐 Encrypted title length: \(encryptedTask.title.count) chars (was \(task.title.count) chars)")
+            let taskData = convertTaskToSupabaseFormat(encryptedTask, userId: userId.uuidString)
             let client = await supabaseManager.getPostgrestClient()
 
             try await client
                 .from("tasks")
                 .upsert(taskData)
                 .execute()
+
+            print("✅ Successfully saved encrypted task to Supabase: '\(task.title)'")
 
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
@@ -1755,7 +1787,11 @@ class TaskManager: ObservableObject {
         }
 
         do {
-            let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
+            // CRITICAL FIX: Encrypt task before saving to Supabase
+            print("🔐 Encrypting task for update: '\(task.title)' before saving to Supabase")
+            let encryptedTask = try await encryptTaskBeforeSaving(task)
+            print("🔐 Encrypted title length: \(encryptedTask.title.count) chars (was \(task.title.count) chars)")
+            let taskData = convertTaskToSupabaseFormat(encryptedTask, userId: userId.uuidString)
 
             let client = await supabaseManager.getPostgrestClient()
 
@@ -1764,6 +1800,8 @@ class TaskManager: ObservableObject {
                 .update(taskData)
                 .eq("id", value: task.id)
                 .execute()
+
+            print("✅ Successfully updated encrypted task in Supabase: '\(task.title)'")
 
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")
@@ -1945,6 +1983,8 @@ class TaskManager: ObservableObject {
     // Called when user signs in to load their tasks
     func syncTasksOnLogin() async {
         await loadTasksFromSupabase()
+        // CRITICAL FIX: Re-encrypt any existing plaintext tasks for consistency
+        await reencryptAllExistingTasks()
         await retryFailedDeletions()
     }
 
