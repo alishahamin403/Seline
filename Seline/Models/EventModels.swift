@@ -1455,6 +1455,26 @@ class TaskManager: ObservableObject {
         await syncTasksOnLogin()
     }
 
+    /// Nuclear reset - clears EVERYTHING locally for complete fresh start
+    /// Use this when starting from scratch after deleting all events in Supabase
+    func nuclearReset() async {
+        print("☢️ NUCLEAR RESET: Clearing all local data...")
+
+        // Clear cache
+        userDefaults.removeObject(forKey: tasksKey)
+
+        // Clear all tasks from memory
+        await MainActor.run {
+            tasks = [:]
+            for weekday in WeekDay.allCases {
+                tasks[weekday] = []
+            }
+        }
+
+        print("☢️ All local data cleared. App is ready for fresh start.")
+        print("☢️ Next: Delete all events from Supabase dashboard, then restart the app.")
+    }
+
     private func loadTasks() {
         guard let data = userDefaults.data(forKey: tasksKey),
               let savedTasks = try? JSONDecoder().decode([TaskItem].self, from: data) else {
