@@ -1438,6 +1438,23 @@ class TaskManager: ObservableObject {
         }
     }
 
+    /// Clear all cached tasks and force a fresh sync from Supabase
+    func clearCacheAndResync() async {
+        print("🗑️ Clearing task cache and forcing resync from Supabase...")
+        userDefaults.removeObject(forKey: tasksKey)
+
+        // Clear tasks array
+        tasks = [:]
+        for weekday in WeekDay.allCases {
+            tasks[weekday] = []
+        }
+
+        print("✅ Cache cleared. Loading fresh tasks from Supabase...")
+
+        // Force sync from Supabase
+        await syncTasksOnLogin()
+    }
+
     private func loadTasks() {
         guard let data = userDefaults.data(forKey: tasksKey),
               let savedTasks = try? JSONDecoder().decode([TaskItem].self, from: data) else {
