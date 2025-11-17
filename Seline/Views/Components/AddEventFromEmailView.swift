@@ -241,8 +241,9 @@ struct AddEventFromEmailView: View {
             recurrenceFrequency: nil
         )
 
-        // Get the newly created task and attach email data
-        if let newTask = taskManager.tasks[weekday]?.first(where: { $0.title == eventTitle }) {
+        // CRITICAL: Find the newly created task and attach email data BEFORE saving
+        // We need to find the task by ID to avoid matching wrong tasks with same title
+        if let newTask = taskManager.tasks[weekday]?.last {
             var updatedTask = newTask
             updatedTask.emailId = email.id
             updatedTask.emailSubject = email.subject
@@ -254,8 +255,15 @@ struct AddEventFromEmailView: View {
             updatedTask.emailIsImportant = email.isImportant
             updatedTask.emailAiSummary = email.aiSummary
 
-            // Update the task in TaskManager
+            print("📧 Attaching email to task: \(updatedTask.title)")
+            print("   - Email ID: \(updatedTask.emailId ?? "none")")
+            print("   - Subject: \(updatedTask.emailSubject ?? "none")")
+            print("   - Sender: \(updatedTask.emailSenderName ?? "none")")
+
+            // Update the task in TaskManager - this will sync to Supabase with email data
             taskManager.editTask(updatedTask)
+        } else {
+            print("❌ Failed to find newly created task")
         }
 
         // Provide haptic feedback

@@ -694,11 +694,19 @@ class TaskManager: ObservableObject {
 
         guard let weekdayTasks = tasks[updatedTask.weekday],
               let index = weekdayTasks.firstIndex(where: { $0.id == updatedTask.id }) else {
-            print("❌ Could not find task to edit")
+            print("❌ Could not find task to edit with ID: \(updatedTask.id)")
             return
         }
 
         let originalTask = weekdayTasks[index]
+
+        // Log email attachment updates
+        if updatedTask.emailId != nil && originalTask.emailId == nil {
+            print("📧 Attaching email to task during edit:")
+            print("   - Email ID: \(updatedTask.emailId ?? "none")")
+            print("   - Subject: \(updatedTask.emailSubject ?? "none")")
+            print("   - Sender: \(updatedTask.emailSenderName ?? "none")")
+        }
 
         // Handle conversion from recurring to single event
         if originalTask.isRecurring && !updatedTask.isRecurring {
@@ -747,6 +755,17 @@ class TaskManager: ObservableObject {
                 finalTaskCopy.completedDate = updatedTask.completedDate
                 finalTaskCopy.createdAt = updatedTask.createdAt
                 finalTaskCopy.isDeleted = updatedTask.isDeleted
+
+                // CRITICAL: Preserve email data when moving task to different weekday
+                finalTaskCopy.emailId = updatedTask.emailId
+                finalTaskCopy.emailSubject = updatedTask.emailSubject
+                finalTaskCopy.emailSenderName = updatedTask.emailSenderName
+                finalTaskCopy.emailSenderEmail = updatedTask.emailSenderEmail
+                finalTaskCopy.emailSnippet = updatedTask.emailSnippet
+                finalTaskCopy.emailTimestamp = updatedTask.emailTimestamp
+                finalTaskCopy.emailBody = updatedTask.emailBody
+                finalTaskCopy.emailIsImportant = updatedTask.emailIsImportant
+                finalTaskCopy.emailAiSummary = updatedTask.emailAiSummary
 
                 // Ensure the weekday array exists
                 if tasks[newWeekday] == nil {
