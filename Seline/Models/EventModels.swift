@@ -1446,6 +1446,8 @@ class TaskManager: ObservableObject {
             return
         }
 
+        print("📂 Loaded \(savedTasks.count) tasks from cache")
+
         // Fix any recurring tasks that were accidentally marked as completed
         let fixedTasks = savedTasks.map { task -> TaskItem in
             var fixedTask = task
@@ -1506,15 +1508,16 @@ class TaskManager: ObservableObject {
         }
 
         // CRITICAL: Ensure encryption key is initialized before loading
-        // Wait for EncryptionManager to be ready (max 2 seconds)
+        // Wait for EncryptionManager to be ready (max 5 seconds)
         var attempts = 0
-        while EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+        while EncryptionManager.shared.isKeyInitialized == false && attempts < 50 {
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             attempts += 1
         }
 
         if !EncryptionManager.shared.isKeyInitialized {
-            print("⚠️ Encryption key not initialized after 2 seconds, loading tasks anyway")
+            print("⚠️ Encryption key not initialized after 5 seconds, cannot decrypt tasks safely")
+            return
         }
 
         do {
@@ -1602,11 +1605,15 @@ class TaskManager: ObservableObject {
         taskItem.createdAt = createdAt
 
         // DECRYPT task title and description after loading from Supabase
+        let titleBeforeDecrypt = taskItem.title
         do {
             taskItem = try await decryptTaskAfterLoading(taskItem)
+            if titleBeforeDecrypt != taskItem.title {
+                print("✅ Successfully decrypted: '\(titleBeforeDecrypt.prefix(40))...' → '\(taskItem.title)'")
+            }
         } catch {
             // Decryption error - task will be returned as-is (likely unencrypted legacy data)
-            // This is handled silently - no warning needed
+            print("⚠️ Decryption failed for task, keeping encrypted: \(error)")
         }
 
         // Check if this is a recurring task
@@ -1735,7 +1742,9 @@ class TaskManager: ObservableObject {
         }
 
         do {
-            let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
+            // CRITICAL: Encrypt task before saving to Supabase
+            let encryptedTask = try await encryptTaskBeforeSaving(task)
+            let taskData = convertTaskToSupabaseFormat(encryptedTask, userId: userId.uuidString)
             let client = await supabaseManager.getPostgrestClient()
 
             try await client
@@ -1743,6 +1752,7 @@ class TaskManager: ObservableObject {
                 .upsert(taskData)
                 .execute()
 
+            print("✅ Saved encrypted task to Supabase: '\(task.title)'")
         } catch {
             print("❌ Failed to save task to Supabase: \(error)")
         }
@@ -1755,7 +1765,9 @@ class TaskManager: ObservableObject {
         }
 
         do {
-            let taskData = convertTaskToSupabaseFormat(task, userId: userId.uuidString)
+            // CRITICAL: Encrypt task before updating in Supabase
+            let encryptedTask = try await encryptTaskBeforeSaving(task)
+            let taskData = convertTaskToSupabaseFormat(encryptedTask, userId: userId.uuidString)
 
             let client = await supabaseManager.getPostgrestClient()
 
@@ -1765,6 +1777,7 @@ class TaskManager: ObservableObject {
                 .eq("id", value: task.id)
                 .execute()
 
+            print("✅ Updated encrypted task in Supabase: '\(task.title)'")
         } catch {
             print("❌ Failed to update task in Supabase: \(error)")
         }
