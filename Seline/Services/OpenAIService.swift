@@ -137,9 +137,9 @@ class OpenAIService: ObservableObject {
         4 key facts:
         """
 
-        // Create the request body - using gpt-4o for high-quality, precise summaries
+        // Create the request body - using gpt-4o-mini for cost-effective summaries
         let requestBody: [String: Any] = [
-            "model": "gpt-4o", // Better model: ~$2.50 per 1M input tokens - excellent quality while still affordable at scale
+            "model": "gpt-4o-mini", // Fast, cost-effective model for email summarization
             "messages": [
                 [
                     "role": "system",
@@ -250,7 +250,7 @@ class OpenAIService: ObservableObject {
         """
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": "gpt-4o-mini",
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userPrompt]
@@ -1775,7 +1775,7 @@ class OpenAIService: ObservableObject {
         """
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": "gpt-4o-mini",
             "messages": [
                 [
                     "role": "system",
