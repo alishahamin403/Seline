@@ -219,6 +219,102 @@ class ReceiptCategorizationService: ObservableObject {
             // Local cache is the source of truth; Supabase sync is an optimization
         }
     }
+
+    // MARK: - Migration: Recategorize Old "Services" to New Categories
+
+    /// Check if migration has already been completed
+    func hasCompletedMigration() -> Bool {
+        return userDefaults.bool(forKey: "receipt_categories_migration_completed")
+    }
+
+    /// Migrate all receipts from old "Services" category to new 13-category system
+    /// This is a one-time operation that re-categorizes existing receipts
+    func migrateOldServices() async {
+        // Check if already migrated
+        if hasCompletedMigration() {
+            print("✅ Migration already completed")
+            return
+        }
+
+        print("🔄 Starting category migration for old 'Services' receipts...")
+
+        do {
+            let client = await supabaseManager.getPostgrestClient()
+
+            // Fetch all receipts with "Services" category from Supabase
+            let response = try await client
+                .from("receipt_categories")
+                .select()
+                .eq("category", value: "Services")
+                .execute()
+
+            let decoder = JSONDecoder()
+            let records = try decoder.decode([ReceiptCategoryRecord].self, from: response.data)
+
+            guard !records.isEmpty else {
+                print("✅ No 'Services' category receipts found to migrate")
+                markMigrationComplete()
+                return
+            }
+
+            print("📋 Found \(records.count) receipts to migrate...")
+
+            var migratedCount = 0
+            var failedCount = 0
+
+            // Re-categorize each receipt
+            for (index, record) in records.enumerated() {
+                do {
+                    // Re-categorize using the updated system
+                    let newCategory = try await openAIService.categorizeReceipt(title: record.receipt_title)
+                    let validCategory = validCategories.contains(newCategory) ? newCategory : "Other"
+
+                    // Update in Supabase using upsert
+                    let updatedRecord = ReceiptCategoryRecord(
+                        id: record.id,
+                        user_id: record.user_id,
+                        receipt_title: record.receipt_title,
+                        category: validCategory,
+                        created_at: record.created_at
+                    )
+
+                    try await client
+                        .from("receipt_categories")
+                        .upsert([updatedRecord])
+                        .execute()
+
+                    migratedCount += 1
+                    let progress = ((index + 1) * 100) / records.count
+                    print("  [\(progress)%] Migrated: \(record.receipt_title) → \(validCategory)")
+
+                    // Small delay to avoid rate limiting
+                    try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+
+                } catch {
+                    failedCount += 1
+                    print("  ❌ Failed to migrate '\(record.receipt_title)': \(error)")
+                }
+            }
+
+            print("✅ Migration complete: \(migratedCount) migrated, \(failedCount) failed")
+            markMigrationComplete()
+
+        } catch {
+            print("❌ Migration failed: \(error)")
+        }
+    }
+
+    /// Mark migration as complete
+    private func markMigrationComplete() {
+        userDefaults.set(true, forKey: "receipt_categories_migration_completed")
+        print("✅ Migration status saved")
+    }
+
+    /// Reset migration flag (for testing only)
+    func resetMigrationFlag() {
+        userDefaults.set(false, forKey: "receipt_categories_migration_completed")
+        print("🔄 Migration flag reset")
+    }
 }
 
 // MARK: - Data Models for Supabase

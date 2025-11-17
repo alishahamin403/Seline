@@ -19,6 +19,7 @@ struct SelineApp: App {
         configureNotifications()
         configureBackgroundRefresh()
         syncCalendarEventsOnFirstLaunch()
+        migrateReceiptCategoriesIfNeeded()
     }
 
     var body: some Scene {
@@ -146,6 +147,19 @@ struct SelineApp: App {
                 print("⚠️ [SelineApp] Calendar access not granted. Status: \(status.rawValue)")
                 print("⚠️ [SelineApp] User can enable it in Settings > Seline > Calendars")
             }
+        }
+    }
+
+    private func migrateReceiptCategoriesIfNeeded() {
+        // Only run if migration hasn't been completed yet
+        if ReceiptCategorizationService.shared.hasCompletedMigration() {
+            return
+        }
+
+        // Run migration asynchronously in background
+        Task {
+            print("📋 [SelineApp] Checking for receipt categories that need migration...")
+            await ReceiptCategorizationService.shared.migrateOldServices()
         }
     }
 }
