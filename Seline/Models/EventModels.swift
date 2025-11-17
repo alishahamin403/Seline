@@ -417,9 +417,9 @@ class TaskManager: ObservableObject {
         initializeEmptyDays()
         loadTasks()
 
-        // Don't load from Supabase here - wait for authentication!
-        // The app will call loadTasksFromSupabase() after user authenticates
-        // This ensures EncryptionManager.setupEncryption() is called FIRST
+        // Load from local cache first - this is instant and always available
+        // When user authenticates, syncTasksOnLogin() will merge Supabase data in the background
+        // This means the UI shows cached data immediately, no waiting for decryption
     }
 
     private func initializeEmptyDays() {
@@ -1522,88 +1522,11 @@ class TaskManager: ObservableObject {
 
     // MARK: - Supabase Integration
 
+    /// Deprecated: Use syncTasksOnLogin() or mergeTasksFromSupabase() instead
+    /// This function is kept for backwards compatibility but now calls mergeTasksFromSupabase()
     func loadTasksFromSupabase() async {
-        guard authManager.isAuthenticated,
-              let userId = authManager.supabaseUser?.id else {
-            print("User not authenticated, loading local tasks only")
-            return
-        }
-
-        // CRITICAL: Ensure encryption key is initialized before loading
-        // Wait for EncryptionManager to be ready (max 2 seconds)
-        var attempts = 0
-        while EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-            attempts += 1
-        }
-
-        if !EncryptionManager.shared.isKeyInitialized {
-            print("⚠️ Encryption key not initialized after 2 seconds, loading tasks anyway")
-        }
-
-        do {
-            let client = await supabaseManager.getPostgrestClient()
-            let response = try await client
-                .from("tasks")
-                .select("*")
-                .eq("user_id", value: userId.uuidString)
-                .execute()
-
-            let data = response.data
-            if data.isEmpty {
-                print("No tasks data received from Supabase")
-                return
-            }
-
-            // Parse the response data into TaskItem objects
-            if let tasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
-                var supabaseTasks: [TaskItem] = []
-
-                for taskDict in tasksArray {
-                    if let taskItem = await parseTaskFromSupabase(taskDict) {
-                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil")")
-                        supabaseTasks.append(taskItem)
-                    }
-                }
-
-                // Update local tasks with Supabase data
-                await MainActor.run {
-                    var tasksByWeekday: [WeekDay: [TaskItem]] = [:]
-                    for weekday in WeekDay.allCases {
-                        tasksByWeekday[weekday] = supabaseTasks.filter { $0.weekday == weekday }
-                    }
-
-                    self.tasks = tasksByWeekday
-                    initializeEmptyDays()
-
-                    // IMPORTANT: Save loaded tasks to local cache so they persist across rebuilds
-                    // This ensures email attachments and all data are available even if Supabase is unreachable
-                    self.saveTasks()
-
-                    // Check if any recurring tasks were fixed (marked incomplete)
-                    let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
-                    let tasksNeedingFix = supabaseTasks.filter { task in
-                        if let originalArray = originalTasksArray,
-                           let originalTask = originalArray.first(where: { ($0["id"] as? String) == task.id }),
-                           let wasCompleted = originalTask["is_completed"] as? Bool {
-                            return task.isRecurring && wasCompleted && !task.isCompleted
-                        }
-                        return false
-                    }
-
-                    if !tasksNeedingFix.isEmpty {
-                        Task {
-                            for task in tasksNeedingFix {
-                                await updateTaskInSupabase(task)
-                            }
-                        }
-                    }
-                }
-            }
-
-        } catch {
-            print("❌ Failed to load tasks from Supabase: \(error)")
-        }
+        print("⚠️ loadTasksFromSupabase() is deprecated - use syncTasksOnLogin() or mergeTasksFromSupabase() instead")
+        await mergeTasksFromSupabase()
     }
 
     private func parseTaskFromSupabase(_ taskDict: [String: Any]) async -> TaskItem? {
@@ -1982,10 +1905,111 @@ class TaskManager: ObservableObject {
 
     // Called when user signs in to load their tasks
     func syncTasksOnLogin() async {
-        await loadTasksFromSupabase()
-        // CRITICAL FIX: Re-encrypt any existing plaintext tasks for consistency
+        // Sync in background - don't block the UI with decryption of all tasks
+        // The app already has local cache loaded, so use that for instant display
+        Task {
+            await backgroundSyncWithSupabase()
+        }
+    }
+
+    /// Background sync that merges local and Supabase tasks without blocking UI
+    private func backgroundSyncWithSupabase() async {
+        print("🔄 Starting background sync with Supabase...")
+
+        // Get current local tasks before sync
+        let localTasks = tasks.values.flatMap { $0 }
+
+        // Load from Supabase (this may take time due to decryption)
+        await mergeTasksFromSupabase()
+
+        // Re-encrypt plaintext tasks for consistency (only if any exist)
         await reencryptAllExistingTasks()
+
+        // Retry failed deletions
         await retryFailedDeletions()
+
+        print("✅ Background sync complete")
+    }
+
+    /// Load tasks from Supabase and MERGE with local tasks instead of replacing
+    private func mergeTasksFromSupabase() async {
+        guard authManager.isAuthenticated,
+              let userId = authManager.supabaseUser?.id else {
+            print("User not authenticated, skipping Supabase sync")
+            return
+        }
+
+        // CRITICAL: Ensure encryption key is initialized before loading
+        // Wait for EncryptionManager to be ready (max 2 seconds)
+        var attempts = 0
+        while EncryptionManager.shared.isKeyInitialized == false && attempts < 20 {
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            attempts += 1
+        }
+
+        if !EncryptionManager.shared.isKeyInitialized {
+            print("⚠️ Encryption key not initialized after 2 seconds, skipping sync")
+            return
+        }
+
+        do {
+            let client = await supabaseManager.getPostgrestClient()
+            let response = try await client
+                .from("tasks")
+                .select("*")
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+
+            let data = response.data
+            if data.isEmpty {
+                print("No tasks data received from Supabase (already synced)")
+                return
+            }
+
+            // Parse the response data into TaskItem objects
+            if let tasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]] {
+                var supabaseTasks: [TaskItem] = []
+
+                for taskDict in tasksArray {
+                    if let taskItem = await parseTaskFromSupabase(taskDict) {
+                        print("📥 Synced task from Supabase: '\(taskItem.title)'")
+                        supabaseTasks.append(taskItem)
+                    }
+                }
+
+                // MERGE: Don't replace local tasks, merge with Supabase
+                await MainActor.run {
+                    // Get all local tasks
+                    let localTasks = self.tasks.values.flatMap { $0 }
+
+                    // Create a set of Supabase task IDs for quick lookup
+                    let supabaseIds = Set(supabaseTasks.map { $0.id })
+
+                    // Keep local tasks that don't exist in Supabase (unsynced new tasks)
+                    let unsyncedLocalTasks = localTasks.filter { !supabaseIds.contains($0.id) }
+
+                    // Merge: Supabase tasks + unsync local tasks
+                    var mergedTasks = supabaseTasks + unsyncedLocalTasks
+
+                    // Organize by weekday
+                    var tasksByWeekday: [WeekDay: [TaskItem]] = [:]
+                    for weekday in WeekDay.allCases {
+                        tasksByWeekday[weekday] = mergedTasks.filter { $0.weekday == weekday }
+                    }
+
+                    self.tasks = tasksByWeekday
+                    self.initializeEmptyDays()
+
+                    // IMPORTANT: Save merged tasks to local cache
+                    self.saveTasks()
+
+                    print("✅ Merged \(supabaseTasks.count) Supabase tasks with \(unsyncedLocalTasks.count) local unsynced tasks")
+                }
+            }
+
+        } catch {
+            print("⚠️ Failed to sync tasks from Supabase (will use local cache): \(error)")
+        }
     }
 
     // Retry any failed deletions that were marked as deleted locally
