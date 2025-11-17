@@ -1461,36 +1461,66 @@ class TaskManager: ObservableObject {
             return
         }
 
-        // CRITICAL DEBUG: Check what we loaded from local storage
-        print("📂 Loaded \(savedTasks.count) tasks from UserDefaults:")
-        for task in savedTasks.prefix(5) {
-            let titleLength = task.title.count
-            let isTitleEncrypted = task.title.count > 50 && (task.title.contains("+") || task.title.contains("/") || task.title.contains("="))
-            let indicator = isTitleEncrypted ? "🔴 ENCRYPTED" : "🟢 PLAINTEXT"
-            print("  ┗ \(indicator) (\(titleLength) chars): \(task.title.prefix(50))")
+        print("📂 Loaded \(savedTasks.count) tasks from UserDefaults")
+
+        // Helper function to check if a string looks encrypted (valid base64, minimum length)
+        func looksEncrypted(_ text: String) -> Bool {
+            guard let data = Data(base64Encoded: text) else { return false }
+            return data.count >= 28  // 12 byte nonce + 16 byte tag + minimum ciphertext
         }
 
-        // Fix any recurring tasks that were accidentally marked as completed
-        let fixedTasks = savedTasks.map { task -> TaskItem in
+        // Fix any recurring tasks AND decrypt task titles (if encryption key is available)
+        let fixedAndDecryptedTasks = savedTasks.map { task -> TaskItem in
             var fixedTask = task
+
+            // Only attempt decryption if encryption key is initialized
+            // (it won't be until after user authenticates)
+            guard EncryptionManager.shared.isKeyInitialized else {
+                print("⏳ Encryption key not ready - tasks will be decrypted after authentication")
+                return fixedTask
+            }
+
+            // CRITICAL: Decrypt task titles/descriptions that were saved encrypted
+            // Check if title looks encrypted (valid base64, long enough)
+            if looksEncrypted(task.title) {
+                do {
+                    fixedTask.title = try EncryptionManager.shared.decrypt(task.title)
+                    print("🔓 Decrypted cached task title from \(task.title.count) → \(fixedTask.title.count) chars")
+                } catch {
+                    print("⚠️ Failed to decrypt cached task title, keeping encrypted: \(error)")
+                    // Keep original encrypted title if decryption fails
+                }
+            }
+
+            // Same for description
+            if let description = task.description, looksEncrypted(description) {
+                do {
+                    fixedTask.description = try EncryptionManager.shared.decrypt(description)
+                } catch {
+                    // Keep original if decryption fails
+                }
+            }
+
+            // Fix any recurring tasks that were accidentally marked as completed
             if task.isRecurring && task.isCompleted {
                 print("🔧 FIXING: Recurring task '\(task.title)' was marked complete - setting to incomplete")
                 fixedTask.isCompleted = false
                 fixedTask.completedDate = nil
             }
+
             return fixedTask
         }
 
         var tasksByWeekday: [WeekDay: [TaskItem]] = [:]
         for weekday in WeekDay.allCases {
-            tasksByWeekday[weekday] = fixedTasks.filter { $0.weekday == weekday }
+            tasksByWeekday[weekday] = fixedAndDecryptedTasks.filter { $0.weekday == weekday }
         }
 
         self.tasks = tasksByWeekday
         initializeEmptyDays()
 
-        // Save the fixed tasks back to storage if any were fixed
-        let tasksToFix = fixedTasks.filter { task in
+        // Save the fixed/decrypted tasks back to storage if any were modified
+        let tasksToFix = fixedAndDecryptedTasks.filter { task in
             savedTasks.first(where: { $0.id == task.id })?.isCompleted != task.isCompleted
         }
 
