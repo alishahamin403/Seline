@@ -26,6 +26,12 @@ class ReceiptCategorizationService: ObservableObject {
         "Other"
     ]
 
+    // Legacy category mapping for migration from old to new categories
+    private let legacyCategoryMapping: [String: String] = [
+        "Food": "Food & Dining",
+        "Services": "Professional Services"
+    ]
+
     private init() {
         loadCategoryCache()
     }
@@ -56,6 +62,16 @@ class ReceiptCategorizationService: ObservableObject {
     func categorizeReceipt(_ title: String) async -> String {
         // Check cache first
         if let cached = categoryCache[title] as? String {
+            // Apply legacy category mapping if needed
+            let mappedCategory = legacyCategoryMapping[cached] ?? cached
+
+            // Update cache if migration was applied
+            if mappedCategory != cached {
+                categoryCache[title] = mappedCategory
+                saveCategoryCache()
+                return mappedCategory
+            }
+
             return cached
         }
 
@@ -63,8 +79,9 @@ class ReceiptCategorizationService: ObservableObject {
             let category = try await openAIService.categorizeReceipt(title: title)
             let cleanCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Ensure the category is valid
-            let validCategory = validCategories.contains(cleanCategory) ? cleanCategory : "Other"
+            // Ensure the category is valid (apply legacy mapping first)
+            let mappedCategory = legacyCategoryMapping[cleanCategory] ?? cleanCategory
+            let validCategory = validCategories.contains(mappedCategory) ? mappedCategory : "Other"
 
             // Cache it locally
             categoryCache[title] = validCategory
