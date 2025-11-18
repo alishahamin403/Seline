@@ -75,7 +75,7 @@ struct InitialsView: View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(
-                    colorScheme == .dark ? Color.white : Color(white: 0.25)
+                    colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
                 )
 
             Text(initials)
