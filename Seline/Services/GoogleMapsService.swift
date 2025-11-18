@@ -179,11 +179,12 @@ class GoogleMapsService: ObservableObject {
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
 
         // Optimize field mask based on use case
-        // COST OPTIMIZATION: Removed photos from default fields (egress/bandwidth charges)
-        // BUT: Reviews are NOW INCLUDED for LLM context - improved responses justify the cost
+        // COST OPTIMIZATION: Removed photos and reviews from default fields
+        // - photos: Incurs egress/bandwidth charges + $0.30+ per request
+        // - reviews: Only fetched by LLM when specifically asked (on-demand, cost-efficient)
         let fieldMask = minimizeFields ?
             "displayName,location,regularOpeningHours,currentOpeningHours" :
-            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types,reviews"
+            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types"
 
         request.setValue(fieldMask, forHTTPHeaderField: "X-Goog-FieldMask")
 
@@ -226,31 +227,10 @@ class GoogleMapsService: ObservableObject {
                 longitude = location["longitude"] ?? 0.0
             }
 
-            // Photos removed for cost optimization (egress/bandwidth charges)
+            // Photos and reviews removed for cost optimization
+            // Reviews are fetched by LLM on-demand when users ask
             let photoURLs: [String] = []
-
-            // Extract reviews from API response
-            var reviews: [PlaceReview] = []
-            if let reviewsArray = place["reviews"] as? [[String: Any]] {
-                reviews = reviewsArray.compactMap { reviewData -> PlaceReview? in
-                    guard let authorName = reviewData["authorName"] as? String,
-                          let rating = reviewData["rating"] as? Int,
-                          let text = reviewData["text"] as? String else {
-                        return nil
-                    }
-
-                    let relativeTime = reviewData["relativeTimeDescription"] as? String
-                    let profilePhotoUrl = reviewData["authorPhotoUrl"] as? String
-
-                    return PlaceReview(
-                        authorName: authorName,
-                        rating: rating,
-                        text: text,
-                        relativeTime: relativeTime,
-                        profilePhotoUrl: profilePhotoUrl
-                    )
-                }
-            }
+            let reviews: [PlaceReview] = []
 
             // Extract opening hours (new API structure)
             var isOpenNow: Bool? = nil
@@ -437,7 +417,6 @@ struct PlaceDetails {
             phone: phone,
             photos: photoURLs,
             rating: rating,
-            reviews: reviews,
             openingHours: openingHours,
             isOpenNow: isOpenNow
         )
