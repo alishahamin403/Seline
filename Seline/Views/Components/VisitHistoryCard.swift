@@ -100,11 +100,6 @@ struct VisitHistoryCard: View {
     }
 
     private func loadVisitHistory() {
-        guard place.isFavourite else {
-            visitHistory = []
-            return
-        }
-
         isLoading = true
         Task {
             visitHistory = await analytics.fetchVisitHistory(for: place.id)

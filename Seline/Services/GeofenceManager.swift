@@ -130,9 +130,9 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // MARK: - Geofence Management
 
-    /// Setup geofences for all favorite locations
+    /// Setup geofences for all saved locations
     func setupGeofences(for places: [SavedPlace]) {
-        print("🔍 Setting up geofences for \(places.count) favorite locations")
+        print("🔍 Setting up geofences for \(places.count) saved locations")
 
         // Only proceed if we have background location authorization
         guard authorizationStatus == .authorizedAlways else {
@@ -144,10 +144,10 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         monitoredRegions.forEach { locationManager.stopMonitoring(for: $0.value) }
         monitoredRegions.removeAll()
 
-        // Add new geofences for favorite locations only
-        let favoriteLocations = places.filter { $0.isFavourite }
+        // Add new geofences for all saved locations
+        let locationsToTrack = places
 
-        for place in favoriteLocations {
+        for place in locationsToTrack {
             let region = CLCircularRegion(
                 center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude),
                 radius: geofenceRadius,
@@ -163,9 +163,9 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             print("📍 Monitoring geofence for: \(place.displayName) (ID: \(place.id.uuidString))")
         }
 
-        if !favoriteLocations.isEmpty {
+        if !locationsToTrack.isEmpty {
             isMonitoring = true
-            print("✅ Geofences setup complete. Monitoring \(favoriteLocations.count) locations")
+            print("✅ Geofences setup complete. Monitoring \(locationsToTrack.count) locations")
         }
     }
 

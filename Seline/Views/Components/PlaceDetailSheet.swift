@@ -155,20 +155,18 @@ struct PlaceDetailSheet: View {
                             .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
                             .frame(height: 1)
 
-                        // Visit Stats and History for favorite locations
-                        if place.isFavourite {
-                            VisitStatsCard(place: place)
+                        // Visit Stats and History
+                        VisitStatsCard(place: place)
 
-                            Rectangle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                                .frame(height: 1)
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                            .frame(height: 1)
 
-                            VisitHistoryCard(place: place)
+                        VisitHistoryCard(place: place)
 
-                            Rectangle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                                .frame(height: 1)
-                        }
+                        Rectangle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+                            .frame(height: 1)
 
                         // Open in Maps button
                         Button(action: {

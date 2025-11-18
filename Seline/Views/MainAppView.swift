@@ -362,8 +362,8 @@ struct MainAppView: View {
                 deepLinkHandler.processPendingAction()
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
-                // Update geofences whenever saved places or their favorite status changes
-                geofenceManager.setupGeofences(for: locationsManager.getFavourites())
+                // Update geofences whenever saved places change
+                geofenceManager.setupGeofences(for: locationsManager.savedPlaces)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {

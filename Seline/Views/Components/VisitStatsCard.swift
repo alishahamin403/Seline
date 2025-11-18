@@ -130,12 +130,6 @@ struct VisitStatsCard: View {
     }
 
     private func loadStats() {
-        guard place.isFavourite else {
-            // Only load stats for favorite locations
-            stats = nil
-            return
-        }
-
         isLoading = true
         Task {
             await analytics.fetchStats(for: place.id)
