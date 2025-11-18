@@ -325,7 +325,8 @@ struct ConversationMessageView: View {
                 Spacer()
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, message.isUser ? 16 : 0)
+        .padding(.trailing, message.isUser ? 16 : 16)
     }
 }
 
