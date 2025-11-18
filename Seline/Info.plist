@@ -92,9 +92,11 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Seline uses speech recognition to understand your voice queries and help you search through your calendar, notes, and locations.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
+    <string>Seline needs your location to provide accurate weather information, sunrise/sunset times, and track visits to your favorite locations.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Seline needs your location to provide accurate weather information and sunrise/sunset times.</string>
+    <string>Seline needs your location to provide accurate weather information, sunrise/sunset times, and track visits to your favorite locations.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Seline needs your location to provide accurate weather information, sunrise/sunset times, and track visits to your favorite locations.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Seline uses Face ID to securely lock and unlock your private notes.</string>
     <key>NSCameraUsageDescription</key>
@@ -118,10 +120,11 @@
     <key>OpenWeatherMapAPIKey</key>
     <string>YOUR_OPENWEATHERMAP_API_KEY_HERE</string>
 
-    <!-- Background Modes for Email Notifications -->
+    <!-- Background Modes for Email Notifications and Location -->
     <key>UIBackgroundModes</key>
     <array>
         <string>fetch</string>
+        <string>location</string>
     </array>
 </dict>
 </plist>

@@ -109,8 +109,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
         locationManager.pausesLocationUpdatesAutomatically = false
-        locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.showsBackgroundLocationIndicator = true
+        // NOTE: allowsBackgroundLocationUpdates will be set after authorization is granted
     }
 
     // MARK: - Permission Handling
@@ -134,6 +133,12 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// Setup geofences for all favorite locations
     func setupGeofences(for places: [SavedPlace]) {
         print("🔍 Setting up geofences for \(places.count) favorite locations")
+
+        // Only proceed if we have background location authorization
+        guard authorizationStatus == .authorizedAlways else {
+            print("⚠️ Background location authorization not yet granted. Waiting for permission...")
+            return
+        }
 
         // Remove existing geofences
         monitoredRegions.forEach { locationManager.stopMonitoring(for: $0.value) }
@@ -242,6 +247,11 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             switch manager.authorizationStatus {
             case .authorizedAlways:
                 print("✅ Background location authorization granted")
+
+                // Now safe to enable background location updates
+                manager.allowsBackgroundLocationUpdates = true
+                manager.showsBackgroundLocationIndicator = true
+
                 self.setupGeofences(for: LocationsManager.shared.getFavourites())
             case .authorizedWhenInUse:
                 print("⚠️ Only 'When In Use' authorization granted. Geofencing requires 'Always' permission.")

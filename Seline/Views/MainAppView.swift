@@ -353,9 +353,9 @@ struct MainAppView: View {
             .onAppear {
                 locationService.requestLocationPermission()
 
-                // Request background location permission and setup geofencing for visits tracking
+                // Request background location permission for visit tracking
+                // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
                 geofenceManager.requestLocationPermission()
-                geofenceManager.setupGeofences(for: locationsManager.getFavourites())
 
                 taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
                 // Check if there's a pending deep link action (e.g., from widget)
