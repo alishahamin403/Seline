@@ -170,9 +170,9 @@ struct LocationSearchModal: View {
             }
         }
         .fullScreenCover(isPresented: $showLocationDetail) {
-            if let placeId = selectedGooglePlaceId {
-                LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: selectedPlaceDetails)
-                    .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            if let placeId = selectedGooglePlaceId, let details = selectedPlaceDetails {
+                LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
+                    .ignoresSafeArea()
             }
         }
     }
@@ -246,20 +246,17 @@ struct LocationDetailViewWrapper: View {
     }
 
     var body: some View {
-        ZStack {
-            LocationDetailView(placeDetails: placeDetails, googlePlaceId: googlePlaceId)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            print("🎬 LocationDetailViewWrapper onAppear: placeDetails=\(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
-            // Only fetch if we don't have initial data
-            if placeDetails == nil {
-                print("⏳ Fetching place details for: \(googlePlaceId)")
-                loadPlaceDetails()
-            } else {
-                print("✅ Already have place details, not fetching")
+        LocationDetailView(placeDetails: placeDetails, googlePlaceId: googlePlaceId)
+            .onAppear {
+                print("🎬 LocationDetailViewWrapper onAppear: placeDetails=\(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
+                // Only fetch if we don't have initial data
+                if placeDetails == nil {
+                    print("⏳ Fetching place details for: \(googlePlaceId)")
+                    loadPlaceDetails()
+                } else {
+                    print("✅ Already have place details, not fetching")
+                }
             }
-        }
     }
 
     private func loadPlaceDetails() {

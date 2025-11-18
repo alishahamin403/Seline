@@ -18,14 +18,18 @@ struct LocationDetailView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack(alignment: .topLeading) {
+            // Background
+            (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .ignoresSafeArea()
+
+            // Content
             if let placeDetails = placeDetails {
                 loadedContentView(placeDetails: placeDetails)
             } else {
                 loadingView
             }
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .onAppear {
             print("📍 LocationDetailView appeared with placeDetails: \(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
         }
