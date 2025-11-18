@@ -18,6 +18,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var category: String // AI-generated category
     var photos: [String] // URLs to photos
     var rating: Double? // Google's rating
+    var reviews: [PlaceReview] // Google reviews for LLM context
     var openingHours: [String]? // Opening hours weekday descriptions
     var isOpenNow: Bool?
     var country: String? // Country extracted from address
@@ -30,7 +31,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var dateCreated: Date
     var dateModified: Date
 
-    init(googlePlaceId: String, name: String, address: String, latitude: Double, longitude: Double, phone: String? = nil, photos: [String] = [], rating: Double? = nil, openingHours: [String]? = nil, isOpenNow: Bool? = nil) {
+    init(googlePlaceId: String, name: String, address: String, latitude: Double, longitude: Double, phone: String? = nil, photos: [String] = [], rating: Double? = nil, reviews: [PlaceReview] = [], openingHours: [String]? = nil, isOpenNow: Bool? = nil) {
         self.id = UUID()
         self.googlePlaceId = googlePlaceId
         self.name = name
@@ -42,6 +43,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.category = "Uncategorized" // Will be set by AI
         self.photos = photos
         self.rating = rating
+        self.reviews = reviews
         self.openingHours = openingHours
         self.isOpenNow = isOpenNow
         self.country = nil

@@ -54,9 +54,18 @@ struct StructuredLLMContext: Encodable {
             let province: String?
             let country: String?
             let userRating: Double?
+            let googleRating: Double?
+            let reviews: [ReviewJSON]?
             let relevanceScore: Double
             let matchType: String
             let distanceFromLocation: String?
+
+            struct ReviewJSON: Encodable {
+                let authorName: String
+                let rating: Int
+                let text: String
+                let relativeTime: String?
+            }
         }
 
         struct TaskJSON: Encodable {
@@ -222,14 +231,25 @@ class ContextBuilder {
         guard let locations = locations, !locations.isEmpty else { return nil }
 
         return locations.map { locationWithRelevance in
-            StructuredLLMContext.ContextData.LocationJSON(
+            let reviewsJSON = locationWithRelevance.place.reviews.isEmpty ? nil : locationWithRelevance.place.reviews.map { review in
+                StructuredLLMContext.ContextData.LocationJSON.ReviewJSON(
+                    authorName: review.authorName,
+                    rating: review.rating,
+                    text: review.text,
+                    relativeTime: review.relativeTime
+                )
+            }
+
+            return StructuredLLMContext.ContextData.LocationJSON(
                 id: locationWithRelevance.place.id.uuidString,
                 name: locationWithRelevance.place.name,
                 category: locationWithRelevance.place.category,
                 city: locationWithRelevance.place.city,
                 province: locationWithRelevance.place.province,
                 country: locationWithRelevance.place.country,
-                userRating: locationWithRelevance.place.rating,
+                userRating: locationWithRelevance.place.userRating.map { Double($0) },
+                googleRating: locationWithRelevance.place.rating,
+                reviews: reviewsJSON,
                 relevanceScore: locationWithRelevance.relevanceScore,
                 matchType: locationWithRelevance.matchType.rawValue,
                 distanceFromLocation: locationWithRelevance.distanceFromLocation
