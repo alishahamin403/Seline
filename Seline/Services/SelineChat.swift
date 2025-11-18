@@ -175,6 +175,14 @@ class SelineChat {
         • If the user asks about "my [something]" (employee number, birthday, address, account, etc.), immediately check NOTES first - these personal details are usually stored there
         • Don't limit yourself to one data source - combine information from notes, events, and locations for comprehensive answers
 
+        LOCATION REVIEWS HANDLING:
+        • **When user asks about reviews for a saved location**, actively search for and provide actual reviews
+        • Use the location name and details to find real reviews on Google, Yelp, or TripAdvisor
+        • Provide specific review excerpts, ratings, and what customers liked/disliked
+        • If you find reviews, include star ratings and key feedback points
+        • Be specific - "Based on recent reviews: ..." rather than generic statements
+        • If searching for "[Location Name] reviews", provide concrete examples of what reviewers said
+
         IMPORTANT RULES:
         • Always refer to actual data provided below, not assumptions
         • Be specific with numbers, dates, and amounts
