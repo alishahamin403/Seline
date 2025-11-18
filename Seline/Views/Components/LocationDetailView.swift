@@ -18,47 +18,41 @@ struct LocationDetailView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Background
-            (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                .ignoresSafeArea()
-
-            // Content
-            if let placeDetails = placeDetails {
-                loadedContentView(placeDetails: placeDetails)
-            } else {
-                loadingView
-            }
-        }
-        .onAppear {
-            print("📍 LocationDetailView appeared with placeDetails: \(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
-        }
-        .overlay(alignment: .top) {
-            // Top bar
-            HStack {
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.black.opacity(0.5)))
-                }
-                .padding(.leading, 20)
-
-                Spacer()
-            }
-            .padding(.top, 50)
-        }
-        .sheet(isPresented: $showCategoryPicker) {
-            if let placeDetails = placeDetails {
-                CategoryPickerView(
-                    selectedCategory: $selectedCategory,
-                    onSave: { category in
-                        savePlace(placeDetails: placeDetails, category: category)
-                        showCategoryPicker = false
+        if let placeDetails = placeDetails {
+            loadedContentView(placeDetails: placeDetails)
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .overlay(alignment: .top) {
+                    HStack {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 32, height: 32)
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
+                        .padding(.leading, 20)
+                        Spacer()
                     }
-                )
-            }
+                    .padding(.top, 50)
+                }
+                .sheet(isPresented: $showCategoryPicker) {
+                    CategoryPickerView(
+                        selectedCategory: $selectedCategory,
+                        onSave: { category in
+                            savePlace(placeDetails: placeDetails, category: category)
+                            showCategoryPicker = false
+                        }
+                    )
+                }
+                .onAppear {
+                    print("📍 LocationDetailView appeared with placeDetails: \(placeDetails.name)")
+                }
+        } else {
+            loadingView
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .onAppear {
+                    print("📍 LocationDetailView appeared - NO placeDetails, showing loading")
+                }
         }
     }
 
