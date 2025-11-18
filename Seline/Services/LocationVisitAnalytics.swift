@@ -167,11 +167,11 @@ class LocationVisitAnalytics: ObservableObject {
             : Double(durationsWithValue.reduce(0, +)) / Double(durationsWithValue.count)
 
         // Find most common time of day
-        let timeOfDayFrequency = Dictionary(groupingBy: visits, by: { $0.timeOfDay })
+        let timeOfDayFrequency = Dictionary(grouping: visits, by: { $0.timeOfDay })
         let mostCommonTimeOfDay = timeOfDayFrequency.max { $0.value.count < $1.value.count }?.key
 
         // Find most common day of week
-        let dayFrequency = Dictionary(groupingBy: visits, by: { $0.dayOfWeek })
+        let dayFrequency = Dictionary(grouping: visits, by: { $0.dayOfWeek })
         let mostCommonDayOfWeek = dayFrequency.max { $0.value.count < $1.value.count }?.key
 
         return LocationVisitStats(

@@ -40,13 +40,13 @@ struct LocationVisitRecord: Codable, Identifiable {
         let month = components.month ?? 1
         let year = components.year ?? 2024
 
-        return LocationVisit(
+        return LocationVisitRecord(
             id: UUID(),
             userId: userId,
             savedPlaceId: savedPlaceId,
             entryTime: entryTime,
-            exitTime: nil,
-            durationMinutes: nil,
+            exitTime: Optional<Date>.none,
+            durationMinutes: Optional<Int>.none,
             dayOfWeek: dayOfWeek,
             timeOfDay: timeOfDay,
             month: month,
