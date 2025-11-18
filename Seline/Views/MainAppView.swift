@@ -8,6 +8,7 @@ struct MainAppView: View {
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var locationService = LocationService.shared
+    @StateObject private var geofenceManager = GeofenceManager.shared
     @StateObject private var searchService = SearchService.shared
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var navigationService = NavigationService.shared
@@ -351,9 +352,18 @@ struct MainAppView: View {
         mainContentBase
             .onAppear {
                 locationService.requestLocationPermission()
+
+                // Request background location permission and setup geofencing for visits tracking
+                geofenceManager.requestLocationPermission()
+                geofenceManager.setupGeofences(for: locationsManager.getFavourites())
+
                 taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
+            }
+            .onChange(of: locationsManager.savedPlaces) { _ in
+                // Update geofences whenever saved places or their favorite status changes
+                geofenceManager.setupGeofences(for: locationsManager.getFavourites())
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {

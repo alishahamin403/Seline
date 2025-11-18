@@ -30,7 +30,7 @@ struct MapsViewNew: View, Searchable {
                                 selectedTab = tab
                             }
                         }) {
-                            Text(tab == "folders" ? "Folders" : "Ranking")
+                            Text(tab == "folders" ? "Locations" : "Ranking")
                                 .font(.system(size: 14, weight: selectedTab == tab ? .semibold : .medium))
                                 .foregroundColor(selectedTab == tab ? .white : .gray)
                                 .frame(maxWidth: .infinity)
@@ -58,7 +58,7 @@ struct MapsViewNew: View, Searchable {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         if selectedTab == "folders" {
-                            // FOLDERS TAB CONTENT
+                            // LOCATIONS TAB CONTENT
                             // Fixed spacer height to prevent folder movement
                             Rectangle()
                                 .fill(Color.clear)
