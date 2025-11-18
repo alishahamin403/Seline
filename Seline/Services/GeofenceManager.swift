@@ -1,9 +1,10 @@
 import Foundation
 import CoreLocation
+import PostgREST
 
-// MARK: - LocationVisit Model
+// MARK: - LocationVisitRecord Model
 
-struct LocationVisit: Codable, Identifiable {
+struct LocationVisitRecord: Codable, Identifiable {
     let id: UUID
     let userId: UUID
     let savedPlaceId: UUID
@@ -30,7 +31,7 @@ struct LocationVisit: Codable, Identifiable {
         userId: UUID,
         savedPlaceId: UUID,
         entryTime: Date
-    ) -> LocationVisit {
+    ) -> LocationVisitRecord {
         let calendar = Calendar.current
         let components = calendar.dateComponents([.weekday, .month, .year], from: entryTime)
 
@@ -64,7 +65,10 @@ struct LocationVisit: Codable, Identifiable {
 
     private static func dayOfWeekName(for dayIndex: Int) -> String {
         let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        return days[safe: dayIndex] ?? "Unknown"
+        if dayIndex >= 0 && dayIndex < days.count {
+            return days[dayIndex]
+        }
+        return "Unknown"
     }
 
     private static func timeOfDayName(for date: Date) -> String {
@@ -92,7 +96,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     private let locationManager = CLLocationManager()
     private var monitoredRegions: [String: CLCircularRegion] = [:] // [placeId: region]
-    private var activeVisits: [UUID: LocationVisit] = [:] // [placeId: visit]
+    private var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
 
     @Published var isMonitoring = false
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
@@ -114,7 +118,8 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func requestLocationPermission() {
         switch authorizationStatus {
         case .notDetermined:
-            locationManager.requestAlwaysAndWhenInUseAuthorization()
+            // Request background location permission (Always)
+            locationManager.requestAlwaysAuthorization()
         case .denied, .restricted:
             errorMessage = "Background location access required for visit tracking. Please enable in Settings."
         case .authorizedAlways, .authorizedWhenInUse:
@@ -190,7 +195,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
 
             // Create a new visit record
-            var visit = LocationVisit.create(
+            var visit = LocationVisitRecord.create(
                 userId: userId,
                 savedPlaceId: placeId,
                 entryTime: Date()
@@ -262,7 +267,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // MARK: - Supabase Integration
 
-    private func saveVisitToSupabase(_ visit: LocationVisit) async {
+    private func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
         guard SupabaseManager.shared.getCurrentUser() != nil else {
             print("⚠️ No user ID, skipping Supabase visit save")
             return
@@ -299,7 +304,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
-    private func updateVisitInSupabase(_ visit: LocationVisit) async {
+    private func updateVisitInSupabase(_ visit: LocationVisitRecord) async {
         guard SupabaseManager.shared.getCurrentUser() != nil else {
             print("⚠️ No user ID, skipping Supabase visit update")
             return
@@ -326,13 +331,5 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         } catch {
             print("❌ Error updating visit in Supabase: \(error)")
         }
-    }
-}
-
-// MARK: - Array Safe Access
-
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }

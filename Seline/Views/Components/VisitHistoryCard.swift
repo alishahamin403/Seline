@@ -116,7 +116,7 @@ struct VisitHistoryCard: View {
 // MARK: - Visit History Row
 
 struct VisitHistoryRow: View {
-    let visit: LocationVisit
+    let visit: LocationVisitRecord
     let colorScheme: ColorScheme
 
     var body: some View {

@@ -1,4 +1,5 @@
 import Foundation
+import PostgREST
 
 // MARK: - Visit Statistics Models
 
@@ -13,7 +14,7 @@ struct LocationVisitStats {
 }
 
 struct VisitHistoryItem {
-    let visit: LocationVisit
+    let visit: LocationVisitRecord
     let placeName: String
 }
 
@@ -134,10 +135,10 @@ class LocationVisitAnalytics: ObservableObject {
 
     // MARK: - Private Methods
 
-    private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisit] {
+    private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {
         let client = await SupabaseManager.shared.getPostgrestClient()
 
-        let response: [LocationVisit] = try await client
+        let response: [LocationVisitRecord] = try await client
             .from("location_visits")
             .select()
             .eq("user_id", value: userId.uuidString)
@@ -149,7 +150,7 @@ class LocationVisitAnalytics: ObservableObject {
         return response
     }
 
-    private func calculateStats(from visits: [LocationVisit]) -> LocationVisitStats {
+    private func calculateStats(from visits: [LocationVisitRecord]) -> LocationVisitStats {
         let now = Date()
         let calendar = Calendar.current
         let currentMonth = calendar.component(.month, from: now)
