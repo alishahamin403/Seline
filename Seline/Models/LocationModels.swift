@@ -284,6 +284,9 @@ class LocationsManager: ObservableObject {
         savedPlaces.removeAll { $0.id == place.id }
         savePlacesToStorage()
 
+        // Clear from Google Maps cache
+        GoogleMapsService.shared.clearLocationCache(for: place.googlePlaceId)
+
         // Sync with Supabase
         Task {
             await deletePlaceFromSupabase(place.id)

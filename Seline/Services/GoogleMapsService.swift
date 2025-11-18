@@ -292,6 +292,13 @@ class GoogleMapsService: ObservableObject {
         }
     }
 
+    // MARK: - Cache Management
+
+    /// Clear cached location details when user removes a location
+    func clearLocationCache(for googlePlaceId: String) {
+        detailsCache.removeValue(forKey: googlePlaceId)
+    }
+
     // MARK: - Get Photo URL
 
     private func getPhotoURL(photoReference: String, maxWidth: Int = 400) -> String {
