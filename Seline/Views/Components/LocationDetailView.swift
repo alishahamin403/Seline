@@ -26,6 +26,9 @@ struct LocationDetailView: View {
             }
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .onAppear {
+            print("📍 LocationDetailView appeared with placeDetails: \(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
+        }
         .overlay(alignment: .top) {
             // Top bar
             HStack {

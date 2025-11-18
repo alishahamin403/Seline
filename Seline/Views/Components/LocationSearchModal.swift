@@ -242,6 +242,7 @@ struct LocationDetailViewWrapper: View {
         self.initialPlaceDetails = initialPlaceDetails
         // Initialize placeDetails with initialPlaceDetails to avoid blank screen
         _placeDetails = State(initialValue: initialPlaceDetails)
+        print("🔧 LocationDetailViewWrapper INIT: googlePlaceId=\(googlePlaceId), hasInitialDetails=\(initialPlaceDetails != nil ? "YES" : "NO")")
     }
 
     var body: some View {
@@ -250,11 +251,13 @@ struct LocationDetailViewWrapper: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            print("🔍 LocationDetailViewWrapper opened with placeDetails: \(placeDetails != nil ? "YES" : "NO")")
+            print("🎬 LocationDetailViewWrapper onAppear: placeDetails=\(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
             // Only fetch if we don't have initial data
             if placeDetails == nil {
                 print("⏳ Fetching place details for: \(googlePlaceId)")
                 loadPlaceDetails()
+            } else {
+                print("✅ Already have place details, not fetching")
             }
         }
     }
