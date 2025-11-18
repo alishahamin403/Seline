@@ -228,18 +228,24 @@ struct LocationDetailViewWrapper: View {
     let googlePlaceId: String
     let initialPlaceDetails: PlaceDetails?
     @StateObject private var mapsService = GoogleMapsService.shared
-    @State private var placeDetails: PlaceDetails? = nil
+    @State private var placeDetails: PlaceDetails?
     @State private var isLoading = false
     @State private var loadError: String? = nil
     @Environment(\.dismiss) var dismiss
 
+    init(googlePlaceId: String, initialPlaceDetails: PlaceDetails?) {
+        self.googlePlaceId = googlePlaceId
+        self.initialPlaceDetails = initialPlaceDetails
+        // Initialize placeDetails with initialPlaceDetails to avoid blank screen
+        _placeDetails = State(initialValue: initialPlaceDetails)
+    }
+
     var body: some View {
-        LocationDetailView(placeDetails: placeDetails ?? initialPlaceDetails, googlePlaceId: googlePlaceId)
+        LocationDetailView(placeDetails: placeDetails, googlePlaceId: googlePlaceId)
             .onAppear {
-                if placeDetails == nil && initialPlaceDetails == nil {
+                // Only fetch if we don't have initial data
+                if placeDetails == nil {
                     loadPlaceDetails()
-                } else if let initial = initialPlaceDetails {
-                    placeDetails = initial
                 }
             }
     }
