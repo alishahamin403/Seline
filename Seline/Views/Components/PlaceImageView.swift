@@ -60,30 +60,12 @@ struct PlaceImageView: View {
     }
 }
 
-/// A view that displays initials with a gradient background
+/// A view that displays initials with a solid black/white background
 struct InitialsView: View {
     let initials: String
     let size: CGFloat
     let cornerRadius: CGFloat
     let colorScheme: ColorScheme
-
-    // Generate a consistent color based on the initials
-    var gradientColors: [Color] {
-        let hash = abs(initials.hashValue)
-        let hue = Double(hash % 360) / 360.0
-
-        if colorScheme == .dark {
-            return [
-                Color(hue: hue, saturation: 0.6, brightness: 0.5),
-                Color(hue: hue, saturation: 0.4, brightness: 0.3)
-            ]
-        } else {
-            return [
-                Color(hue: hue, saturation: 0.5, brightness: 0.9),
-                Color(hue: hue, saturation: 0.3, brightness: 0.7)
-            ]
-        }
-    }
 
     var fontSize: CGFloat {
         size * 0.4 // Font size is 40% of the container size
@@ -93,16 +75,12 @@ struct InitialsView: View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(
-                    LinearGradient(
-                        colors: gradientColors,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+                    colorScheme == .dark ? Color.white : Color.black
                 )
 
             Text(initials)
                 .font(.system(size: fontSize, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
         }
         .frame(width: size, height: size)
     }
