@@ -22,7 +22,7 @@ struct LocationSearchModal: View {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 16))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
                     TextField("Search for a place...", text: $searchText)
                         .font(.shadcnTextBase)
@@ -62,7 +62,7 @@ struct LocationSearchModal: View {
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                         }
                     }
                 }
@@ -92,7 +92,7 @@ struct LocationSearchModal: View {
                         ProgressView()
                         Text("Searching...")
                             .font(.system(size: 14))
-                            .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !searchText.isEmpty && searchResults.isEmpty {
