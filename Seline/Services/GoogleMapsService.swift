@@ -79,7 +79,7 @@ class GoogleMapsService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
-        request.setValue("places.id,places.displayName,places.formattedAddress,places.location,places.types,places.photos", forHTTPHeaderField: "X-Goog-FieldMask")
+        request.setValue("places.id,places.displayName,places.formattedAddress,places.location,places.types", forHTTPHeaderField: "X-Goog-FieldMask")
         request.httpBody = jsonData
 
         do {
@@ -120,24 +120,13 @@ class GoogleMapsService: ObservableObject {
 
                 let types = place["types"] as? [String] ?? []
 
-                // Extract first photo URL if available
-                var photoURL: String? = nil
-                if let photos = place["photos"] as? [[String: Any]],
-                   let firstPhoto = photos.first,
-                   let name = firstPhoto["name"] as? String {
-                    // Google Places API returns photo resource names, we need to construct the URL
-                    // Format: https://places.googleapis.com/v1/{resourceName}/media?maxHeightPx=400&maxWidthPx=400&key={apiKey}
-                    photoURL = "https://places.googleapis.com/v1/\(name)/media?maxHeightPx=400&maxWidthPx=400&key=\(apiKey)"
-                }
-
                 return PlaceSearchResult(
                     id: placeId,
                     name: name,
                     address: formattedAddress,
                     latitude: lat,
                     longitude: lng,
-                    types: types,
-                    photoURL: photoURL
+                    types: types
                 )
             }
 
@@ -175,12 +164,12 @@ class GoogleMapsService: ObservableObject {
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
 
         // Optimize field mask based on use case
-        // COST OPTIMIZATION: Removed photos and reviews from default fields
-        // - photos: Incurs egress/bandwidth charges + $0.30+ per request
+        // COST OPTIMIZATION:
+        // - photos: Only fetched when user opens detail view (on-demand, not during search)
         // - reviews: Only fetched by LLM when specifically asked (on-demand, cost-efficient)
         let fieldMask = minimizeFields ?
             "displayName,location,regularOpeningHours,currentOpeningHours" :
-            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types"
+            "displayName,formattedAddress,location,internationalPhoneNumber,rating,userRatingCount,websiteUri,regularOpeningHours,currentOpeningHours,priceLevel,types,photos"
 
         request.setValue(fieldMask, forHTTPHeaderField: "X-Goog-FieldMask")
 
@@ -221,9 +210,18 @@ class GoogleMapsService: ObservableObject {
                 longitude = location["longitude"] ?? 0.0
             }
 
-            // Photos and reviews removed for cost optimization
+            // Extract first photo only (cost optimization - only fetch on detail view)
+            var photoURLs: [String] = []
+            if let photos = place["photos"] as? [[String: Any]],
+               let firstPhoto = photos.first,
+               let photoName = firstPhoto["name"] as? String {
+                // Google Places API returns photo resource names
+                // Format: https://places.googleapis.com/v1/{resourceName}/media?maxHeightPx=200&maxWidthPx=200&key={apiKey}
+                let photoURL = "https://places.googleapis.com/v1/\(photoName)/media?maxHeightPx=200&maxWidthPx=200&key=\(apiKey)"
+                photoURLs = [photoURL]
+            }
+
             // Reviews are fetched by LLM on-demand when users ask
-            let photoURLs: [String] = []
             let reviews: [PlaceReview] = []
 
             // Extract opening hours (new API structure)

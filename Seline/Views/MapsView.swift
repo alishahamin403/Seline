@@ -227,23 +227,18 @@ struct PlaceSearchResultRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Location image thumbnail
+                // Location initials placeholder
                 ZStack {
-                    if let photoURL = result.photoURL {
-                        CachedAsyncImage(url: photoURL) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            InitialsPlaceholder(initials: initials, colorScheme: colorScheme)
-                        }
-                        .frame(width: 44, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    } else {
-                        InitialsPlaceholder(initials: initials, colorScheme: colorScheme)
-                            .frame(width: 44, height: 44)
-                    }
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(
+                            colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
+                        )
+
+                    Text(initials)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                 }
+                .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.name)
@@ -279,26 +274,6 @@ struct PlaceSearchResultRow: View {
             .padding(.vertical, 8)
         }
         .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - Initials Placeholder
-
-struct InitialsPlaceholder: View {
-    let initials: String
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(
-                    colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
-                )
-
-            Text(initials)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
-        }
     }
 }
 

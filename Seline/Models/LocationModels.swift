@@ -140,7 +140,6 @@ struct PlaceSearchResult: Identifiable, Codable {
     let latitude: Double
     let longitude: Double
     let types: [String]
-    let photoURL: String? // First photo URL from search results
     var isSaved: Bool = false
 }
 
