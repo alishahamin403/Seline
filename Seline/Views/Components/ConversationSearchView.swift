@@ -80,7 +80,7 @@ struct ConversationSearchView: View {
                     showingSidebar.toggle()
                 }
             }) {
-                Image(systemName: "sidebar.leading")
+                Image(systemName: "line.3.horizontal")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             }
@@ -308,17 +308,17 @@ struct ConversationMessageView: View {
                     .fill(
                         message.isUser
                             ? (colorScheme == .dark ? Color.white : Color(white: 0.25))
-                            : (colorScheme == .dark
-                                ? Color.gray.opacity(0.15)
-                                : Color.gray.opacity(0.15))
+                            : .clear
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        message.isUser ? (colorScheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.15)) : Color.gray.opacity(0.2),
-                        lineWidth: 0.5
-                    )
+                message.isUser ? AnyView(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(
+                            colorScheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.15),
+                            lineWidth: 0.5
+                        )
+                ) : AnyView(EmptyView())
             )
 
             if !message.isUser {
