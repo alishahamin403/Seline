@@ -568,7 +568,7 @@ struct CategoryPickerView: View {
                     }) {
                         Text("Save to \(selectedCategory)")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                             .background(
@@ -622,7 +622,7 @@ struct CategoryButton: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(
                         isSelected ?
-                            .white :
+                            (colorScheme == .dark ? .black : .white) :
                             (colorScheme == .dark ? .white : .black)
                     )
 
@@ -631,7 +631,7 @@ struct CategoryButton: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
                 }
             }
             .padding(16)
