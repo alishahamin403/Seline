@@ -14,16 +14,9 @@ class GoogleMapsService: ObservableObject {
         let timestamp: Date
     }
 
-    // Place details cache to prevent repeated API calls
-    private struct PlaceDetailsCacheEntry {
-        let details: PlaceDetails
-        let timestamp: Date
-    }
-
     private var searchCache: [String: SearchCacheEntry] = [:] // Key: search query
-    private var detailsCache: [String: PlaceDetailsCacheEntry] = [:] // Key: place ID
+    private var detailsCache: [String: PlaceDetails] = [:] // Key: place ID - persistent cache
     private let searchCacheDurationSeconds: TimeInterval = 300 // 5 minutes
-    private let detailsCacheDurationSeconds: TimeInterval = 3600 // 1 hour
 
     private init() {}
 
@@ -54,10 +47,6 @@ class GoogleMapsService: ObservableObject {
 
     private func isSearchCacheValid(_ entry: SearchCacheEntry) -> Bool {
         return Date().timeIntervalSince(entry.timestamp) < searchCacheDurationSeconds
-    }
-
-    private func isDetailsCacheValid(_ entry: PlaceDetailsCacheEntry) -> Bool {
-        return Date().timeIntervalSince(entry.timestamp) < detailsCacheDurationSeconds
     }
 
     // MARK: - Search Places
@@ -160,9 +149,9 @@ class GoogleMapsService: ObservableObject {
     // MARK: - Get Place Details
 
     func getPlaceDetails(placeId: String, minimizeFields: Bool = false) async throws -> PlaceDetails {
-        // Check cache first to prevent unnecessary API calls
-        if !minimizeFields, let cachedEntry = detailsCache[placeId], isDetailsCacheValid(cachedEntry) {
-            return cachedEntry.details
+        // Check persistent cache first - location details never expire unless manually removed
+        if !minimizeFields, let cachedDetails = detailsCache[placeId] {
+            return cachedDetails
         }
 
         // The new Places API expects the full resource name format: places/{placeId}
@@ -288,9 +277,9 @@ class GoogleMapsService: ObservableObject {
                 types: types
             )
 
-            // Cache the result (but not for minimized field queries)
+            // Cache the result persistently (but not for minimized field queries)
             if !minimizeFields {
-                detailsCache[placeId] = PlaceDetailsCacheEntry(details: placeDetails, timestamp: Date())
+                detailsCache[placeId] = placeDetails
             }
 
             return placeDetails
