@@ -21,20 +21,6 @@ struct LocationDetailView: View {
         if let placeDetails = placeDetails {
             loadedContentView(placeDetails: placeDetails)
                 .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                .overlay(alignment: .top) {
-                    HStack {
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
-                                .background(Circle().fill(Color.black.opacity(0.5)))
-                        }
-                        .padding(.leading, 20)
-                        Spacer()
-                    }
-                    .padding(.top, 50)
-                }
                 .sheet(isPresented: $showCategoryPicker) {
                     CategoryPickerView(
                         selectedCategory: $selectedCategory,
@@ -43,9 +29,6 @@ struct LocationDetailView: View {
                             showCategoryPicker = false
                         }
                     )
-                }
-                .onAppear {
-                    print("📍 LocationDetailView appeared with placeDetails: \(placeDetails.name)")
                 }
         } else {
             loadingView
@@ -319,6 +302,7 @@ struct LocationDetailView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func getSavedCategory() -> String {

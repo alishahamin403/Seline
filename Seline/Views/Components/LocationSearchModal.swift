@@ -169,10 +169,12 @@ struct LocationSearchModal: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showLocationDetail) {
+        .sheet(isPresented: $showLocationDetail, onDismiss: {
+            selectedPlaceDetails = nil
+            selectedGooglePlaceId = nil
+        }) {
             if let placeId = selectedGooglePlaceId, let details = selectedPlaceDetails {
                 LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
-                    .ignoresSafeArea()
             }
         }
     }
@@ -208,13 +210,10 @@ struct LocationSearchModal: View {
     }
 
     private func loadPlaceDetails(placeId: String) {
-        print("🔎 User tapped location: \(placeId)")
         Task {
             do {
-                print("📡 Fetching details from API...")
                 let details = try await mapsService.getPlaceDetails(placeId: placeId)
                 await MainActor.run {
-                    print("✅ Got details: \(details.name), showing detail view")
                     selectedPlaceDetails = details
                     selectedGooglePlaceId = placeId
                     showLocationDetail = true
@@ -242,19 +241,14 @@ struct LocationDetailViewWrapper: View {
         self.initialPlaceDetails = initialPlaceDetails
         // Initialize placeDetails with initialPlaceDetails to avoid blank screen
         _placeDetails = State(initialValue: initialPlaceDetails)
-        print("🔧 LocationDetailViewWrapper INIT: googlePlaceId=\(googlePlaceId), hasInitialDetails=\(initialPlaceDetails != nil ? "YES" : "NO")")
     }
 
     var body: some View {
         LocationDetailView(placeDetails: placeDetails, googlePlaceId: googlePlaceId)
             .onAppear {
-                print("🎬 LocationDetailViewWrapper onAppear: placeDetails=\(placeDetails != nil ? placeDetails?.name ?? "?" : "NIL")")
                 // Only fetch if we don't have initial data
                 if placeDetails == nil {
-                    print("⏳ Fetching place details for: \(googlePlaceId)")
                     loadPlaceDetails()
-                } else {
-                    print("✅ Already have place details, not fetching")
                 }
             }
     }
@@ -263,12 +257,10 @@ struct LocationDetailViewWrapper: View {
         guard !isLoading else { return }
 
         isLoading = true
-        print("📍 Fetching details from API for: \(googlePlaceId)")
         Task {
             do {
                 let details = try await mapsService.getPlaceDetails(placeId: googlePlaceId)
                 await MainActor.run {
-                    print("✅ Got details from API, updating state")
                     placeDetails = details
                     isLoading = false
                 }
@@ -277,7 +269,6 @@ struct LocationDetailViewWrapper: View {
                     print("❌ Failed to load place details: \(error)")
                     loadError = error.localizedDescription
                     isLoading = false
-                    // Dismiss on error
                     dismiss()
                 }
             }
