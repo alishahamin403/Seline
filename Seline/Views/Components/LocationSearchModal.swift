@@ -187,9 +187,7 @@ struct LocationSearchModal: View {
         }
 
         do {
-            print("🔍 Searching for: \(query)")
             let results = try await mapsService.searchPlaces(query: query)
-            print("✅ Found \(results.count) results")
 
             await MainActor.run {
                 searchResults = results
@@ -202,7 +200,6 @@ struct LocationSearchModal: View {
             }
         } catch {
             await MainActor.run {
-                print("❌ Search failed: \(error)")
                 searchResults = []
                 isSearching = false
             }
@@ -219,7 +216,7 @@ struct LocationSearchModal: View {
                     showLocationDetail = true
                 }
             } catch {
-                print("❌ Failed to load place details: \(error)")
+                // Handle error silently
             }
         }
     }
@@ -266,7 +263,6 @@ struct LocationDetailViewWrapper: View {
                 }
             } catch {
                 await MainActor.run {
-                    print("❌ Failed to load place details: \(error)")
                     loadError = error.localizedDescription
                     isLoading = false
                     dismiss()

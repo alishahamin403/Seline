@@ -33,9 +33,6 @@ struct LocationDetailView: View {
         } else {
             loadingView
                 .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
-                .onAppear {
-                    print("📍 LocationDetailView appeared - NO placeDetails, showing loading")
-                }
         }
     }
 

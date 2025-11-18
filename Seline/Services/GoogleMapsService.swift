@@ -88,7 +88,6 @@ class GoogleMapsService: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse {
                 guard httpResponse.statusCode == 200 else {
                     if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("❌ Error response: \(errorData)")
                         if let error = errorData["error"] as? [String: Any],
                            let errorMessage = error["message"] as? String {
                             throw MapsError.apiError(errorMessage)
@@ -100,12 +99,10 @@ class GoogleMapsService: ObservableObject {
 
             // Parse response
             guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                print("❌ Failed to parse JSON response")
                 throw MapsError.decodingError
             }
 
             guard let places = jsonResponse["places"] as? [[String: Any]] else {
-                print("❌ No places array in response")
                 throw MapsError.decodingError
             }
 
@@ -141,7 +138,6 @@ class GoogleMapsService: ObservableObject {
         } catch let error as MapsError {
             throw error
         } catch {
-            print("❌ Network error: \(error)")
             throw MapsError.networkError(error)
         }
     }
@@ -183,7 +179,6 @@ class GoogleMapsService: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse {
                 guard httpResponse.statusCode == 200 else {
                     if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("❌ Error response: \(errorData)")
                         if let error = errorData["error"] as? [String: Any],
                            let errorMessage = error["message"] as? String {
                             throw MapsError.apiError(errorMessage)
@@ -195,7 +190,6 @@ class GoogleMapsService: ObservableObject {
 
             // Parse response
             guard let place = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                print("❌ Failed to parse place details JSON")
                 throw MapsError.decodingError
             }
 
@@ -258,8 +252,6 @@ class GoogleMapsService: ObservableObject {
                 }
             }
 
-            print("✅ Successfully parsed place details: \(name)")
-
             let placeDetails = PlaceDetails(
                 name: name,
                 address: address,
@@ -287,7 +279,6 @@ class GoogleMapsService: ObservableObject {
         } catch let error as MapsError {
             throw error
         } catch {
-            print("❌ Network error fetching place details: \(error)")
             throw MapsError.networkError(error)
         }
     }
@@ -313,14 +304,10 @@ class GoogleMapsService: ObservableObject {
         if let googleMapsURL = place.googleMapsURL,
            UIApplication.shared.canOpenURL(googleMapsURL) {
             UIApplication.shared.open(googleMapsURL)
-            print("✅ Opened in Google Maps app")
         }
         // Fallback to Apple Maps
         else if let appleMapsURL = place.appleMapsURL {
             UIApplication.shared.open(appleMapsURL)
-            print("✅ Opened in Apple Maps (Google Maps not installed)")
-        } else {
-            print("❌ Could not open maps")
         }
     }
 
@@ -347,12 +334,10 @@ class GoogleMapsService: ObservableObject {
         let recentSearches = locationsManager.getRecentSearches(limit: 10)
 
         if !recentSearches.isEmpty {
-            print("📍 Returning \(recentSearches.count) searches from local history")
             return recentSearches
         }
 
         // If no history, show popular suggestions
-        print("ℹ️ No search history found, showing popular suggestions")
         return try await getPopularSuggestions()
     }
 
@@ -372,7 +357,7 @@ class GoogleMapsService: ObservableObject {
                 let places = try await searchPlaces(query: query)
                 allPlaces.append(contentsOf: places.prefix(2))
             } catch {
-                print("⚠️ Failed to fetch places for query '\(query)': \(error)")
+                // Silently continue if a query fails
             }
         }
 
