@@ -299,7 +299,7 @@ struct LocationDetailView: View {
                             Text(isSaving ? "Saving..." : "Save to Category")
                                 .font(.system(size: 16, weight: .semibold))
                         }
-                        .foregroundColor(.white)
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                         .background(
