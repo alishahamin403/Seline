@@ -14,14 +14,8 @@ struct SavedPlaceRow: View {
             onTap(place)
         }) {
             HStack(spacing: 12) {
-                // Location icon
-                Image(systemName: "mappin.circle.fill")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundColor(
-                        colorScheme == .dark ?
-                            Color(red: 0.518, green: 0.792, blue: 0.914) :
-                            Color.black
-                    )
+                // Location image or initials
+                PlaceImageView(place: place, size: 56, cornerRadius: 8)
 
                 // Place info
                 VStack(alignment: .leading, spacing: 4) {

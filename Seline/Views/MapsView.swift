@@ -211,12 +211,39 @@ struct PlaceSearchResultRow: View {
     let onTap: () -> Void
     @Environment(\.colorScheme) var colorScheme
 
+    // Extract initials from place name
+    var initials: String {
+        let words = result.name.split(separator: " ")
+        if words.count >= 2 {
+            let first = String(words[0].prefix(1))
+            let second = String(words[1].prefix(1))
+            return (first + second).uppercased()
+        } else if let firstWord = words.first {
+            return String(firstWord.prefix(2)).uppercased()
+        }
+        return "?"
+    }
+
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 8) {
-                Image(systemName: "mappin.circle")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+            HStack(spacing: 12) {
+                // Location image thumbnail
+                ZStack {
+                    if let photoURL = result.photoURL {
+                        CachedAsyncImage(url: photoURL) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            InitialsPlaceholder(initials: initials, colorScheme: colorScheme)
+                        }
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    } else {
+                        InitialsPlaceholder(initials: initials, colorScheme: colorScheme)
+                            .frame(width: 44, height: 44)
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.name)
@@ -252,6 +279,26 @@ struct PlaceSearchResultRow: View {
             .padding(.vertical, 8)
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Initials Placeholder
+
+struct InitialsPlaceholder: View {
+    let initials: String
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(
+                    colorScheme == .dark ? Color(white: 0.85) : Color(white: 0.25)
+                )
+
+            Text(initials)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+        }
     }
 }
 

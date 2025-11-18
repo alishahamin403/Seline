@@ -209,7 +209,30 @@ struct LocationSearchModal: View {
     private func loadPlaceDetails(placeId: String) {
         Task {
             do {
-                let details = try await mapsService.getPlaceDetails(placeId: placeId)
+                var details = try await mapsService.getPlaceDetails(placeId: placeId)
+
+                // If we don't have photos from API, check if search result has a photo
+                if details.photoURLs.isEmpty,
+                   let searchResult = searchResults.first(where: { $0.id == placeId }),
+                   let photoURL = searchResult.photoURL {
+                    details = PlaceDetails(
+                        name: details.name,
+                        address: details.address,
+                        phone: details.phone,
+                        latitude: details.latitude,
+                        longitude: details.longitude,
+                        photoURLs: [photoURL],
+                        rating: details.rating,
+                        totalRatings: details.totalRatings,
+                        reviews: details.reviews,
+                        website: details.website,
+                        isOpenNow: details.isOpenNow,
+                        openingHours: details.openingHours,
+                        priceLevel: details.priceLevel,
+                        types: details.types
+                    )
+                }
+
                 await MainActor.run {
                     selectedPlaceDetails = details
                     selectedGooglePlaceId = placeId
