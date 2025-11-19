@@ -82,28 +82,15 @@ struct MapsViewNew: View, Searchable {
                             .lineLimit(2)
 
                         if let nearby = nearbyLocation {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.green)
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.green)
 
-                                    Text("In: \(nearby)")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.green)
-                                }
-
-                                if !elapsedTimeString.isEmpty {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "timer")
-                                            .font(.system(size: 9))
-                                            .foregroundColor(.green)
-
-                                        Text(elapsedTimeString)
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.green)
-                                    }
-                                }
+                                Text("In: \(nearby) \(elapsedTimeString)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.green)
+                                    .lineLimit(2)
                             }
                         } else if let distance = distanceToNearest {
                             HStack(spacing: 4) {
