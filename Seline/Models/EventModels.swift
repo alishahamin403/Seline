@@ -1646,6 +1646,12 @@ class TaskManager: ObservableObject {
                     // This ensures email attachments and all data are available even if Supabase is unreachable
                     self.saveTasks()
 
+                    // CRITICAL FIX: Restore calendar events from local cache after Supabase load
+                    // After replacing self.tasks with Supabase data, calendar events are lost from memory
+                    // This causes syncCalendarEvents() to not find existing events and re-add them as duplicates
+                    // Solution: Reload calendar events from local cache and merge them back
+                    self.restoreCalendarEventsFromCache()
+
                     // Check if any recurring tasks were fixed (marked incomplete)
                     let originalTasksArray = try? JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]]
                     let tasksNeedingFix = supabaseTasks.filter { task in
@@ -1815,6 +1821,45 @@ class TaskManager: ObservableObject {
         // }
 
         return taskItem
+    }
+
+    /// Restores calendar events from local cache after loading from Supabase
+    /// This prevents calendar event duplication by preserving events that were lost when
+    /// the tasks dictionary was replaced with Supabase data
+    private func restoreCalendarEventsFromCache() {
+        guard let cachedData = userDefaults.data(forKey: tasksKey),
+              let cachedTasks = try? JSONDecoder().decode([TaskItem].self, from: cachedData) else {
+            return
+        }
+
+        // Extract only calendar events from cache
+        let calendarEventsFromCache = cachedTasks.filter { $0.id.hasPrefix("cal_") }
+
+        guard !calendarEventsFromCache.isEmpty else {
+            return
+        }
+
+        print("🔄 Restoring \(calendarEventsFromCache.count) calendar events from local cache after Supabase load...")
+
+        // Merge calendar events back into tasks dictionary
+        for event in calendarEventsFromCache {
+            let weekday = event.weekday
+
+            // Only add if not already present (shouldn't happen, but safety check)
+            if let existingIndex = tasks[weekday]?.firstIndex(where: { $0.id == event.id }) {
+                // Event already exists, skip
+                continue
+            }
+
+            // Add calendar event to the appropriate weekday
+            if tasks[weekday] != nil {
+                tasks[weekday]?.append(event)
+            } else {
+                tasks[weekday] = [event]
+            }
+        }
+
+        print("✅ Calendar events restored successfully")
     }
 
     private func saveTaskToSupabase(_ task: TaskItem) async {
