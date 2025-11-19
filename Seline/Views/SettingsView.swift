@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
     @AppStorage("locationTrackingMode") private var locationTrackingMode = "active" // "active" or "background"
     @State private var showingFeedback = false
+    @State private var showingLocationInfo = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,57 +121,51 @@ struct SettingsView: View {
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .frame(width: 24)
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Location Tracking")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(isDarkMode ? .white : .black)
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 8) {
+                                    Text("Location Tracking")
+                                        .font(.system(size: 16, weight: .regular))
+                                        .foregroundColor(isDarkMode ? .white : .black)
 
-                                HStack(spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: locationTrackingMode == "active" ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 14))
-                                                .foregroundColor(locationTrackingMode == "active" ? .blue : .gray)
-
-                                            Text("Active")
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundColor(isDarkMode ? .white : .black)
-                                        }
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            locationTrackingMode = "active"
-                                        }
-
-                                        Text("App open, minimal battery")
-                                            .font(.system(size: 10))
+                                    Button(action: { showingLocationInfo = true }) {
+                                        Image(systemName: "info.circle")
+                                            .font(.system(size: 14))
                                             .foregroundColor(.gray)
-                                            .padding(.leading, 22)
-                                    }
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: locationTrackingMode == "background" ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 14))
-                                                .foregroundColor(locationTrackingMode == "background" ? .blue : .gray)
-
-                                            Text("Background")
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundColor(isDarkMode ? .white : .black)
-                                        }
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            locationTrackingMode = "background"
-                                        }
-
-                                        Text("App closed, higher battery use")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.gray)
-                                            .padding(.leading, 22)
                                     }
                                 }
-                            }
 
-                            Spacer()
+                                HStack(spacing: 24) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: locationTrackingMode == "active" ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(locationTrackingMode == "active" ? .blue : .gray)
+
+                                        Text("Active")
+                                            .font(.system(size: 14, weight: .regular))
+                                            .foregroundColor(isDarkMode ? .white : .black)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        locationTrackingMode = "active"
+                                    }
+
+                                    HStack(spacing: 8) {
+                                        Image(systemName: locationTrackingMode == "background" ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(locationTrackingMode == "background" ? .blue : .gray)
+
+                                        Text("Background")
+                                            .font(.system(size: 14, weight: .regular))
+                                            .foregroundColor(isDarkMode ? .white : .black)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        locationTrackingMode = "background"
+                                    }
+
+                                    Spacer()
+                                }
+                            }
                         }
                         .padding(.horizontal, 20)
                         .padding(.vertical, 14)
@@ -214,6 +209,89 @@ struct SettingsView: View {
         .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()
+        }
+        .sheet(isPresented: $showingLocationInfo) {
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("Location Tracking")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(isDarkMode ? .white : .black)
+
+                    Spacer()
+
+                    Button(action: { showingLocationInfo = false }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(20)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Active Mode
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "iphone")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.blue)
+
+                                Text("Active Mode")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+                            }
+
+                            Text("App must be open for tracking. Minimal battery drain (1-3% per hour). Best for when you actively use the app.")
+                                .font(.system(size: 14))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .lineSpacing(2)
+                        }
+
+                        Divider()
+
+                        // Background Mode
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "location.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.orange)
+
+                                Text("Background Mode")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+                            }
+
+                            Text("App can track in background. Higher battery drain (5-15% per hour). Best for comprehensive location tracking throughout the day.")
+                                .font(.system(size: 14))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .lineSpacing(2)
+                        }
+
+                        Divider()
+
+                        // Tip
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "lightbulb.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.yellow)
+
+                                Text("Tip")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+                            }
+
+                            Text("Keep the app running to ensure accurate tracking. Closing the app will stop background tracking.")
+                                .font(.system(size: 14))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .lineSpacing(2)
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         }
         .task {
             await notificationService.checkAuthorizationStatus()
