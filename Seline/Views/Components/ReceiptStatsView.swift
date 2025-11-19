@@ -346,21 +346,24 @@ struct RecurringExpenseStatsContent: View {
                         label: "Monthly",
                         value: CurrencyParser.formatAmountNoDecimals(monthlyTotal),
                         icon: "calendar",
-                        valueColor: .green
+                        valueColor: .green,
+                        isBold: true
                     )
 
                     StatBox(
                         label: "Yearly",
                         value: CurrencyParser.formatAmountNoDecimals(yearlyProjection),
                         icon: "chart.line.uptrend.xyaxis",
-                        valueColor: .green
+                        valueColor: .green,
+                        isBold: true
                     )
 
                     StatBox(
                         label: "Active",
                         value: "\(activeCount)",
                         icon: "repeat",
-                        valueColor: nil
+                        valueColor: nil,
+                        isBold: true
                     )
                 }
                 .padding(.vertical, 8)
@@ -425,7 +428,7 @@ struct RecurringExpenseStatsContent: View {
                                     VStack(alignment: .trailing, spacing: 4) {
                                         Text(expense.formattedAmount)
                                             .font(.subheadline)
-                                            .fontWeight(.bold)
+                                            .fontWeight(.regular)
                                         if !expense.isActive {
                                             Text("Paused")
                                                 .font(.caption)
@@ -488,6 +491,7 @@ struct StatBox: View {
     let value: String
     let icon: String
     let valueColor: Color?
+    let isBold: Bool
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -498,7 +502,7 @@ struct StatBox: View {
 
             Text(value)
                 .font(.headline)
-                .fontWeight(.regular)
+                .fontWeight(isBold ? .bold : .regular)
                 .foregroundColor(valueColor ?? .primary)
 
             Text(label)
