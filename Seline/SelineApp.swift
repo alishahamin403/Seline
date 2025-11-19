@@ -23,6 +23,17 @@ struct SelineApp: App {
         // Defer calendar sync to avoid initialization issues - will be called from didBecomeActiveNotification
         // syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
+
+        // TEMPORARY: Clear corrupted local tasks (22k duplicates)
+        // This will clear all local task cache on next launch
+        // After clearing, you can remove this line and rebuild
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            Task {
+                print("🧹 Clearing corrupted local task cache (22k+ duplicated calendar events)...")
+                await taskManager.nuclearReset()
+                print("✅ Done! Your actual tasks are still in Supabase and will sync on next screen load")
+            }
+        }
     }
 
     var body: some Scene {
