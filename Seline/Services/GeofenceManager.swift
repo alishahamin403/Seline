@@ -19,7 +19,12 @@ struct LocationVisitRecord: Codable, Identifiable {
     var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, userId, savedPlaceId, entryTime, exitTime, durationMinutes
+        case id
+        case userId = "user_id"
+        case savedPlaceId = "saved_place_id"
+        case entryTime = "entry_time"
+        case exitTime = "exit_time"
+        case durationMinutes = "duration_minutes"
         case dayOfWeek = "day_of_week"
         case timeOfDay = "time_of_day"
         case month, year
@@ -252,7 +257,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 manager.allowsBackgroundLocationUpdates = true
                 manager.showsBackgroundLocationIndicator = true
 
-                self.setupGeofences(for: LocationsManager.shared.getFavourites())
+                self.setupGeofences(for: LocationsManager.shared.savedPlaces)
             case .authorizedWhenInUse:
                 print("⚠️ Only 'When In Use' authorization granted. Geofencing requires 'Always' permission.")
                 self.errorMessage = "Geofencing requires 'Always' location permission"
