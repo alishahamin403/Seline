@@ -355,11 +355,6 @@ struct MainAppView: View {
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
 
-                // Sync calendar events on app load
-                Task {
-                    await taskManager.syncCalendarEvents()
-                }
-
                 // Request location permissions with a slight delay to ensure system is ready
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     do {
@@ -372,6 +367,7 @@ struct MainAppView: View {
                         print("⚠️ Error requesting location permissions: \(error)")
                     }
                 }
+                // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
                 // Update geofences whenever saved places change

@@ -12,13 +12,15 @@ struct SelineApp: App {
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var deepLinkHandler = DeepLinkHandler.shared
     @StateObject private var searchService = SearchService.shared
+    @State private var lastCalendarSyncTime: Date = Date.distantPast
+    @State private var isCalendarSyncing: Bool = false
 
     init() {
         configureSupabase()
         configureGoogleSignIn()
         configureNotifications()
         configureBackgroundRefresh()
-        // Defer calendar sync to avoid initialization issues - will be called from MainAppView.onAppear
+        // Defer calendar sync to avoid initialization issues - will be called from didBecomeActiveNotification
         // syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
     }
@@ -44,8 +46,16 @@ struct SelineApp: App {
                         let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
                         notificationService.updateAppBadge(count: unreadCount)
 
-                        // Sync calendar events when app becomes active
-                        await taskManager.syncCalendarEvents()
+                        // Sync calendar events only if last sync was > 5 minutes ago (prevents over-syncing during development)
+                        let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
+                        if timeSinceLastSync > 300 && !isCalendarSyncing { // 300 seconds = 5 minutes
+                            isCalendarSyncing = true
+                            lastCalendarSyncTime = Date()
+
+                            await taskManager.syncCalendarEvents()
+
+                            isCalendarSyncing = false
+                        }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
