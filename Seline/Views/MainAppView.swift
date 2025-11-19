@@ -351,15 +351,27 @@ struct MainAppView: View {
     private var mainContent: some View {
         mainContentBase
             .onAppear {
-                locationService.requestLocationPermission()
-
-                // Request background location permission for visit tracking
-                // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
-                geofenceManager.requestLocationPermission()
-
                 taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
+
+                // Sync calendar events on app load
+                Task {
+                    await taskManager.syncCalendarEvents()
+                }
+
+                // Request location permissions with a slight delay to ensure system is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    do {
+                        locationService.requestLocationPermission()
+
+                        // Request background location permission for visit tracking
+                        // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
+                        geofenceManager.requestLocationPermission()
+                    } catch {
+                        print("⚠️ Error requesting location permissions: \(error)")
+                    }
+                }
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
                 // Update geofences whenever saved places change

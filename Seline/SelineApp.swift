@@ -18,7 +18,8 @@ struct SelineApp: App {
         configureGoogleSignIn()
         configureNotifications()
         configureBackgroundRefresh()
-        syncCalendarEventsOnFirstLaunch()
+        // Defer calendar sync to avoid initialization issues - will be called from MainAppView.onAppear
+        // syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
     }
 
