@@ -1,4 +1,6 @@
 import Foundation
+import UserNotifications
+import UIKit
 
 class RecurringExpenseManager {
     static let shared = RecurringExpenseManager()

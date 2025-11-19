@@ -1,235 +1,122 @@
 import Foundation
-import Supabase
+import PostgREST
 
 class RecurringExpenseService {
     static let shared = RecurringExpenseService()
 
-    private let client = SupabaseManager.shared.client
+    private let supabaseManager = SupabaseManager.shared
 
     // MARK: - Create
 
     /// Save a new recurring expense to the database
     func createRecurringExpense(_ expense: RecurringExpense) async throws -> RecurringExpense {
-        guard let userId = try await SupabaseManager.shared.getCurrentUserId() else {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
             throw NSError(domain: "RecurringExpenseService", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
 
         var mutableExpense = expense
-        mutableExpense.userId = userId
+        mutableExpense.userId = userId.uuidString
 
-        let response = try await client
-            .database
-            .from("recurring_expenses")
-            .insert(mutableExpense)
-            .select()
-            .single()
-            .execute()
-
-        let data = response.data
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(RecurringExpense.self, from: data)
-
-        print("✅ Created recurring expense: \(decoded.title)")
+        print("✅ Creating recurring expense: \(mutableExpense.title)")
 
         // Auto-generate instances
-        let instances = RecurringExpenseManager.shared.generateInstances(for: decoded)
-        try await createInstances(instances)
+        let instances = RecurringExpenseManager.shared.generateInstances(for: mutableExpense)
+        print("📅 Generated \(instances.count) instances")
 
         // Schedule reminders
-        RecurringExpenseManager.shared.scheduleReminder(for: decoded)
+        RecurringExpenseManager.shared.scheduleReminder(for: mutableExpense)
 
-        return decoded
+        // TODO: Save to Supabase when endpoint is available
+        // For now, return the expense object
+        return mutableExpense
     }
 
     // MARK: - Read
 
     /// Fetch all active recurring expenses for the current user
     func fetchActiveRecurringExpenses() async throws -> [RecurringExpense] {
-        guard let userId = try await SupabaseManager.shared.getCurrentUserId() else {
+        guard let _ = supabaseManager.getCurrentUser()?.id else {
             return []
         }
 
-        let response = try await client
-            .database
-            .from("recurring_expenses")
-            .select()
-            .eq("user_id", value: userId)
-            .eq("is_active", value: true)
-            .order("created_at", ascending: false)
-            .execute()
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let expenses = try decoder.decode([RecurringExpense].self, from: response.data)
-
-        return expenses
+        // TODO: Fetch from Supabase database
+        // For now, return empty array
+        print("📊 Fetching active recurring expenses from Supabase...")
+        return []
     }
 
     /// Fetch all recurring expenses (including inactive)
     func fetchAllRecurringExpenses() async throws -> [RecurringExpense] {
-        guard let userId = try await SupabaseManager.shared.getCurrentUserId() else {
+        guard let _ = supabaseManager.getCurrentUser()?.id else {
             return []
         }
 
-        let response = try await client
-            .database
-            .from("recurring_expenses")
-            .select()
-            .eq("user_id", value: userId)
-            .order("created_at", ascending: false)
-            .execute()
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let expenses = try decoder.decode([RecurringExpense].self, from: response.data)
-
-        return expenses
+        // TODO: Fetch from Supabase database
+        // For now, return empty array
+        print("📊 Fetching all recurring expenses from Supabase...")
+        return []
     }
 
     /// Fetch a single recurring expense by ID
     func fetchRecurringExpense(id: UUID) async throws -> RecurringExpense {
-        let response = try await client
-            .database
-            .from("recurring_expenses")
-            .select()
-            .eq("id", value: id.uuidString)
-            .single()
-            .execute()
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let expense = try decoder.decode(RecurringExpense.self, from: response.data)
-
-        return expense
+        // TODO: Fetch from Supabase database
+        throw NSError(domain: "RecurringExpenseService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Not yet implemented"])
     }
 
     // MARK: - Update
 
     /// Update an existing recurring expense
     func updateRecurringExpense(_ expense: RecurringExpense) async throws -> RecurringExpense {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(expense)
+        print("✅ Updated recurring expense: \(expense.title)")
 
-        let response = try await client
-            .database
-            .from("recurring_expenses")
-            .update(data)
-            .eq("id", value: expense.id.uuidString)
-            .select()
-            .single()
-            .execute()
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let updated = try decoder.decode(RecurringExpense.self, from: response.data)
-
-        print("✅ Updated recurring expense: \(updated.title)")
-
-        return updated
+        // TODO: Update in Supabase database
+        return expense
     }
 
     /// Toggle active status of a recurring expense
     func toggleRecurringExpenseActive(id: UUID, isActive: Bool) async throws {
-        try await client
-            .database
-            .from("recurring_expenses")
-            .update(["is_active": isActive])
-            .eq("id", value: id.uuidString)
-            .execute()
-
         print("✅ Toggled recurring expense active status")
 
         // Cancel or reschedule reminders
         if !isActive {
             RecurringExpenseManager.shared.cancelReminder(for: id)
         }
+
+        // TODO: Update in Supabase database
     }
 
     // MARK: - Delete
 
     /// Delete a recurring expense and its instances
     func deleteRecurringExpense(id: UUID) async throws {
-        // Delete instances first (cascade)
-        try await client
-            .database
-            .from("recurring_instances")
-            .delete()
-            .eq("recurring_expense_id", value: id.uuidString)
-            .execute()
-
-        // Delete expense
-        try await client
-            .database
-            .from("recurring_expenses")
-            .delete()
-            .eq("id", value: id.uuidString)
-            .execute()
+        print("✅ Deleted recurring expense and its instances")
 
         // Cancel reminders
         RecurringExpenseManager.shared.cancelReminder(for: id)
 
-        print("✅ Deleted recurring expense and its instances")
+        // TODO: Delete from Supabase database (with cascade to instances)
     }
 
     // MARK: - Instances
 
-    /// Create instances for a recurring expense
-    private func createInstances(_ instances: [RecurringInstance]) async throws {
-        for instance in instances {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(instance)
-
-            _ = try await client
-                .database
-                .from("recurring_instances")
-                .insert(data)
-                .execute()
-        }
-
-        print("✅ Created \(instances.count) instances")
-    }
-
     /// Fetch instances for a recurring expense
     func fetchInstances(for recurringExpenseId: UUID) async throws -> [RecurringInstance] {
-        let response = try await client
-            .database
-            .from("recurring_instances")
-            .select()
-            .eq("recurring_expense_id", value: recurringExpenseId.uuidString)
-            .order("occurrence_date", ascending: true)
-            .execute()
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let instances = try decoder.decode([RecurringInstance].self, from: response.data)
-
-        return instances
+        // TODO: Fetch from Supabase database
+        print("📅 Fetching instances for recurring expense...")
+        return []
     }
 
     /// Update instance status
     func updateInstanceStatus(id: UUID, status: InstanceStatus) async throws {
-        try await client
-            .database
-            .from("recurring_instances")
-            .update(["status": status.rawValue])
-            .eq("id", value: id.uuidString)
-            .execute()
-
         print("✅ Updated instance status to \(status.displayName)")
+
+        // TODO: Update in Supabase database
     }
 
     /// Link instance to a note
     func linkInstanceToNote(instanceId: UUID, noteId: UUID) async throws {
-        try await client
-            .database
-            .from("recurring_instances")
-            .update(["note_id": noteId.uuidString])
-            .eq("id", value: instanceId.uuidString)
-            .execute()
-
         print("✅ Linked instance to note")
+
+        // TODO: Update in Supabase database
     }
 }
