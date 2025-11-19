@@ -19,15 +19,41 @@ class RecurringExpenseService {
 
         print("✅ Creating recurring expense: \(mutableExpense.title)")
 
+        // Save recurring expense to database
+        let client = await supabaseManager.getPostgrestClient()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        let expenseData = try encoder.encode(mutableExpense)
+        let expenseDict = try JSONSerialization.jsonObject(with: expenseData) as? [String: Any] ?? [:]
+
+        try await client
+            .from("recurring_expenses")
+            .insert(expenseDict)
+            .execute()
+
+        print("💾 Saved recurring expense to Supabase")
+
         // Auto-generate instances
         let instances = RecurringExpenseManager.shared.generateInstances(for: mutableExpense)
         print("📅 Generated \(instances.count) instances")
 
+        // Save instances to database
+        for instance in instances {
+            let instanceData = try encoder.encode(instance)
+            let instanceDict = try JSONSerialization.jsonObject(with: instanceData) as? [String: Any] ?? [:]
+
+            try await client
+                .from("recurring_instances")
+                .insert(instanceDict)
+                .execute()
+        }
+
+        print("💾 Saved \(instances.count) instances to Supabase")
+
         // Schedule reminders
         RecurringExpenseManager.shared.scheduleReminder(for: mutableExpense)
 
-        // TODO: Save to Supabase when endpoint is available
-        // For now, return the expense object
         return mutableExpense
     }
 
@@ -35,26 +61,49 @@ class RecurringExpenseService {
 
     /// Fetch all active recurring expenses for the current user
     func fetchActiveRecurringExpenses() async throws -> [RecurringExpense] {
-        guard let _ = supabaseManager.getCurrentUser()?.id else {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
             return []
         }
 
-        // TODO: Fetch from Supabase database
-        // For now, return empty array
         print("📊 Fetching active recurring expenses from Supabase...")
-        return []
+
+        let client = await supabaseManager.getPostgrestClient()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let response = try await client
+            .from("recurring_expenses")
+            .select()
+            .eq("user_id", value: userId.uuidString)
+            .eq("is_active", value: true)
+            .execute()
+
+        let expenses = try decoder.decode([RecurringExpense].self, from: response.data)
+        print("✅ Fetched \(expenses.count) active recurring expenses")
+        return expenses
     }
 
     /// Fetch all recurring expenses (including inactive)
     func fetchAllRecurringExpenses() async throws -> [RecurringExpense] {
-        guard let _ = supabaseManager.getCurrentUser()?.id else {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
             return []
         }
 
-        // TODO: Fetch from Supabase database
-        // For now, return empty array
         print("📊 Fetching all recurring expenses from Supabase...")
-        return []
+
+        let client = await supabaseManager.getPostgrestClient()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let response = try await client
+            .from("recurring_expenses")
+            .select()
+            .eq("user_id", value: userId.uuidString)
+            .execute()
+
+        let expenses = try decoder.decode([RecurringExpense].self, from: response.data)
+        print("✅ Fetched \(expenses.count) recurring expenses")
+        return expenses
     }
 
     /// Fetch a single recurring expense by ID
@@ -67,56 +116,123 @@ class RecurringExpenseService {
 
     /// Update an existing recurring expense
     func updateRecurringExpense(_ expense: RecurringExpense) async throws -> RecurringExpense {
-        print("✅ Updated recurring expense: \(expense.title)")
+        print("✅ Updating recurring expense: \(expense.title)")
 
-        // TODO: Update in Supabase database
+        let client = await supabaseManager.getPostgrestClient()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        let expenseData = try encoder.encode(expense)
+        let expenseDict = try JSONSerialization.jsonObject(with: expenseData) as? [String: Any] ?? [:]
+
+        try await client
+            .from("recurring_expenses")
+            .update(expenseDict)
+            .eq("id", value: expense.id.uuidString)
+            .execute()
+
+        print("💾 Updated recurring expense in Supabase")
         return expense
     }
 
     /// Toggle active status of a recurring expense
     func toggleRecurringExpenseActive(id: UUID, isActive: Bool) async throws {
-        print("✅ Toggled recurring expense active status")
+        print("✅ Toggling recurring expense active status")
+
+        let client = await supabaseManager.getPostgrestClient()
+
+        try await client
+            .from("recurring_expenses")
+            .update(["is_active": isActive])
+            .eq("id", value: id.uuidString)
+            .execute()
+
+        print("💾 Updated recurring expense active status in Supabase")
 
         // Cancel or reschedule reminders
         if !isActive {
             RecurringExpenseManager.shared.cancelReminder(for: id)
         }
-
-        // TODO: Update in Supabase database
     }
 
     // MARK: - Delete
 
     /// Delete a recurring expense and its instances
     func deleteRecurringExpense(id: UUID) async throws {
-        print("✅ Deleted recurring expense and its instances")
+        print("✅ Deleting recurring expense and its instances")
+
+        let client = await supabaseManager.getPostgrestClient()
+
+        // Delete instances first (in case no cascade delete is set)
+        try await client
+            .from("recurring_instances")
+            .delete()
+            .eq("recurring_expense_id", value: id.uuidString)
+            .execute()
+
+        print("🗑️ Deleted instances")
+
+        // Delete the recurring expense
+        try await client
+            .from("recurring_expenses")
+            .delete()
+            .eq("id", value: id.uuidString)
+            .execute()
+
+        print("💾 Deleted recurring expense from Supabase")
 
         // Cancel reminders
         RecurringExpenseManager.shared.cancelReminder(for: id)
-
-        // TODO: Delete from Supabase database (with cascade to instances)
     }
 
     // MARK: - Instances
 
     /// Fetch instances for a recurring expense
     func fetchInstances(for recurringExpenseId: UUID) async throws -> [RecurringInstance] {
-        // TODO: Fetch from Supabase database
         print("📅 Fetching instances for recurring expense...")
-        return []
+
+        let client = await supabaseManager.getPostgrestClient()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let response = try await client
+            .from("recurring_instances")
+            .select()
+            .eq("recurring_expense_id", value: recurringExpenseId.uuidString)
+            .execute()
+
+        let instances = try decoder.decode([RecurringInstance].self, from: response.data)
+        print("✅ Fetched \(instances.count) instances")
+        return instances
     }
 
     /// Update instance status
     func updateInstanceStatus(id: UUID, status: InstanceStatus) async throws {
-        print("✅ Updated instance status to \(status.displayName)")
+        print("✅ Updating instance status to \(status.displayName)")
 
-        // TODO: Update in Supabase database
+        let client = await supabaseManager.getPostgrestClient()
+
+        try await client
+            .from("recurring_instances")
+            .update(["status": status.rawValue, "updated_at": Date().ISO8601Format()])
+            .eq("id", value: id.uuidString)
+            .execute()
+
+        print("💾 Updated instance status in Supabase")
     }
 
     /// Link instance to a note
     func linkInstanceToNote(instanceId: UUID, noteId: UUID) async throws {
-        print("✅ Linked instance to note")
+        print("✅ Linking instance to note")
 
-        // TODO: Update in Supabase database
+        let client = await supabaseManager.getPostgrestClient()
+
+        try await client
+            .from("recurring_instances")
+            .update(["note_id": noteId.uuidString, "updated_at": Date().ISO8601Format()])
+            .eq("id", value: instanceId.uuidString)
+            .execute()
+
+        print("💾 Linked instance to note in Supabase")
     }
 }
