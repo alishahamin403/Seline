@@ -182,7 +182,7 @@ struct LocationSearchModal: View {
                     LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
                 }
             }
-            .presentationBackground(colorScheme == .dark ? Color.black : Color.white)
+            .modifier(LocationPresentationBackgroundModifier(colorScheme: colorScheme))
         }
     }
 
@@ -276,6 +276,21 @@ struct LocationDetailViewWrapper: View {
                     dismiss()
                 }
             }
+        }
+    }
+}
+
+// MARK: - Location Presentation Background Modifier
+
+struct LocationPresentationBackgroundModifier: ViewModifier {
+    let colorScheme: ColorScheme
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content
+                .presentationBackground(colorScheme == .dark ? Color.black : Color.white)
+        } else {
+            content
         }
     }
 }

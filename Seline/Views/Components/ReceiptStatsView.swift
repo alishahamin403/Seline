@@ -460,7 +460,7 @@ struct RecurringExpenseStatsContent: View {
                     ))
                 }
             }
-            .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+            .modifier(PresentationBackgroundModifier(colorScheme: colorScheme))
         }
         .onAppear {
             loadRecurringExpenses()
@@ -512,6 +512,21 @@ struct StatBox: View {
         .padding(12)
         .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.08))
         .cornerRadius(10)
+    }
+}
+
+// MARK: - Presentation Background Modifier
+
+struct PresentationBackgroundModifier: ViewModifier {
+    let colorScheme: ColorScheme
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content
+                .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+        } else {
+            content
+        }
     }
 }
 
