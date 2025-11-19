@@ -79,9 +79,11 @@ struct RecurringExpenseForm: View {
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         Picker("Frequency", selection: $selectedFrequency) {
-                            ForEach(RecurrenceFrequency.allCases, id: \.self) { frequency in
-                                Text(frequency.displayName).tag(frequency)
-                            }
+                            // Exclude daily frequency for recurring expenses
+                            Text("Weekly").tag(RecurrenceFrequency.weekly)
+                            Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
+                            Text("Monthly").tag(RecurrenceFrequency.monthly)
+                            Text("Yearly").tag(RecurrenceFrequency.yearly)
                         }
                         .pickerStyle(.segmented)
                     }

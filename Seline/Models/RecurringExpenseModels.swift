@@ -2,39 +2,8 @@ import Foundation
 
 // MARK: - Recurring Expense Models
 
-/// Frequency options for recurring expenses
-enum RecurrenceFrequency: String, Codable, CaseIterable {
-    case weekly = "weekly"
-    case biweekly = "biweekly"
-    case monthly = "monthly"
-    case annually = "annually"
-
-    var displayName: String {
-        switch self {
-        case .weekly:
-            return "Weekly"
-        case .biweekly:
-            return "Every 2 Weeks"
-        case .monthly:
-            return "Monthly"
-        case .annually:
-            return "Annually"
-        }
-    }
-
-    var daysInterval: Int {
-        switch self {
-        case .weekly:
-            return 7
-        case .biweekly:
-            return 14
-        case .monthly:
-            return 30 // Approximate, will use Calendar for exact dates
-        case .annually:
-            return 365
-        }
-    }
-}
+// Note: RecurrenceFrequency is imported from EventModels.swift
+// This avoids duplication with existing task/event recurrence logic
 
 /// Reminder options for recurring expenses
 enum ReminderOption: String, Codable, CaseIterable {
@@ -225,13 +194,15 @@ extension RecurringExpense {
         var components = DateComponents()
 
         switch frequency {
+        case .daily:
+            components.day = 1
         case .weekly:
             components.day = 7
         case .biweekly:
             components.day = 14
         case .monthly:
             components.month = 1
-        case .annually:
+        case .yearly:
             components.year = 1
         }
 

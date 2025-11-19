@@ -38,13 +38,15 @@ class RecurringExpenseManager {
         var components = DateComponents()
 
         switch frequency {
+        case .daily:
+            components.day = 1
         case .weekly:
             components.day = 7
         case .biweekly:
             components.day = 14
         case .monthly:
             components.month = 1
-        case .annually:
+        case .yearly:
             components.year = 1
         }
 
