@@ -38,7 +38,12 @@ struct RecurringExpenseEditView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            ZStack {
+                // Background matching app theme
+                (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+                    .ignoresSafeArea()
+
+                ScrollView {
                 VStack(spacing: 20) {
                     // Title
                     VStack(alignment: .leading, spacing: 8) {
@@ -154,6 +159,7 @@ struct RecurringExpenseEditView: View {
                     .disabled(!isFormValid || isSaving)
                 }
                 .padding(16)
+                }
             }
             .navigationTitle("Edit Recurring Expense")
             .navigationBarTitleDisplayMode(.inline)

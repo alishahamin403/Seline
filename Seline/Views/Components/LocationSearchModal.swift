@@ -173,8 +173,14 @@ struct LocationSearchModal: View {
             selectedPlaceDetails = nil
             selectedGooglePlaceId = nil
         }) {
-            if let placeId = selectedGooglePlaceId, let details = selectedPlaceDetails {
-                LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
+            ZStack {
+                // Background color to prevent white flash
+                (colorScheme == .dark ? Color.black : Color.white)
+                    .ignoresSafeArea()
+
+                if let placeId = selectedGooglePlaceId, let details = selectedPlaceDetails {
+                    LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
+                }
             }
         }
     }
