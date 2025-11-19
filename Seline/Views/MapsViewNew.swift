@@ -22,6 +22,8 @@ struct MapsViewNew: View, Searchable {
     @State private var distanceToNearest: Double? = nil
     @State private var elapsedTimeString: String = ""
     @State private var updateTimer: Timer?
+    @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
+    @State private var cachedSortedCategories: [String] = []
     @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
 
@@ -250,7 +252,8 @@ struct MapsViewNew: View, Searchable {
                                 )
 
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                                    ForEach(Array(locationsManager.getCategories(country: selectedCountry, province: selectedProvince, city: selectedCity)).sorted(), id: \.self) { category in
+                                    // OPTIMIZATION: Use cached sorted categories instead of re-sorting on every render
+                                    ForEach(cachedSortedCategories, id: \.self) { category in
                                         CategoryCard(
                                             category: category,
                                             count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count,
@@ -333,6 +336,8 @@ struct MapsViewNew: View, Searchable {
                 await geofenceManager.loadIncompleteVisitsFromSupabase()
             }
 
+            // Initialize cached categories
+            updateCachedCategories()
             updateCurrentLocation()
         }
         .onReceive(locationService.$currentLocation) { _ in
@@ -348,6 +353,16 @@ struct MapsViewNew: View, Searchable {
                     externalSelectedFolder = nil
                 }
             }
+        }
+        // OPTIMIZATION: Update cached sorted categories when filters change
+        .onChange(of: selectedCountry) { _ in
+            updateCachedCategories()
+        }
+        .onChange(of: selectedProvince) { _ in
+            updateCachedCategories()
+        }
+        .onChange(of: selectedCity) { _ in
+            updateCachedCategories()
         }
         .onDisappear {
             stopLocationTimer()
@@ -377,6 +392,22 @@ struct MapsViewNew: View, Searchable {
     private func updateCurrentLocation() {
         // Get current location from LocationService
         if let currentLoc = locationService.currentLocation {
+            // OPTIMIZATION: Debounce location updates - only process if moved 50m+
+            let debounceThreshold: CLLocationDistance = 50.0 // 50 meters
+            if let lastCheck = lastLocationCheckCoordinate {
+                let lastLocation = CLLocation(latitude: lastCheck.latitude, longitude: lastCheck.longitude)
+                let currentLocObj = CLLocation(latitude: currentLoc.coordinate.latitude, longitude: currentLoc.coordinate.longitude)
+                let distanceMoved = currentLocObj.distance(from: lastLocation)
+
+                // If moved less than 50m, skip expensive calculations
+                if distanceMoved < debounceThreshold {
+                    return
+                }
+            }
+
+            // Update last check coordinate
+            lastLocationCheckCoordinate = currentLoc.coordinate
+
             // Get current address/location name
             currentLocationName = locationService.locationName
 
@@ -492,9 +523,21 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
+    // OPTIMIZATION: Cache sorted categories to avoid re-sorting on every render
+    private func updateCachedCategories() {
+        let categories = Array(locationsManager.getCategories(
+            country: selectedCountry,
+            province: selectedProvince,
+            city: selectedCity
+        )).sorted()
+        cachedSortedCategories = categories
+    }
+
     private func startLocationTimer() {
         stopLocationTimer()
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        // OPTIMIZATION: Update elapsed time every 5 seconds instead of 1 second
+        // Users don't need sub-second precision, and this reduces CPU/battery usage
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             updateElapsedTime()
         }
     }
