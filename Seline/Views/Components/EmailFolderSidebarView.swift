@@ -122,10 +122,6 @@ struct EmailFolderSidebarView: View {
                                     }
 
                                     Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
@@ -163,7 +159,7 @@ struct EmailFolderSidebarView: View {
         }
         .background(
             colorScheme == .dark ?
-                Color(red: 0.1, green: 0.1, blue: 0.1) :
+                Color(red: 0.03, green: 0.03, blue: 0.03) :
                 Color.white
         )
         .onAppear {

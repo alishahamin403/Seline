@@ -91,7 +91,7 @@ struct CompactSenderView: View {
                     // Expand/collapse indicator
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                         .animation(.easeInOut(duration: 0.3), value: isExpanded)
                 }
@@ -198,7 +198,7 @@ struct SenderDetailRow: View {
 
                         Text(address.email)
                             .font(FontManager.geist(size: .small, weight: .regular))
-                            .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                 }
             }

@@ -137,7 +137,7 @@ struct AISummaryCard: View {
 
             Text("No content available")
                 .font(FontManager.geist(size: .body, weight: .regular))
-                .foregroundColor(Color.shadcnMuted(colorScheme))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Spacer()
         }
@@ -301,7 +301,7 @@ struct ZoomableHTMLContentView: UIViewRepresentable {
                     height: auto;
                 }
                 a {
-                    color: #0066cc;
+                    color: \(textColor);
                     text-decoration: none;
                 }
                 table {

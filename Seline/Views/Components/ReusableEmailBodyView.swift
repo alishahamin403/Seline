@@ -36,7 +36,7 @@ struct ReusableEmailBodyView: View {
 
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color.shadcnMuted(colorScheme))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)

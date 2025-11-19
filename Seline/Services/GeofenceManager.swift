@@ -102,8 +102,8 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     private let locationManager = CLLocationManager()
     private var monitoredRegions: [String: CLCircularRegion] = [:] // [placeId: region]
+    var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
 
-    @Published var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
     @Published var isMonitoring = false
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
