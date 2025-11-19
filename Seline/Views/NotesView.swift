@@ -1160,26 +1160,48 @@ struct NoteEditView: View {
             // Spacer
             Spacer()
 
-            // Attachment menu button
+            // Receipt icon button
             Menu {
-                Button("Picture from Gallery") {
-                    showingImagePicker = true
+                Button(action: {
+                    showingReceiptCameraPicker = true
+                }) {
+                    Label("Camera", systemImage: "camera.fill")
                 }
-
-                Menu("Receipt") {
-                    Button("Camera") {
-                        showingReceiptCameraPicker = true
-                    }
-                    Button("Gallery") {
-                        showingReceiptImagePicker = true
-                    }
-                }
-
-                Button("File") {
-                    showingFileImporter = true
+                Button(action: {
+                    showingReceiptImagePicker = true
+                }) {
+                    Label("Gallery", systemImage: "photo.fill")
                 }
             } label: {
-                Image(systemName: "paperclip")
+                Image(systemName: "receipt.badge.magnifyingglass")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+
+            // File icon button
+            Button(action: {
+                showingFileImporter = true
+            }) {
+                Image(systemName: "doc.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+
+            // Gallery icon button
+            Button(action: {
+                showingImagePicker = true
+            }) {
+                Image(systemName: "photo.fill")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 40, height: 36)
