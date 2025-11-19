@@ -37,137 +37,138 @@ struct RecurringExpenseEditView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Background matching app theme
-                (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
-                    .ignoresSafeArea()
+        ZStack {
+            // Background matching app theme
+            (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+                .ignoresSafeArea()
 
+            NavigationStack {
                 ScrollView {
-                VStack(spacing: 20) {
-                    // Title
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Title", systemImage: "pencil.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        TextField("e.g., Netflix Subscription", text: $title)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    // Description
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Description (Optional)", systemImage: "text.alignleft")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        TextField("Add notes...", text: $description)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    // Amount
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Amount", systemImage: "dollarsign.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        HStack {
-                            Text("$")
-                                .font(.title3)
+                    VStack(spacing: 20) {
+                        // Title
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Title", systemImage: "pencil.circle.fill")
+                                .font(.subheadline)
                                 .fontWeight(.semibold)
-                            TextField("0.00", text: $amount)
-                                .keyboardType(.decimalPad)
+                            TextField("e.g., Netflix Subscription", text: $title)
                                 .textFieldStyle(.roundedBorder)
                         }
-                    }
 
-                    // Category
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Category (Optional)", systemImage: "tag.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        TextField("e.g., Entertainment", text: $category)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    Divider()
-
-                    // Frequency
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Recurrence Frequency", systemImage: "repeat.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Picker("Frequency", selection: $selectedFrequency) {
-                            Text("Weekly").tag(RecurrenceFrequency.weekly)
-                            Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
-                            Text("Monthly").tag(RecurrenceFrequency.monthly)
-                            Text("Yearly").tag(RecurrenceFrequency.yearly)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-
-                    // Reminder Option
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Reminder", systemImage: "bell.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Picker("Reminder", selection: $selectedReminder) {
-                            ForEach(ReminderOption.allCases, id: \.self) { option in
-                                Text(option.displayName).tag(option)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Spacer()
-
-                    // Error Message
-                    if showError {
-                        HStack(spacing: 12) {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .foregroundColor(.red)
-                            Text(errorMessage)
+                        // Description
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Description (Optional)", systemImage: "text.alignleft")
                                 .font(.subheadline)
-                                .lineLimit(3)
-                            Spacer()
-                        }
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-
-                    // Save Button
-                    Button(action: saveChanges) {
-                        HStack {
-                            if isSaving {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                            } else {
-                                Image(systemName: "checkmark.circle.fill")
-                            }
-                            Text(isSaving ? "Saving..." : "Save Changes")
                                 .fontWeight(.semibold)
+                            TextField("Add notes...", text: $description)
+                                .textFieldStyle(.roundedBorder)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            (isFormValid && !isSaving)
-                                ? Color.blue
-                                : Color.gray.opacity(0.5)
-                        )
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+
+                        // Amount
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Amount", systemImage: "dollarsign.circle.fill")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            HStack {
+                                Text("$")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                                TextField("0.00", text: $amount)
+                                    .keyboardType(.decimalPad)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                        }
+
+                        // Category
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Category (Optional)", systemImage: "tag.circle.fill")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            TextField("e.g., Entertainment", text: $category)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        Divider()
+
+                        // Frequency
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Recurrence Frequency", systemImage: "repeat.circle.fill")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Picker("Frequency", selection: $selectedFrequency) {
+                                Text("Weekly").tag(RecurrenceFrequency.weekly)
+                                Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
+                                Text("Monthly").tag(RecurrenceFrequency.monthly)
+                                Text("Yearly").tag(RecurrenceFrequency.yearly)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        // Reminder Option
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Reminder", systemImage: "bell.circle.fill")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Picker("Reminder", selection: $selectedReminder) {
+                                ForEach(ReminderOption.allCases, id: \.self) { option in
+                                    Text(option.displayName).tag(option)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        Spacer()
+
+                        // Error Message
+                        if showError {
+                            HStack(spacing: 12) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundColor(.red)
+                                Text(errorMessage)
+                                    .font(.subheadline)
+                                    .lineLimit(3)
+                                Spacer()
+                            }
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+
+                        // Save Button
+                        Button(action: saveChanges) {
+                            HStack {
+                                if isSaving {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "checkmark.circle.fill")
+                                }
+                                Text(isSaving ? "Saving..." : "Save Changes")
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                (isFormValid && !isSaving)
+                                    ? Color.blue
+                                    : Color.gray.opacity(0.5)
+                            )
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                        }
+                        .disabled(!isFormValid || isSaving)
                     }
-                    .disabled(!isFormValid || isSaving)
+                    .padding(16)
                 }
-                .padding(16)
-                }
-            }
-            .navigationTitle("Edit Recurring Expense")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                .scrollContentBackground(.hidden)
+                .navigationTitle("Edit Recurring Expense")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
                     }
                 }
             }
