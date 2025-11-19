@@ -304,7 +304,39 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // MARK: - Supabase Integration
 
-    private func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
+    /// Load incomplete visits from Supabase and restore them to activeVisits
+    /// Called on app startup to resume tracking
+    func loadIncompleteVisitsFromSupabase() async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, skipping incomplete visits load")
+            return
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let visits: [LocationVisitRecord] = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .is("exit_time", value: "null")
+                .order("entry_time", ascending: false)
+                .limit(1)
+                .execute()
+                .decoded()
+
+            if let incompleteVisit = visits.first {
+                // Restore the incomplete visit to activeVisits
+                self.activeVisits[incompleteVisit.savedPlaceId] = incompleteVisit
+                print("📝 Restored incomplete visit from Supabase: \(incompleteVisit.savedPlaceId)")
+            } else {
+                print("✅ No incomplete visits in Supabase")
+            }
+        } catch {
+            print("❌ Error loading incomplete visits: \(error)")
+        }
+    }
+
+    func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
         guard SupabaseManager.shared.getCurrentUser() != nil else {
             print("⚠️ No user ID, skipping Supabase visit save")
             return

@@ -321,6 +321,12 @@ struct MapsViewNew: View, Searchable {
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
+
+            // Load incomplete visits from Supabase to resume tracking
+            Task {
+                await geofenceManager.loadIncompleteVisitsFromSupabase()
+            }
+
             updateCurrentLocation()
         }
         .onReceive(locationService.$currentLocation) { _ in
@@ -396,6 +402,11 @@ struct MapsViewNew: View, Searchable {
                         )
                         geofenceManager.activeVisits[place.id] = visit
                         print("📝 Auto-created visit for already-present location: \(place.displayName)")
+
+                        // Save to Supabase immediately
+                        Task {
+                            await geofenceManager.saveVisitToSupabase(visit)
+                        }
                     }
 
                     distanceToNearest = nil
