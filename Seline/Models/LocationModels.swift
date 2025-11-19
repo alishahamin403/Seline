@@ -151,7 +151,7 @@ class LocationsManager: ObservableObject {
     @Published var savedPlaces: [SavedPlace] = []
     @Published var searchHistory: [PlaceSearchResult] = []
     @Published var isLoading = false
-    @Published var categories: Set<String> = []
+    @Published var categories: [String] = []
     @Published var countries: Set<String> = []
     @Published var provinces: Set<String> = []
     @Published var cities: Set<String> = []
@@ -215,8 +215,9 @@ class LocationsManager: ObservableObject {
             UserDefaults.standard.set(encoded, forKey: placesKey)
         }
 
-        // Update categories, countries, provinces, and cities sets
-        categories = Set(savedPlaces.map { $0.category })
+        // Update categories, countries, provinces, and cities
+        // Keep categories as sorted array for consistent ordering
+        categories = Array(Set(savedPlaces.map { $0.category })).sorted()
         countries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
         provinces = Set(savedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
         cities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
@@ -242,7 +243,7 @@ class LocationsManager: ObservableObject {
             }
 
             self.savedPlaces = migratedPlaces
-            self.categories = Set(migratedPlaces.map { $0.category })
+            self.categories = Array(Set(migratedPlaces.map { $0.category })).sorted()
             self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
             self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
             self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
@@ -645,7 +646,7 @@ class LocationsManager: ObservableObject {
             await MainActor.run {
                 if !migratedPlaces.isEmpty {
                     self.savedPlaces = migratedPlaces
-                    self.categories = Set(migratedPlaces.map { $0.category })
+                    self.categories = Array(Set(migratedPlaces.map { $0.category })).sorted()
                     self.countries = Set(migratedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
                     self.provinces = Set(migratedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
                     self.cities = Set(migratedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })

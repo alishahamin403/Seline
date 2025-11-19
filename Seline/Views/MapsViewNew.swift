@@ -18,9 +18,9 @@ struct MapsViewNew: View, Searchable {
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
     @State private var distanceToNearest: Double? = nil
-    @State private var locationEntryTime: Date? = nil
     @State private var elapsedTimeString: String = ""
     @State private var updateTimer: Timer?
+    @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
@@ -372,7 +372,6 @@ struct MapsViewNew: View, Searchable {
                     // Check if we just entered a new location
                     if nearbyLocation != place.displayName {
                         nearbyLocation = place.displayName
-                        locationEntryTime = Date()
                         startLocationTimer()
                     }
                     distanceToNearest = nil
@@ -399,8 +398,7 @@ struct MapsViewNew: View, Searchable {
                     distanceToNearest = nil
                 }
 
-                // Clear location entry time when not in any geofence
-                locationEntryTime = nil
+                // Clear elapsed time when not in any geofence
                 elapsedTimeString = ""
                 stopLocationTimer()
             }
@@ -408,7 +406,6 @@ struct MapsViewNew: View, Searchable {
             currentLocationName = "Location not available"
             nearbyLocation = nil
             distanceToNearest = nil
-            locationEntryTime = nil
             elapsedTimeString = ""
             stopLocationTimer()
         }
@@ -417,9 +414,14 @@ struct MapsViewNew: View, Searchable {
     private func startLocationTimer() {
         stopLocationTimer()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            if let entryTime = locationEntryTime {
-                let elapsed = Date().timeIntervalSince(entryTime)
-                elapsedTimeString = formatElapsedTime(elapsed)
+            // Get the active visit entry time for the current location from GeofenceManager
+            if let nearbyLoc = nearbyLocation {
+                if let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }) {
+                    if let activeVisit = geofenceManager.activeVisits[place.id] {
+                        let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
+                        elapsedTimeString = formatElapsedTime(elapsed)
+                    }
+                }
             }
         }
     }
