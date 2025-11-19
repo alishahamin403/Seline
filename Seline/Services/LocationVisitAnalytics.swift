@@ -45,7 +45,9 @@ class LocationVisitAnalytics: ObservableObject {
 
         do {
             let visits = try await fetchVisits(for: placeId, userId: userId)
-            let stats = calculateStats(from: visits)
+            // Include the active visit if one exists for this location
+            let activeVisit = GeofenceManager.shared.activeVisits[placeId]
+            let stats = calculateStats(from: visits, activeVisit: activeVisit)
 
             await MainActor.run {
                 self.visitStats[placeId] = stats
@@ -150,7 +152,7 @@ class LocationVisitAnalytics: ObservableObject {
         return response
     }
 
-    private func calculateStats(from visits: [LocationVisitRecord]) -> LocationVisitStats {
+    private func calculateStats(from visits: [LocationVisitRecord], activeVisit: LocationVisitRecord? = nil) -> LocationVisitStats {
         let now = Date()
         let calendar = Calendar.current
         let currentMonth = calendar.component(.month, from: now)
@@ -160,8 +162,16 @@ class LocationVisitAnalytics: ObservableObject {
         let thisMonthVisits = visits.filter { $0.month == currentMonth && $0.year == currentYear }.count
         let thisYearVisits = visits.filter { $0.year == currentYear }.count
 
-        // Calculate average duration
-        let durationsWithValue = visits.compactMap { $0.durationMinutes }
+        // Calculate average duration including active visit
+        var durationsWithValue = visits.compactMap { $0.durationMinutes }
+
+        // If there's an active visit, calculate its elapsed time and include it
+        if let active = activeVisit {
+            let elapsedMinutes = Int(now.timeIntervalSince(active.entryTime) / 60)
+            let durationToInclude = max(elapsedMinutes, 1) // At least 1 minute like completed visits
+            durationsWithValue.append(durationToInclude)
+        }
+
         let averageDuration = durationsWithValue.isEmpty
             ? 0.0
             : Double(durationsWithValue.reduce(0, +)) / Double(durationsWithValue.count)

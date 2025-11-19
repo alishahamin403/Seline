@@ -6,6 +6,7 @@ struct VisitStatsCard: View {
 
     @State private var stats: LocationVisitStats?
     @State private var isLoading = false
+    @State private var refreshTimer: Timer?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -125,17 +126,24 @@ struct VisitStatsCard: View {
 
         .onAppear {
             loadStats()
+            // Refresh stats every 10 seconds if there's an active visit
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
+                loadStats()
+            }
+        }
+        .onDisappear {
+            // Clean up timer when view disappears
+            refreshTimer?.invalidate()
+            refreshTimer = nil
         }
     }
 
     private func loadStats() {
-        isLoading = true
         Task {
             await LocationVisitAnalytics.shared.fetchStats(for: place.id)
 
             await MainActor.run {
                 stats = LocationVisitAnalytics.shared.visitStats[place.id]
-                isLoading = false
             }
         }
     }
