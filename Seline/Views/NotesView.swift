@@ -634,6 +634,10 @@ struct NoteEditView: View {
     @State private var filePreviewURL: URL?
     @State private var isProcessingFile = false
 
+    // Recurring expense states
+    @State private var showingRecurringExpenseForm = false
+    @State private var createdRecurringExpense: RecurringExpense?
+
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingReceipt || isGeneratingTitle || isProcessingFile
     }
@@ -762,6 +766,14 @@ struct NoteEditView: View {
         .sheet(isPresented: $showingFilePreview) {
             if let fileURL = filePreviewURL {
                 FilePreviewSheet(fileURL: fileURL)
+            }
+        }
+        .sheet(isPresented: $showingRecurringExpenseForm) {
+            RecurringExpenseForm { expense in
+                createdRecurringExpense = expense
+                // TODO: Save to database and display success message
+                HapticManager.shared.buttonTap()
+                print("Created recurring expense: \(expense.title)")
             }
         }
         .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
@@ -1202,6 +1214,20 @@ struct NoteEditView: View {
                 showingImagePicker = true
             }) {
                 Image(systemName: "photo.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+
+            // Recurring expense icon button
+            Button(action: {
+                showingRecurringExpenseForm = true
+            }) {
+                Image(systemName: "repeat.circle.fill")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 40, height: 36)
