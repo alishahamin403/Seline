@@ -2569,16 +2569,13 @@ class TaskManager: ObservableObject {
         // Convert EventKit events to TaskItems and add them
         for event in allCalendarEvents {
             let taskItem = CalendarSyncService.shared.convertEKEventToTaskItem(event)
+            let calendarEventId = "cal_\(event.eventIdentifier)"
 
-            // Check for duplicate before adding
-            let isDuplicate = doesEventExist(
-                title: taskItem.title,
-                date: taskItem.targetDate ?? taskItem.weekday.dateForCurrentWeek(),
-                time: taskItem.scheduledTime ?? Date(),
-                endTime: taskItem.endTime
-            )
+            // Check if this calendar event already exists by ID (most reliable method)
+            let existingTaskIndex = findTaskByEventId(calendarEventId)
 
-            if isDuplicate {
+            if existingTaskIndex != nil {
+                // Event already imported - skip to preserve completion status
                 continue
             }
 
@@ -2601,6 +2598,19 @@ class TaskManager: ObservableObject {
 
         // Save to local storage
         saveTasks()
+    }
+
+    /// Find a task by calendar event ID
+    /// - Parameter eventId: The calendar event ID (should start with "cal_")
+    /// - Returns: Tuple of (weekday, index) if found, nil otherwise
+    private func findTaskByEventId(_ eventId: String) -> (weekday: WeekDay, index: Int)? {
+        for weekday in WeekDay.allCases {
+            if let taskList = tasks[weekday],
+               let index = taskList.firstIndex(where: { $0.id == eventId }) {
+                return (weekday, index)
+            }
+        }
+        return nil
     }
 
     /// Manually trigger calendar access request
