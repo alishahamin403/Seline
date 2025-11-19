@@ -65,22 +65,20 @@ struct MapsViewNew: View, Searchable {
 
                 // Current Location Display
                 HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        // Location name beside icon
                         HStack(spacing: 6) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.blue)
 
-                            Text("Current Location")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            Text(currentLocationName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .lineLimit(2)
                         }
 
-                        Text(currentLocationName)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .lineLimit(2)
-
+                        // Status section
                         if let nearby = nearbyLocation {
                             HStack(spacing: 4) {
                                 Image(systemName: "checkmark.circle.fill")
@@ -236,7 +234,7 @@ struct MapsViewNew: View, Searchable {
                                 )
 
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                                    ForEach(Array(locationsManager.getCategories(country: selectedCountry, province: selectedProvince, city: selectedCity)), id: \.self) { category in
+                                    ForEach(Array(locationsManager.getCategories(country: selectedCountry, province: selectedProvince, city: selectedCity)).sorted(), id: \.self) { category in
                                         CategoryCard(
                                             category: category,
                                             count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count,
