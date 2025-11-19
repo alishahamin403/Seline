@@ -78,9 +78,9 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     }
 
     var googleMapsURL: URL? {
-        // Create Google Maps deep link using name, address, and coordinates
-        // This ensures the exact location opens with full details
-        let query = "\(displayName) \(address)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // Create Google Maps deep link using address and coordinates only
+        // Only the address ensures proper search results in Google Maps
+        let query = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         return URL(string: "comgooglemaps://?q=\(query)&center=\(latitude),\(longitude)")
     }
 
