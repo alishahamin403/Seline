@@ -18,6 +18,9 @@ struct MapsViewNew: View, Searchable {
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
     @State private var distanceToNearest: Double? = nil
+    @State private var locationEntryTime: Date? = nil
+    @State private var elapsedTimeString: String = ""
+    @State private var updateTimer: Timer?
     @Binding var externalSelectedFolder: String?
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
@@ -79,14 +82,28 @@ struct MapsViewNew: View, Searchable {
                             .lineLimit(2)
 
                         if let nearby = nearbyLocation {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.green)
 
-                                Text("In: \(nearby)")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.green)
+                                    Text("In: \(nearby)")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.green)
+                                }
+
+                                if !elapsedTimeString.isEmpty {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "timer")
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.green)
+
+                                        Text(elapsedTimeString)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.green)
+                                    }
+                                }
                             }
                         } else if let distance = distanceToNearest {
                             HStack(spacing: 4) {
@@ -115,7 +132,7 @@ struct MapsViewNew: View, Searchable {
 
                     Image(systemName: "location.north.line.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(.blue)
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
                 .padding(12)
                 .background(
@@ -325,6 +342,9 @@ struct MapsViewNew: View, Searchable {
                 }
             }
         }
+        .onDisappear {
+            stopLocationTimer()
+        }
 
         // iPhone-style folder overlay
         if selectedCategory != nil {
@@ -362,7 +382,12 @@ struct MapsViewNew: View, Searchable {
                 let distance = currentLoc.distance(from: CLLocation(latitude: placeLocation.latitude, longitude: placeLocation.longitude))
 
                 if distance <= geofenceRadius {
-                    nearbyLocation = place.displayName
+                    // Check if we just entered a new location
+                    if nearbyLocation != place.displayName {
+                        nearbyLocation = place.displayName
+                        locationEntryTime = Date()
+                        startLocationTimer()
+                    }
                     distanceToNearest = nil
                     foundNearby = true
                     break
@@ -386,11 +411,49 @@ struct MapsViewNew: View, Searchable {
                 } else {
                     distanceToNearest = nil
                 }
+
+                // Clear location entry time when not in any geofence
+                locationEntryTime = nil
+                elapsedTimeString = ""
+                stopLocationTimer()
             }
         } else {
             currentLocationName = "Location not available"
             nearbyLocation = nil
             distanceToNearest = nil
+            locationEntryTime = nil
+            elapsedTimeString = ""
+            stopLocationTimer()
+        }
+    }
+
+    private func startLocationTimer() {
+        stopLocationTimer()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            if let entryTime = locationEntryTime {
+                let elapsed = Date().timeIntervalSince(entryTime)
+                elapsedTimeString = formatElapsedTime(elapsed)
+            }
+        }
+    }
+
+    private func stopLocationTimer() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+
+    private func formatElapsedTime(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        } else if minutes > 0 {
+            return String(format: "%dm %ds", minutes, secs)
+        } else {
+            return String(format: "%ds", secs)
         }
     }
 
