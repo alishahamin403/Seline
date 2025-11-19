@@ -515,21 +515,6 @@ struct StatBox: View {
     }
 }
 
-// MARK: - Presentation Background Modifier
-
-struct PresentationBackgroundModifier: ViewModifier {
-    let colorScheme: ColorScheme
-
-    func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) {
-            content
-                .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
-        } else {
-            content
-        }
-    }
-}
-
 #Preview {
     ReceiptStatsView()
 }
