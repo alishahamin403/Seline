@@ -1173,7 +1173,7 @@ struct NoteEditView: View {
                     Label("Gallery", systemImage: "photo.fill")
                 }
             } label: {
-                Image(systemName: "receipt.badge.magnifyingglass")
+                Image(systemName: "receipt.fill")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                     .frame(width: 40, height: 36)
