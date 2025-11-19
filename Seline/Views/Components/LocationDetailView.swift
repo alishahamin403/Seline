@@ -29,6 +29,7 @@ struct LocationDetailView: View {
                             showCategoryPicker = false
                         }
                     )
+                    .presentationBg()
                 }
         } else {
             loadingView

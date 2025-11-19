@@ -156,12 +156,14 @@ struct MapsView: View, Searchable {
         )
         .sheet(isPresented: $showSearchModal) {
             LocationSearchModal()
+                .presentationBg()
         }
         .sheet(isPresented: $showingPlaceDetail) {
             if let place = selectedPlace {
                 PlaceDetailSheet(place: place) {
                     showingPlaceDetail = false
                 }
+                .presentationBg()
             }
         }
         .onAppear {

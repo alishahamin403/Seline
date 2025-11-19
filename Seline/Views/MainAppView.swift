@@ -389,6 +389,7 @@ struct MainAppView: View {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.hidden)
+                    .presentationBg()
             }
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
@@ -397,15 +398,19 @@ struct MainAppView: View {
                 ))
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
+                .presentationBg()
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
                 LocationSetupView()
+                    .presentationBg()
             }
             .sheet(isPresented: $authManager.showLabelSelection) {
                 GmailLabelSelectionView()
+                    .presentationBg()
             }
             .sheet(item: $searchSelectedEmail) { email in
                 EmailDetailView(email: email)
+                    .presentationBg()
             }
             .sheet(item: $searchSelectedTask) { task in
                 if showingEditTask {
@@ -492,11 +497,13 @@ struct MainAppView: View {
                         )
                     }
                 )
+                .presentationBg()
             }
             .sheet(isPresented: $showReceiptStats) {
                 ReceiptStatsView()
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
+                    .presentationBg()
             }
     }
 

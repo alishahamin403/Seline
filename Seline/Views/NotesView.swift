@@ -663,6 +663,7 @@ struct NoteEditView: View {
                 selectedFolderId: $selectedFolderId,
                 isPresented: $showingFolderPicker
             )
+            .presentationBg()
         }
         .sheet(isPresented: $showingShareSheet) {
             if let noteToShare = note {
@@ -731,6 +732,7 @@ struct NoteEditView: View {
                         }
                     }
             }
+            .presentationBg()
         }
         .fileImporter(
             isPresented: $showingFileImporter,
@@ -761,11 +763,13 @@ struct NoteEditView: View {
                         }
                     }
                 )
+                .presentationBg()
             }
         }
         .sheet(isPresented: $showingFilePreview) {
             if let fileURL = filePreviewURL {
                 FilePreviewSheet(fileURL: fileURL)
+                    .presentationBg()
             }
         }
         .sheet(isPresented: $showingRecurringExpenseForm) {
@@ -775,6 +779,7 @@ struct NoteEditView: View {
                 HapticManager.shared.buttonTap()
                 print("Created recurring expense: \(expense.title)")
             }
+            .presentationBg()
         }
         .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
             Button("Cancel", role: .cancel) { }
