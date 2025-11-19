@@ -184,6 +184,19 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         isMonitoring = false
     }
 
+    /// Update background location tracking based on user preference
+    func updateBackgroundLocationTracking(enabled: Bool) {
+        if enabled {
+            locationManager.allowsBackgroundLocationUpdates = true
+            locationManager.showsBackgroundLocationIndicator = true
+            print("🔋 Background tracking enabled - app can track visits when closed")
+        } else {
+            locationManager.allowsBackgroundLocationUpdates = false
+            locationManager.showsBackgroundLocationIndicator = false
+            print("🔋 Active tracking enabled - only tracks while app is open")
+        }
+    }
+
     // MARK: - CLLocationManagerDelegate
 
     nonisolated func locationManager(
@@ -254,9 +267,17 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             case .authorizedAlways:
                 print("✅ Background location authorization granted")
 
-                // Now safe to enable background location updates
-                manager.allowsBackgroundLocationUpdates = true
-                manager.showsBackgroundLocationIndicator = true
+                // Enable background location updates based on user preference
+                let locationTrackingMode = UserDefaults.standard.string(forKey: "locationTrackingMode") ?? "active"
+                if locationTrackingMode == "background" {
+                    manager.allowsBackgroundLocationUpdates = true
+                    manager.showsBackgroundLocationIndicator = true
+                    print("🔋 Background tracking enabled - app can track visits when closed")
+                } else {
+                    manager.allowsBackgroundLocationUpdates = false
+                    manager.showsBackgroundLocationIndicator = false
+                    print("🔋 Active tracking enabled - only tracks while app is open")
+                }
 
                 self.setupGeofences(for: LocationsManager.shared.savedPlaces)
             case .authorizedWhenInUse:

@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @ObservedObject var themeManager = ThemeManager.shared
     @StateObject private var notificationService = NotificationService.shared
+    @StateObject private var geofenceManager = GeofenceManager.shared
 
     // Computed property to get current theme state
     private var isDarkMode: Bool {
@@ -12,6 +13,7 @@ struct SettingsView: View {
 
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
+    @AppStorage("locationTrackingMode") private var locationTrackingMode = "active" // "active" or "background"
     @State private var showingFeedback = false
 
     var body: some View {
@@ -111,6 +113,71 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
+                        // Location Tracking Mode
+                        HStack(spacing: 16) {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Location Tracking")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: locationTrackingMode == "active" ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(locationTrackingMode == "active" ? .blue : .gray)
+
+                                            Text("Active")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundColor(isDarkMode ? .white : .black)
+                                        }
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            locationTrackingMode = "active"
+                                        }
+
+                                        Text("App open, minimal battery")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.gray)
+                                            .padding(.leading, 22)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: locationTrackingMode == "background" ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(locationTrackingMode == "background" ? .blue : .gray)
+
+                                            Text("Background")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundColor(isDarkMode ? .white : .black)
+                                        }
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            locationTrackingMode = "background"
+                                        }
+
+                                        Text("App closed, higher battery use")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.gray)
+                                            .padding(.leading, 22)
+                                    }
+                                }
+                            }
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+
+                        Divider()
+                            .padding(.leading, 50)
+
                         // Feedback Button
                         Button(action: { showingFeedback = true }) {
                             HStack(spacing: 16) {
@@ -151,6 +218,9 @@ struct SettingsView: View {
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
+        }
+        .onChange(of: locationTrackingMode) { newMode in
+            geofenceManager.updateBackgroundLocationTracking(enabled: newMode == "background")
         }
     }
 
