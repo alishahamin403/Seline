@@ -332,14 +332,19 @@ struct MapsViewNew: View, Searchable {
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
 
-            // Load incomplete visits from Supabase to resume tracking
-            Task {
-                await geofenceManager.loadIncompleteVisitsFromSupabase()
-            }
-
             // Initialize cached categories
             updateCachedCategories()
-            updateCurrentLocation()
+
+            // Load incomplete visits from Supabase to resume tracking BEFORE checking location
+            // This prevents race condition where updateCurrentLocation() creates a new visit
+            // before the async load completes
+            Task {
+                await geofenceManager.loadIncompleteVisitsFromSupabase()
+                // Now that previous sessions are restored, check current location
+                await MainActor.run {
+                    updateCurrentLocation()
+                }
+            }
         }
         .onReceive(locationService.$currentLocation) { _ in
             updateCurrentLocation()

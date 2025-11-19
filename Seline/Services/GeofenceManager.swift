@@ -218,6 +218,13 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 return
             }
 
+            // Check if we already have an active visit for this location
+            // This prevents duplicate sessions if geofence is re-triggered while user is still in location
+            if self.activeVisits[placeId] != nil {
+                print("ℹ️ Active visit already exists for place: \(placeId), skipping duplicate entry")
+                return
+            }
+
             // Create a new visit record
             var visit = LocationVisitRecord.create(
                 userId: userId,
