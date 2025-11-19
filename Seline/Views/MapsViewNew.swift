@@ -395,8 +395,14 @@ struct MapsViewNew: View, Searchable {
                     // If already in geofence but no active visit record, create one
                     // (handles case where user was already at location when app launched)
                     if geofenceManager.activeVisits[place.id] == nil {
+                        // IMPORTANT: Only create if we have a valid user ID
+                        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+                            print("⚠️ Cannot auto-create visit - user not authenticated")
+                            return
+                        }
+
                         var visit = LocationVisitRecord.create(
-                            userId: SupabaseManager.shared.getCurrentUser()?.id ?? UUID(),
+                            userId: userId,
                             savedPlaceId: place.id,
                             entryTime: Date()
                         )
