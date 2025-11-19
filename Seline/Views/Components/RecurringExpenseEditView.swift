@@ -198,7 +198,7 @@ struct RecurringExpenseEditView: View {
                 try await RecurringExpenseService.shared.updateRecurringExpense(updatedExpense)
 
                 await MainActor.run {
-                    dismiss()
+                    isPresented = false
                 }
             } catch {
                 await MainActor.run {

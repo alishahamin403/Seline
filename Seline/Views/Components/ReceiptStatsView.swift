@@ -456,7 +456,16 @@ struct RecurringExpenseStatsContent: View {
             if let expense = selectedExpense {
                 RecurringExpenseEditView(expense: expense, isPresented: Binding(
                     get: { showEditSheet },
-                    set: { showEditSheet = $0; if !$0 { loadRecurringExpenses() } }
+                    set: {
+                        showEditSheet = $0
+                        if !$0 {
+                            selectedExpense = nil
+                            // Small delay to allow sheet to close smoothly
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                loadRecurringExpenses()
+                            }
+                        }
+                    }
                 ))
             }
         }
