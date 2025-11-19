@@ -72,8 +72,6 @@ struct RecurringExpenseForm: View {
                             .textFieldStyle(.roundedBorder)
                     }
 
-                    Divider()
-
                     // Frequency
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Recurrence Frequency", systemImage: "repeat.circle.fill")
@@ -126,8 +124,6 @@ struct RecurringExpenseForm: View {
                             .labelsHidden()
                         }
                     }
-
-                    Divider()
 
                     // Reminder Option
                     VStack(alignment: .leading, spacing: 12) {

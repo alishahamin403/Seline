@@ -153,10 +153,6 @@ struct ReceiptStatsView: View {
                         )
                     }
 
-                    if isLoadingCategories || (categoryBreakdown != nil && !categoryBreakdown!.categories.isEmpty) {
-                        Divider()
-                            .opacity(0.3)
-                    }
 
                     // Monthly breakdown
                     ScrollView(.vertical, showsIndicators: false) {
@@ -191,10 +187,6 @@ struct ReceiptStatsView: View {
                                             categorizedReceipts: categorizedReceiptsForMonth
                                         )
 
-                                        if index < stats.monthlySummaries.count - 1 {
-                                            Divider()
-                                                .opacity(0.3)
-                                        }
                                     }
                                 }
                             } else {
@@ -367,8 +359,6 @@ struct RecurringExpenseStatsContent: View {
                     )
                 }
                 .padding(.vertical, 12)
-
-                Divider()
 
                 // Recurring expenses list
                 ScrollView {
