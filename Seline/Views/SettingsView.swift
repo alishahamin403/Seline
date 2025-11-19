@@ -138,7 +138,7 @@ struct SettingsView: View {
                                     HStack(spacing: 8) {
                                         Image(systemName: locationTrackingMode == "active" ? "checkmark.circle.fill" : "circle")
                                             .font(.system(size: 14))
-                                            .foregroundColor(locationTrackingMode == "active" ? .blue : .gray)
+                                            .foregroundColor(locationTrackingMode == "active" ? (isDarkMode ? Color.white : Color.black) : .gray)
 
                                         Text("Active")
                                             .font(.system(size: 14, weight: .regular))
@@ -152,7 +152,7 @@ struct SettingsView: View {
                                     HStack(spacing: 8) {
                                         Image(systemName: locationTrackingMode == "background" ? "checkmark.circle.fill" : "circle")
                                             .font(.system(size: 14))
-                                            .foregroundColor(locationTrackingMode == "background" ? .blue : .gray)
+                                            .foregroundColor(locationTrackingMode == "background" ? (isDarkMode ? Color.white : Color.black) : .gray)
 
                                         Text("Background")
                                             .font(.system(size: 14, weight: .regular))

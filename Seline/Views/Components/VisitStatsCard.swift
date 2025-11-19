@@ -10,7 +10,7 @@ struct VisitStatsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "chart.bar.fill")
                     .font(.system(size: 20))
                     .foregroundColor(
