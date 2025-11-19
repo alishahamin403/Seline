@@ -415,12 +415,54 @@ class TaskManager: ObservableObject {
     private let authManager = AuthenticationManager.shared
 
     private init() {
+        // CRITICAL: Clear corrupted cache BEFORE loading tasks to prevent slowdown
+        // The 22k corrupted events cause JSON decoding to be extremely slow
+        clearCorruptedCacheIfNeeded()
+
         initializeEmptyDays()
         loadTasks()
 
         // Don't load from Supabase here - wait for authentication!
         // The app will call loadTasksFromSupabase() after user authenticates
         // This ensures EncryptionManager.setupEncryption() is called FIRST
+    }
+
+    /// Clears corrupted calendar cache BEFORE loading tasks
+    /// This prevents the slow JSON decoding of 22k+ duplicate events on startup
+    private func clearCorruptedCacheIfNeeded() {
+        guard let data = userDefaults.data(forKey: tasksKey) else {
+            return
+        }
+
+        // Quick check: if cached data is suspiciously large (> 5MB), it's probably corrupted
+        if data.count > 5_000_000 {
+            print("🧹 EMERGENCY CLEANUP: Cache is \(data.count / 1_000_000)MB - clearing corrupted data immediately...")
+
+            // Clear the corrupted cache entirely
+            userDefaults.removeObject(forKey: tasksKey)
+
+            // Mark that we've cleaned so the deferred cleanup doesn't run
+            userDefaults.set(true, forKey: "hasCleanedCorruptedCache")
+
+            print("✅ Corrupted cache cleared - app will load fresh tasks")
+            return
+        }
+
+        // Also check by attempting to decode - if we have 1000+ items, it's corrupted
+        if let savedTasks = try? JSONDecoder().decode([TaskItem].self, from: data),
+           savedTasks.count > 1000 && !userDefaults.bool(forKey: "hasCleanedCorruptedCache") {
+            print("🧹 EMERGENCY CLEANUP: Detected \(savedTasks.count) corrupted tasks - clearing immediately...")
+
+            // Remove all calendar events
+            let cleanedTasks = savedTasks.filter { !$0.id.hasPrefix("cal_") }
+
+            if let encoded = try? JSONEncoder().encode(cleanedTasks) {
+                userDefaults.set(encoded, forKey: tasksKey)
+                print("✅ Cleaned cache: Removed \(savedTasks.count - cleanedTasks.count) duplicate events, kept \(cleanedTasks.count) tasks")
+            }
+
+            userDefaults.set(true, forKey: "hasCleanedCorruptedCache")
+        }
     }
 
     private func initializeEmptyDays() {
@@ -1523,44 +1565,11 @@ class TaskManager: ObservableObject {
 
         print("📂 Loaded \(savedTasks.count) tasks from cache")
 
-        // ⚠️ Safety check: Warn if task count is suspiciously high (indicates data corruption or duplication bug)
-        var tasksToProcess = savedTasks
-
-        if savedTasks.count > 1000 {
-            print("⚠️ WARNING: Loaded \(savedTasks.count) tasks - this is unusually high!")
-            print("⚠️ This may indicate calendar events are being duplicated or not deduplicated properly")
-
-            // Count calendar events vs regular tasks for debugging
-            let calendarEventCount = savedTasks.filter { $0.id.hasPrefix("cal_") }.count
-            let regularTaskCount = savedTasks.count - calendarEventCount
-            print("⚠️ Breakdown: \(regularTaskCount) regular tasks, \(calendarEventCount) calendar events")
-
-            // ONE-TIME CLEAR: Remove duplicate calendar events from corrupted cache
-            // This runs only once (tracked by UserDefaults flag)
-            let hasCleanedCorruptedCache = userDefaults.bool(forKey: "hasCleanedCorruptedCache")
-            if !hasCleanedCorruptedCache {
-                print("🧹 ONE-TIME CLEANUP: Removing \(calendarEventCount) duplicate calendar events from cache...")
-
-                // Keep only regular tasks, remove all calendar events
-                let cleanedTasks = savedTasks.filter { !$0.id.hasPrefix("cal_") }
-
-                print("✅ Cleaned cache: Removed \(calendarEventCount) events, keeping \(cleanedTasks.count) regular tasks")
-
-                // Save cleaned tasks back to cache
-                if let encoded = try? JSONEncoder().encode(cleanedTasks) {
-                    userDefaults.set(encoded, forKey: tasksKey)
-                    print("💾 Cleaned tasks saved to cache")
-                }
-
-                // Mark that we've done the cleanup so it doesn't run again
-                userDefaults.set(true, forKey: "hasCleanedCorruptedCache")
-
-                tasksToProcess = cleanedTasks
-            }
-        }
+        // Note: Emergency cache cleanup already ran in init() if needed
+        // If we reach here with normal task count, no cleanup was necessary
 
         // Fix any recurring tasks that were accidentally marked as completed
-        let fixedTasks = tasksToProcess.map { task -> TaskItem in
+        let fixedTasks = savedTasks.map { task -> TaskItem in
             var fixedTask = task
             if task.isRecurring && task.isCompleted {
                 print("🔧 FIXING: Recurring task '\(task.title)' was marked complete - setting to incomplete")
