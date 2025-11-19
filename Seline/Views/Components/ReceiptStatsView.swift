@@ -24,7 +24,7 @@ struct ReceiptStatsView: View {
             (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
                 .ignoresSafeArea()
 
-            VStack(spacing: 12, alignment: .leading) {
+            VStack(alignment: .leading, spacing: 12) {
                 // Toggle between Receipts and Recurring Expenses - EmailTabView style
                 HStack(spacing: 0) {
                     Button(action: {
@@ -82,7 +82,7 @@ struct ReceiptStatsView: View {
                 .padding(.horizontal, 12)
 
                 // Main card container
-                VStack(spacing: 0, alignment: .leading) {
+                VStack(alignment: .leading, spacing: 0) {
                     if showRecurringExpenses {
                         RecurringExpenseStatsContent()
                             .frame(maxWidth: .infinity, alignment: .topLeading)
