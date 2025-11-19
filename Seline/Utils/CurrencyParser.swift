@@ -94,4 +94,16 @@ struct CurrencyParser {
         let numberString = formatter.string(from: NSNumber(value: amount)) ?? String(format: "%.2f", amount)
         return "\(symbol)\(numberString)"
     }
+
+    /// Formats amount with no decimal places and comma separator (e.g., $1,234)
+    static func formatAmountNoDecimals(_ amount: Double, symbol: String = "$") -> String {
+        let formatter = NumberFormatter()
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+
+        let numberString = formatter.string(from: NSNumber(value: amount)) ?? String(format: "%.0f", amount)
+        return "\(symbol)\(numberString)"
+    }
 }

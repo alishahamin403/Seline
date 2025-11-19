@@ -342,20 +342,23 @@ struct RecurringExpenseStatsContent: View {
                 HStack(spacing: 12) {
                     StatBox(
                         label: "Monthly",
-                        value: CurrencyParser.formatAmount(monthlyTotal),
-                        icon: "calendar"
+                        value: CurrencyParser.formatAmountNoDecimals(monthlyTotal),
+                        icon: "calendar",
+                        valueColor: .green
                     )
 
                     StatBox(
                         label: "Yearly",
-                        value: CurrencyParser.formatAmount(yearlyProjection),
-                        icon: "chart.line.uptrend.xyaxis"
+                        value: CurrencyParser.formatAmountNoDecimals(yearlyProjection),
+                        icon: "chart.line.uptrend.xyaxis",
+                        valueColor: .green
                     )
 
                     StatBox(
                         label: "Active",
                         value: "\(activeCount)",
-                        icon: "repeat"
+                        icon: "repeat",
+                        valueColor: nil
                     )
                 }
                 .padding(.vertical, 8)
@@ -482,6 +485,7 @@ struct StatBox: View {
     let label: String
     let value: String
     let icon: String
+    let valueColor: Color?
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -492,7 +496,8 @@ struct StatBox: View {
 
             Text(value)
                 .font(.headline)
-                .fontWeight(.bold)
+                .fontWeight(.regular)
+                .foregroundColor(valueColor ?? .primary)
 
             Text(label)
                 .font(.caption)
