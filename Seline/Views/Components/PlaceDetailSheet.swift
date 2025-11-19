@@ -7,7 +7,18 @@ struct PlaceDetailSheet: View {
     @StateObject private var mapsService = GoogleMapsService.shared
 
     var body: some View {
-        NavigationView {
+        VStack(spacing: 0) {
+            // Close button
+            HStack {
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.5))
+                }
+                .padding(20)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // Photos carousel
@@ -209,17 +220,11 @@ struct PlaceDetailSheet: View {
                 (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                     .ignoresSafeArea()
             )
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.5))
-                    }
-                }
-            }
         }
+        .background(
+            (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                .ignoresSafeArea()
+        )
     }
 
     private func callPhone(_ phone: String) {
