@@ -24,47 +24,68 @@ struct ReceiptStatsView: View {
             (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Toggle between Receipts and Recurring Expenses
+            VStack(spacing: 12, alignment: .leading) {
+                // Toggle between Receipts and Recurring Expenses - EmailTabView style
                 HStack(spacing: 0) {
-                    Button(action: { showRecurringExpenses = false }) {
-                        Text("Receipts")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .foregroundColor(showRecurringExpenses ? colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6) : (colorScheme == .dark ? .white : .black))
-                            .background(
-                                showRecurringExpenses
-                                    ? Color.clear
-                                    : (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
-                            )
-                    }
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showRecurringExpenses = false
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "receipt.fill")
+                                .font(.system(size: 14, weight: .medium))
 
-                    Button(action: { showRecurringExpenses = true }) {
-                        Text("Recurring")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .foregroundColor(!showRecurringExpenses ? colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6) : (colorScheme == .dark ? .white : .black))
-                            .background(
-                                !showRecurringExpenses
-                                    ? Color.clear
-                                    : (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
-                            )
+                            Text("Receipts")
+                                .font(.system(size: 14, weight: !showRecurringExpenses ? .semibold : .medium))
+                        }
+                        .foregroundColor(
+                            !showRecurringExpenses ? .white : .gray
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(!showRecurringExpenses ? Color(red: 0.2, green: 0.2, blue: 0.2) : Color.clear)
+                        )
                     }
+                    .buttonStyle(PlainButtonStyle())
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showRecurringExpenses = true
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "repeat.circle.fill")
+                                .font(.system(size: 14, weight: .medium))
+
+                            Text("Recurring")
+                                .font(.system(size: 14, weight: showRecurringExpenses ? .semibold : .medium))
+                        }
+                        .foregroundColor(
+                            showRecurringExpenses ? .white : .gray
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(showRecurringExpenses ? Color(red: 0.2, green: 0.2, blue: 0.2) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
+                )
                 .padding(.horizontal, 12)
 
-                Divider()
-                    .padding(.horizontal, 12)
-
                 // Main card container
-                VStack(spacing: 0) {
+                VStack(spacing: 0, alignment: .leading) {
                     if showRecurringExpenses {
                         RecurringExpenseStatsContent()
-                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
                     } else {
                         // Year selector header with total
                         HStack(spacing: 12) {
@@ -193,7 +214,9 @@ struct ReceiptStatsView: View {
                     }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
             // Set current year to the most recent year with data
@@ -298,7 +321,7 @@ struct RecurringExpenseStatsContent: View {
         VStack(spacing: 16) {
             if isLoading {
                 ProgressView()
-                    .padding(.vertical, 20)
+                    .padding(.vertical, 16)
             } else if recurringExpenses.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "repeat.circle.dashed")
@@ -314,7 +337,7 @@ struct RecurringExpenseStatsContent: View {
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
+                .padding(.vertical, 16)
             } else {
                 // Stats
                 HStack(spacing: 12) {
@@ -381,6 +404,8 @@ struct RecurringExpenseStatsContent: View {
                 }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .onAppear {
             loadRecurringExpenses()
         }
