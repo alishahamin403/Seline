@@ -1,14 +1,34 @@
 import SwiftUI
 
+// MARK: - Data Model for Grouped Visits
+
+struct VisitDay: Identifiable {
+    let id = UUID()
+    let date: Date
+    let visits: [VisitHistoryItem]
+
+    var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: date)
+    }
+
+    var dayOfWeek: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: date)
+    }
+}
+
 struct VisitHistoryCard: View {
     let place: SavedPlace
     @Environment(\.colorScheme) var colorScheme
 
     @State private var visitHistory: [VisitHistoryItem] = []
+    @State private var visitDays: [VisitDay] = []
     @State private var isLoading = false
     @State private var isExpanded = false
-
-    let maxVisitsToShow = 5
+    @State private var expandedDayIds: Set<UUID> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -63,27 +83,24 @@ struct VisitHistoryCard: View {
             }
             .buttonStyle(PlainButtonStyle())
 
-            // Visit List
+            // Visit Days List - Day by Day Breakdown
             if isExpanded && !visitHistory.isEmpty {
                 VStack(spacing: 8) {
-                    ForEach(visitHistory.prefix(maxVisitsToShow), id: \.visit.id) { item in
-                        VisitHistoryRow(
-                            visit: item.visit,
-                            colorScheme: colorScheme
+                    ForEach(visitDays) { visitDay in
+                        DayVisitGroup(
+                            visitDay: visitDay,
+                            colorScheme: colorScheme,
+                            isExpanded: expandedDayIds.contains(visitDay.id),
+                            onToggle: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    if expandedDayIds.contains(visitDay.id) {
+                                        expandedDayIds.remove(visitDay.id)
+                                    } else {
+                                        expandedDayIds.insert(visitDay.id)
+                                    }
+                                }
+                            }
                         )
-
-                        if item.visit.id != visitHistory.prefix(maxVisitsToShow).last?.visit.id {
-                            Divider()
-                                .padding(.vertical, 4)
-                        }
-                    }
-
-                    if visitHistory.count > maxVisitsToShow {
-                        Text("Showing latest \(maxVisitsToShow) of \(visitHistory.count) visits")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, 8)
                     }
                 }
                 .padding(12)
@@ -101,9 +118,35 @@ struct VisitHistoryCard: View {
     private func loadVisitHistory() {
         isLoading = true
         Task {
-            visitHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id)
+            // Fetch with a high limit to get all visits (10000 should be enough for most cases)
+            visitHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id, limit: 10000)
+            // Group visits by date
+            groupVisitsByDate()
             isLoading = false
         }
+    }
+
+    private func groupVisitsByDate() {
+        let calendar = Calendar.current
+        var grouped: [Date: [VisitHistoryItem]] = [:]
+
+        // Group visits by calendar day
+        for item in visitHistory {
+            let components = calendar.dateComponents([.year, .month, .day], from: item.visit.entryTime)
+            if let dateKey = calendar.date(from: components) {
+                if grouped[dateKey] == nil {
+                    grouped[dateKey] = []
+                }
+                grouped[dateKey]?.append(item)
+            }
+        }
+
+        // Convert to sorted array (most recent first)
+        visitDays = grouped
+            .map { date, items in
+                VisitDay(date: date, visits: items.sorted { $0.visit.entryTime > $1.visit.entryTime })
+            }
+            .sorted { $0.date > $1.date }
     }
 }
 
@@ -201,6 +244,69 @@ struct VisitHistoryRow: View {
             return "\(entryStr) - \(exitStr)"
         } else {
             return "Started at \(entryStr)"
+        }
+    }
+}
+
+// MARK: - Day Visit Group
+
+struct DayVisitGroup: View {
+    let visitDay: VisitDay
+    let colorScheme: ColorScheme
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Day Header
+            Button(action: onToggle) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(visitDay.formattedDate)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                        Text(visitDay.dayOfWeek)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+
+                    Spacer()
+
+                    Text("\(visitDay.visits.count) visit\(visitDay.visits.count == 1 ? "" : "s")")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Visits for this day
+            if isExpanded {
+                VStack(spacing: 8) {
+                    ForEach(visitDay.visits, id: \.visit.id) { item in
+                        VisitHistoryRow(
+                            visit: item.visit,
+                            colorScheme: colorScheme
+                        )
+
+                        if item.visit.id != visitDay.visits.last?.visit.id {
+                            Divider()
+                                .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
     }
 }
