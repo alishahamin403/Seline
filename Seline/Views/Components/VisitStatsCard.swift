@@ -34,10 +34,7 @@ struct VisitStatsCard: View {
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         }
                     } else if let stats = stats {
-                        Text(stats.summaryText)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .lineLimit(2)
+                        // Summary text removed - detailed stats shown in cards below
                     } else {
                         Text("No visits tracked yet")
                             .font(.system(size: 14, weight: .regular))
@@ -79,15 +76,6 @@ struct VisitStatsCard: View {
                     if let peakTime = stats.mostCommonTimeOfDay,
                        let peakDay = stats.mostCommonDayOfWeek {
                         HStack(spacing: 0) {
-                            Image(systemName: "chart.bar.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(
-                                    colorScheme == .dark ?
-                                        Color.white :
-                                        Color.black
-                                )
-                                .frame(width: 20)
-
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Peak Time")
                                     .font(.system(size: 11, weight: .medium))
@@ -97,7 +85,7 @@ struct VisitStatsCard: View {
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
-                            .padding(.leading, 8)
+                            .padding(.leading, 12)
 
                             Spacer()
 
