@@ -467,6 +467,7 @@ struct RecurringExpenseStatsContent: View {
                         }
                     }
                 ))
+                .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
             }
         }
         .onAppear {

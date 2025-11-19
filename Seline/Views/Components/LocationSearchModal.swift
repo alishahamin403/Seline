@@ -182,6 +182,7 @@ struct LocationSearchModal: View {
                     LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
                 }
             }
+            .presentationBackground(colorScheme == .dark ? Color.black : Color.white)
         }
     }
 
