@@ -422,8 +422,12 @@ struct MapsViewNew: View, Searchable {
                 if let activeVisit = geofenceManager.activeVisits[place.id] {
                     let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
                     elapsedTimeString = formatElapsedTime(elapsed)
+                    // Debug: Verify we're using real geofence data
+                    // print("⏱️ Timer using REAL geofence data: \(place.displayName) - Entry: \(activeVisit.entryTime)")
                 } else {
                     // No active visit record from geofence - don't show time
+                    // Debug: Track when timer can't show because geofence event hasn't fired
+                    // print("⚠️ No geofence entry recorded yet for: \(nearbyLoc) (proximity detected but geofence event pending)")
                     elapsedTimeString = ""
                 }
             } else {
