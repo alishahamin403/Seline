@@ -453,22 +453,24 @@ struct RecurringExpenseStatsContent: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .sheet(isPresented: $showEditSheet) {
-            if let expense = selectedExpense {
-                RecurringExpenseEditView(expense: expense, isPresented: Binding(
-                    get: { showEditSheet },
-                    set: {
-                        showEditSheet = $0
-                        if !$0 {
-                            selectedExpense = nil
-                            // Small delay to allow sheet to close smoothly
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                loadRecurringExpenses()
+            Group {
+                if let expense = selectedExpense {
+                    RecurringExpenseEditView(expense: expense, isPresented: Binding(
+                        get: { showEditSheet },
+                        set: {
+                            showEditSheet = $0
+                            if !$0 {
+                                selectedExpense = nil
+                                // Small delay to allow sheet to close smoothly
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    loadRecurringExpenses()
+                                }
                             }
                         }
-                    }
-                ))
-                .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+                    ))
+                }
             }
+            .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
         }
         .onAppear {
             loadRecurringExpenses()

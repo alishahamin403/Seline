@@ -37,14 +37,9 @@ struct RecurringExpenseEditView: View {
     }
 
     var body: some View {
-        ZStack {
-            // Background matching app theme
-            (colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
-                .ignoresSafeArea()
-
-            NavigationStack {
-                ScrollView {
-                    VStack(spacing: 20) {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
                         // Title
                         VStack(alignment: .leading, spacing: 8) {
                             Label("Title", systemImage: "pencil.circle.fill")
@@ -171,7 +166,6 @@ struct RecurringExpenseEditView: View {
                         }
                     }
                 }
-            }
         }
     }
 
