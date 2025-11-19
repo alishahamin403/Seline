@@ -9,7 +9,6 @@ struct ReceiptStatsView: View {
     @State private var selectedCategory: String? = nil
     @State private var showRecurringExpenses = false
     @Environment(\.colorScheme) var colorScheme
-    @Environment(\.dismiss) var dismiss
 
     var isPopup: Bool = false
 
@@ -28,20 +27,6 @@ struct ReceiptStatsView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: isPopup ? 8 : 12) {
-                // Close button for popup mode
-                if isPopup {
-                    HStack {
-                        Spacer()
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 24))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
-                }
-
                 // Toggle between Receipts and Recurring Expenses - EmailTabView style
                 HStack(spacing: 0) {
                     Button(action: {
