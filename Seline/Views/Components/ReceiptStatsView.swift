@@ -310,13 +310,18 @@ struct RecurringExpenseStatsContent: View {
     @Environment(\.colorScheme) var colorScheme
 
     var monthlyTotal: Double {
-        recurringExpenses.reduce(0) { total, expense in
+        // Only count active expenses in the total
+        recurringExpenses.filter { $0.isActive }.reduce(0) { total, expense in
             total + Double(truncating: expense.amount as NSDecimalNumber)
         }
     }
 
     var yearlyProjection: Double {
         monthlyTotal * 12
+    }
+
+    var activeCount: Int {
+        recurringExpenses.filter { $0.isActive }.count
     }
 
     var body: some View {
@@ -357,7 +362,7 @@ struct RecurringExpenseStatsContent: View {
 
                     StatBox(
                         label: "Active",
-                        value: "\(recurringExpenses.count)",
+                        value: "\(activeCount)",
                         icon: "repeat"
                     )
                 }
@@ -464,9 +469,11 @@ struct RecurringExpenseStatsContent: View {
         isLoading = true
         Task {
             do {
-                let expenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+                // Fetch all expenses (both active and paused)
+                let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
                 await MainActor.run {
-                    recurringExpenses = expenses
+                    // Sort by most recent first
+                    recurringExpenses = expenses.sorted { $0.createdAt > $1.createdAt }
                     isLoading = false
                 }
             } catch {
