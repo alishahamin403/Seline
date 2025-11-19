@@ -28,48 +28,43 @@ struct ReceiptStatsView: View {
                 // Toggle between Receipts and Recurring Expenses
                 HStack(spacing: 0) {
                     Button(action: { showRecurringExpenses = false }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "receipt.fill")
-                            Text("Receipts")
-                        }
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .foregroundColor(showRecurringExpenses ? .gray : .blue)
-                        .background(
-                            showRecurringExpenses
-                                ? Color.clear
-                                : Color.blue.opacity(0.1)
-                        )
+                        Text("Receipts")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundColor(showRecurringExpenses ? colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6) : (colorScheme == .dark ? .white : .black))
+                            .background(
+                                showRecurringExpenses
+                                    ? Color.clear
+                                    : (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
+                            )
                     }
 
                     Button(action: { showRecurringExpenses = true }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "repeat.circle.fill")
-                            Text("Recurring")
-                        }
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .foregroundColor(!showRecurringExpenses ? .gray : .blue)
-                        .background(
-                            !showRecurringExpenses
-                                ? Color.clear
-                                : Color.blue.opacity(0.1)
-                        )
+                        Text("Recurring")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundColor(!showRecurringExpenses ? colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6) : (colorScheme == .dark ? .white : .black))
+                            .background(
+                                !showRecurringExpenses
+                                    ? Color.clear
+                                    : (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
+                            )
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 12)
 
                 Divider()
+                    .padding(.horizontal, 12)
 
                 // Main card container
                 VStack(spacing: 0) {
                     if showRecurringExpenses {
                         RecurringExpenseStatsContent()
+                            .padding(12)
                     } else {
                         // Year selector header with total
                         HStack(spacing: 12) {
@@ -198,9 +193,6 @@ struct ReceiptStatsView: View {
                     }
                     }
                 }
-                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-                .cornerRadius(12)
-                .padding(12)
             }
         }
         .onAppear {
@@ -306,7 +298,7 @@ struct RecurringExpenseStatsContent: View {
         VStack(spacing: 16) {
             if isLoading {
                 ProgressView()
-                    .padding(.vertical, 40)
+                    .padding(.vertical, 20)
             } else if recurringExpenses.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "repeat.circle.dashed")
@@ -322,7 +314,7 @@ struct RecurringExpenseStatsContent: View {
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+                .padding(.vertical, 20)
             } else {
                 // Stats
                 HStack(spacing: 12) {
@@ -389,7 +381,6 @@ struct RecurringExpenseStatsContent: View {
                 }
             }
         }
-        .padding(12)
         .onAppear {
             loadRecurringExpenses()
         }
