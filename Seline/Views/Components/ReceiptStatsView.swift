@@ -442,25 +442,15 @@ struct RecurringExpenseStatsContent: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
-        .sheet(isPresented: $showEditSheet) {
-            Group {
-                if let expense = selectedExpense {
-                    RecurringExpenseEditView(expense: expense, isPresented: Binding(
-                        get: { showEditSheet },
-                        set: {
-                            showEditSheet = $0
-                            if !$0 {
-                                selectedExpense = nil
-                                // Small delay to allow sheet to close smoothly
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    loadRecurringExpenses()
-                                }
-                            }
-                        }
-                    ))
-                }
+        .sheet(isPresented: $showEditSheet, onDismiss: {
+            selectedExpense = nil
+            // Reload the list when sheet closes
+            loadRecurringExpenses()
+        }) {
+            if let expense = selectedExpense {
+                RecurringExpenseEditView(expense: expense, isPresented: $showEditSheet)
+                    .presentationBg()
             }
-            .presentationBg()
         }
         .onAppear {
             loadRecurringExpenses()
