@@ -8,17 +8,6 @@ struct PlaceDetailSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Close button
-            HStack {
-                Spacer()
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.5))
-                }
-                .padding(20)
-            }
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // Photos carousel
@@ -99,44 +88,32 @@ struct PlaceDetailSheet: View {
                             }
                         }
 
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-
                         // Address
-                        Button(action: {
-                            mapsService.openInGoogleMaps(place: place)
-                        }) {
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: "mappin.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(
-                                        colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black
-                                    )
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(
+                                    colorScheme == .dark ?
+                                        Color.white :
+                                        Color.black
+                                )
+                                .frame(width: 20, alignment: .center)
 
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Address")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Address")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                                    Text(place.address)
-                                        .font(.system(size: 15, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                }
-
-                                Spacer()
+                                Text(place.address)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
+
+                            Spacer()
                         }
-                        .buttonStyle(PlainButtonStyle())
 
                         // Phone number
                         if let phone = place.phone {
-                            Rectangle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                                .frame(height: 1)
-
                             Button(action: {
                                 callPhone(phone)
                             }) {
@@ -169,22 +146,10 @@ struct PlaceDetailSheet: View {
                             .buttonStyle(PlainButtonStyle())
                         }
 
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-
                         // Visit Stats and History
                         VisitStatsCard(place: place)
 
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                            .frame(height: 1)
-
                         VisitHistoryCard(place: place)
-
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
-                            .frame(height: 1)
 
                         // Open in Maps button
                         Button(action: {
@@ -221,7 +186,7 @@ struct PlaceDetailSheet: View {
                     Spacer()
                         .frame(height: 40)
                 }
-                .padding(.top, 20)
+                .padding(.top, 8)
             }
             .background(
                 (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)

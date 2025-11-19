@@ -9,18 +9,18 @@ struct VisitStatsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 0) {
-                Image(systemName: "mappin.circle.fill")
+            HStack(spacing: 12) {
+                Image(systemName: "chart.bar.fill")
                     .font(.system(size: 20))
                     .foregroundColor(
                         colorScheme == .dark ?
                             Color.white :
                             Color.black
                     )
-                    .frame(width: 24)
+                    .frame(width: 20, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Visit Analytics")
+                    Text("Visits")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
