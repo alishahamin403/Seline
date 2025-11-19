@@ -209,6 +209,7 @@ struct SettingsView: View {
         .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
         .sheet(isPresented: $showingFeedback) {
             FeedbackView()
+                .presentationBg()
         }
         .sheet(isPresented: $showingLocationInfo) {
             VStack(spacing: 0) {
@@ -292,6 +293,7 @@ struct SettingsView: View {
                 }
             }
             .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
+            .presentationBg()
         }
         .task {
             await notificationService.checkAuthorizationStatus()

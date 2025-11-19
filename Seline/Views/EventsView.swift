@@ -128,12 +128,14 @@ struct EventsView: View {
                 selectedImage: $selectedImage,
                 isPresented: $showCameraActionSheet
             )
+            .presentationBg()
         }
         .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .calendar:
-                CalendarPopupView(selectedTagId: selectedTagId)
-            case .recurring:
+            Group {
+                switch sheet {
+                case .calendar:
+                    CalendarPopupView(selectedTagId: selectedTagId)
+                case .recurring:
                 if let task = selectedTaskForRecurring {
                     NavigationView {
                         RecurringTaskSheet(task: task) { frequency in
@@ -242,7 +244,9 @@ struct EventsView: View {
                 }
             case .photoImport:
                 PhotoCalendarImportView()
+                }
             }
+            .presentationBg()
         }
         .onChange(of: activeSheet) { newValue in
             // Clear selected tasks when sheet is dismissed (unless transitioning to edit)
