@@ -255,14 +255,52 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 return
             }
 
+            // First, check if we have an active visit in memory
             if var visit = self.activeVisits.removeValue(forKey: placeId) {
                 visit.recordExit(exitTime: Date())
-
                 print("📝 Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
-
-                // Update visit in Supabase with exit time
                 await self.updateVisitInSupabase(visit)
+            } else {
+                // If not in memory (app was backgrounded/killed), fetch from Supabase
+                print("ℹ️ Visit not found in memory, fetching from Supabase...")
+                await self.findAndCloseIncompleteVisit(for: placeId)
             }
+        }
+    }
+
+    /// Fetches the most recent incomplete visit for a location and closes it
+    private func findAndCloseIncompleteVisit(for placeId: UUID) async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, cannot close incomplete visit")
+            return
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .is("exit_time", value: "null")  // Find incomplete visits
+                .order("entry_time", ascending: false)
+                .limit(1)
+                .execute()
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            if var visit = visits.first {
+                visit.recordExit(exitTime: Date())
+                print("📝 Found and closed incomplete visit from Supabase for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
+                await self.updateVisitInSupabase(visit)
+            } else {
+                print("⚠️ No incomplete visit found in Supabase for place: \(placeId)")
+            }
+        } catch {
+            print("❌ Error finding incomplete visit: \(error)")
         }
     }
 
