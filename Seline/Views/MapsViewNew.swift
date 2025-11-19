@@ -87,12 +87,12 @@ struct MapsViewNew: View, Searchable {
                             if let folder = nearbyLocationFolder {
                                 Text(folder)
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
                                     .background(
                                         Capsule()
-                                            .fill(Color.blue.opacity(0.7))
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
                                     )
                             }
 
@@ -140,7 +140,7 @@ struct MapsViewNew: View, Searchable {
                     .padding(12)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ? Color(red: 0.12, green: 0.12, blue: 0.12) : Color.blue.opacity(0.05))
+                            .fill(colorScheme == .dark ? Color(red: 0.12, green: 0.12, blue: 0.12) : Color.black.opacity(0.03))
                     )
                 }
                 .padding(.horizontal, 20)
