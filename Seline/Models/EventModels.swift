@@ -1523,6 +1523,18 @@ class TaskManager: ObservableObject {
 
         print("📂 Loaded \(savedTasks.count) tasks from cache")
 
+        // ⚠️ Safety check: Warn if task count is suspiciously high (indicates data corruption or duplication bug)
+        if savedTasks.count > 1000 {
+            print("⚠️ WARNING: Loaded \(savedTasks.count) tasks - this is unusually high!")
+            print("⚠️ This may indicate calendar events are being duplicated or not deduplicated properly")
+            print("⚠️ Consider clearing and resetting tasks if app performance is poor")
+
+            // Count calendar events vs regular tasks for debugging
+            let calendarEventCount = savedTasks.filter { $0.id.hasPrefix("cal_") }.count
+            let regularTaskCount = savedTasks.count - calendarEventCount
+            print("⚠️ Breakdown: \(regularTaskCount) regular tasks, \(calendarEventCount) calendar events")
+        }
+
         // Fix any recurring tasks that were accidentally marked as completed
         let fixedTasks = savedTasks.map { task -> TaskItem in
             var fixedTask = task
