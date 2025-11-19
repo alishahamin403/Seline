@@ -510,8 +510,8 @@ struct StatBox: View {
         }
         .frame(maxWidth: .infinity)
         .padding(12)
-        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.08))
-        .cornerRadius(10)
+        .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
+        .cornerRadius(8)
     }
 }
 
