@@ -314,17 +314,22 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
-            let visits: [LocationVisitRecord] = try await client
+            let response = try await client
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .is("exit_time", value: "null")
                 .order("entry_time", ascending: false)
-                .limit(1)
+                .limit(10)
                 .execute()
-                .decoded()
 
-            if let incompleteVisit = visits.first {
+            // Decode the response data
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Find the first incomplete visit (no exit_time)
+            if let incompleteVisit = visits.first(where: { $0.exitTime == nil }) {
                 // Restore the incomplete visit to activeVisits
                 self.activeVisits[incompleteVisit.savedPlaceId] = incompleteVisit
                 print("📝 Restored incomplete visit from Supabase: \(incompleteVisit.savedPlaceId)")
