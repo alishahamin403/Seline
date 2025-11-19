@@ -70,8 +70,9 @@ struct LocationVisitRecord: Codable, Identifiable {
 
     private static func dayOfWeekName(for dayIndex: Int) -> String {
         let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        if dayIndex >= 0 && dayIndex < days.count {
-            return days[dayIndex]
+        // dayIndex from Calendar.dateComponents is 1-7 (1=Sunday), but array is 0-indexed
+        if dayIndex >= 1 && dayIndex <= 7 {
+            return days[dayIndex - 1]
         }
         return "Unknown"
     }

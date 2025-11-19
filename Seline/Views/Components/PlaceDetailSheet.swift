@@ -104,25 +104,32 @@ struct PlaceDetailSheet: View {
                             .frame(height: 1)
 
                         // Address
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(
-                                    colorScheme == .dark ?
-                                        Color.white :
-                                        Color.black
-                                )
+                        Button(action: {
+                            mapsService.openInGoogleMaps(place: place)
+                        }) {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(
+                                        colorScheme == .dark ?
+                                            Color.white :
+                                            Color.black
+                                    )
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Address")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Address")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                                Text(place.address)
-                                    .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    Text(place.address)
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                }
+
+                                Spacer()
                             }
                         }
+                        .buttonStyle(PlainButtonStyle())
 
                         // Phone number
                         if let phone = place.phone {
@@ -195,7 +202,7 @@ struct PlaceDetailSheet: View {
                                 Image(systemName: "arrow.up.right")
                                     .font(.system(size: 14, weight: .semibold))
                             }
-                            .foregroundColor(.white)
+                            .foregroundColor(colorScheme == .dark ? .black : .white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
                             .background(
