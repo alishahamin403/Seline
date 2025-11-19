@@ -318,6 +318,9 @@ struct MapsViewNew: View, Searchable {
         .onReceive(locationService.$currentLocation) { _ in
             updateCurrentLocation()
         }
+        .onReceive(geofenceManager.$activeVisits) { _ in
+            updateElapsedTime()
+        }
         .onChange(of: externalSelectedFolder) { newFolder in
             if let folder = newFolder {
                 withAnimation(.spring(response: 0.3)) {
@@ -411,18 +414,24 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
+    private func updateElapsedTime() {
+        // Get the active visit entry time for the current location from GeofenceManager
+        if let nearbyLoc = nearbyLocation {
+            if let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }) {
+                if let activeVisit = geofenceManager.activeVisits[place.id] {
+                    let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
+                    elapsedTimeString = formatElapsedTime(elapsed)
+                } else {
+                    elapsedTimeString = ""
+                }
+            }
+        }
+    }
+
     private func startLocationTimer() {
         stopLocationTimer()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            // Get the active visit entry time for the current location from GeofenceManager
-            if let nearbyLoc = nearbyLocation {
-                if let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }) {
-                    if let activeVisit = geofenceManager.activeVisits[place.id] {
-                        let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
-                        elapsedTimeString = formatElapsedTime(elapsed)
-                    }
-                }
-            }
+            updateElapsedTime()
         }
     }
 
