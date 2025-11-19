@@ -17,6 +17,8 @@ struct MapsViewNew: View, Searchable {
     @State private var selectedCity: String? = nil
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
+    @State private var nearbyLocationFolder: String? = nil
+    @State private var nearbyLocationPlace: SavedPlace? = nil
     @State private var distanceToNearest: Double? = nil
     @State private var elapsedTimeString: String = ""
     @State private var updateTimer: Timer?
@@ -64,66 +66,74 @@ struct MapsViewNew: View, Searchable {
                 )
 
                 // Current Location Display
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        // Location name beside icon
-                        HStack(spacing: 6) {
-                            Image(systemName: "location.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.blue)
-
+                Button(action: {
+                    if let place = nearbyLocationPlace {
+                        selectedPlace = place
+                        showingPlaceDetail = true
+                    }
+                }) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Location name
                             Text(currentLocationName)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .lineLimit(2)
+
+                            // Folder name
+                            if let folder = nearbyLocationFolder {
+                                Text(folder)
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            }
+
+                            // Status section
+                            if let nearby = nearbyLocation {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.green)
+
+                                    Text("In: \(nearby) \(elapsedTimeString)")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.green)
+                                        .lineLimit(2)
+                                }
+                            } else if let distance = distanceToNearest {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "location.circle")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.orange)
+
+                                    Text(String(format: "%.1f km away", distance / 1000))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.orange)
+                                }
+                            } else {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "questionmark.circle")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+
+                                    Text("No nearby locations")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.gray)
+                                }
+                            }
                         }
 
-                        // Status section
-                        if let nearby = nearbyLocation {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.green)
+                        Spacer()
 
-                                Text("In: \(nearby) \(elapsedTimeString)")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.green)
-                                    .lineLimit(2)
-                            }
-                        } else if let distance = distanceToNearest {
-                            HStack(spacing: 4) {
-                                Image(systemName: "location.circle")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.orange)
-
-                                Text(String(format: "%.1f km away", distance / 1000))
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.orange)
-                            }
-                        } else {
-                            HStack(spacing: 4) {
-                                Image(systemName: "questionmark.circle")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.gray)
-
-                                Text("No nearby locations")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.gray)
-                            }
-                        }
+                        Image(systemName: "location.north.line.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
-
-                    Spacer()
-
-                    Image(systemName: "location.north.line.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(colorScheme == .dark ? Color(red: 0.12, green: 0.12, blue: 0.12) : Color.blue.opacity(0.05))
+                    )
                 }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color(red: 0.12, green: 0.12, blue: 0.12) : Color.blue.opacity(0.05))
-                )
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 12)
@@ -370,8 +380,10 @@ struct MapsViewNew: View, Searchable {
                     // Check if we just entered a new location
                     if nearbyLocation != place.displayName {
                         nearbyLocation = place.displayName
+                        nearbyLocationFolder = place.category
+                        nearbyLocationPlace = place
                         startLocationTimer()
-                        print("✅ Entered geofence: \(place.displayName)")
+                        print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
                     }
 
                     // If already in geofence but no active visit record, create one
@@ -404,6 +416,8 @@ struct MapsViewNew: View, Searchable {
                 }
 
                 nearbyLocation = nil
+                nearbyLocationFolder = nil
+                nearbyLocationPlace = nil
                 if nearestDistance < Double.infinity {
                     distanceToNearest = nearestDistance
                 } else {
@@ -417,6 +431,8 @@ struct MapsViewNew: View, Searchable {
         } else {
             currentLocationName = "Location not available"
             nearbyLocation = nil
+            nearbyLocationFolder = nil
+            nearbyLocationPlace = nil
             distanceToNearest = nil
             elapsedTimeString = ""
             stopLocationTimer()
