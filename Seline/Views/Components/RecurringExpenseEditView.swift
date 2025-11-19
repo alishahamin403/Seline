@@ -154,6 +154,7 @@ struct RecurringExpenseEditView: View {
                     .padding(16)
                 }
                 .scrollContentBackground(.hidden)
+                .background(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
                 .navigationTitle("Edit Recurring Expense")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -164,6 +165,22 @@ struct RecurringExpenseEditView: View {
                         }
                     }
                 }
+        }
+        .modifier(PresentationBackgroundModifier(colorScheme: colorScheme))
+    }
+
+    // MARK: - Presentation Background Modifier
+
+    struct PresentationBackgroundModifier: ViewModifier {
+        let colorScheme: ColorScheme
+
+        func body(content: Content) -> some View {
+            if #available(iOS 16.4, *) {
+                content
+                    .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+            } else {
+                content
+            }
         }
     }
 

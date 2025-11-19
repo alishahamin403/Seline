@@ -105,6 +105,7 @@ struct ReceiptsDashboard: View {
                             updateRecurringExpense(updatedExpense)
                         }
                     )
+                    .modifier(PresentationBackgroundModifier(colorScheme: colorScheme))
                 }
             }
             .alert("Delete Recurring Expense?", isPresented: $showingDeleteConfirmation) {
@@ -350,6 +351,7 @@ struct RecurringExpenseRow: View {
 
 struct EditRecurringExpenseForm: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
 
     let expense: RecurringExpense
     let onSave: (RecurringExpense) -> Void
@@ -377,6 +379,21 @@ struct EditRecurringExpenseForm: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Presentation Background Modifier
+
+struct PresentationBackgroundModifier: ViewModifier {
+    let colorScheme: ColorScheme
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content
+                .presentationBackground(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
+        } else {
+            content
         }
     }
 }
