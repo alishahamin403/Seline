@@ -82,6 +82,7 @@ struct ReceiptStatsView: View {
                         .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
                 )
                 .padding(.horizontal, 12)
+                .padding(.top, isPopup ? 12 : 0)
 
                 // Main card container
                 VStack(alignment: .leading, spacing: 0) {
