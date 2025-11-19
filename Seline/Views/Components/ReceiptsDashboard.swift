@@ -122,33 +122,70 @@ struct ReceiptsDashboard: View {
 
     private func loadRecurringExpenses() {
         isLoading = true
-        // TODO: Load from database
-        // For now, using empty array
-        recurringExpenses = []
-        isLoading = false
+        Task {
+            do {
+                let expenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+                await MainActor.run {
+                    recurringExpenses = expenses
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                }
+                print("❌ Error loading recurring expenses: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func toggleExpenseActive(_ expense: RecurringExpense) {
-        // TODO: Update in database
-        if let index = recurringExpenses.firstIndex(where: { $0.id == expense.id }) {
-            recurringExpenses[index].isActive.toggle()
+        Task {
+            do {
+                try await RecurringExpenseService.shared.toggleRecurringExpenseActive(
+                    id: expense.id,
+                    isActive: !expense.isActive
+                )
+                await MainActor.run {
+                    if let index = recurringExpenses.firstIndex(where: { $0.id == expense.id }) {
+                        recurringExpenses[index].isActive.toggle()
+                    }
+                }
+            } catch {
+                print("❌ Error toggling expense: \(error.localizedDescription)")
+            }
         }
     }
 
     private func updateRecurringExpense(_ expense: RecurringExpense) {
-        // TODO: Update in database
-        if let index = recurringExpenses.firstIndex(where: { $0.id == expense.id }) {
-            recurringExpenses[index] = expense
+        Task {
+            do {
+                let updated = try await RecurringExpenseService.shared.updateRecurringExpense(expense)
+                await MainActor.run {
+                    if let index = recurringExpenses.firstIndex(where: { $0.id == expense.id }) {
+                        recurringExpenses[index] = updated
+                    }
+                    selectedRecurringExpense = nil
+                    showingEditForm = false
+                }
+            } catch {
+                print("❌ Error updating expense: \(error.localizedDescription)")
+            }
         }
-        selectedRecurringExpense = nil
-        showingEditForm = false
     }
 
     private func deleteRecurringExpense(_ expense: RecurringExpense) {
-        // TODO: Delete from database
-        recurringExpenses.removeAll { $0.id == expense.id }
-        expenseToDelete = nil
-        showingDeleteConfirmation = false
+        Task {
+            do {
+                try await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
+                await MainActor.run {
+                    recurringExpenses.removeAll { $0.id == expense.id }
+                    expenseToDelete = nil
+                    showingDeleteConfirmation = false
+                }
+            } catch {
+                print("❌ Error deleting expense: \(error.localizedDescription)")
+            }
+        }
     }
 }
 

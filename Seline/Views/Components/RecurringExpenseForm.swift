@@ -15,6 +15,7 @@ struct RecurringExpenseForm: View {
     @State private var selectedReminder: ReminderOption = .none
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
+    @State private var isSaving: Bool = false
 
     var onSave: (RecurringExpense) -> Void
 
@@ -162,21 +163,26 @@ struct RecurringExpenseForm: View {
                     // Save Button
                     Button(action: saveRecurringExpense) {
                         HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                            Text("Create Recurring Expense")
+                            if isSaving {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                            Text(isSaving ? "Creating..." : "Create Recurring Expense")
                                 .fontWeight(.semibold)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
-                            isFormValid
+                            (isFormValid && !isSaving)
                                 ? Color.blue
                                 : Color.gray.opacity(0.5)
                         )
                         .foregroundColor(.white)
                         .cornerRadius(10)
                     }
-                    .disabled(!isFormValid)
+                    .disabled(!isFormValid || isSaving)
                 }
                 .padding(16)
             }
@@ -207,29 +213,47 @@ struct RecurringExpenseForm: View {
             return
         }
 
-        // Calculate next occurrence
-        let nextOccurrence = RecurringExpense.calculateNextOccurrence(
-            from: startDate,
-            frequency: selectedFrequency
-        )
+        isSaving = true
 
-        // Create recurring expense
-        let recurringExpense = RecurringExpense(
-            userId: "current_user", // Will be replaced with actual user ID
-            title: title.trimmingCharacters(in: .whitespaces),
-            description: description.isEmpty ? nil : description,
-            amount: Decimal(amountDouble),
-            category: category.isEmpty ? nil : category,
-            frequency: selectedFrequency,
-            startDate: startDate,
-            endDate: hasEndDate ? endDate : nil,
-            nextOccurrence: nextOccurrence,
-            reminderOption: selectedReminder,
-            isActive: true
-        )
+        Task {
+            do {
+                // Calculate next occurrence
+                let nextOccurrence = RecurringExpense.calculateNextOccurrence(
+                    from: startDate,
+                    frequency: selectedFrequency
+                )
 
-        onSave(recurringExpense)
-        dismiss()
+                // Create recurring expense
+                let recurringExpense = RecurringExpense(
+                    userId: "", // Will be set by service
+                    title: title.trimmingCharacters(in: .whitespaces),
+                    description: description.isEmpty ? nil : description,
+                    amount: Decimal(amountDouble),
+                    category: category.isEmpty ? nil : category,
+                    frequency: selectedFrequency,
+                    startDate: startDate,
+                    endDate: hasEndDate ? endDate : nil,
+                    nextOccurrence: nextOccurrence,
+                    reminderOption: selectedReminder,
+                    isActive: true
+                )
+
+                // Save to database (includes auto-generating instances and scheduling reminders)
+                let savedExpense = try await RecurringExpenseService.shared.createRecurringExpense(recurringExpense)
+
+                await MainActor.run {
+                    onSave(savedExpense)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isSaving = false
+                }
+                print("❌ Error saving recurring expense: \(error.localizedDescription)")
+            }
+        }
     }
 }
 
