@@ -305,6 +305,8 @@ struct ReceiptStatsView: View {
 struct RecurringExpenseStatsContent: View {
     @State private var recurringExpenses: [RecurringExpense] = []
     @State private var isLoading = true
+    @State private var selectedExpense: RecurringExpense? = nil
+    @State private var showEditSheet = false
     @Environment(\.colorScheme) var colorScheme
 
     var monthlyTotal: Double {
@@ -344,22 +346,19 @@ struct RecurringExpenseStatsContent: View {
                     StatBox(
                         label: "Monthly",
                         value: CurrencyParser.formatAmount(monthlyTotal),
-                        icon: "calendar.circle.fill",
-                        color: .blue
+                        icon: "calendar"
                     )
 
                     StatBox(
                         label: "Yearly",
                         value: CurrencyParser.formatAmount(yearlyProjection),
-                        icon: "chart.line.uptrend.xyaxis.circle.fill",
-                        color: .green
+                        icon: "chart.line.uptrend.xyaxis"
                     )
 
                     StatBox(
                         label: "Active",
                         value: "\(recurringExpenses.count)",
-                        icon: "repeat.circle.fill",
-                        color: .orange
+                        icon: "repeat"
                     )
                 }
                 .padding(.vertical, 12)
@@ -370,35 +369,77 @@ struct RecurringExpenseStatsContent: View {
                 ScrollView {
                     VStack(spacing: 8) {
                         ForEach(recurringExpenses) { expense in
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(expense.title)
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                    HStack(spacing: 8) {
-                                        Text(expense.frequency.displayName)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        if let category = expense.category {
-                                            Text("•")
+                            Menu {
+                                Button(action: {
+                                    selectedExpense = expense
+                                    showEditSheet = true
+                                }) {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+
+                                Button(action: {
+                                    Task {
+                                        try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
+                                        // Reload the list
+                                        await MainActor.run {
+                                            loadRecurringExpenses()
+                                        }
+                                    }
+                                }) {
+                                    Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
+                                }
+
+                                Button(role: .destructive, action: {
+                                    Task {
+                                        try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
+                                        // Reload the list
+                                        await MainActor.run {
+                                            loadRecurringExpenses()
+                                        }
+                                    }
+                                }) {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(expense.title)
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                        HStack(spacing: 8) {
+                                            Text(expense.frequency.displayName)
+                                                .font(.caption)
                                                 .foregroundColor(.secondary)
-                                            Text(category)
+                                            if let category = expense.category {
+                                                Text("•")
+                                                    .foregroundColor(.secondary)
+                                                Text(category)
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                    }
+
+                                    Spacer()
+
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text(expense.formattedAmount)
+                                            .font(.subheadline)
+                                            .fontWeight(.bold)
+                                        if !expense.isActive {
+                                            Text("Paused")
                                                 .font(.caption)
                                                 .foregroundColor(.secondary)
                                         }
                                     }
                                 }
-
-                                Spacer()
-
-                                Text(expense.formattedAmount)
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
+                                .cornerRadius(8)
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
-                            .cornerRadius(8)
                         }
                     }
                 }
@@ -406,6 +447,14 @@ struct RecurringExpenseStatsContent: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
+        .sheet(isPresented: $showEditSheet) {
+            if let expense = selectedExpense {
+                RecurringExpenseEditView(expense: expense, isPresented: Binding(
+                    get: { showEditSheet },
+                    set: { showEditSheet = $0; if !$0 { loadRecurringExpenses() } }
+                ))
+            }
+        }
         .onAppear {
             loadRecurringExpenses()
         }
@@ -434,13 +483,13 @@ struct StatBox: View {
     let label: String
     let value: String
     let icon: String
-    let color: Color
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(color)
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Text(value)
                 .font(.headline)
@@ -452,7 +501,7 @@ struct StatBox: View {
         }
         .frame(maxWidth: .infinity)
         .padding(12)
-        .background(color.opacity(0.1))
+        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.08))
         .cornerRadius(10)
     }
 }
