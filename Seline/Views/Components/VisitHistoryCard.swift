@@ -2,7 +2,6 @@ import SwiftUI
 
 struct VisitHistoryCard: View {
     let place: SavedPlace
-    @StateObject private var analytics = LocationVisitAnalytics.shared
     @Environment(\.colorScheme) var colorScheme
 
     @State private var visitHistory: [VisitHistoryItem] = []
@@ -102,7 +101,7 @@ struct VisitHistoryCard: View {
     private func loadVisitHistory() {
         isLoading = true
         Task {
-            visitHistory = await analytics.fetchVisitHistory(for: place.id)
+            visitHistory = await LocationVisitAnalytics.shared.fetchVisitHistory(for: place.id)
             isLoading = false
         }
     }

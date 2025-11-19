@@ -2,7 +2,6 @@ import SwiftUI
 
 struct VisitStatsCard: View {
     let place: SavedPlace
-    @StateObject private var analytics = LocationVisitAnalytics.shared
     @Environment(\.colorScheme) var colorScheme
 
     @State private var stats: LocationVisitStats?
@@ -132,10 +131,10 @@ struct VisitStatsCard: View {
     private func loadStats() {
         isLoading = true
         Task {
-            await analytics.fetchStats(for: place.id)
+            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
 
             await MainActor.run {
-                stats = analytics.visitStats[place.id]
+                stats = LocationVisitAnalytics.shared.visitStats[place.id]
                 isLoading = false
             }
         }
