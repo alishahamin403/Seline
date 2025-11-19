@@ -228,7 +228,8 @@ struct SpendingAndETAWidget: View {
             LocationSetupView()
         }
         .sheet(isPresented: $showReceiptStats) {
-            ReceiptStatsView()
+            ReceiptStatsView(isPopup: true)
+                .presentationDetents([.large])
         }
     }
 
