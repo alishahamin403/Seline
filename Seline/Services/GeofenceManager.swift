@@ -337,10 +337,13 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
-        guard SupabaseManager.shared.getCurrentUser() != nil else {
+        print("🔍 saveVisitToSupabase called - checking user...")
+        guard let user = SupabaseManager.shared.getCurrentUser() else {
             print("⚠️ No user ID, skipping Supabase visit save")
             return
         }
+
+        print("👤 Current user found: \(user.id.uuidString)")
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -359,6 +362,8 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             "created_at": .string(formatter.string(from: visit.createdAt)),
             "updated_at": .string(formatter.string(from: visit.updatedAt))
         ]
+
+        print("📤 Preparing to insert visit into Supabase: \(visitData)")
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()

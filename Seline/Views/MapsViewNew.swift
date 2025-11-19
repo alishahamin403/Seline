@@ -402,10 +402,13 @@ struct MapsViewNew: View, Searchable {
                         )
                         geofenceManager.activeVisits[place.id] = visit
                         print("📝 Auto-created visit for already-present location: \(place.displayName)")
+                        print("📍 Visit details - ID: \(visit.id.uuidString), UserID: \(visit.userId.uuidString), PlaceID: \(visit.savedPlaceId.uuidString)")
 
                         // Save to Supabase immediately
                         Task {
+                            print("🔄 Starting Supabase save task for \(place.displayName)")
                             await geofenceManager.saveVisitToSupabase(visit)
+                            print("✅ Completed Supabase save task")
                         }
                     }
 
