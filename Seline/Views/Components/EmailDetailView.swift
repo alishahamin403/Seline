@@ -105,9 +105,11 @@ struct EmailDetailView: View {
         .sheet(isPresented: $showAddEventSheet) {
             AddEventFromEmailView(email: fullEmail ?? email)
         }
+    .presentationBg()
         .sheet(isPresented: $showSaveFolderSheet) {
             SaveFolderSelectionSheet(email: email, isPresented: $showSaveFolderSheet)
         }
+    .presentationBg()
         .onAppear {
             // Mark email as read when view appears
             if !email.isRead {

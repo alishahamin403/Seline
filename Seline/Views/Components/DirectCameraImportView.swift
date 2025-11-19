@@ -145,6 +145,7 @@ struct DirectCameraImportView: View {
                     }
                 }
         }
+    .presentationBg()
     }
 
     // MARK: - Private Methods

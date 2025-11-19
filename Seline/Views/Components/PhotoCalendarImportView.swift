@@ -225,6 +225,7 @@ struct PhotoCalendarImportView: View {
                     }
                 }
         }
+    .presentationBg()
         .alert("Error", isPresented: $showErrorAlert) {
             Button("OK") { resetAndRetry() }
         } message: {

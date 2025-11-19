@@ -378,6 +378,7 @@ struct EventsCardWidget: View {
                 }
             }
         }
+    .presentationBg()
         .onChange(of: selectedTask) { newValue in
             // Reset showingEditTask when a new task is selected or when dismissed
             if newValue != nil {

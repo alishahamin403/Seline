@@ -157,6 +157,7 @@ struct WeatherWidget: View {
                 }
             )
         }
+    .presentationBg()
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:

@@ -63,6 +63,7 @@ struct EmailListView: View {
         .sheet(item: $selectedEmail) { email in
             EmailDetailView(email: email)
         }
+    .presentationBg()
     }
 }
 

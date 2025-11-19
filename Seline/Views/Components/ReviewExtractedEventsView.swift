@@ -110,6 +110,7 @@ struct ReviewExtractedEventsView: View {
                                     )
                                     .presentationDetents([.height(250)])
                                 }
+                            .presentationBg()
 
                                 // Tag selection sheet
                                 .sheet(isPresented: $showingTagOptions) {
@@ -119,6 +120,7 @@ struct ReviewExtractedEventsView: View {
                                     )
                                     .presentationDetents([.height(300)])
                                 }
+                            .presentationBg()
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)

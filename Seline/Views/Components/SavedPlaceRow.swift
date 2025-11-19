@@ -125,6 +125,7 @@ struct SavedPlaceRow: View {
         .sheet(isPresented: $showEditSheet) {
             EditPlaceNameSheet(place: place)
         }
+    .presentationBg()
         .onAppear {
             isFavourite = place.isFavourite
         }

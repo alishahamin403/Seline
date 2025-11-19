@@ -180,6 +180,7 @@ struct EventFormContent: View {
                                             }
                                         )
                                     }
+                                .presentationBg()
 
                                     // End Time
                                     Button(action: { showingEndTimePicker = true }) {
@@ -215,6 +216,7 @@ struct EventFormContent: View {
                                             title: "End Time"
                                         )
                                     }
+                                .presentationBg()
                                 }
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                             }
@@ -273,6 +275,7 @@ struct EventFormContent: View {
                             )
                             .presentationDetents([.height(350)])
                         }
+                    .presentationBg()
                     }
                     .padding(14)
                     .background(sectionBackground)
@@ -328,6 +331,7 @@ struct EventFormContent: View {
                                     )
                                     .presentationDetents([.height(300)])
                                 }
+                            .presentationBg()
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
@@ -387,6 +391,7 @@ struct EventFormContent: View {
                             )
                             .presentationDetents([.height(350)])
                         }
+                    .presentationBg()
                     }
                     .padding(14)
                     .background(sectionBackground)

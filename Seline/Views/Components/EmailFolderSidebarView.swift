@@ -220,6 +220,7 @@ struct EmailFolderSidebarView: View {
                 }
             }
         }
+    .presentationBg()
         .alert("Error Creating Folder", isPresented: $showCreationError) {
             Button("OK", role: .cancel) { }
         } message: {

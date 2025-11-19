@@ -172,6 +172,7 @@ struct CameraActionSheet: View {
                             }
                         }
                 }
+            .presentationBg()
                 .confirmationDialog("Import Schedule", isPresented: $showActionSheet) {
                     Button("Take Photo") {
                         sourceType = .camera

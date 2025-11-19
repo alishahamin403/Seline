@@ -71,6 +71,7 @@ struct EmailListWithCategories: View {
         .sheet(item: $selectedEmail) { email in
             EmailDetailView(email: email)
         }
+    .presentationBg()
     }
 }
 

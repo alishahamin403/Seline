@@ -224,6 +224,7 @@ struct CalendarPopupView: View {
                 }
             }
         }
+    .presentationBg()
         .sheet(isPresented: $showingEditTaskSheet) {
             if let task = selectedTaskForEditing {
                 NavigationView {
@@ -251,6 +252,7 @@ struct CalendarPopupView: View {
                 }
             }
         }
+    .presentationBg()
         .onChange(of: showingViewTaskSheet) { isShowing in
             // Clear task when view sheet is dismissed (unless transitioning to edit)
             if !isShowing && !isTransitioningToEdit {

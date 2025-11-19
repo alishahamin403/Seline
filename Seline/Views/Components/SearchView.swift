@@ -294,6 +294,7 @@ struct SearchView: View {
         .sheet(item: $selectedEmail) { email in
             EmailDetailView(email: email)
         }
+    .presentationBg()
         .sheet(item: $selectedTask) { task in
             if showingEditTask {
                 NavigationView {
@@ -339,6 +340,7 @@ struct SearchView: View {
                 }
             }
         }
+    .presentationBg()
         .sheet(item: $selectedNote) { note in
             NoteEditView(
                 note: note,
@@ -349,6 +351,7 @@ struct SearchView: View {
                 initialFolderId: nil
             )
         }
+    .presentationBg()
     }
 }
 

@@ -275,9 +275,11 @@ struct FolderSidebarView: View {
                 initialFolderId: folder.id
             )
         }
+    .presentationBg()
         .sheet(isPresented: $showingTrash) {
             TrashView(isPresented: $showingTrash)
         }
+    .presentationBg()
     }
 }
 

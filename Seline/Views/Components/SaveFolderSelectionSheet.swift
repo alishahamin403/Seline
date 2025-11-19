@@ -240,6 +240,7 @@ struct SaveFolderSelectionSheet: View {
                     .navigationBarHidden(true)
                 }
             }
+        .presentationBg()
         }
     }
 

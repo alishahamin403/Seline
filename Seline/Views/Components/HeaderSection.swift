@@ -75,6 +75,7 @@ struct HeaderSection: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
+    .presentationBg()
     }
 }
 

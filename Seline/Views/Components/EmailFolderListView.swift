@@ -100,6 +100,7 @@ struct EmailFolderListView: View {
             .sheet(isPresented: $showCreateFolderSheet) {
                 CreateFolderSheet(viewModel: viewModel, isPresented: $showCreateFolderSheet)
             }
+        .presentationBg()
             .alert("Rename Folder", isPresented: Binding(
                 get: { showFolderActionSheet != nil },
                 set: { if !$0 { showFolderActionSheet = nil } }

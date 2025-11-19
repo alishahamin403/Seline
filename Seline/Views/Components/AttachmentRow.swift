@@ -83,11 +83,13 @@ struct AttachmentRow: View {
                 ShareSheet(activityItems: [url])
             }
         }
+    .presentationBg()
         .sheet(isPresented: $showQuickLook) {
             if let url = downloadedURL {
                 QuickLookView(url: url)
             }
         }
+    .presentationBg()
     }
 
     private func openAttachment() {

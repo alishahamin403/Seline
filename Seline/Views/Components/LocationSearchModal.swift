@@ -184,6 +184,7 @@ struct LocationSearchModal: View {
             }
             .modifier(LocationPresentationBackgroundModifier(colorScheme: colorScheme))
         }
+    .presentationBg()
     }
 
     // MARK: - Actions

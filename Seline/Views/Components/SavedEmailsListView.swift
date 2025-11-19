@@ -84,6 +84,7 @@ struct SavedEmailsListView: View {
         .sheet(item: $selectedEmail) { email in
             SavedEmailDetailView(email: email, folder: folder, viewModel: viewModel)
         }
+    .presentationBg()
     }
 }
 
