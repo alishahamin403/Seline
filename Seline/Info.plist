@@ -126,5 +126,11 @@
         <string>fetch</string>
         <string>location</string>
     </array>
+
+    <!-- Background Task Identifiers -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.seline.emailRefresh</string>
+    </array>
 </dict>
 </plist>
