@@ -7,6 +7,7 @@ struct ReceiptStatsView: View {
     @State private var categoryBreakdown: YearlyCategoryBreakdown? = nil
     @State private var isLoadingCategories = false
     @State private var selectedCategory: String? = nil
+    @State private var showRecurringExpenses = false
     @Environment(\.colorScheme) var colorScheme
 
     var availableYears: [Int] {
@@ -24,10 +25,54 @@ struct ReceiptStatsView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // Toggle between Receipts and Recurring Expenses
+                HStack(spacing: 0) {
+                    Button(action: { showRecurringExpenses = false }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "receipt.fill")
+                            Text("Receipts")
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .foregroundColor(showRecurringExpenses ? .gray : .blue)
+                        .background(
+                            showRecurringExpenses
+                                ? Color.clear
+                                : Color.blue.opacity(0.1)
+                        )
+                    }
+
+                    Button(action: { showRecurringExpenses = true }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "repeat.circle.fill")
+                            Text("Recurring")
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .foregroundColor(!showRecurringExpenses ? .gray : .blue)
+                        .background(
+                            !showRecurringExpenses
+                                ? Color.clear
+                                : Color.blue.opacity(0.1)
+                        )
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+
+                Divider()
+
                 // Main card container
                 VStack(spacing: 0) {
-                    // Year selector header with total
-                    HStack(spacing: 12) {
+                    if showRecurringExpenses {
+                        RecurringExpenseStatsContent()
+                    } else {
+                        // Year selector header with total
+                        HStack(spacing: 12) {
                         if !availableYears.isEmpty && currentYear != availableYears.min() {
                             Button(action: { selectPreviousYear() }) {
                                 Image(systemName: "chevron.left")
@@ -151,6 +196,7 @@ struct ReceiptStatsView: View {
                             }
                         }
                     }
+                    }
                 }
                 .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
                 .cornerRadius(12)
@@ -236,6 +282,162 @@ struct ReceiptStatsView: View {
             let receiptYear = calendar.component(.year, from: receipt.date)
             return receiptMonth == month && receiptYear == year
         }
+    }
+}
+
+// MARK: - Recurring Expense Stats Content
+
+struct RecurringExpenseStatsContent: View {
+    @State private var recurringExpenses: [RecurringExpense] = []
+    @State private var isLoading = true
+    @Environment(\.colorScheme) var colorScheme
+
+    var monthlyTotal: Double {
+        recurringExpenses.reduce(0) { total, expense in
+            total + Double(truncating: expense.amount as NSDecimalNumber)
+        }
+    }
+
+    var yearlyProjection: Double {
+        monthlyTotal * 12
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            if isLoading {
+                ProgressView()
+                    .padding(.vertical, 40)
+            } else if recurringExpenses.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "repeat.circle.dashed")
+                        .font(.system(size: 32, weight: .light))
+                        .foregroundColor(.gray)
+
+                    Text("No recurring expenses")
+                        .font(.system(.body, design: .default))
+                        .foregroundColor(.gray)
+
+                    Text("Create one using the repeat icon in notes")
+                        .font(.system(.caption, design: .default))
+                        .foregroundColor(.gray)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else {
+                // Stats
+                HStack(spacing: 12) {
+                    StatBox(
+                        label: "Monthly",
+                        value: CurrencyParser.formatAmount(monthlyTotal),
+                        icon: "calendar.circle.fill",
+                        color: .blue
+                    )
+
+                    StatBox(
+                        label: "Yearly",
+                        value: CurrencyParser.formatAmount(yearlyProjection),
+                        icon: "chart.line.uptrend.xyaxis.circle.fill",
+                        color: .green
+                    )
+
+                    StatBox(
+                        label: "Active",
+                        value: "\(recurringExpenses.count)",
+                        icon: "repeat.circle.fill",
+                        color: .orange
+                    )
+                }
+                .padding(.vertical, 12)
+
+                Divider()
+
+                // Recurring expenses list
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(recurringExpenses) { expense in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(expense.title)
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    HStack(spacing: 8) {
+                                        Text(expense.frequency.displayName)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        if let category = expense.category {
+                                            Text("•")
+                                                .foregroundColor(.secondary)
+                                            Text(category)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+
+                                Spacer()
+
+                                Text(expense.formattedAmount)
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                            }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 12)
+                            .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .onAppear {
+            loadRecurringExpenses()
+        }
+    }
+
+    private func loadRecurringExpenses() {
+        isLoading = true
+        Task {
+            do {
+                let expenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+                await MainActor.run {
+                    recurringExpenses = expenses
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                }
+                print("❌ Error loading recurring expenses: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+struct StatBox: View {
+    let label: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundColor(color)
+
+            Text(value)
+                .font(.headline)
+                .fontWeight(.bold)
+
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(color.opacity(0.1))
+        .cornerRadius(10)
     }
 }
 

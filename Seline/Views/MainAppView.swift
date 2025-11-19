@@ -542,8 +542,6 @@ struct MainAppView: View {
                     EventsView()
                 case .notes:
                     NotesView()
-                case .receipts:
-                    ReceiptsDashboard()
                 case .maps:
                     MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
                 }
