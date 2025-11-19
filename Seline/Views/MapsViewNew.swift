@@ -80,11 +80,17 @@ struct MapsViewNew: View, Searchable {
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .lineLimit(2)
 
-                            // Folder name
+                            // Folder name as pill
                             if let folder = nearbyLocationFolder {
                                 Text(folder)
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.blue.opacity(0.7))
+                                    )
                             }
 
                             // Status section
