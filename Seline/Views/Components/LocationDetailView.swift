@@ -253,6 +253,7 @@ struct LocationDetailView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
         .overlay(alignment: .bottom) {
             // Save Button
             VStack(spacing: 0) {
