@@ -355,19 +355,16 @@ struct MainAppView: View {
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
 
+                // DISABLED: Location permissions might be causing hang
                 // Request location permissions with a slight delay to ensure system is ready
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    do {
-                        locationService.requestLocationPermission()
-
-                        // Request background location permission for visit tracking
-                        // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
-                        geofenceManager.requestLocationPermission()
-                    } catch {
-                        print("⚠️ Error requesting location permissions: \(error)")
-                    }
-                }
-                // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
+                // DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                //     do {
+                //         locationService.requestLocationPermission()
+                //         geofenceManager.requestLocationPermission()
+                //     } catch {
+                //         print("⚠️ Error requesting location permissions: \(error)")
+                //     }
+                // }
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
                 // Update geofences whenever saved places change

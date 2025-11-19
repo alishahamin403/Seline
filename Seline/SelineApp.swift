@@ -24,16 +24,13 @@ struct SelineApp: App {
         // syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
 
-        // TEMPORARY: Clear corrupted local tasks (22k duplicates)
-        // This will clear all local task cache on next launch
-        // After clearing, you can remove this line and rebuild
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            Task {
-                print("🧹 Clearing corrupted local task cache (22k+ duplicated calendar events)...")
-                await TaskManager.shared.nuclearReset()
-                print("✅ Done! Your actual tasks are still in Supabase and will sync on next screen load")
-            }
-        }
+        // DISABLED: Nuclear reset was causing app to hang on startup
+        // DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        //     Task {
+        //         print("🧹 Clearing corrupted local task cache...")
+        //         await TaskManager.shared.nuclearReset()
+        //     }
+        // }
     }
 
     var body: some Scene {
@@ -57,16 +54,15 @@ struct SelineApp: App {
                         let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
                         notificationService.updateAppBadge(count: unreadCount)
 
-                        // Sync calendar events only if last sync was > 5 minutes ago (prevents over-syncing during development)
-                        let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
-                        if timeSinceLastSync > 300 && !isCalendarSyncing { // 300 seconds = 5 minutes
-                            isCalendarSyncing = true
-                            lastCalendarSyncTime = Date()
-
-                            await taskManager.syncCalendarEvents()
-
-                            isCalendarSyncing = false
-                        }
+                        // DISABLED: Calendar sync was causing app to hang
+                        // Sync calendar events only if last sync was > 5 minutes ago
+                        // let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
+                        // if timeSinceLastSync > 300 && !isCalendarSyncing {
+                        //     isCalendarSyncing = true
+                        //     lastCalendarSyncTime = Date()
+                        //     await taskManager.syncCalendarEvents()
+                        //     isCalendarSyncing = false
+                        // }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
