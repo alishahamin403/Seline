@@ -9,6 +9,8 @@ struct MapsViewNew: View, Searchable {
     @State private var selectedTab: String = "folders" // "folders" or "ranking"
     @State private var selectedCategory: String? = nil
     @State private var showSearchModal = false
+    @State private var showingPlaceDetail = false
+    @State private var selectedPlace: SavedPlace? = nil
     @State private var selectedCountry: String? = nil
     @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
@@ -92,42 +94,48 @@ struct MapsViewNew: View, Searchable {
 
                                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                             ForEach(favourites, id: \.id) { place in
-                                                VStack(spacing: 4) {
-                                                    // Location photo or initials with favourite button
-                                                    ZStack(alignment: .topTrailing) {
-                                                        PlaceImageView(
-                                                            place: place,
-                                                            size: 60,
-                                                            cornerRadius: 12
-                                                        )
-                                                        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                                Button(action: {
+                                                    selectedPlace = place
+                                                    showingPlaceDetail = true
+                                                }) {
+                                                    VStack(spacing: 4) {
+                                                        // Location photo or initials with favourite button
+                                                        ZStack(alignment: .topTrailing) {
+                                                            PlaceImageView(
+                                                                place: place,
+                                                                size: 60,
+                                                                cornerRadius: 12
+                                                            )
+                                                            .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
 
-                                                        // Favourite star button - always visible
-                                                        Button(action: {
-                                                            locationsManager.toggleFavourite(for: place.id)
-                                                            HapticManager.shared.selection()
-                                                        }) {
-                                                            Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                                .font(.system(size: 12, weight: .semibold))
-                                                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                                .padding(6)
-                                                                .background(
-                                                                    Circle()
-                                                                        .fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9))
-                                                                )
+                                                            // Favourite star button - always visible
+                                                            Button(action: {
+                                                                locationsManager.toggleFavourite(for: place.id)
+                                                                HapticManager.shared.selection()
+                                                            }) {
+                                                                Image(systemName: place.isFavourite ? "star.fill" : "star")
+                                                                    .font(.system(size: 12, weight: .semibold))
+                                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                                    .padding(6)
+                                                                    .background(
+                                                                        Circle()
+                                                                            .fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9))
+                                                                    )
+                                                            }
+                                                            .offset(x: 6, y: -6)
                                                         }
-                                                        .offset(x: 6, y: -6)
-                                                    }
 
-                                                    // Place name
-                                                    Text(place.displayName)
-                                                        .font(.system(size: 10, weight: .regular))
-                                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                        .lineLimit(2)
-                                                        .multilineTextAlignment(.center)
-                                                        .minimumScaleFactor(0.8)
-                                                        .frame(height: 20)
+                                                        // Place name
+                                                        Text(place.displayName)
+                                                            .font(.system(size: 10, weight: .regular))
+                                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                            .lineLimit(2)
+                                                            .multilineTextAlignment(.center)
+                                                            .minimumScaleFactor(0.8)
+                                                            .frame(height: 20)
+                                                    }
                                                 }
+                                                .buttonStyle(PlainButtonStyle())
                                                 .contextMenu {
                                                     Button(role: .destructive, action: {
                                                         locationsManager.deletePlace(place)
@@ -221,6 +229,13 @@ struct MapsViewNew: View, Searchable {
         )
         .sheet(isPresented: $showSearchModal) {
             LocationSearchModal()
+        }
+        .sheet(isPresented: $showingPlaceDetail) {
+            if let place = selectedPlace {
+                PlaceDetailSheet(place: place) {
+                    showingPlaceDetail = false
+                }
+            }
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
@@ -471,6 +486,7 @@ struct FolderOverlayView: View {
     @State private var backgroundImage: UIImage? = nil
     @State private var showingRenameAlert = false
     @State private var showingDeleteConfirm = false
+    @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
     @State private var newPlaceName = ""
 
@@ -603,8 +619,8 @@ struct FolderOverlayView: View {
                                             ZStack(alignment: .topTrailing) {
                                                 Button(action: {
                                                     HapticManager.shared.selection()
-                                                    GoogleMapsService.shared.openInGoogleMaps(place: place)
-                                                    onClose()
+                                                    selectedPlace = place
+                                                    showingPlaceDetail = true
                                                 }) {
                                                     PlaceImageView(
                                                         place: place,
@@ -717,6 +733,13 @@ struct FolderOverlayView: View {
         } message: {
             if let place = selectedPlace {
                 Text("Are you sure you want to delete '\(place.displayName)'?")
+            }
+        }
+        .sheet(isPresented: $showingPlaceDetail) {
+            if let place = selectedPlace {
+                PlaceDetailSheet(place: place) {
+                    showingPlaceDetail = false
+                }
             }
         }
     }
