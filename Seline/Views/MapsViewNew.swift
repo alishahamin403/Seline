@@ -169,11 +169,6 @@ struct MapsViewNew: View, Searchable {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-
-                        // ICON (far right)
-                        Image(systemName: "location.north.line.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                     .padding(12)
                     .background(
@@ -449,13 +444,13 @@ struct MapsViewNew: View, Searchable {
                 places: filteredPlaces,
                 colorScheme: colorScheme,
                 onClose: {
-                    withAnimation(.spring(response: 0.3)) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
                         selectedCategory = nil
                     }
                 }
             )
             .zIndex(999)
-            .transition(.opacity.combined(with: .scale(scale: 1.1)))
+            .transition(.opacity)
         }
     }
 
