@@ -460,7 +460,7 @@ struct RecurringExpenseStatsContent: View {
                     ))
                 }
             }
-            .modifier(PresentationBackgroundModifier(colorScheme: colorScheme))
+            .presentationBg()
         }
         .onAppear {
             loadRecurringExpenses()
