@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct MapsViewNew: View, Searchable {
     @StateObject private var locationsManager = LocationsManager.shared
@@ -14,6 +15,9 @@ struct MapsViewNew: View, Searchable {
     @State private var selectedCountry: String? = nil
     @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
+    @State private var currentLocationName: String = "Finding location..."
+    @State private var nearbyLocation: String? = nil
+    @State private var distanceToNearest: Double? = nil
     @Binding var externalSelectedFolder: String?
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
@@ -55,6 +59,72 @@ struct MapsViewNew: View, Searchable {
                 .background(
                     colorScheme == .dark ? Color.black : Color.white
                 )
+
+                // Current Location Display
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.blue)
+
+                            Text("Current Location")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
+
+                        Text(currentLocationName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .lineLimit(2)
+
+                        if let nearby = nearbyLocation {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.green)
+
+                                Text("In: \(nearby)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.green)
+                            }
+                        } else if let distance = distanceToNearest {
+                            HStack(spacing: 4) {
+                                Image(systemName: "location.circle")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.orange)
+
+                                Text(String(format: "%.1f km away", distance / 1000))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.orange)
+                            }
+                        } else {
+                            HStack(spacing: 4) {
+                                Image(systemName: "questionmark.circle")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.gray)
+
+                                Text("No nearby locations")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "location.north.line.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.blue)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color(red: 0.12, green: 0.12, blue: 0.12) : Color.blue.opacity(0.05))
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
 
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
@@ -239,6 +309,10 @@ struct MapsViewNew: View, Searchable {
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
+            updateCurrentLocation()
+        }
+        .onReceive(locationService.$currentLocation) { _ in
+            updateCurrentLocation()
         }
         .onChange(of: externalSelectedFolder) { newFolder in
             if let folder = newFolder {
@@ -268,6 +342,55 @@ struct MapsViewNew: View, Searchable {
             )
             .zIndex(999)
             .transition(.opacity.combined(with: .scale(scale: 1.1)))
+        }
+    }
+
+    // MARK: - Current Location Tracking
+
+    private func updateCurrentLocation() {
+        // Get current location from LocationService
+        if let currentLoc = locationService.currentLocation {
+            // Get current address/location name
+            currentLocationName = locationService.locationName
+
+            // Check if user is in any geofence (within 100m)
+            let geofenceRadius = 100.0
+            var foundNearby = false
+
+            for place in locationsManager.savedPlaces {
+                let placeLocation = CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
+                let distance = currentLoc.distance(from: CLLocation(latitude: placeLocation.latitude, longitude: placeLocation.longitude))
+
+                if distance <= geofenceRadius {
+                    nearbyLocation = place.displayName
+                    distanceToNearest = nil
+                    foundNearby = true
+                    break
+                }
+            }
+
+            // If not in any geofence, find nearest location
+            if !foundNearby {
+                var nearestDistance: Double = Double.infinity
+                for place in locationsManager.savedPlaces {
+                    let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                    let distance = currentLoc.distance(from: placeLocation)
+                    if distance < nearestDistance {
+                        nearestDistance = distance
+                    }
+                }
+
+                nearbyLocation = nil
+                if nearestDistance < Double.infinity {
+                    distanceToNearest = nearestDistance
+                } else {
+                    distanceToNearest = nil
+                }
+            }
+        } else {
+            currentLocationName = "Location not available"
+            nearbyLocation = nil
+            distanceToNearest = nil
         }
     }
 
