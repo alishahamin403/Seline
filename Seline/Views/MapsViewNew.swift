@@ -25,6 +25,7 @@ struct MapsViewNew: View, Searchable {
     @State private var updateTimer: Timer?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
     @State private var cachedSortedCategories: [String] = []
+    @State private var hasLoadedIncompleteVisits = false  // Prevents race condition on app launch
     @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
 
@@ -343,11 +344,17 @@ struct MapsViewNew: View, Searchable {
                 // Now that previous sessions are restored, check current location
                 await MainActor.run {
                     updateCurrentLocation()
+                    // Signal that we've loaded incomplete visits and can now respond to location changes
+                    hasLoadedIncompleteVisits = true
                 }
             }
         }
         .onReceive(locationService.$currentLocation) { _ in
-            updateCurrentLocation()
+            // Only update location if we've finished loading incomplete visits
+            // This prevents creating duplicate sessions on app startup
+            if hasLoadedIncompleteVisits {
+                updateCurrentLocation()
+            }
         }
         .onChange(of: externalSelectedFolder) { newFolder in
             if let folder = newFolder {
