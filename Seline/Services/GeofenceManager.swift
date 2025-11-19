@@ -138,15 +138,19 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     /// Setup geofences for all saved locations
     func setupGeofences(for places: [SavedPlace]) {
-        print("🔍 Setting up geofences for \(places.count) saved locations")
+        print("\n🔍 ===== SETTING UP GEOFENCES =====")
+        print("🔍 Total locations to track: \(places.count)")
 
         // Only proceed if we have background location authorization
         guard authorizationStatus == .authorizedAlways else {
             print("⚠️ Background location authorization not yet granted. Waiting for permission...")
+            print("⚠️ Current status: \(authorizationStatus.rawValue)")
+            print("🔍 ===================================\n")
             return
         }
 
         // Remove existing geofences
+        print("🔨 Removing \(monitoredRegions.count) existing geofences...")
         monitoredRegions.forEach { locationManager.stopMonitoring(for: $0.value) }
         monitoredRegions.removeAll()
 
@@ -166,13 +170,17 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             locationManager.startMonitoring(for: region)
             monitoredRegions[place.id.uuidString] = region
 
-            print("📍 Monitoring geofence for: \(place.displayName) (ID: \(place.id.uuidString))")
+            print("📍 Monitoring geofence for: \(place.displayName)")
+            print("   ID: \(place.id.uuidString)")
+            print("   Coords: \(place.latitude), \(place.longitude)")
+            print("   Radius: \(geofenceRadius)m")
         }
 
         if !locationsToTrack.isEmpty {
             isMonitoring = true
-            print("✅ Geofences setup complete. Monitoring \(locationsToTrack.count) locations")
+            print("✅ GEOFENCES SETUP COMPLETE - Now monitoring \(locationsToTrack.count) locations")
         }
+        print("🔍 ===================================\n")
     }
 
     /// Stop monitoring all geofences
@@ -206,7 +214,9 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let circularRegion = region as? CLCircularRegion else { return }
 
         Task { @MainActor in
+            print("\n✅ ===== GEOFENCE ENTRY EVENT FIRED =====")
             print("✅ Entered geofence: \(region.identifier)")
+            print("✅ ========================================\n")
 
             guard let placeId = UUID(uuidString: region.identifier) else {
                 print("❌ Invalid place ID in geofence")
@@ -248,7 +258,10 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let circularRegion = region as? CLCircularRegion else { return }
 
         Task { @MainActor in
-            print("❌ Exited geofence: \(region.identifier)")
+            print("\n⛔️ ===== GEOFENCE EXIT EVENT FIRED =====")
+            print("⛔️ Exited geofence: \(region.identifier)")
+            print("⛔️ Active visits in memory: \(self.activeVisits.count)")
+            print("⛔️ =====================================\n")
 
             guard let placeId = UUID(uuidString: region.identifier) else {
                 print("❌ Invalid place ID in geofence")
@@ -258,11 +271,11 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             // First, check if we have an active visit in memory
             if var visit = self.activeVisits.removeValue(forKey: placeId) {
                 visit.recordExit(exitTime: Date())
-                print("📝 Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
+                print("✅ Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
                 await self.updateVisitInSupabase(visit)
             } else {
                 // If not in memory (app was backgrounded/killed), fetch from Supabase
-                print("ℹ️ Visit not found in memory, fetching from Supabase...")
+                print("⚠️ Visit not found in memory, fetching from Supabase...")
                 await self.findAndCloseIncompleteVisit(for: placeId)
             }
         }
@@ -276,13 +289,14 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
 
         do {
+            print("🔍 Querying Supabase for incomplete visit - Place: \(placeId), User: \(userId.uuidString)")
+
             let client = await SupabaseManager.shared.getPostgrestClient()
             let response = try await client
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
                 .eq("saved_place_id", value: placeId.uuidString)
-                .is("exit_time", value: "null")  // Find incomplete visits
                 .order("entry_time", ascending: false)
                 .limit(1)
                 .execute()
@@ -293,11 +307,18 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             if var visit = visits.first {
-                visit.recordExit(exitTime: Date())
-                print("📝 Found and closed incomplete visit from Supabase for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
-                await self.updateVisitInSupabase(visit)
+                print("📋 Found visit in Supabase - ID: \(visit.id), Entry: \(visit.entryTime), Exit: \(visit.exitTime?.description ?? "nil")")
+
+                // Only close if it doesn't already have an exit time
+                if visit.exitTime == nil {
+                    visit.recordExit(exitTime: Date())
+                    print("✅ CLOSED INCOMPLETE VISIT - Place: \(placeId), Duration: \(visit.durationMinutes ?? 0) min")
+                    await self.updateVisitInSupabase(visit)
+                } else {
+                    print("ℹ️ Most recent visit already has exit time at \(visit.exitTime?.description ?? "unknown"), skipping")
+                }
             } else {
-                print("⚠️ No incomplete visit found in Supabase for place: \(placeId)")
+                print("⚠️ No visit found in Supabase for place: \(placeId)")
             }
         } catch {
             print("❌ Error finding incomplete visit: \(error)")
@@ -444,6 +465,8 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         ]
 
         do {
+            print("💾 Updating visit in Supabase - ID: \(visit.id.uuidString), ExitTime: \(visit.exitTime?.description ?? "nil"), Duration: \(visit.durationMinutes ?? 0)min")
+
             let client = await SupabaseManager.shared.getPostgrestClient()
             try await client
                 .from("location_visits")
@@ -451,7 +474,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 .eq("id", value: visit.id.uuidString)
                 .execute()
 
-            print("✅ Visit updated in Supabase: \(visit.id.uuidString)")
+            print("✅ VISIT UPDATE SUCCESSFUL - ID: \(visit.id.uuidString)")
         } catch {
             print("❌ Error updating visit in Supabase: \(error)")
         }
