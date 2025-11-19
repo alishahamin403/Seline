@@ -28,6 +28,7 @@ struct MapsViewNew: View, Searchable {
     @State private var hasLoadedIncompleteVisits = false  // Prevents race condition on app launch
     @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
+    @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -69,14 +70,15 @@ struct MapsViewNew: View, Searchable {
                     colorScheme == .dark ? Color.black : Color.white
                 )
 
-                // Current Location Display
+                // Current Location Display with Top 3 Locations
                 Button(action: {
                     if let place = nearbyLocationPlace {
                         selectedPlace = place
                         showingPlaceDetail = true
                     }
                 }) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 16) {
+                        // LEFT HALF - Current Location Info
                         VStack(alignment: .leading, spacing: 8) {
                             // Location name
                             Text(currentLocationName)
@@ -131,9 +133,44 @@ struct MapsViewNew: View, Searchable {
                                 }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Spacer()
+                        // DIVIDER
+                        Divider()
+                            .frame(height: 70)
 
+                        // RIGHT HALF - Top 3 Locations
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Top 3")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                if topLocations.isEmpty {
+                                    Text("No visits yet")
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                } else {
+                                    ForEach(topLocations.prefix(3), id: \.id) { location in
+                                        HStack(spacing: 8) {
+                                            Text(location.displayName)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .lineLimit(1)
+
+                                            Spacer()
+
+                                            Text("(\(location.visitCount))")
+                                                .font(.system(size: 10, weight: .regular))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // ICON (far right)
                         Image(systemName: "location.north.line.fill")
                             .font(.system(size: 20))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
@@ -350,6 +387,9 @@ struct MapsViewNew: View, Searchable {
                     hasLoadedIncompleteVisits = true
                 }
             }
+
+            // Load top 3 locations by visit count
+            loadTopLocations()
         }
         .onReceive(locationService.$currentLocation) { _ in
             // Only update location if we've finished loading incomplete visits
@@ -391,6 +431,10 @@ struct MapsViewNew: View, Searchable {
                 // App went to background/inactive - pause timer
                 stopLocationTimer()
             }
+        }
+        .onChange(of: locationsManager.savedPlaces) { _ in
+            // Reload top 3 locations when places are added/removed/updated
+            loadTopLocations()
         }
         .onDisappear {
             stopLocationTimer()
@@ -521,6 +565,36 @@ struct MapsViewNew: View, Searchable {
             distanceToNearest = nil
             elapsedTimeString = ""
             stopLocationTimer()
+        }
+    }
+
+    private func loadTopLocations() {
+        Task {
+            // Get all places with their visit counts sorted by most visited
+            var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
+
+            for place in locationsManager.savedPlaces {
+                // Fetch stats for this place
+                await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+
+                if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
+                    placesWithCounts.append((
+                        id: place.id,
+                        displayName: place.displayName,
+                        visitCount: stats.totalVisits
+                    ))
+                }
+            }
+
+            // Sort by visit count (descending) and take top 3
+            let sorted = placesWithCounts
+                .sorted { $0.visitCount > $1.visitCount }
+                .prefix(3)
+                .map { $0 }
+
+            await MainActor.run {
+                topLocations = sorted
+            }
         }
     }
 
