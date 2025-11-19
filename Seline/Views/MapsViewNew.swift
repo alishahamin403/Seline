@@ -375,6 +375,19 @@ struct MapsViewNew: View, Searchable {
                         startLocationTimer()
                         print("✅ Entered geofence: \(place.displayName)")
                     }
+
+                    // If already in geofence but no active visit record, create one
+                    // (handles case where user was already at location when app launched)
+                    if geofenceManager.activeVisits[place.id] == nil {
+                        var visit = LocationVisitRecord.create(
+                            userId: SupabaseManager.shared.getCurrentUser()?.id ?? UUID(),
+                            savedPlaceId: place.id,
+                            entryTime: Date()
+                        )
+                        geofenceManager.activeVisits[place.id] = visit
+                        print("📝 Auto-created visit for already-present location: \(place.displayName)")
+                    }
+
                     distanceToNearest = nil
                     foundNearby = true
                     break
