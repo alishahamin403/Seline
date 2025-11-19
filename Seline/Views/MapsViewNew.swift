@@ -6,6 +6,7 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var mapsService = GoogleMapsService.shared
     @StateObject private var locationService = LocationService.shared
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.scenePhase) var scenePhase
 
     @State private var selectedTab: String = "folders" // "folders" or "ranking"
     @State private var selectedCategory: String? = nil
@@ -364,6 +365,19 @@ struct MapsViewNew: View, Searchable {
         .onChange(of: selectedCity) { _ in
             updateCachedCategories()
         }
+        // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
+        // The timer only runs when user is actively looking at the screen
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                // App came to foreground - restart timer if tracking a location
+                if nearbyLocation != nil {
+                    startLocationTimer()
+                }
+            } else {
+                // App went to background/inactive - pause timer
+                stopLocationTimer()
+            }
+        }
         .onDisappear {
             stopLocationTimer()
         }
@@ -535,9 +549,9 @@ struct MapsViewNew: View, Searchable {
 
     private func startLocationTimer() {
         stopLocationTimer()
-        // OPTIMIZATION: Update elapsed time every 5 seconds instead of 1 second
-        // Users don't need sub-second precision, and this reduces CPU/battery usage
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+        // Timer only runs when app is in foreground (scenePhase .active)
+        // This shows real-time elapsed seconds only when user is looking at the screen
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             updateElapsedTime()
         }
     }
