@@ -317,7 +317,7 @@ struct RecurringExpenseStatsContent: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 8) {
             if isLoading {
                 ProgressView()
                     .padding(.vertical, 16)
@@ -358,7 +358,7 @@ struct RecurringExpenseStatsContent: View {
                         icon: "repeat"
                     )
                 }
-                .padding(.vertical, 12)
+                .padding(.vertical, 8)
 
                 // Recurring expenses list
                 ScrollView {
@@ -441,7 +441,7 @@ struct RecurringExpenseStatsContent: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        .padding(.vertical, 4)
         .sheet(isPresented: $showEditSheet) {
             Group {
                 if let expense = selectedExpense {
