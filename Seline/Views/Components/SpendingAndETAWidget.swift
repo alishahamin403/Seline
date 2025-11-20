@@ -251,7 +251,7 @@ struct SpendingAndETAWidget: View {
 
     private var spendingAmountView: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(CurrencyParser.formatAmount(monthlyTotal))
+            Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 

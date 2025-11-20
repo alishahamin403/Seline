@@ -203,7 +203,7 @@ struct ReceiptsStatsView: View {
             // Monthly Total
             StatCard(
                 title: "Monthly Recurring",
-                value: CurrencyParser.formatAmount(monthlyRecurringTotal),
+                value: CurrencyParser.formatAmountNoDecimals(monthlyRecurringTotal),
                 icon: "calendar.circle.fill",
                 backgroundColor: Color.blue.opacity(0.1)
             )

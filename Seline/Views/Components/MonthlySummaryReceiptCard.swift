@@ -58,7 +58,7 @@ struct MonthlySummaryReceiptCard: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(CurrencyParser.formatAmount(monthlySummary.monthlyTotal))
+                    Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
                         .font(.system(size: 15, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                 }

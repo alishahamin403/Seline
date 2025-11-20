@@ -28,7 +28,7 @@ struct CategoryBreakdownModal: View {
                     Text("Total Spending")
                         .font(.system(size: 12, weight: .regular))
                         .foregroundColor(.gray)
-                    Text(CurrencyParser.formatAmount(monthlyTotal))
+                    Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.primary)
                 }

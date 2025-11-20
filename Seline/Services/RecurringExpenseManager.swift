@@ -217,7 +217,7 @@ struct RecurringExpenseStatistics {
     let overdueInstanceCount: Int
 
     var monthlyTotalFormatted: String {
-        CurrencyParser.formatAmount(Double(truncating: monthlyTotal as NSDecimalNumber))
+        CurrencyParser.formatAmountNoDecimals(Double(truncating: monthlyTotal as NSDecimalNumber))
     }
 
     var yearlyTotalFormatted: String {
