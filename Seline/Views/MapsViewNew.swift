@@ -550,6 +550,14 @@ struct MapsViewNew: View, Searchable {
                 // Clear elapsed time when not in any geofence
                 elapsedTimeString = ""
                 stopLocationTimer()
+
+                // Auto-complete any active visits if user has moved outside geofences
+                Task {
+                    await geofenceManager.autoCompleteVisitsIfOutOfRange(
+                        currentLocation: currentLoc,
+                        savedPlaces: locationsManager.savedPlaces
+                    )
+                }
             }
         } else {
             currentLocationName = "Location not available"

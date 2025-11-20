@@ -479,4 +479,34 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             print("❌ Error updating visit in Supabase: \(error)")
         }
     }
+
+    /// Auto-complete any active visits if user has moved too far from the location
+    func autoCompleteVisitsIfOutOfRange(currentLocation: CLLocation, savedPlaces: [SavedPlace]) async {
+        let geofenceRadius: CLLocationDistance = 100 // 100 meters
+
+        // Check each active visit
+        for (placeId, var visit) in activeVisits {
+            // Find the location for this visit
+            if let place = savedPlaces.first(where: { $0.id == placeId }) {
+                let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                let distance = currentLocation.distance(from: placeLocation)
+
+                // If user has moved beyond geofence radius, auto-complete the visit
+                if distance > geofenceRadius {
+                    print("\n🚀 ===== AUTO-COMPLETING VISIT =====")
+                    print("🚀 Location: \(place.displayName)")
+                    print("🚀 Distance from location: \(String(format: "%.1f", distance))m (beyond \(geofenceRadius)m geofence)")
+                    print("🚀 Active visit duration: \(Int(Date().timeIntervalSince(visit.entryTime) / 60)) minutes")
+                    print("🚀 ====================================\n")
+
+                    // Record the exit and remove from active visits
+                    visit.recordExit(exitTime: Date())
+                    activeVisits.removeValue(forKey: placeId)
+
+                    // Update in Supabase
+                    await updateVisitInSupabase(visit)
+                }
+            }
+        }
+    }
 }
