@@ -1062,6 +1062,7 @@ class TaskManager: ObservableObject {
         let calendar = Calendar.current
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.timeZone = calendar.timeZone // CRITICAL: Match calendar timezone to ensure consistent cache keys
         let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
 
         if let cached = dateTaskCache[dateKey] {
