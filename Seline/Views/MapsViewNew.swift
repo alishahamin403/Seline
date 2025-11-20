@@ -358,7 +358,7 @@ struct MapsViewNew: View, Searchable {
         }
         .sheet(isPresented: $showingPlaceDetail) {
             if let place = selectedPlace {
-                PlaceDetailSheet(place: place) {
+                PlaceDetailSheet(place: place, isFromRanking: selectedTab == "ranking") {
                     showingPlaceDetail = false
                 }
                 .presentationBg()
@@ -1134,7 +1134,7 @@ struct FolderOverlayView: View {
         }
         .sheet(isPresented: $showingPlaceDetail) {
             if let place = selectedPlace {
-                PlaceDetailSheet(place: place) {
+                PlaceDetailSheet(place: place, isFromRanking: selectedTab == "ranking") {
                     showingPlaceDetail = false
                 }
                 .presentationBg()

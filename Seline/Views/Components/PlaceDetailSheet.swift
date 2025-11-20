@@ -3,6 +3,7 @@ import SwiftUI
 struct PlaceDetailSheet: View {
     let place: SavedPlace
     let onDismiss: () -> Void
+    var isFromRanking: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var mapsService = GoogleMapsService.shared
 
@@ -146,10 +147,12 @@ struct PlaceDetailSheet: View {
                             .buttonStyle(PlainButtonStyle())
                         }
 
-                        // Visit Stats and History
-                        VisitStatsCard(place: place)
+                        // Visit Stats and History (not shown in Ranking tab)
+                        if !isFromRanking {
+                            VisitStatsCard(place: place)
 
-                        VisitHistoryCard(place: place)
+                            VisitHistoryCard(place: place)
+                        }
 
                         // Open in Maps button
                         Button(action: {
