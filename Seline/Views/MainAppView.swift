@@ -20,6 +20,7 @@ struct MainAppView: View {
     @State private var showingNewNoteSheet = false
     @State private var showingAddEventPopup = false
     @State private var searchText = ""
+    @State private var searchResults: [OverlaySearchResult] = []  // Cache search results instead of computing every time
     @State private var searchSelectedNote: Note? = nil
     @State private var searchSelectedEmail: Email? = nil
     @State private var searchSelectedTask: TaskItem? = nil
@@ -31,6 +32,7 @@ struct MainAppView: View {
     @FocusState private var isSearchFocused: Bool
     @State private var showConversationModal = false
     @State private var showReceiptStats = false
+    @State private var searchDebounceTask: Task<Void, Never>? = nil  // Track debounce task
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -77,32 +79,37 @@ struct MainAppView: View {
         return formatDateAndTime(targetDate)
     }
 
-    private var searchResults: [OverlaySearchResult] {
-        guard !searchText.isEmpty else { return [] }
+    /// Compute search results (called with debounce, not on every render)
+    private func computeSearchResults() {
+        guard !searchText.isEmpty else {
+            searchResults = []
+            return
+        }
 
         // If there's a pending action (event or note creation), show action UI instead
         if searchService.pendingEventCreation != nil {
-            return []
+            searchResults = []
+            return
         }
         if searchService.pendingNoteCreation != nil {
-            return []
+            searchResults = []
+            return
         }
         if searchService.pendingNoteUpdate != nil {
-            return []
+            searchResults = []
+            return
         }
 
         var results: [OverlaySearchResult] = []
         let lowercasedSearch = searchText.lowercased()
 
-        // Search tasks/events
-        let allTasks = taskManager.tasks.values.flatMap { $0 }
+        // Search tasks/events - use cached flattened tasks
+        let allTasks = taskManager.getAllFlattenedTasks()
         let matchingTasks = allTasks.filter {
             $0.title.lowercased().contains(lowercasedSearch)
         }
 
         // Deduplicate: for each unique title, keep only ONE result
-        // For recurring events, show the earliest upcoming date
-        // For non-recurring, show the closest upcoming date
         var tasksByTitle: [String: [TaskItem]] = [:]
 
         for task in matchingTasks {
@@ -117,14 +124,12 @@ struct MainAppView: View {
         let today = Calendar.current.startOfDay(for: Date())
 
         for (_, tasks) in tasksByTitle {
-            // For each title, find the best task to show
             var bestTask: TaskItem?
             var bestTaskDate: Date?
 
             for task in tasks {
                 let taskDate = task.targetDate ?? task.createdAt
 
-                // For recurring tasks, skip if date is in the past
                 if task.isRecurring {
                     let taskStartDate = Calendar.current.startOfDay(for: taskDate)
                     if taskStartDate < today {
@@ -132,7 +137,6 @@ struct MainAppView: View {
                     }
                 }
 
-                // Choose the task with the earliest upcoming date
                 if bestTask == nil {
                     bestTask = task
                     bestTaskDate = taskDate
@@ -225,7 +229,7 @@ struct MainAppView: View {
             ))
         }
 
-        return results
+        self.searchResults = results
     }
 
     private func handleSearchResultTap(_ result: OverlaySearchResult) {
@@ -267,8 +271,21 @@ struct MainAppView: View {
     var body: some View {
         mainContent
             .onChange(of: searchText) { newValue in
+                // OPTIMIZATION: Debounce search computation with 300ms delay
+                // Cancel previous debounce task if any
+                searchDebounceTask?.cancel()
+
                 if newValue.isEmpty {
                     searchService.cancelAction()
+                    searchResults = []
+                } else {
+                    // Create a new debounced task
+                    searchDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                        if !Task.isCancelled {
+                            computeSearchResults()
+                        }
+                    }
                 }
             }
             .onChange(of: searchService.pendingEventCreation) { newValue in

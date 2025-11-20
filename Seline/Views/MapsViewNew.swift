@@ -29,6 +29,7 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
     @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -389,7 +390,13 @@ struct MapsViewNew: View, Searchable {
             // Only update location if we've finished loading incomplete visits
             // This prevents creating duplicate sessions on app startup
             if hasLoadedIncompleteVisits {
-                updateCurrentLocation()
+                // TIME DEBOUNCE: Skip updates that occur within 2 seconds of last update
+                // This prevents excessive location processing and improves performance
+                let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
+                if timeSinceLastUpdate >= 2.0 {
+                    lastLocationUpdateTime = Date()
+                    updateCurrentLocation()
+                }
             }
         }
         .onChange(of: externalSelectedFolder) { newFolder in

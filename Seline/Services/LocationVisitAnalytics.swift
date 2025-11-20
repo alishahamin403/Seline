@@ -97,42 +97,40 @@ class LocationVisitAnalytics: ObservableObject {
         }
     }
 
-    /// Get stats grouped by time of day
-    func getStatsByTimeOfDay(for placeId: UUID) async -> [String: Int] {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return [:] }
+    /// Get stats grouped by time of day and day of week (batched together for performance)
+    func getBothTimeAndDayStats(for placeId: UUID) async -> (timeOfDay: [String: Int], dayOfWeek: [String: Int]) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return ([:], [:]) }
 
         do {
+            // OPTIMIZATION: Fetch visits once and calculate both stats
             let visits = try await fetchVisits(for: placeId, userId: userId)
 
             var timeOfDayStats: [String: Int] = [:]
+            var dayStats: [String: Int] = [:]
+
+            // Calculate both in a single loop
             for visit in visits {
                 timeOfDayStats[visit.timeOfDay, default: 0] += 1
+                dayStats[visit.dayOfWeek, default: 0] += 1
             }
 
-            return timeOfDayStats
+            return (timeOfDayStats, dayStats)
         } catch {
-            print("❌ Error fetching time of day stats: \(error)")
-            return [:]
+            print("❌ Error fetching time/day stats: \(error)")
+            return ([:], [:])
         }
+    }
+
+    /// Get stats grouped by time of day
+    func getStatsByTimeOfDay(for placeId: UUID) async -> [String: Int] {
+        let (timeOfDay, _) = await getBothTimeAndDayStats(for: placeId)
+        return timeOfDay
     }
 
     /// Get stats grouped by day of week
     func getStatsByDayOfWeek(for placeId: UUID) async -> [String: Int] {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else { return [:] }
-
-        do {
-            let visits = try await fetchVisits(for: placeId, userId: userId)
-
-            var dayStats: [String: Int] = [:]
-            for visit in visits {
-                dayStats[visit.dayOfWeek, default: 0] += 1
-            }
-
-            return dayStats
-        } catch {
-            print("❌ Error fetching day of week stats: \(error)")
-            return [:]
-        }
+        let (_, dayOfWeek) = await getBothTimeAndDayStats(for: placeId)
+        return dayOfWeek
     }
 
     // MARK: - Private Methods

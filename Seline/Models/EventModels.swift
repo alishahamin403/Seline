@@ -409,6 +409,10 @@ class TaskManager: ObservableObject {
 
     @Published var tasks: [WeekDay: [TaskItem]] = [:]
 
+    /// Cache of flattened tasks to avoid repeated flatMap operations
+    /// Invalidated whenever tasks are modified
+    private var cachedFlattenedTasks: [TaskItem]?
+
     private let userDefaults = UserDefaults.standard
     private let tasksKey = "SavedTasks"
     private let supabaseManager = SupabaseManager.shared
@@ -511,6 +515,7 @@ class TaskManager: ObservableObject {
         var newTaskWithTag = newTask
         newTaskWithTag.tagId = tagId
         tasks[weekday]?.append(newTaskWithTag)
+        invalidateFlattenedTasksCache()
         saveTasks()
 
         // Schedule notification if reminder is set
@@ -608,6 +613,7 @@ class TaskManager: ObservableObject {
             }
         }
 
+        invalidateFlattenedTasksCache()
         saveTasks()
 
         // Trigger UI update to ensure views refresh with new completion status
@@ -647,10 +653,12 @@ class TaskManager: ObservableObject {
                 if success {
                     // Remove completely if Supabase deletion succeeded
                     tasks[task.weekday]?.remove(at: index)
+                    self.invalidateFlattenedTasksCache()
                     saveTasks()
                 } else {
                     // Mark as deleted locally if Supabase deletion failed
                     tasks[task.weekday]?[index].isDeleted = true
+                    self.invalidateFlattenedTasksCache()
                     saveTasks()
                     print("⚠️ Marked task as deleted locally, will retry Supabase deletion later")
                 }
@@ -996,6 +1004,22 @@ class TaskManager: ObservableObject {
 
     func getTasks(for weekday: WeekDay) -> [TaskItem] {
         return (tasks[weekday] ?? []).filter { !$0.isDeleted }
+    }
+
+    /// Returns all tasks flattened from the dictionary
+    /// Results are cached to avoid repeated flatMap operations
+    func getAllFlattenedTasks() -> [TaskItem] {
+        if let cached = cachedFlattenedTasks {
+            return cached
+        }
+        let flattened = tasks.values.flatMap { $0 }
+        cachedFlattenedTasks = flattened
+        return flattened
+    }
+
+    /// Invalidate the flattened tasks cache when tasks are modified
+    private func invalidateFlattenedTasksCache() {
+        cachedFlattenedTasks = nil
     }
 
     func getTasksForDate(_ date: Date) -> [TaskItem] {
@@ -1585,6 +1609,7 @@ class TaskManager: ObservableObject {
         }
 
         self.tasks = tasksByWeekday
+        invalidateFlattenedTasksCache()
         initializeEmptyDays()
 
         // Save the fixed tasks back to storage if any were fixed

@@ -13,8 +13,8 @@ class AppContextService {
     func getFullAppContext() -> String {
         var context = ""
 
-        // Events/Tasks - flatten from WeekDay dict
-        let allEvents = TaskManager.shared.tasks.values.flatMap { $0 }
+        // Events/Tasks - use cached flattened tasks for performance
+        let allEvents = TaskManager.shared.getAllFlattenedTasks()
         if !allEvents.isEmpty {
             context += "**Events & Tasks:**\n"
             for event in allEvents.sorted(by: { ($0.scheduledTime ?? $0.targetDate ?? Date()) < ($1.scheduledTime ?? $1.targetDate ?? Date()) }) {
@@ -61,8 +61,8 @@ class AppContextService {
         let keywords = extractKeywords(from: query)
         var matches: [String] = []
 
-        // Find matching events - flatten from WeekDay dict
-        let allEvents = TaskManager.shared.tasks.values.flatMap { $0 }
+        // Find matching events - use cached flattened tasks for performance
+        let allEvents = TaskManager.shared.getAllFlattenedTasks()
         for event in allEvents {
             if keywordsMatch(keywords, in: event.title) || (event.description != nil && keywordsMatch(keywords, in: event.description!)) {
                 matches.append(formatEvent(event))
