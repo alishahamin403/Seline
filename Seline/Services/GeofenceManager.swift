@@ -396,9 +396,23 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
             // Find the first incomplete visit (no exit_time)
             if let incompleteVisit = visits.first(where: { $0.exitTime == nil }) {
-                // Restore the incomplete visit to activeVisits
-                self.activeVisits[incompleteVisit.savedPlaceId] = incompleteVisit
-                print("📝 Restored incomplete visit from Supabase: \(incompleteVisit.savedPlaceId)")
+                // Check if visit has been open for more than 24 hours - if so, auto-complete it
+                let hoursSinceEntry = Date().timeIntervalSince(incompleteVisit.entryTime) / 3600
+                if hoursSinceEntry > 24 {
+                    print("⚠️ Incomplete visit has been open for \(Int(hoursSinceEntry)) hours, auto-completing...")
+                    var completedVisit = incompleteVisit
+                    completedVisit.recordExit(exitTime: Date())
+                    await self.updateVisitInSupabase(completedVisit)
+                    print("✅ Auto-completed stale visit: \(incompleteVisit.savedPlaceId)")
+                } else {
+                    // DEDUPLICATION: Only restore if not already in activeVisits
+                    if self.activeVisits[incompleteVisit.savedPlaceId] == nil {
+                        self.activeVisits[incompleteVisit.savedPlaceId] = incompleteVisit
+                        print("📝 Restored incomplete visit from Supabase: \(incompleteVisit.savedPlaceId)")
+                    } else {
+                        print("ℹ️ Incomplete visit already in activeVisits, skipping restore: \(incompleteVisit.savedPlaceId)")
+                    }
+                }
             } else {
                 print("✅ No incomplete visits in Supabase")
             }
