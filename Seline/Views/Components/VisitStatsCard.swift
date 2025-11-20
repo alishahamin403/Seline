@@ -10,39 +10,26 @@ struct VisitStatsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(
-                        colorScheme == .dark ?
-                            Color.white :
-                            Color.black
-                    )
-                    .frame(width: 20, alignment: .center)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Visits")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Visits")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                    if isLoading {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Loading stats...")
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                        }
-                    } else if let stats = stats {
-                        // Summary text removed - detailed stats shown in cards below
-                    } else {
-                        Text("No visits tracked yet")
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Loading stats...")
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                     }
+                } else if let stats = stats {
+                    // Summary text removed - detailed stats shown in cards below
+                } else {
+                    Text("No visits tracked yet")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
-
-                Spacer()
             }
 
             // Detailed Stats Grid

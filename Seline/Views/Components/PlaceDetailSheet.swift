@@ -90,27 +90,14 @@ struct PlaceDetailSheet: View {
                         }
 
                         // Address
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(
-                                    colorScheme == .dark ?
-                                        Color.white :
-                                        Color.black
-                                )
-                                .frame(width: 20, alignment: .center)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Address")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Address")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                                Text(place.address)
-                                    .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                            }
-
-                            Spacer()
+                            Text(place.address)
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
 
                         // Phone number

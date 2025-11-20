@@ -38,15 +38,7 @@ struct VisitHistoryCard: View {
                     isExpanded.toggle()
                 }
             }) {
-                HStack(spacing: 12) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 20))
-                        .foregroundColor(
-                            colorScheme == .dark ?
-                                Color.white :
-                                Color.black
-                        )
-
+                HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Visit History")
                             .font(.system(size: 12, weight: .medium))
