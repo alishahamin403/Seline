@@ -54,16 +54,17 @@ struct SelineApp: App {
                         let unreadCount = EmailService.shared.inboxEmails.filter { !$0.isRead }.count
                         notificationService.updateAppBadge(count: unreadCount)
 
+                        // DISABLED: Calendar sync temporarily disabled due to performance concerns
                         // Sync calendar events only if last sync was > 5 minutes ago (prevents over-syncing during development)
-                        let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
-                        if timeSinceLastSync > 300 && !isCalendarSyncing { // 300 seconds = 5 minutes
-                            isCalendarSyncing = true
-                            lastCalendarSyncTime = Date()
-
-                            await taskManager.syncCalendarEvents()
-
-                            isCalendarSyncing = false
-                        }
+                        // let timeSinceLastSync = Date().timeIntervalSince(lastCalendarSyncTime)
+                        // if timeSinceLastSync > 300 && !isCalendarSyncing { // 300 seconds = 5 minutes
+                        //     isCalendarSyncing = true
+                        //     lastCalendarSyncTime = Date()
+                        //
+                        //     await taskManager.syncCalendarEvents()
+                        //
+                        //     isCalendarSyncing = false
+                        // }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in

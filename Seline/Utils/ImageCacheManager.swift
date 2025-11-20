@@ -70,7 +70,7 @@ class ImageCacheManager {
         print("🗑️ Cleared image cache")
     }
 
-    /// Get cache size in MB
+    /// Get image cache size in MB
     func getCacheSize() -> Double {
         guard let contents = try? fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
             return 0
@@ -81,6 +81,34 @@ class ImageCacheManager {
         }.reduce(0, +)
 
         return Double(totalBytes) / 1_024 / 1_024 // Convert to MB
+    }
+
+    /// Get total cache size including tasks cache (in MB)
+    func getTotalCacheSize() -> Double {
+        let imageCache = getCacheSize()
+        let taskCache = getTaskCacheSize()
+        return imageCache + taskCache
+    }
+
+    /// Get task cache size from UserDefaults (in MB)
+    private func getTaskCacheSize() -> Double {
+        if let savedTasks = UserDefaults.standard.data(forKey: "SavedTasks") {
+            return Double(savedTasks.count) / 1_024 / 1_024 // Convert bytes to MB
+        }
+        return 0
+    }
+
+    /// Clear both image and task caches
+    func clearAllCaches() {
+        // Clear image cache
+        cache.removeAllObjects()
+        try? fileManager.removeItem(at: cacheDirectory)
+        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+
+        // Clear task cache
+        UserDefaults.standard.removeObject(forKey: "SavedTasks")
+
+        print("🗑️ Cleared all caches (images + tasks)")
     }
 }
 

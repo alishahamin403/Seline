@@ -16,6 +16,8 @@ struct SettingsView: View {
     @AppStorage("locationTrackingMode") private var locationTrackingMode = "active" // "active" or "background"
     @State private var showingFeedback = false
     @State private var showingLocationInfo = false
+    @State private var cacheSize: Double = 0
+    @State private var isShowingClearCacheAlert = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -198,6 +200,41 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
+                        // Cache Management
+                        HStack(spacing: 16) {
+                            Image(systemName: "internaldrive")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Cache Storage")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+
+                                Text(String(format: "%.2f MB", cacheSize))
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.gray)
+                            }
+
+                            Spacer()
+
+                            Button(action: { isShowingClearCacheAlert = true }) {
+                                Text("Clear")
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(.blue)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(6)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+
+                        Divider()
+                            .padding(.leading, 50)
+
                         settingsMenuItemLogout
                     }
                     .padding(.vertical, 12)
@@ -295,9 +332,19 @@ struct SettingsView: View {
             .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
             .presentationBg()
         }
+        .alert("Clear Cache?", isPresented: $isShowingClearCacheAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                ImageCacheManager.shared.clearAllCaches()
+                cacheSize = 0
+            }
+        } message: {
+            Text("This will delete all cached images and tasks. This action cannot be undone.")
+        }
         .task {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
+            updateCacheSize()
         }
         .onChange(of: locationTrackingMode) { newMode in
             geofenceManager.updateBackgroundLocationTracking(enabled: newMode == "background")
@@ -365,6 +412,11 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
+    }
+
+    // MARK: - Helper Methods
+    private func updateCacheSize() {
+        cacheSize = ImageCacheManager.shared.getTotalCacheSize()
     }
 
 }
