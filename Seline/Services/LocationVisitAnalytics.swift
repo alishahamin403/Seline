@@ -20,6 +20,17 @@ struct VisitHistoryItem {
 
 // MARK: - LocationVisitAnalytics Service
 
+// MARK: - Cache Models
+
+struct CachedStats {
+    let stats: LocationVisitStats
+    let timestamp: Date
+
+    func isExpired(ttlSeconds: TimeInterval = 3600) -> Bool {
+        return Date().timeIntervalSince(timestamp) > ttlSeconds
+    }
+}
+
 @MainActor
 class LocationVisitAnalytics: ObservableObject {
     static let shared = LocationVisitAnalytics()
@@ -28,12 +39,24 @@ class LocationVisitAnalytics: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
+    // OPTIMIZATION: Cache stats with TTL (time-to-live)
+    // Avoids redundant Supabase queries for the same location within 1 hour
+    private var statsCache: [UUID: CachedStats] = [:]
+    private let statscacheTTL: TimeInterval = 3600 // 1 hour
+
     private let authManager = AuthenticationManager.shared
 
     // MARK: - Public Methods
 
     /// Fetch and calculate stats for a specific saved place
     func fetchStats(for placeId: UUID) async {
+        // OPTIMIZATION: Check cache first before querying Supabase
+        if let cachedStats = statsCache[placeId], !cachedStats.isExpired(ttlSeconds: statscacheTTL) {
+            print("📊 Using cached stats for place \(placeId) (age: \(Int(Date().timeIntervalSince(cachedStats.timestamp)))s)")
+            self.visitStats[placeId] = cachedStats.stats
+            return
+        }
+
         isLoading = true
         errorMessage = nil
 
@@ -51,6 +74,8 @@ class LocationVisitAnalytics: ObservableObject {
 
             await MainActor.run {
                 self.visitStats[placeId] = stats
+                // OPTIMIZATION: Cache the stats with current timestamp
+                self.statsCache[placeId] = CachedStats(stats: stats, timestamp: Date())
             }
 
             print("📊 Fetched stats for place \(placeId): \(stats.totalVisits) visits")
@@ -131,6 +156,20 @@ class LocationVisitAnalytics: ObservableObject {
     func getStatsByDayOfWeek(for placeId: UUID) async -> [String: Int] {
         let (_, dayOfWeek) = await getBothTimeAndDayStats(for: placeId)
         return dayOfWeek
+    }
+
+    // MARK: - Cache Management
+
+    /// Invalidate cache for a specific place (call when visit is recorded/updated)
+    func invalidateCache(for placeId: UUID) {
+        statsCache.removeValue(forKey: placeId)
+        print("🔄 Invalidated stats cache for place \(placeId)")
+    }
+
+    /// Invalidate all cached stats
+    func invalidateAllCache() {
+        statsCache.removeAll()
+        print("🔄 Invalidated all stats caches")
     }
 
     // MARK: - Private Methods

@@ -1012,13 +1012,38 @@ class TaskManager: ObservableObject {
 
     /// Returns all tasks flattened from the dictionary
     /// Results are cached to avoid repeated flatMap operations
+    /// Only returns active/incomplete tasks and recent completed ones (performance optimization)
     func getAllFlattenedTasks() -> [TaskItem] {
         if let cached = cachedFlattenedTasks {
             return cached
         }
-        let flattened = tasks.values.flatMap { $0 }
+
+        var flattened = tasks.values.flatMap { $0 }
+
+        // OPTIMIZATION: Filter to only include active tasks + recent completions
+        // Keep incomplete tasks and tasks completed in the last 30 days
+        let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+        flattened = flattened.filter { task in
+            // Keep all incomplete tasks
+            if !task.isCompleted {
+                return true
+            }
+            // Keep recently completed tasks (within 30 days)
+            if let completedDate = task.completedDate, completedDate > thirtyDaysAgo {
+                return true
+            }
+            // Skip old completed tasks
+            return false
+        }
+
         cachedFlattenedTasks = flattened
         return flattened
+    }
+
+    /// Get ALL tasks including old completed ones (use sparingly)
+    /// For archival/export purposes only
+    func getAllTasksIncludingArchived() -> [TaskItem] {
+        return tasks.values.flatMap { $0 }
     }
 
     /// Invalidate the flattened tasks cache when tasks are modified

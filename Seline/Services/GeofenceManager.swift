@@ -97,10 +97,13 @@ struct LocationVisitRecord: Codable, Identifiable {
 // MARK: - GeofenceManager
 
 @MainActor
-class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+class GeofenceManager: NSObject, ObservableObject {
     static let shared = GeofenceManager()
 
-    private let locationManager = CLLocationManager()
+    // OPTIMIZATION: Use SharedLocationManager instead of creating own instance
+    // This consolidates CLLocationManager to reduce battery drain and redundancy
+    private let sharedLocationManager = SharedLocationManager.shared
+
     private var monitoredRegions: [String: CLCircularRegion] = [:] // [placeId: region]
     var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
 
@@ -112,10 +115,18 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     override init() {
         super.init()
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.pausesLocationUpdatesAutomatically = false
-        // NOTE: allowsBackgroundLocationUpdates will be set after authorization is granted
+        // Subscribe to shared location manager updates
+        authorizationStatus = sharedLocationManager.authorizationStatus
+    }
+
+    /// Handle geofence entry from SharedLocationManager
+    nonisolated func handleGeofenceEntry(region: CLCircularRegion) async {
+        await self.locationManager(CLLocationManager(), didEnterRegion: region)
+    }
+
+    /// Handle geofence exit from SharedLocationManager
+    nonisolated func handleGeofenceExit(region: CLCircularRegion) async {
+        await self.locationManager(CLLocationManager(), didExitRegion: region)
     }
 
     // MARK: - Permission Handling
@@ -124,7 +135,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         switch authorizationStatus {
         case .notDetermined:
             // Request background location permission (Always)
-            locationManager.requestAlwaysAuthorization()
+            sharedLocationManager.requestAlwaysAuthorization()
         case .denied, .restricted:
             errorMessage = "Background location access required for visit tracking. Please enable in Settings."
         case .authorizedAlways, .authorizedWhenInUse:
@@ -151,7 +162,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
         // Remove existing geofences
         print("🔨 Removing \(monitoredRegions.count) existing geofences...")
-        monitoredRegions.forEach { locationManager.stopMonitoring(for: $0.value) }
+        monitoredRegions.forEach { sharedLocationManager.stopMonitoring(region: $0.value) }
         monitoredRegions.removeAll()
 
         // Add new geofences for all saved locations
@@ -167,7 +178,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             region.notifyOnEntry = true
             region.notifyOnExit = true
 
-            locationManager.startMonitoring(for: region)
+            sharedLocationManager.startMonitoring(region: region)
             monitoredRegions[place.id.uuidString] = region
 
             print("📍 Monitoring geofence for: \(place.displayName)")
@@ -186,7 +197,7 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// Stop monitoring all geofences
     func stopMonitoring() {
         print("🛑 Stopping all geofence monitoring")
-        monitoredRegions.forEach { locationManager.stopMonitoring(for: $0.value) }
+        monitoredRegions.forEach { sharedLocationManager.stopMonitoring(region: $0.value) }
         monitoredRegions.removeAll()
         activeVisits.removeAll()
         isMonitoring = false
@@ -194,20 +205,12 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     /// Update background location tracking based on user preference
     func updateBackgroundLocationTracking(enabled: Bool) {
-        if enabled {
-            locationManager.allowsBackgroundLocationUpdates = true
-            locationManager.showsBackgroundLocationIndicator = true
-            print("🔋 Background tracking enabled - app can track visits when closed")
-        } else {
-            locationManager.allowsBackgroundLocationUpdates = false
-            locationManager.showsBackgroundLocationIndicator = false
-            print("🔋 Active tracking enabled - only tracks while app is open")
-        }
+        sharedLocationManager.enableBackgroundLocationTracking(enabled)
     }
 
-    // MARK: - CLLocationManagerDelegate
+    // MARK: - Geofence Event Handling (called by SharedLocationManager)
 
-    nonisolated func locationManager(
+    nonisolated private func locationManager(
         _ manager: CLLocationManager,
         didEnterRegion region: CLRegion
     ) {
@@ -325,46 +328,36 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor in
-            self.authorizationStatus = manager.authorizationStatus
-
-            switch manager.authorizationStatus {
-            case .authorizedAlways:
-                print("✅ Background location authorization granted")
-
-                // Enable background location updates based on user preference
-                let locationTrackingMode = UserDefaults.standard.string(forKey: "locationTrackingMode") ?? "active"
-                if locationTrackingMode == "background" {
-                    manager.allowsBackgroundLocationUpdates = true
-                    manager.showsBackgroundLocationIndicator = true
-                    print("🔋 Background tracking enabled - app can track visits when closed")
-                } else {
-                    manager.allowsBackgroundLocationUpdates = false
-                    manager.showsBackgroundLocationIndicator = false
-                    print("🔋 Active tracking enabled - only tracks while app is open")
-                }
-
-                self.setupGeofences(for: LocationsManager.shared.savedPlaces)
-            case .authorizedWhenInUse:
-                print("⚠️ Only 'When In Use' authorization granted. Geofencing requires 'Always' permission.")
-                self.errorMessage = "Geofencing requires 'Always' location permission"
-            case .denied, .restricted:
-                print("❌ Location authorization denied")
-                self.errorMessage = "Location access denied"
-                self.stopMonitoring()
-            case .notDetermined:
-                break
-            @unknown default:
-                break
-            }
-        }
+    /// Sync authorization status from SharedLocationManager
+    func observeAuthorizationChanges() {
+        // In the future, this could use Combine to observe changes
+        // For now, it's called from requestLocationPermission
     }
 
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        Task { @MainActor in
-            print("⚠️ Location manager error: \(error.localizedDescription)")
-            self.errorMessage = error.localizedDescription
+    /// Handle authorization changes (internal use, sync with SharedLocationManager)
+    func handleAuthorizationChange(_ status: CLAuthorizationStatus) {
+        self.authorizationStatus = status
+
+        switch status {
+        case .authorizedAlways:
+            print("✅ Background location authorization granted")
+
+            // Enable background location updates based on user preference
+            let locationTrackingMode = UserDefaults.standard.string(forKey: "locationTrackingMode") ?? "active"
+            sharedLocationManager.enableBackgroundLocationTracking(locationTrackingMode == "background")
+
+            setupGeofences(for: LocationsManager.shared.savedPlaces)
+        case .authorizedWhenInUse:
+            print("⚠️ Only 'When In Use' authorization granted. Geofencing requires 'Always' permission.")
+            self.errorMessage = "Geofencing requires 'Always' location permission"
+        case .denied, .restricted:
+            print("❌ Location authorization denied")
+            self.errorMessage = "Location access denied"
+            stopMonitoring()
+        case .notDetermined:
+            break
+        @unknown default:
+            break
         }
     }
 
@@ -489,6 +482,10 @@ class GeofenceManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 .execute()
 
             print("✅ VISIT UPDATE SUCCESSFUL - ID: \(visit.id.uuidString)")
+
+            // OPTIMIZATION: Invalidate cached stats for this location
+            // so next query fetches fresh data
+            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
         } catch {
             print("❌ Error updating visit in Supabase: \(error)")
         }
