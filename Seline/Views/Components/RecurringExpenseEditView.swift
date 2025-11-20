@@ -36,10 +36,40 @@ struct RecurringExpenseEditView: View {
             Double(amount) ?? 0 > 0
     }
 
+    private var actionButtonsSection: some View {
+        HStack(spacing: 12) {
+            Button(action: { dismiss() }) {
+                Text("Cancel")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                    )
+            }
+
+            Button(action: saveChanges) {
+                Text(isSaving ? "Saving..." : "Save Changes")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(isFormValid && !isSaving ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isFormValid && !isSaving ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray.opacity(0.3))
+                    )
+            }
+            .disabled(!isFormValid || isSaving)
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 20) {
                         // Title
                         VStack(alignment: .leading, spacing: 8) {
                             Label("Title", systemImage: "pencil.circle.fill")
@@ -127,44 +157,21 @@ struct RecurringExpenseEditView: View {
                             .cornerRadius(8)
                         }
 
-                        // Save Button
-                        Button(action: saveChanges) {
-                            HStack {
-                                if isSaving {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Image(systemName: "checkmark.circle.fill")
-                                }
-                                Text(isSaving ? "Saving..." : "Save Changes")
-                                    .fontWeight(.semibold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(
-                                (isFormValid && !isSaving)
-                                    ? Color.blue
-                                    : Color.gray.opacity(0.5)
-                            )
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-                        .disabled(!isFormValid || isSaving)
                     }
                     .padding(16)
                 }
-                .scrollContentBackground(.hidden)
-                .background(colorScheme == .dark ? Color.black : Color(UIColor(white: 0.99, alpha: 1)))
-                .navigationTitle("Edit Recurring Expense")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                        }
-                    }
-                }
+
+                Divider()
+                    .padding(.top, 16)
+
+                actionButtonsSection
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+            }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            .navigationTitle("Edit Recurring Expense")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
         }
     }
 
