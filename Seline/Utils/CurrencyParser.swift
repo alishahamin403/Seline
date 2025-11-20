@@ -95,7 +95,7 @@ struct CurrencyParser {
         return "\(symbol)\(numberString)"
     }
 
-    /// Formats amount with no decimal places and comma separator (e.g., $1,234)
+    /// Formats amount with no decimal places and comma separator, rounding up (e.g., $1,234)
     static func formatAmountNoDecimals(_ amount: Double, symbol: String = "$") -> String {
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 0
@@ -103,7 +103,8 @@ struct CurrencyParser {
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
 
-        let numberString = formatter.string(from: NSNumber(value: amount)) ?? String(format: "%.0f", amount)
+        let roundedAmount = ceil(amount) // Round up instead of to nearest
+        let numberString = formatter.string(from: NSNumber(value: roundedAmount)) ?? String(format: "%.0f", roundedAmount)
         return "\(symbol)\(numberString)"
     }
 }
