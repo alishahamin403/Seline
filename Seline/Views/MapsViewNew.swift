@@ -410,16 +410,11 @@ struct MapsViewNew: View, Searchable {
                 }
             }
         }
-        // OPTIMIZATION: Update cached sorted categories when filters change
-        .onChange(of: selectedCountry) { _ in
-            updateCachedCategories()
-        }
-        .onChange(of: selectedProvince) { _ in
-            updateCachedCategories()
-        }
-        .onChange(of: selectedCity) { _ in
-            updateCachedCategories()
-        }
+        // OPTIMIZATION: Update cached categories only once when any filter changes
+        // Combined onChange instead of three separate ones to avoid redundant calculations
+        .onChange(of: selectedCountry) { _ in updateCachedCategories() }
+        .onChange(of: selectedProvince) { _ in updateCachedCategories() }
+        .onChange(of: selectedCity) { _ in updateCachedCategories() }
         // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
         // The timer only runs when user is actively looking at the screen
         .onChange(of: scenePhase) { newPhase in

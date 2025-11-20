@@ -413,6 +413,10 @@ class TaskManager: ObservableObject {
     /// Invalidated whenever tasks are modified
     private var cachedFlattenedTasks: [TaskItem]?
 
+    /// Cache for date-based queries to avoid recalculating for same dates
+    /// Maps date string (YYYY-MM-DD) to tasks for that date
+    private var dateTaskCache: [String: [TaskItem]] = [:]
+
     private let userDefaults = UserDefaults.standard
     private let tasksKey = "SavedTasks"
     private let supabaseManager = SupabaseManager.shared
@@ -515,7 +519,7 @@ class TaskManager: ObservableObject {
         var newTaskWithTag = newTask
         newTaskWithTag.tagId = tagId
         tasks[weekday]?.append(newTaskWithTag)
-        invalidateFlattenedTasksCache()
+        invalidateAllCaches()
         saveTasks()
 
         // Schedule notification if reminder is set
@@ -613,7 +617,7 @@ class TaskManager: ObservableObject {
             }
         }
 
-        invalidateFlattenedTasksCache()
+        invalidateAllCaches()
         saveTasks()
 
         // Trigger UI update to ensure views refresh with new completion status
@@ -653,12 +657,12 @@ class TaskManager: ObservableObject {
                 if success {
                     // Remove completely if Supabase deletion succeeded
                     tasks[task.weekday]?.remove(at: index)
-                    self.invalidateFlattenedTasksCache()
+                    self.invalidateAllCaches()
                     saveTasks()
                 } else {
                     // Mark as deleted locally if Supabase deletion failed
                     tasks[task.weekday]?[index].isDeleted = true
-                    self.invalidateFlattenedTasksCache()
+                    self.invalidateAllCaches()
                     saveTasks()
                     print("⚠️ Marked task as deleted locally, will retry Supabase deletion later")
                 }
@@ -1022,8 +1026,23 @@ class TaskManager: ObservableObject {
         cachedFlattenedTasks = nil
     }
 
+    /// Invalidate all caches when tasks are modified
+    private func invalidateAllCaches() {
+        invalidateFlattenedTasksCache()
+        dateTaskCache.removeAll()
+    }
+
     func getTasksForDate(_ date: Date) -> [TaskItem] {
+        // OPTIMIZATION: Check cache first
         let calendar = Calendar.current
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
+
+        if let cached = dateTaskCache[dateKey] {
+            return cached
+        }
+
         let targetDate = calendar.startOfDay(for: date)
 
         // Get the weekday from the date
@@ -1070,7 +1089,7 @@ class TaskManager: ObservableObject {
         //     print("📋 Returning \(filteredTasks.count) tasks for \(weekday.displayName)")
         // }
 
-        return filteredTasks.sorted { task1, task2 in
+        let sortedTasks = filteredTasks.sorted { task1, task2 in
             // Sort by scheduled time if available, otherwise by creation date
             if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
                 return time1 < time2
@@ -1082,6 +1101,10 @@ class TaskManager: ObservableObject {
                 return task1.createdAt < task2.createdAt
             }
         }
+
+        // OPTIMIZATION: Cache the result for this date
+        dateTaskCache[dateKey] = sortedTasks
+        return sortedTasks
     }
 
     func getTasksForCurrentWeek(for weekday: WeekDay) -> [TaskItem] {
@@ -1609,7 +1632,7 @@ class TaskManager: ObservableObject {
         }
 
         self.tasks = tasksByWeekday
-        invalidateFlattenedTasksCache()
+        invalidateAllCaches()
         initializeEmptyDays()
 
         // Save the fixed tasks back to storage if any were fixed

@@ -9,6 +9,7 @@ struct ReceiptStatsView: View {
     @State private var selectedCategory: String? = nil
     @State private var showRecurringExpenses = false
     @Environment(\.colorScheme) var colorScheme
+    @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
 
     var isPopup: Bool = false
 
@@ -226,8 +227,16 @@ struct ReceiptStatsView: View {
             loadCategoryBreakdown()
         }
         .onChange(of: notesManager.notes.count) { _ in
-            // Reload category breakdown when notes are added/removed
-            loadCategoryBreakdown()
+            // OPTIMIZATION: Debounce category breakdown reload when notes change
+            // Prevents recalculation on every note modification (e.g., during bulk import)
+            // Uses 500ms debounce to batch multiple changes together
+            categoryBreakdownDebounceTask?.cancel()
+            categoryBreakdownDebounceTask = Task {
+                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                if !Task.isCancelled {
+                    loadCategoryBreakdown()
+                }
+            }
         }
         .sheet(item: $selectedNote) { note in
             NavigationView {

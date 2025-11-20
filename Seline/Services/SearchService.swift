@@ -217,17 +217,13 @@ class SearchService: ObservableObject {
 
         var results: [SearchResult] = []
 
-        // Get semantic similarity scores for all items
-        let semanticScores = await getSemanticSimilarityScores(query: query, for: cachedContent)
+        // OPTIMIZATION: Only compute semantic scores for top keyword matches
+        // This avoids expensive semantic scoring on all 500+ cached items
+        // First pass: keyword-based filtering to get top candidates
+        let maxSemanticCandidates = 50
+        var keywordResults: [SearchResult] = []
 
         for item in cachedContent {
-            // TEMPORAL FILTERING: Skip items outside the requested date range
-            if let dateRange = temporalRange, let itemDate = item.date {
-                if itemDate < dateRange.startDate || itemDate > dateRange.endDate {
-                    continue  // Skip this item, it's outside the time range
-                }
-            }
-
             let searchText = item.searchText.lowercased()
             let keywordScore = calculateRelevanceScore(
                 searchText: searchText,
@@ -235,6 +231,38 @@ class SearchService: ObservableObject {
                 item: item,
                 relatedItemTitles: relatedItemTitles
             )
+
+            if keywordScore > 0 {
+                keywordResults.append(SearchResult(
+                    item: item,
+                    relevanceScore: keywordScore,
+                    matchedText: findMatchedText(in: item, queryWords: queryWords)
+                ))
+            }
+        }
+
+        // Sort by keyword score and take top candidates for semantic scoring
+        keywordResults.sort { $0.relevanceScore > $1.relevanceScore }
+        let candidatesForSemanticScoring = Array(keywordResults.prefix(maxSemanticCandidates))
+
+        // Get semantic similarity scores only for top candidates
+        let semanticScores = await getSemanticSimilarityScores(
+            query: query,
+            for: candidatesForSemanticScoring.map { $0.item }
+        )
+
+        // Process only the candidates we scored semantically
+        for result in candidatesForSemanticScoring {
+            let item = result.item
+
+            // TEMPORAL FILTERING: Skip items outside the requested date range
+            if let dateRange = temporalRange, let itemDate = item.date {
+                if itemDate < dateRange.startDate || itemDate > dateRange.endDate {
+                    continue  // Skip this item, it's outside the time range
+                }
+            }
+
+            let keywordScore = result.relevanceScore
 
             // Get semantic score for this item
             let semanticScore = semanticScores[item.identifier] ?? 0.0
@@ -246,14 +274,12 @@ class SearchService: ObservableObject {
             // 70% keyword-based, 30% semantic similarity, + context boost
             let combinedScore = (keywordScore * 0.7) + (semanticScore * 0.3) + contextBoost
 
-            if combinedScore > 0 {
-                let matchedText = findMatchedText(in: item, queryWords: queryWords)
-                results.append(SearchResult(
-                    item: item,
-                    relevanceScore: combinedScore,
-                    matchedText: matchedText
-                ))
-            }
+            let matchedText = result.matchedText
+            results.append(SearchResult(
+                item: item,
+                relevanceScore: combinedScore,
+                matchedText: matchedText
+            ))
         }
 
         // Track this search in conversation context (for follow-up understanding)
