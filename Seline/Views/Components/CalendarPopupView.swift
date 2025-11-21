@@ -25,6 +25,7 @@ struct CalendarPopupView: View {
                     selectedDate: $selectedDate,
                     taskManager: taskManager,
                     colorScheme: colorScheme,
+                    selectedTagId: localSelectedTagId,
                     onDateChange: { newDate in
                         updateTasksForDate(for: newDate)
                     }
@@ -329,11 +330,17 @@ struct TaskRowCalendar: View {
     let onDeleteRecurringSeries: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
+    @StateObject private var taskManager = TaskManager.shared
     @State private var showingDeleteAlert = false
 
     // Check if task is completed on this specific date
     private var isTaskCompleted: Bool {
         return task.isCompletedOn(date: selectedDate)
+    }
+
+    // Check if this is an iPhone calendar event (synced from iPhone calendar)
+    private var isIPhoneCalendarEvent: Bool {
+        return task.id.hasPrefix("cal_")
     }
 
     // Get filter type to determine color
@@ -352,9 +359,16 @@ struct TaskRowCalendar: View {
     var body: some View {
         HStack(spacing: 12) {
             // Checkbox (completed or incomplete) - always use filter color
+            // Only make interactive for non-iPhone calendar events
             Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(accentColor)
+                .foregroundColor(isIPhoneCalendarEvent ? accentColor.opacity(0.5) : accentColor)
                 .font(.system(size: 18, weight: .medium))
+                .onTapGesture {
+                    // Toggle completion only if NOT an iPhone calendar event
+                    if !isIPhoneCalendarEvent {
+                        taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                    }
+                }
 
             VStack(alignment: .leading, spacing: 2) {
                 // Task title
@@ -387,10 +401,10 @@ struct TaskRowCalendar: View {
                 .fill(Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            // Tap opens view mode (read-only)
+        .onTapGesture(perform: {
+            // Tap opens view mode (read-only) - but not if tapping the circle
             onView?()
-        }
+        })
         .contextMenu {
             // Context menu "Edit" opens edit mode directly
             if let onEdit = onEdit {
@@ -472,6 +486,7 @@ struct ShadcnCalendar: View {
     @Binding var selectedDate: Date
     let taskManager: TaskManager
     let colorScheme: ColorScheme
+    let selectedTagId: String?
     let onDateChange: (Date) -> Void
 
     @State private var currentMonth = Date()
@@ -597,13 +612,13 @@ struct ShadcnCalendar: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
                 ForEach(daysInMonth, id: \.self) { date in
                     let key = calendar.dateComponents([.year, .month, .day], from: date).description
-                    let hasEvents = (monthEventCountsCache[key] ?? 0) > 0
+                    let eventCount = monthEventCountsCache[key] ?? 0
 
                     ShadcnDayCell(
                         date: date,
                         selectedDate: $selectedDate,
                         currentMonth: currentMonth,
-                        hasEvents: hasEvents,
+                        eventCount: eventCount,
                         colorScheme: colorScheme,
                         onTap: {
                             selectedDate = date
@@ -616,31 +631,15 @@ struct ShadcnCalendar: View {
             .padding(.bottom, 8)
             .onAppear {
                 // Pre-compute event counts on first appearance
-                let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
-                var counts: [String: Int] = [:]
-
-                for date in daysInMonth {
-                    let key = calendar.dateComponents([.year, .month, .day], from: date).description
-                    let eventCount = taskManager.getAllTasks(for: date).count
-                    counts[key] = eventCount
-                }
-
-                eventCountsByDate = counts
-                cachedMonthForEvents = monthStart
+                updateEventCounts()
             }
             .onChange(of: currentMonth) { _ in
                 // Pre-compute event counts when month changes (batch operation, not per-cell)
-                let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
-                var counts: [String: Int] = [:]
-
-                for date in daysInMonth {
-                    let key = calendar.dateComponents([.year, .month, .day], from: date).description
-                    let eventCount = taskManager.getAllTasks(for: date).count
-                    counts[key] = eventCount
-                }
-
-                eventCountsByDate = counts
-                cachedMonthForEvents = monthStart
+                updateEventCounts()
+            }
+            .onChange(of: selectedTagId) { _ in
+                // Update event counts when filter changes
+                updateEventCounts()
             }
             .gesture(
                 DragGesture()
@@ -674,13 +673,47 @@ struct ShadcnCalendar: View {
     private func nextMonth() {
         currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
     }
+
+    private func updateEventCounts() {
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
+        var counts: [String: Int] = [:]
+
+        for date in daysInMonth {
+            let key = calendar.dateComponents([.year, .month, .day], from: date).description
+            let allTasks = taskManager.getAllTasks(for: date)
+            let filteredTasks = applyFilter(to: allTasks)
+            counts[key] = filteredTasks.count
+        }
+
+        eventCountsByDate = counts
+        cachedMonthForEvents = monthStart
+    }
+
+    /// Apply the current filter to tasks
+    private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
+        if let tagId = selectedTagId {
+            if tagId == "" {
+                // Personal filter - show events with nil tagId (default/personal events)
+                return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+            } else if tagId == "cal_sync" {
+                // Personal - Sync filter - show only synced calendar events
+                return tasks.filter { $0.id.hasPrefix("cal_") }
+            } else {
+                // Specific tag filter
+                return tasks.filter { $0.tagId == tagId }
+            }
+        } else {
+            // No filter - show all tasks
+            return tasks
+        }
+    }
 }
 
 struct ShadcnDayCell: View {
     let date: Date
     @Binding var selectedDate: Date
     let currentMonth: Date
-    let hasEvents: Bool
+    let eventCount: Int
     let colorScheme: ColorScheme
     let onTap: () -> Void
 
@@ -708,10 +741,25 @@ struct ShadcnDayCell: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 2) {
+            VStack(spacing: 4) {
                 Text(dayNumber)
                     .font(.system(size: 13, weight: isToday ? .semibold : .regular))
                     .foregroundColor(textColor)
+
+                // Show dots if there are events
+                if eventCount > 0 {
+                    HStack(spacing: 2) {
+                        ForEach(0..<min(eventCount, 3), id: \.self) { _ in
+                            Circle()
+                                .fill(dotColor)
+                                .frame(width: 4, height: 4)
+                        }
+                    }
+                } else {
+                    // Empty space to maintain consistent height
+                    HStack(spacing: 2) {}
+                        .frame(height: 4)
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -747,6 +795,11 @@ struct ShadcnDayCell: View {
         } else {
             return Color.clear
         }
+    }
+
+    private var dotColor: Color {
+        // Use accent color based on theme
+        return colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7)
     }
 }
 
