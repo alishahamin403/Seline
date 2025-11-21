@@ -797,7 +797,9 @@ class TaskManager: ObservableObject {
 
             if newWeekday != updatedTask.weekday {
                 // Remove from old weekday
-                tasks[updatedTask.weekday]?.remove(at: index)
+                var oldWeekdayTasks = tasks[updatedTask.weekday] ?? []
+                oldWeekdayTasks.remove(at: index)
+                tasks[updatedTask.weekday] = oldWeekdayTasks
 
                 // Create task with correct weekday
                 let newTask = TaskItem(
@@ -827,21 +829,25 @@ class TaskManager: ObservableObject {
                 finalTaskCopy.emailIsImportant = updatedTask.emailIsImportant
                 finalTaskCopy.emailAiSummary = updatedTask.emailAiSummary
 
-                // Ensure the weekday array exists
-                if tasks[newWeekday] == nil {
-                    tasks[newWeekday] = []
-                }
-                tasks[newWeekday]?.append(finalTaskCopy)
+                // Ensure the weekday array exists and add the updated task
+                var newWeekdayTasks = tasks[newWeekday] ?? []
+                newWeekdayTasks.append(finalTaskCopy)
+                tasks[newWeekday] = newWeekdayTasks
                 finalTask = finalTaskCopy
             } else {
-                // Update in place
-                tasks[updatedTask.weekday]?[index] = finalTask
+                // Update in place - reassign the array to trigger @Published update
+                var weekdayTasksUpdated = tasks[updatedTask.weekday] ?? []
+                weekdayTasksUpdated[index] = finalTask
+                tasks[updatedTask.weekday] = weekdayTasksUpdated
             }
         } else {
-            // Update in place if no target date change
-            tasks[updatedTask.weekday]?[index] = finalTask
+            // Update in place if no target date change - reassign the array to trigger @Published update
+            var weekdayTasksUpdated = tasks[updatedTask.weekday] ?? []
+            weekdayTasksUpdated[index] = finalTask
+            tasks[updatedTask.weekday] = weekdayTasksUpdated
         }
 
+        invalidateAllCaches()
         saveTasks()
 
         // Cancel old reminder and schedule new one if needed
