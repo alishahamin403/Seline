@@ -39,10 +39,8 @@ struct CalendarPopupView: View {
                     HStack(spacing: 8) {
                         // "All" button (neutral black/white, no color impact)
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                localSelectedTagId = nil
-                                updateTasksForDate(for: selectedDate)
-                            }
+                            localSelectedTagId = nil
+                            updateTasksForDate(for: selectedDate)
                         }) {
                             Text("All")
                                 .font(.system(size: 13, weight: .medium))
@@ -61,10 +59,8 @@ struct CalendarPopupView: View {
 
                         // Personal (default) button - using special marker ""
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                localSelectedTagId = "" // Empty string to filter for personal events (nil tagId)
-                                updateTasksForDate(for: selectedDate)
-                            }
+                            localSelectedTagId = "" // Empty string to filter for personal events (nil tagId)
+                            updateTasksForDate(for: selectedDate)
                         }) {
                             Text("Personal")
                                 .font(.system(size: 13, weight: .medium))
@@ -83,10 +79,8 @@ struct CalendarPopupView: View {
 
                         // Personal - Sync button (Calendar synced events)
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                localSelectedTagId = "cal_sync" // Special marker for synced calendar events
-                                updateTasksForDate(for: selectedDate)
-                            }
+                            localSelectedTagId = "cal_sync" // Special marker for synced calendar events
+                            updateTasksForDate(for: selectedDate)
                         }) {
                             Text("Personal - Sync")
                                 .font(.system(size: 13, weight: .medium))
@@ -106,10 +100,8 @@ struct CalendarPopupView: View {
                         // User-created tags
                         ForEach(tagManager.tags, id: \.id) { tag in
                             Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    localSelectedTagId = tag.id
-                                    updateTasksForDate(for: selectedDate)
-                                }
+                                localSelectedTagId = tag.id
+                                updateTasksForDate(for: selectedDate)
                             }) {
                                 Text(tag.name)
                                     .font(.system(size: 13, weight: .medium))
@@ -653,14 +645,10 @@ struct ShadcnCalendar: View {
 
                         if dragDistance > threshold {
                             // Swiped right - previous month
-                            withAnimation {
-                                previousMonth()
-                            }
+                            previousMonth()
                         } else if dragDistance < -threshold {
                             // Swiped left - next month
-                            withAnimation {
-                                nextMonth()
-                            }
+                            nextMonth()
                         }
                     }
             )

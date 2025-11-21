@@ -413,8 +413,6 @@ struct TimelineView: View {
             .frame(height: hourHeight / 2)
             .frame(maxWidth: .infinity, alignment: .center)
             .offset(y: yPosition(for: timeSlot))
-            .transition(.scale.combined(with: .opacity))
-            .animation(.spring(response: 0.15, dampingFraction: 0.8), value: selectedTimeSlot)
     }
 
     // MARK: - Inline Event Creator
@@ -471,8 +469,6 @@ struct TimelineView: View {
                     Color.black, lineWidth: 1.5)
         )
         .offset(y: yPosition(for: timeSlot))
-        .transition(.scale.combined(with: .opacity))
-        .animation(.spring(response: 0.15, dampingFraction: 0.8), value: isCreatingEvent)
         .confirmationDialog("Set Reminder", isPresented: $showReminderOptions, titleVisibility: .visible) {
             Button("None") {
                 selectedReminder = .none

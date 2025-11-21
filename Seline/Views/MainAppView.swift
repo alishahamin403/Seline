@@ -1180,14 +1180,12 @@ struct MainAppView: View {
 
             if !searchText.isEmpty {
                 searchResultsDropdown
-                    .transition(.opacity)
             }
         }
         .cornerRadius(10)
         .shadow(color: Color.black.opacity(!searchText.isEmpty ? 0.15 : 0.05), radius: !searchText.isEmpty ? 12 : 4, x: 0, y: !searchText.isEmpty ? 6 : 2)
         .padding(.horizontal, 12)
         .zIndex(100)
-        .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
     }
 
     private var mainContentWidgets: some View {
@@ -1227,7 +1225,6 @@ struct MainAppView: View {
         ZStack(alignment: .top) {
             mainContentWidgets
                 .opacity(searchText.isEmpty ? 1 : 0.3)
-                .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
 
             // Overlay to dismiss search when tapping outside
             if !searchText.isEmpty {

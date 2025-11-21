@@ -134,18 +134,15 @@ struct TaskRow: View {
                     dragOffset = CGSize(width: min(0, value.translation.width), height: 0)
                 }
                 .onEnded { value in
-                    withAnimation(.spring(response: 0.15, dampingFraction: 0.8)) {
-                        if value.translation.width < -100 {
-                            // Swipe far enough to delete
-                            onDelete()
-                        } else {
-                            // Reset position
-                            dragOffset = .zero
-                        }
+                    if value.translation.width < -100 {
+                        // Swipe far enough to delete
+                        onDelete()
+                    } else {
+                        // Reset position immediately
+                        dragOffset = .zero
                     }
                 }
         )
-        .animation(.spring(response: 0.15, dampingFraction: 0.8), value: dragOffset)
     }
 }
 
