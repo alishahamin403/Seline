@@ -243,6 +243,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var tagId: String? // Tag for organizing events (nil means "Personal" default tag)
     var isDeleted: Bool = false // Flag for soft deletion when Supabase deletion fails
     var completedDates: [Date] = [] // For recurring tasks: track which specific dates were completed
+    var isFromCalendar: Bool = false // True if synced from iPhone calendar (read-only, no Supabase save)
 
     // Email attachment fields
     var emailId: String?
@@ -319,7 +320,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, title, description, isCompleted, completedDate, weekday, createdAt
         case isRecurring, recurrenceFrequency, recurrenceEndDate, parentRecurringTaskId
-        case scheduledTime, endTime, targetDate, reminderTime, tagId, isDeleted, completedDates
+        case scheduledTime, endTime, targetDate, reminderTime, tagId, isDeleted, completedDates, isFromCalendar
         case emailId, emailSubject, emailSenderName, emailSenderEmail, emailSnippet
         case emailTimestamp, emailBody, emailIsImportant, emailAiSummary
     }
@@ -351,6 +352,9 @@ struct TaskItem: Identifiable, Codable, Equatable {
 
         // Handle completedDates - CRITICAL: might be missing in old data, but should be preserved if present
         completedDates = try container.decodeIfPresent([Date].self, forKey: .completedDates) ?? []
+
+        // Handle isFromCalendar - might be missing in old data, default to false
+        isFromCalendar = try container.decodeIfPresent(Bool.self, forKey: .isFromCalendar) ?? false
 
         // Email fields
         emailId = try container.decodeIfPresent(String.self, forKey: .emailId)
@@ -390,6 +394,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(tagId, forKey: .tagId)
         try container.encode(isDeleted, forKey: .isDeleted)
         try container.encode(completedDates, forKey: .completedDates)
+        try container.encode(isFromCalendar, forKey: .isFromCalendar)
 
         try container.encodeIfPresent(emailId, forKey: .emailId)
         try container.encodeIfPresent(emailSubject, forKey: .emailSubject)
@@ -1970,6 +1975,11 @@ class TaskManager: ObservableObject {
     }
 
     private func saveTaskToSupabase(_ task: TaskItem) async {
+        // Skip calendar events - they are read-only and not saved to Supabase
+        guard !task.isFromCalendar else {
+            return
+        }
+
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             print("⚠️ Cannot save task to Supabase: User not authenticated")
@@ -1994,6 +2004,11 @@ class TaskManager: ObservableObject {
     }
 
     private func updateTaskInSupabase(_ task: TaskItem) async {
+        // Skip calendar events - they are read-only and not saved to Supabase
+        guard !task.isFromCalendar else {
+            return
+        }
+
         guard authManager.isAuthenticated,
               let userId = authManager.supabaseUser?.id else {
             return
@@ -2019,6 +2034,11 @@ class TaskManager: ObservableObject {
     }
 
     private func deleteTaskFromSupabase(_ taskId: String) async -> Bool {
+        // Skip calendar events - they are read-only and not deleted from Supabase
+        guard !taskId.hasPrefix("cal_") else {
+            return true // Return success to allow local deletion
+        }
+
         guard authManager.isAuthenticated else {
             print("❌ User not authenticated, cannot delete from Supabase")
             return false

@@ -82,18 +82,20 @@ struct TimelineEventBlock: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Completion status indicator
-            Button(action: {
-                HapticManager.shared.selection()
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    onToggleCompletion()
+            // Completion status indicator (hidden for calendar events)
+            if !task.isFromCalendar {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        onToggleCompletion()
+                    }
+                }) {
+                    Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(circleColor)
                 }
-            }) {
-                Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(circleColor)
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)

@@ -118,10 +118,10 @@ class CalendarSyncService {
 
     // MARK: - Event Fetching & Filtering (READ-ONLY)
 
-    /// Fetch calendar events from past year to 3 months ahead
+    /// Fetch calendar events from 6 months back to 1 year ahead
     /// This is a READ-ONLY operation - no modifications to the calendar
-    /// Fetches 12 months back to allow LLM to search historical events + 3 months forward
-    /// - Returns: Array of calendar events from past 12 months + next 3 months
+    /// Fetches 6 months back to allow searching historical events + 1 year forward
+    /// - Returns: Array of calendar events from past 6 months + next 1 year
     func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
@@ -136,12 +136,11 @@ class CalendarSyncService {
         // Get the first day of the current month
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
 
-        // Create a predicate to fetch events from PAST YEAR to 3 MONTHS AHEAD (READ-ONLY)
-        // Include past year (12 months back) to allow LLM to find historical events
-        // Plus 3 months ahead for upcoming events
-        // This ensures users can query past events like "when was my last haircut?"
-        let startDate = calendar.date(byAdding: .month, value: -12, to: now) ?? now
-        let endDate = calendar.date(byAdding: .month, value: 3, to: currentMonthStart) ?? now
+        // Create a predicate to fetch events from 6 MONTHS BACK to 1 YEAR AHEAD (READ-ONLY)
+        // Include 6 months back to find recent historical events
+        // Plus 1 year ahead for upcoming events
+        let startDate = calendar.date(byAdding: .month, value: -6, to: now) ?? now
+        let endDate = calendar.date(byAdding: .month, value: 12, to: currentMonthStart) ?? now
 
         // Get all calendars (nil = all calendars)
         let allCalendars = eventStore.calendars(for: .event)
@@ -215,6 +214,9 @@ class CalendarSyncService {
 
         // Mark as Personal - tagId: nil means default Personal category
         taskItem.tagId = nil
+
+        // Mark as calendar event (read-only, not saved to Supabase)
+        taskItem.isFromCalendar = true
 
         // Store the original event ID for sync tracking
         taskItem.id = "cal_\(event.eventIdentifier)"

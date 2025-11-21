@@ -68,17 +68,19 @@ struct AllDayEventsSection: View {
             let circleColor: Color = colorScheme == .dark ? Color.white : Color.black
 
             HStack(spacing: 7) {
-                // Completion checkbox
-                Button(action: {
-                    HapticManager.shared.selection()
-                    onToggleCompletion(task)
-                }) {
-                    let isCompleted = task.isCompletedOn(date: date)
-                    Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(circleColor)
+                // Completion checkbox (hidden for calendar events)
+                if !task.isFromCalendar {
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        onToggleCompletion(task)
+                    }) {
+                        let isCompleted = task.isCompletedOn(date: date)
+                        Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(circleColor)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
 
                 // Task title
                 let isCompleted = task.isCompletedOn(date: date)
