@@ -137,14 +137,20 @@ class AuthenticationManager: ObservableObject {
             // Set user for receipt cache isolation
             ReceiptCategorizationService.shared.setCurrentUser(supabaseUser.id.uuidString)
 
-            // CRITICAL: Clear local caches before syncing to prevent data from previous user
-            TaskManager.shared.clearTasksOnLogout()
-            NotesManager.shared.clearNotesOnLogout()
-            LocationsManager.shared.clearPlacesOnLogout()
-            TagManager.shared.clearTagsOnLogout()
+            // CRITICAL: Check if this is a different user and clear caches only if needed
+            let lastCachedUserId = UserDefaults.standard.string(forKey: "LastCachedUserId")
+            let currentUserId = supabaseUser.id.uuidString
+
+            if let lastCachedUserId = lastCachedUserId, lastCachedUserId != currentUserId {
+                print("⚠️ Detected different user (was: \(lastCachedUserId), now: \(currentUserId)) - clearing old data")
+                TaskManager.shared.clearTasksOnLogout()
+                NotesManager.shared.clearNotesOnLogout()
+                LocationsManager.shared.clearPlacesOnLogout()
+                TagManager.shared.clearTagsOnLogout()
+            }
 
             // Track current user ID to detect account switches
-            UserDefaults.standard.set(supabaseUser.id.uuidString, forKey: "LastCachedUserId")
+            UserDefaults.standard.set(currentUserId, forKey: "LastCachedUserId")
 
             // Sync tasks and notes from Supabase
             Task {
