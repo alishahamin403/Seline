@@ -118,10 +118,10 @@ class CalendarSyncService {
 
     // MARK: - Event Fetching & Filtering (READ-ONLY)
 
-    /// Fetch calendar events from 6 months back to 1 year ahead
+    /// Fetch calendar events from today onwards for the next 3 months
     /// This is a READ-ONLY operation - no modifications to the calendar
-    /// Fetches 6 months back to allow searching historical events + 1 year forward
-    /// - Returns: Array of calendar events from past 6 months + next 1 year
+    /// Only fetches upcoming events (no historical data) to minimize performance impact
+    /// - Returns: Array of calendar events from today to next 3 months
     func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
@@ -133,14 +133,10 @@ class CalendarSyncService {
         let calendar = Calendar.current
         let now = Date()
 
-        // Get the first day of the current month
-        let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
-
-        // Create a predicate to fetch events from 6 MONTHS BACK to 1 YEAR AHEAD (READ-ONLY)
-        // Include 6 months back to find recent historical events
-        // Plus 1 year ahead for upcoming events
-        let startDate = calendar.date(byAdding: .month, value: -6, to: now) ?? now
-        let endDate = calendar.date(byAdding: .month, value: 12, to: currentMonthStart) ?? now
+        // Create a predicate to fetch events from TODAY to 3 MONTHS AHEAD (READ-ONLY)
+        // Only upcoming events for better performance
+        let startDate = calendar.startOfDay(for: now)
+        let endDate = calendar.date(byAdding: .month, value: 3, to: now) ?? now
 
         // Get all calendars (nil = all calendars)
         let allCalendars = eventStore.calendars(for: .event)
