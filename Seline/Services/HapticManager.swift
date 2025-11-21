@@ -7,34 +7,52 @@ class HapticManager {
 
     private init() {}
 
+    // Throttling to prevent excessive haptic feedback on main thread
+    private var lastHapticTime: TimeInterval = 0
+    private let hapticThrottleInterval: TimeInterval = 0.05 // 50ms minimum between haptics
+
+    private func shouldTriggerHaptic() -> Bool {
+        let now = Date().timeIntervalSince1970
+        if now - lastHapticTime >= hapticThrottleInterval {
+            lastHapticTime = now
+            return true
+        }
+        return false
+    }
+
     // MARK: - Component-Specific Haptics
 
     /// Light tap for buttons and general interactions
     func light() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
     }
 
     /// Medium impact for important actions
     func medium() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
     }
 
     /// Heavy impact for critical actions
     func heavy() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UIImpactFeedbackGenerator(style: .heavy)
         generator.impactOccurred()
     }
 
     /// Soft feedback for subtle interactions
     func soft() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UIImpactFeedbackGenerator(style: .soft)
         generator.impactOccurred()
     }
 
     /// Rigid feedback for firm interactions
     func rigid() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UIImpactFeedbackGenerator(style: .rigid)
         generator.impactOccurred()
     }
@@ -43,18 +61,21 @@ class HapticManager {
 
     /// Success feedback (like saving, completing tasks)
     func success() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
     }
 
     /// Warning feedback (like validation errors)
     func warning() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
     }
 
     /// Error feedback (like failed operations)
     func error() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.error)
     }
@@ -63,6 +84,7 @@ class HapticManager {
 
     /// Selection change feedback (like scrolling through items)
     func selection() {
+        guard shouldTriggerHaptic() else { return }
         let generator = UISelectionFeedbackGenerator()
         generator.selectionChanged()
     }

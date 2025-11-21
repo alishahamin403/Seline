@@ -80,24 +80,20 @@ struct MainAppView: View {
     }
 
     /// Compute search results (called with debounce, not on every render)
-    private func computeSearchResults() {
+    private func performSearchComputation() -> [OverlaySearchResult] {
         guard !searchText.isEmpty else {
-            searchResults = []
-            return
+            return []
         }
 
         // If there's a pending action (event or note creation), show action UI instead
         if searchService.pendingEventCreation != nil {
-            searchResults = []
-            return
+            return []
         }
         if searchService.pendingNoteCreation != nil {
-            searchResults = []
-            return
+            return []
         }
         if searchService.pendingNoteUpdate != nil {
-            searchResults = []
-            return
+            return []
         }
 
         var results: [OverlaySearchResult] = []
@@ -229,7 +225,61 @@ struct MainAppView: View {
             ))
         }
 
-        self.searchResults = results
+        return results
+    }
+
+    // MARK: - Helper Methods for onChange Consolidation
+
+    private func activateConversationModalIfNeeded() {
+        if (searchService.pendingEventCreation != nil ||
+            searchService.pendingNoteCreation != nil ||
+            searchService.pendingNoteUpdate != nil) &&
+           !searchService.isInConversationMode {
+            searchService.isInConversationMode = true
+        }
+    }
+
+    private func handleDeepLinkAction(type: String) {
+        switch type {
+        case "noteCreation":
+            showingNewNoteSheet = true
+        case "eventCreation":
+            showingAddEventPopup = true
+        case "receiptStats":
+            showReceiptStats = true
+        case "search":
+            isSearchFocused = true
+        case "chat":
+            showConversationModal = true
+        default:
+            break
+        }
+        resetDeepLinkFlags(type)
+    }
+
+    private func resetDeepLinkFlags(_ type: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            switch type {
+            case "noteCreation":
+                deepLinkHandler.shouldShowNoteCreation = false
+            case "eventCreation":
+                deepLinkHandler.shouldShowEventCreation = false
+            case "receiptStats":
+                deepLinkHandler.shouldShowReceiptStats = false
+            case "search":
+                deepLinkHandler.shouldShowSearch = false
+            case "chat":
+                deepLinkHandler.shouldShowChat = false
+            case "maps":
+                deepLinkHandler.shouldOpenMaps = false
+            default:
+                break
+            }
+        }
+    }
+
+    private func computeSearchResults() {
+        searchResults = performSearchComputation()
     }
 
     private func handleSearchResultTap(_ result: OverlaySearchResult) {
@@ -279,75 +329,46 @@ struct MainAppView: View {
                     searchService.cancelAction()
                     searchResults = []
                 } else {
-                    // Create a new debounced task
+                    // Create a new debounced task on background thread
                     searchDebounceTask = Task {
                         try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
                         if !Task.isCancelled {
-                            computeSearchResults()
+                            DispatchQueue.global(qos: .userInitiated).async {
+                                let results = self.performSearchComputation()
+                                DispatchQueue.main.async {
+                                    self.searchResults = results
+                                }
+                            }
                         }
                     }
                 }
             }
-            .onChange(of: searchService.pendingEventCreation) { newValue in
-                // Trigger conversation modal when event creation is detected from search
-                if newValue != nil && !searchService.isInConversationMode {
-                    searchService.isInConversationMode = true
-                }
+            .onChange(of: searchService.pendingEventCreation) { _ in
+                activateConversationModalIfNeeded()
             }
-            .onChange(of: searchService.pendingNoteCreation) { newValue in
-                // Trigger conversation modal when note creation is detected from search
-                if newValue != nil && !searchService.isInConversationMode {
-                    searchService.isInConversationMode = true
-                }
+            .onChange(of: searchService.pendingNoteCreation) { _ in
+                activateConversationModalIfNeeded()
             }
-            .onChange(of: searchService.pendingNoteUpdate) { newValue in
-                // Trigger conversation modal when note update is detected from search
-                if newValue != nil && !searchService.isInConversationMode {
-                    searchService.isInConversationMode = true
-                }
+            .onChange(of: searchService.pendingNoteUpdate) { _ in
+                activateConversationModalIfNeeded()
             }
             .onChange(of: searchService.isInConversationMode) { newValue in
                 showConversationModal = newValue
             }
             .onChange(of: deepLinkHandler.shouldShowNoteCreation) { newValue in
-                if newValue {
-                    showingNewNoteSheet = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        deepLinkHandler.shouldShowNoteCreation = false
-                    }
-                }
+                if newValue { handleDeepLinkAction(type: "noteCreation") }
             }
             .onChange(of: deepLinkHandler.shouldShowEventCreation) { newValue in
-                if newValue {
-                    showingAddEventPopup = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        deepLinkHandler.shouldShowEventCreation = false
-                    }
-                }
+                if newValue { handleDeepLinkAction(type: "eventCreation") }
             }
             .onChange(of: deepLinkHandler.shouldShowReceiptStats) { newValue in
-                if newValue {
-                    showReceiptStats = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        deepLinkHandler.shouldShowReceiptStats = false
-                    }
-                }
+                if newValue { handleDeepLinkAction(type: "receiptStats") }
             }
             .onChange(of: deepLinkHandler.shouldShowSearch) { newValue in
-                if newValue {
-                    isSearchFocused = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        deepLinkHandler.shouldShowSearch = false
-                    }
-                }
+                if newValue { handleDeepLinkAction(type: "search") }
             }
             .onChange(of: deepLinkHandler.shouldShowChat) { newValue in
-                if newValue {
-                    showConversationModal = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        deepLinkHandler.shouldShowChat = false
-                    }
-                }
+                if newValue { handleDeepLinkAction(type: "chat") }
             }
             .onChange(of: deepLinkHandler.shouldOpenMaps) { newValue in
                 if newValue {
@@ -355,9 +376,7 @@ struct MainAppView: View {
                         let mapsURL = URL(string: "https://maps.google.com/?q=\(lat),\(lon)")!
                         UIApplication.shared.open(mapsURL)
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        deepLinkHandler.shouldOpenMaps = false
-                    }
+                    resetDeepLinkFlags("maps")
                 }
             }
             .fullScreenCover(isPresented: $showConversationModal) {
@@ -558,16 +577,12 @@ struct MainAppView: View {
             Group {
                 switch selectedTab {
                 case .home:
-                    NavigationView {
-                        homeContentWithoutHeader
-                    }
-                    .navigationViewStyle(StackNavigationViewStyle())
-                    .navigationBarHidden(true)
-                    .onAppear {
-                        Task {
-                            await emailService.loadEmailsForFolder(.inbox)
+                    homeContentWithoutHeader
+                        .onAppear {
+                            Task {
+                                await emailService.loadEmailsForFolder(.inbox)
+                            }
                         }
-                    }
                 case .email:
                     EmailView()
                 case .events:

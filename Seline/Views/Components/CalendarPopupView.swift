@@ -30,7 +30,6 @@ struct CalendarPopupView: View {
                         updateTasksForDate(for: newDate)
                     }
                 )
-                .id(localSelectedTagId)  // Force calendar to reinitialize when filter changes
                 .padding(.horizontal, 8)
                 .padding(.top, 12)
                 .padding(.bottom, 16)

@@ -17,6 +17,7 @@ struct TimelineView: View {
     @State private var newEventTime: Date?
     @State private var showReminderOptions = false
     @State private var selectedReminder: ReminderTime = .none
+    @State private var cachedEventLayouts: [EventLayout] = []
     @FocusState private var isTextFieldFocused: Bool
 
     init(
@@ -90,7 +91,14 @@ struct TimelineView: View {
 
     // Calculate layouts for all events, handling overlaps
     private var eventLayouts: [EventLayout] {
-        guard !scheduledTasks.isEmpty else { return [] }
+        cachedEventLayouts
+    }
+
+    private func calculateEventLayouts() {
+        guard !scheduledTasks.isEmpty else {
+            cachedEventLayouts = []
+            return
+        }
 
         var layouts: [EventLayout] = []
 
@@ -179,7 +187,7 @@ struct TimelineView: View {
             }
         }
 
-        return layouts
+        cachedEventLayouts = layouts
     }
 
     private func tasksOverlap(_ task1: TaskItem, _ task2: TaskItem) -> Bool {
@@ -280,7 +288,11 @@ struct TimelineView: View {
                     .id("timeline")
                 }
                 .onAppear {
+                    calculateEventLayouts()
                     scrollToCurrentTime(proxy: proxy)
+                }
+                .onChange(of: scheduledTasks) { _ in
+                    calculateEventLayouts()
                 }
             }
         }
@@ -402,7 +414,7 @@ struct TimelineView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .offset(y: yPosition(for: timeSlot))
             .transition(.scale.combined(with: .opacity))
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedTimeSlot)
+            .animation(.spring(response: 0.15, dampingFraction: 0.8), value: selectedTimeSlot)
     }
 
     // MARK: - Inline Event Creator
@@ -460,7 +472,7 @@ struct TimelineView: View {
         )
         .offset(y: yPosition(for: timeSlot))
         .transition(.scale.combined(with: .opacity))
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isCreatingEvent)
+        .animation(.spring(response: 0.15, dampingFraction: 0.8), value: isCreatingEvent)
         .confirmationDialog("Set Reminder", isPresented: $showReminderOptions, titleVisibility: .visible) {
             Button("None") {
                 selectedReminder = .none
@@ -619,24 +631,13 @@ struct TimelineView: View {
 
     private func scrollToCurrentTime(proxy: ScrollViewProxy) {
         if let currentMinutes = currentTimeMinutes {
-            // Scroll to current time minus some offset to show context
+            // Scroll to current time without animation for snappy feel
             let _ = max(0, currentMinutes - 60) // 1 hour before
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                withAnimation {
-                    // Since we can't scroll to exact position, we'll scroll to the timeline start
-                    // and let users manually scroll. A more sophisticated approach would use
-                    // ScrollViewReader with identifiable hour markers
-                    proxy.scrollTo("timeline", anchor: .top)
-                }
-            }
+            proxy.scrollTo("timeline", anchor: .top)
         } else if let firstTask = scheduledTasks.first,
                   firstTask.scheduledTime != nil {
-            // If not today, scroll to first event
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                withAnimation {
-                    proxy.scrollTo("timeline", anchor: .top)
-                }
-            }
+            // If not today, scroll to first event without animation
+            proxy.scrollTo("timeline", anchor: .top)
         }
     }
 }
