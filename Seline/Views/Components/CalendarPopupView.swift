@@ -30,6 +30,7 @@ struct CalendarPopupView: View {
                         updateTasksForDate(for: newDate)
                     }
                 )
+                .id(localSelectedTagId)  // Force calendar to reinitialize when filter changes
                 .padding(.horizontal, 8)
                 .padding(.top, 12)
                 .padding(.bottom, 16)
@@ -494,7 +495,6 @@ struct ShadcnCalendar: View {
     // Cache event counts by date to avoid N+1 lookups
     @State private var eventCountsByDate: [String: Int] = [:]
     @State private var cachedMonthForEvents: Date?
-    @State private var cachedFilterTag: String? = nil
 
     private var calendar: Calendar {
         Calendar.current
@@ -632,19 +632,11 @@ struct ShadcnCalendar: View {
             .padding(.bottom, 8)
             .onAppear {
                 // Pre-compute event counts on first appearance
-                cachedFilterTag = selectedTagId
                 updateEventCounts()
             }
             .onChange(of: currentMonth) { _ in
                 // Pre-compute event counts when month changes (batch operation, not per-cell)
                 updateEventCounts()
-            }
-            .onChange(of: selectedTagId) { newValue in
-                // Update event counts when filter changes
-                if newValue != cachedFilterTag {
-                    cachedFilterTag = newValue
-                    updateEventCounts()
-                }
             }
             .gesture(
                 DragGesture()
