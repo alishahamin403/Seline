@@ -51,6 +51,10 @@ class AuthenticationManager: ObservableObject {
                 }
             }
 
+            // CRITICAL: Verify cached data matches current user before syncing
+            // This prevents issues if app was used by multiple accounts
+            await verifyAndCleanCacheIfNeeded(for: session.user.id.uuidString)
+
             // Sync tasks and notes from Supabase
             await TaskManager.shared.syncTasksOnLogin()
             await NotesManager.shared.syncNotesOnLogin()
@@ -63,6 +67,24 @@ class AuthenticationManager: ObservableObject {
             // No valid session found, user needs to sign in
             self.isAuthenticated = false
         }
+    }
+
+    /// Verify that cached data belongs to current user, clear if it doesn't
+    private func verifyAndCleanCacheIfNeeded(for userId: String) async {
+        let lastCachedUserKey = "LastCachedUserId"
+        let lastCachedUserId = UserDefaults.standard.string(forKey: lastCachedUserKey)
+
+        // If we have a different user cached, clear everything
+        if let lastCachedUserId = lastCachedUserId, lastCachedUserId != userId {
+            print("⚠️ Detected different user in cache (was: \(lastCachedUserId), now: \(userId)) - clearing old data")
+            TaskManager.shared.clearTasksOnLogout()
+            NotesManager.shared.clearNotesOnLogout()
+            LocationsManager.shared.clearPlacesOnLogout()
+            TagManager.shared.clearTagsOnLogout()
+        }
+
+        // Update the current user ID
+        UserDefaults.standard.set(userId, forKey: lastCachedUserKey)
     }
 
     func signInWithGoogle() async {
@@ -114,6 +136,15 @@ class AuthenticationManager: ObservableObject {
 
             // Set user for receipt cache isolation
             ReceiptCategorizationService.shared.setCurrentUser(supabaseUser.id.uuidString)
+
+            // CRITICAL: Clear local caches before syncing to prevent data from previous user
+            TaskManager.shared.clearTasksOnLogout()
+            NotesManager.shared.clearNotesOnLogout()
+            LocationsManager.shared.clearPlacesOnLogout()
+            TagManager.shared.clearTagsOnLogout()
+
+            // Track current user ID to detect account switches
+            UserDefaults.standard.set(supabaseUser.id.uuidString, forKey: "LastCachedUserId")
 
             // Sync tasks and notes from Supabase
             Task {
@@ -286,7 +317,8 @@ class AuthenticationManager: ObservableObject {
             "UserLocationPreferences",
             "UserCreatedTags",
             "DeletedNotes",
-            "DeletedFolders"
+            "DeletedFolders",
+            "LastCachedUserId"  // Clear user ID tracking on logout
         ]
 
         for key in keysToRemove {

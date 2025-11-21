@@ -185,6 +185,7 @@ struct RecurringExpenseForm: View {
                         .background(Color.red.opacity(0.1))
                         .cornerRadius(8)
                     }
+                    }
                     .padding(16)
                 }
 
