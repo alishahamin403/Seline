@@ -579,11 +579,14 @@ struct RecurringExpenseStatsContent: View {
                 content += "Details: \(description)\n"
             }
 
-            // Create the note
-            let note = Note(
+            // Create the note with expense's next occurrence date
+            var note = Note(
                 title: expense.title,
                 content: content
             )
+            // Set the note's date to the expense's due date
+            note.dateCreated = expense.nextOccurrence
+            note.dateModified = expense.nextOccurrence
 
             // Save the note
             try await noteManager.addNote(note)
