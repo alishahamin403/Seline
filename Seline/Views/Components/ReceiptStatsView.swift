@@ -581,29 +581,25 @@ struct RecurringExpenseStatsContent: View {
 
             // Create the note
             let note = Note(
-                id: UUID(),
-                userId: expense.userId,
                 title: expense.title,
-                content: content,
-                isLocked: false,
-                dateCreated: Date(),
-                dateModified: Date(),
-                isPinned: false,
-                folderId: nil,
-                isDraft: false,
-                imageAttachments: [],
-                tables: [],
-                todoLists: []
+                content: content
             )
 
             // Save the note
             try await noteManager.addNote(note)
 
+            // Get current user ID
+            guard let currentUser = supabaseManager.authClient.currentUser else {
+                print("⚠️ Warning: Could not get current user for receipt category")
+                return
+            }
+
             // Save the "Recurring" category for this receipt
-            try await supabaseManager.supabase
+            let postgrest = await supabaseManager.getPostgrestClient()
+            _ = try await postgrest
                 .from("receipt_categories")
                 .insert([
-                    "user_id": expense.userId,
+                    "user_id": currentUser.id.uuidString,
                     "receipt_title": expense.title,
                     "category": "Recurring"
                 ])
