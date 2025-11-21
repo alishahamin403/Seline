@@ -191,6 +191,17 @@ enum InstanceStatus: String, Codable, CaseIterable, Hashable {
 extension RecurringExpense {
     /// Calculate the next occurrence date based on frequency
     static func calculateNextOccurrence(from startDate: Date, frequency: RecurrenceFrequency) -> Date {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let startDay = calendar.startOfDay(for: startDate)
+
+        // If start date is today or in the future, that's the next occurrence
+        if startDay >= today {
+            return startDate
+        }
+
+        // Otherwise, calculate forward from start date until we reach or pass today
+        var nextOccurrence = startDate
         var components = DateComponents()
 
         switch frequency {
@@ -206,7 +217,11 @@ extension RecurringExpense {
             components.year = 1
         }
 
-        return Calendar.current.date(byAdding: components, to: startDate) ?? startDate
+        while calendar.startOfDay(for: nextOccurrence) < today {
+            nextOccurrence = calendar.date(byAdding: components, to: nextOccurrence) ?? nextOccurrence
+        }
+
+        return nextOccurrence
     }
 
     /// Get reminder date based on selected option

@@ -133,7 +133,9 @@ struct ReceiptStatsView: View {
                                 .frame(width: 32, height: 32)
                         }
                     }
-                    .padding(16)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
 
                     // Category Breakdown Section
                     if isLoadingCategories {
@@ -376,13 +378,22 @@ struct RecurringExpenseStatsContent: View {
                         isBold: true
                     )
                 }
-                .padding(.vertical, 8)
+                .padding(.top, -4)
+                .padding(.bottom, 4)
 
                 // Recurring expenses list
-                ScrollView {
+                ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
                         ForEach(recurringExpenses) { expense in
                             Menu {
+                                Button(action: {
+                                    Task {
+                                        await logAsReceipt(expense)
+                                    }
+                                }) {
+                                    Label("Log as Receipt", systemImage: "receipt")
+                                }
+
                                 Button(action: {
                                     selectedExpense = expense
                                     showEditSheet = true
@@ -555,6 +566,56 @@ struct RecurringExpenseStatsContent: View {
 
         return CurrencyParser.formatAmountNoDecimals(yearlyAmount)
     }
+
+    private func logAsReceipt(_ expense: RecurringExpense) async {
+        do {
+            let noteManager = NotesManager.shared
+            let supabaseManager = SupabaseManager.shared
+
+            // Create note content with expense details
+            var content = "Amount: $\(String(format: "%.2f", Double(truncating: expense.amount as NSDecimalNumber)))\n"
+            content += "Frequency: \(expense.frequency.displayName)\n"
+            if let description = expense.description, !description.isEmpty {
+                content += "Details: \(description)\n"
+            }
+
+            // Create the note
+            let note = Note(
+                id: UUID(),
+                userId: expense.userId,
+                title: expense.title,
+                content: content,
+                isLocked: false,
+                dateCreated: Date(),
+                dateModified: Date(),
+                isPinned: false,
+                folderId: nil,
+                isDraft: false,
+                imageAttachments: [],
+                tables: [],
+                todoLists: []
+            )
+
+            // Save the note
+            try await noteManager.addNote(note)
+
+            // Save the "Recurring" category for this receipt
+            try await supabaseManager.supabase
+                .from("receipt_categories")
+                .insert([
+                    "user_id": expense.userId,
+                    "receipt_title": expense.title,
+                    "category": "Recurring"
+                ])
+                .execute()
+
+            await MainActor.run {
+                print("✓ Receipt created for \(expense.title)")
+            }
+        } catch {
+            print("❌ Error creating receipt: \(error.localizedDescription)")
+        }
+    }
 }
 
 struct StatBox: View {
@@ -567,10 +628,6 @@ struct StatBox: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-
             Text(value)
                 .font(.headline)
                 .fontWeight(isBold ? .bold : .regular)

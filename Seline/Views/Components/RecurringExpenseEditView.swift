@@ -9,6 +9,9 @@ struct RecurringExpenseEditView: View {
     @State private var amount: String
     @State private var category: String
     @State private var selectedFrequency: RecurrenceFrequency
+    @State private var startDate: Date
+    @State private var endDate: Date?
+    @State private var hasEndDate: Bool
     @State private var selectedReminder: ReminderOption
     @State private var isSaving: Bool = false
     @State private var showError: Bool = false
@@ -26,6 +29,9 @@ struct RecurringExpenseEditView: View {
         _amount = State(initialValue: String(format: "%.2f", Double(truncating: expense.amount as NSDecimalNumber)))
         _category = State(initialValue: expense.category ?? "")
         _selectedFrequency = State(initialValue: expense.frequency)
+        _startDate = State(initialValue: expense.startDate)
+        _endDate = State(initialValue: expense.endDate)
+        _hasEndDate = State(initialValue: expense.endDate != nil)
         _selectedReminder = State(initialValue: expense.reminderOption)
     }
 
@@ -126,6 +132,43 @@ struct RecurringExpenseEditView: View {
                             .pickerStyle(.segmented)
                         }
 
+                        // Start Date
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Start Date", systemImage: "calendar.circle.fill")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            DatePicker(
+                                "Start Date",
+                                selection: $startDate,
+                                displayedComponents: .date
+                            )
+                            .datePickerStyle(.compact)
+                            .labelsHidden()
+                        }
+
+                        // End Date Toggle
+                        VStack(alignment: .leading, spacing: 12) {
+                            Toggle(isOn: $hasEndDate) {
+                                Label("Set End Date", systemImage: "calendar.badge.minus")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                            }
+
+                            if hasEndDate {
+                                DatePicker(
+                                    "End Date",
+                                    selection: Binding(
+                                        get: { endDate ?? Date() },
+                                        set: { endDate = $0 }
+                                    ),
+                                    in: startDate...,
+                                    displayedComponents: .date
+                                )
+                                .datePickerStyle(.compact)
+                                .labelsHidden()
+                            }
+                        }
+
                         // Reminder Option
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Reminder", systemImage: "bell.circle.fill")
@@ -199,8 +242,15 @@ struct RecurringExpenseEditView: View {
                 updatedExpense.amount = Decimal(amountDouble)
                 updatedExpense.category = category.isEmpty ? nil : category
                 updatedExpense.frequency = selectedFrequency
+                updatedExpense.startDate = startDate
+                updatedExpense.endDate = hasEndDate ? endDate : nil
                 updatedExpense.reminderOption = selectedReminder
                 updatedExpense.updatedAt = Date()
+                // Recalculate next occurrence based on updated start date and frequency
+                updatedExpense.nextOccurrence = RecurringExpense.calculateNextOccurrence(
+                    from: startDate,
+                    frequency: selectedFrequency
+                )
 
                 try await RecurringExpenseService.shared.updateRecurringExpense(updatedExpense)
 
