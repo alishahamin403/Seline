@@ -658,32 +658,18 @@ struct RecurringExpenseStatsContent: View {
                     .eq("id", value: expense.id.uuidString)
                     .execute()
 
-                // Reload the list and notes to show updated dates and new receipt
+                // Reload the list to show updated dates
                 await MainActor.run {
                     loadRecurringExpenses()
-                    // Reload notes in NotesManager so the receipts view updates
-                    Task {
-                        await NotesManager.shared.loadNotes()
-                    }
                     print("✓ Receipt created for \(expense.title) - Next due: \(formatUpcomingDate(nextInstance.occurrenceDate))")
                 }
             } else {
                 await MainActor.run {
                     print("✓ Receipt created for \(expense.title) - No more upcoming occurrences")
-                    // Reload notes in NotesManager
-                    Task {
-                        await NotesManager.shared.loadNotes()
-                    }
                 }
             }
         } catch {
             print("❌ Error creating receipt: \(error.localizedDescription)")
-            // Still reload notes in case the note was saved but something else failed
-            await MainActor.run {
-                Task {
-                    await NotesManager.shared.loadNotes()
-                }
-            }
         }
     }
 }
