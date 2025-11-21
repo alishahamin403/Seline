@@ -112,7 +112,7 @@ struct ReceiptStatsView: View {
                                 .foregroundColor(.primary)
 
                             if let stats = currentYearStats {
-                                Text(CurrencyParser.formatAmount(stats.yearlyTotal))
+                                Text(CurrencyParser.formatAmountNoDecimals(stats.yearlyTotal))
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(.green)
                             }
