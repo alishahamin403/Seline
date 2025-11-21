@@ -111,7 +111,7 @@ class GeofenceManager: NSObject, ObservableObject {
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
 
-    private let geofenceRadius: CLLocationDistance = 100 // 100 meters
+    private let geofenceRadius: CLLocationDistance = 200 // 200 meters
 
     override init() {
         super.init()
@@ -238,19 +238,40 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
-            // Create a new visit record
-            var visit = LocationVisitRecord.create(
-                userId: userId,
-                savedPlaceId: placeId,
-                entryTime: Date()
-            )
+            // Check if there's a recent visit within 1 hour that we can merge with
+            if let previousVisit = await self.findRecentVisitWithin1Hour(for: placeId) {
+                print("\n🔄 ===== MERGING VISITS =====")
+                print("🔄 Found recent visit from \(previousVisit.entryTime) to \(previousVisit.exitTime?.description ?? "unknown")")
 
-            self.activeVisits[placeId] = visit
+                var mergedVisit = previousVisit
+                // Clear the exit time to reopen the visit
+                mergedVisit.exitTime = nil
+                mergedVisit.durationMinutes = nil
+                mergedVisit.updatedAt = Date()
 
-            print("📝 Started tracking visit for place: \(placeId)")
+                // Add back to active visits using the original entry time (continuous session)
+                self.activeVisits[placeId] = mergedVisit
 
-            // Save to Supabase
-            await self.saveVisitToSupabase(visit)
+                print("🔄 Reopened visit from \(mergedVisit.entryTime) (original entry)")
+                print("🔄 ============================\n")
+
+                // Update Supabase to clear the exit time
+                await self.mergeVisitInSupabase(mergedVisit)
+            } else {
+                // Create a new visit record
+                var visit = LocationVisitRecord.create(
+                    userId: userId,
+                    savedPlaceId: placeId,
+                    entryTime: Date()
+                )
+
+                self.activeVisits[placeId] = visit
+
+                print("📝 Started tracking visit for place: \(placeId)")
+
+                // Save to Supabase
+                await self.saveVisitToSupabase(visit)
+            }
         }
     }
 
@@ -281,6 +302,55 @@ class GeofenceManager: NSObject, ObservableObject {
                 print("⚠️ Visit not found in memory, fetching from Supabase...")
                 await self.findAndCloseIncompleteVisit(for: placeId)
             }
+        }
+    }
+
+    /// Checks if there's a recent visit within 1 hour that can be merged
+    /// Returns the visit record if found, nil otherwise
+    private func findRecentVisitWithin1Hour(for placeId: UUID) async -> LocationVisitRecord? {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, cannot check for recent visits")
+            return nil
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .order("exit_time", ascending: false)
+                .limit(1)
+                .execute()
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            if let visit = visits.first, let exitTime = visit.exitTime {
+                let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
+
+                // If visit was completed within the last 60 minutes, it's a candidate for merging
+                if minutesSinceExit <= 60 && minutesSinceExit >= 0 {
+                    print("✅ Found recent visit that ended \(minutesSinceExit) minutes ago - candidate for merging")
+                    return visit
+                } else if minutesSinceExit < 0 {
+                    // Exit time is in the future (shouldn't happen, but be safe)
+                    print("⚠️ Visit has future exit time, skipping merge")
+                    return nil
+                } else {
+                    print("ℹ️ Most recent visit ended \(minutesSinceExit) minutes ago (beyond 1 hour window)")
+                    return nil
+                }
+            } else {
+                print("ℹ️ No recent visits found for this location")
+                return nil
+            }
+        } catch {
+            print("❌ Error checking for recent visits: \(error)")
+            return nil
         }
     }
 
@@ -491,9 +561,44 @@ class GeofenceManager: NSObject, ObservableObject {
         }
     }
 
+    /// Merges a reopened visit by clearing exit_time and duration_minutes (continuous session)
+    private func mergeVisitInSupabase(_ visit: LocationVisitRecord) async {
+        guard SupabaseManager.shared.getCurrentUser() != nil else {
+            print("⚠️ No user ID, skipping Supabase visit merge")
+            return
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let updateData: [String: PostgREST.AnyJSON] = [
+            "exit_time": .null,
+            "duration_minutes": .null,
+            "updated_at": .string(formatter.string(from: visit.updatedAt))
+        ]
+
+        do {
+            print("🔄 Merging visit in Supabase - ID: \(visit.id.uuidString) (clearing exit_time and duration)")
+
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("location_visits")
+                .update(updateData)
+                .eq("id", value: visit.id.uuidString)
+                .execute()
+
+            print("✅ VISIT MERGE SUCCESSFUL - ID: \(visit.id.uuidString)")
+
+            // Invalidate cached stats for this location
+            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+        } catch {
+            print("❌ Error merging visit in Supabase: \(error)")
+        }
+    }
+
     /// Auto-complete any active visits if user has moved too far from the location
     func autoCompleteVisitsIfOutOfRange(currentLocation: CLLocation, savedPlaces: [SavedPlace]) async {
-        let geofenceRadius: CLLocationDistance = 100 // 100 meters
+        let geofenceRadius: CLLocationDistance = 200 // 200 meters
 
         // Check each active visit
         for (placeId, var visit) in activeVisits {
