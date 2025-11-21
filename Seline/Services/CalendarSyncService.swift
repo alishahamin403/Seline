@@ -15,6 +15,8 @@ class CalendarSyncService {
     private let lastSyncDateKey = "lastCalendarSyncDate"
     private let syncedEventIDsKey = "syncedCalendarEventIDs"
     private let monthsToSkipKey = "calendarSyncMonthsToSkip"
+    private let syncWindowVersionKey = "calendarSyncWindowVersion"
+    private let currentSyncWindowVersion = 2 // Increment when fetch window changes
 
     // Months to skip during sync: (year, month) tuples
     // Example: [(2026, 2)] skips February 2026
@@ -22,6 +24,21 @@ class CalendarSyncService {
 
     private init() {
         loadMonthsToSkip()
+        handleSyncWindowMigration()
+    }
+
+    // MARK: - Sync Window Migration
+
+    /// Handle migration when fetch window changes
+    /// Clears old synced event IDs when the sync window version changes
+    private func handleSyncWindowMigration() {
+        let savedVersion = userDefaults.integer(forKey: syncWindowVersionKey)
+
+        if savedVersion != currentSyncWindowVersion {
+            print("🔄 Calendar sync window changed - clearing old sync tracking")
+            clearSyncTracking()
+            userDefaults.set(currentSyncWindowVersion, forKey: syncWindowVersionKey)
+        }
     }
 
     // MARK: - Testing/Debug: Month Skipping
