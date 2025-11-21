@@ -56,7 +56,6 @@ class SearchService: ObservableObject {
     /// Called on initialization to ensure semantic queries are not used
     func disableSemanticQuerySystem() {
         useSemanticQueryFallback = false
-        print("⚠️ Semantic query system disabled. Using SelineChat for all conversations.")
     }
 
     // Track recently created items for context in follow-up actions
