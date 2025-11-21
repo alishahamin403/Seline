@@ -180,6 +180,18 @@ struct LocationSearchModal: View {
 
                 if let placeId = selectedGooglePlaceId, let details = selectedPlaceDetails {
                     LocationDetailViewWrapper(googlePlaceId: placeId, initialPlaceDetails: details)
+                } else {
+                    // Fallback loading state if conditions aren't met yet
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(colorScheme == .dark ? Color.white : Color.black)
+
+                        Text("Loading location details...")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -219,9 +231,14 @@ struct LocationSearchModal: View {
                 let details = try await mapsService.getPlaceDetails(placeId: placeId)
 
                 await MainActor.run {
+                    // Set data BEFORE showing sheet to ensure no blank state
                     selectedPlaceDetails = details
                     selectedGooglePlaceId = placeId
-                    showLocationDetail = true
+
+                    // Only show sheet after BOTH data points are confirmed set
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                        showLocationDetail = true
+                    }
                 }
             } catch {
                 // Handle error silently

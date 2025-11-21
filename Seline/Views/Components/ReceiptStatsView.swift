@@ -388,7 +388,10 @@ struct RecurringExpenseStatsContent: View {
                             Menu {
                                 Button(action: {
                                     selectedExpense = expense
-                                    showEditSheet = true
+                                    // Add small delay to ensure state is updated before sheet shows
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                                        showEditSheet = true
+                                    }
                                 }) {
                                     Label("Edit", systemImage: "pencil")
                                 }
@@ -487,6 +490,19 @@ struct RecurringExpenseStatsContent: View {
             if let expense = selectedExpense {
                 RecurringExpenseEditView(expense: expense, isPresented: $showEditSheet)
                     .presentationBg()
+            } else {
+                // Fallback loading state if data isn't ready yet
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(colorScheme == .dark ? Color.white : Color.black)
+
+                    Text("Loading expense details...")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
             }
         }
         .onAppear {
