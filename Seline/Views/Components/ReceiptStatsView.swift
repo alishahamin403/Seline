@@ -313,6 +313,9 @@ struct RecurringExpenseStatsContent: View {
     @State private var isLoading = true
     @State private var selectedExpense: RecurringExpense? = nil
     @State private var showEditSheet = false
+    @State private var expenseToLog: RecurringExpense? = nil
+    @State private var showLogSheet = false
+    @State private var isLoggingSaving = false
     @Environment(\.colorScheme) var colorScheme
 
     var monthlyTotal: Double {
@@ -387,9 +390,8 @@ struct RecurringExpenseStatsContent: View {
                         ForEach(recurringExpenses) { expense in
                             Menu {
                                 Button(action: {
-                                    Task {
-                                        await logAsReceipt(expense)
-                                    }
+                                    expenseToLog = expense
+                                    showLogSheet = true
                                 }) {
                                     Label("Log as Receipt", systemImage: "receipt")
                                 }
@@ -494,6 +496,20 @@ struct RecurringExpenseStatsContent: View {
         }) {
             if let expense = selectedExpense {
                 RecurringExpenseEditView(expense: expense, isPresented: $showEditSheet)
+                    .presentationBg()
+            }
+        }
+        .sheet(isPresented: $showLogSheet, onDismiss: {
+            expenseToLog = nil
+            // Reload the list when sheet closes
+            loadRecurringExpenses()
+        }) {
+            if let expense = expenseToLog {
+                LogReceiptView(expense: expense, isPresented: $showLogSheet, isLoading: $isLoggingSaving, onSave: {
+                    Task {
+                        await logAsReceipt(expense)
+                    }
+                })
                     .presentationBg()
             }
         }
@@ -650,6 +666,147 @@ struct RecurringExpenseStatsContent: View {
         } catch {
             print("❌ Error creating receipt: \(error.localizedDescription)")
         }
+    }
+}
+
+// MARK: - Log Receipt View
+
+struct LogReceiptView: View {
+    let expense: RecurringExpense
+    @Binding var isPresented: Bool
+    @Binding var isLoading: Bool
+    let onSave: () -> Void
+    @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Expense title
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Expense")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(expense.title)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                        }
+
+                        Divider()
+
+                        // Amount
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Amount")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(expense.formattedAmount)
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.green)
+                        }
+
+                        // Frequency
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Frequency")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(expense.frequency.displayName)
+                                .font(.body)
+                        }
+
+                        // Due date
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Due Date")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 8) {
+                                Image(systemName: "calendar")
+                                    .foregroundColor(.secondary)
+                                Text(formatDate(expense.nextOccurrence))
+                                    .font(.body)
+                            }
+                        }
+
+                        // Category
+                        if let category = expense.category {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Category")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(category)
+                                    .font(.body)
+                            }
+                        }
+
+                        // Description
+                        if let description = expense.description, !description.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Description")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(description)
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(16)
+                }
+
+                // Action buttons
+                HStack(spacing: 12) {
+                    Button(action: { dismiss() }) {
+                        Text("Cancel")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                            )
+                    }
+
+                    Button(action: {
+                        Task {
+                            isLoading = true
+                            onSave()
+                            // Wait a moment for the operation to complete
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            isLoading = false
+                            isPresented = false
+                        }
+                    }) {
+                        Text(isLoading ? "Saving..." : "Save Receipt")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(isLoading ? Color.white : (colorScheme == .dark ? Color.black : Color.white))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(isLoading ? Color.gray.opacity(0.3) : (colorScheme == .dark ? Color.white : Color.black))
+                            )
+                    }
+                    .disabled(isLoading)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            .navigationTitle("Log Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: date)
     }
 }
 
