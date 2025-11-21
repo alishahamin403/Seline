@@ -178,6 +178,9 @@ struct CalendarPopupView: View {
                                         onDeleteRecurringSeries: {
                                             taskManager.deleteRecurringTask(task)
                                             updateTasksForDate(for: selectedDate)
+                                        },
+                                        onCompletionToggled: {
+                                            updateTasksForDate(for: selectedDate)
                                         }
                                     )
                                 }
@@ -329,6 +332,7 @@ struct TaskRowCalendar: View {
     let onEdit: (() -> Void)?
     let onDelete: (() -> Void)?
     let onDeleteRecurringSeries: (() -> Void)?
+    let onCompletionToggled: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var taskManager = TaskManager.shared
@@ -368,6 +372,7 @@ struct TaskRowCalendar: View {
                     // Toggle completion only if NOT an iPhone calendar event
                     if !isIPhoneCalendarEvent {
                         taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                        onCompletionToggled?()
                     }
                 }
 
