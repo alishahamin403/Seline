@@ -615,15 +615,22 @@ struct RecurringExpenseStatsContent: View {
 
             let postgrest = await supabaseManager.getPostgrestClient()
 
-            // Save the "Recurring" category for this receipt
-            _ = try await postgrest
-                .from("receipt_categories")
-                .insert([
-                    "user_id": currentUser.id.uuidString,
-                    "receipt_title": expense.title,
-                    "category": "Recurring"
-                ])
-                .execute()
+            // Save the "Recurring" category for this receipt (skip if already exists)
+            do {
+                _ = try await postgrest
+                    .from("receipt_categories")
+                    .insert([
+                        "user_id": currentUser.id.uuidString,
+                        "receipt_title": expense.title,
+                        "category": "Recurring"
+                    ])
+                    .execute()
+            } catch {
+                // Ignore duplicate key errors - category already exists
+                if !error.localizedDescription.contains("duplicate key") {
+                    throw error
+                }
+            }
 
             // Update the recurring instance for this occurrence with the note_id
             _ = try await postgrest
@@ -638,13 +645,11 @@ struct RecurringExpenseStatsContent: View {
                 .from("recurring_instances")
                 .select()
                 .eq("recurring_expense_id", value: expense.id.uuidString)
-                .is("note_id", value: "null")
                 .order("occurrence_date", ascending: true)
-                .limit(1)
                 .execute()
 
-            if let data = nextInstanceResponse.data,
-               let nextInstance = try? JSONDecoder().decode([RecurringInstance].self, from: data).first,
+            if let instances = try? JSONDecoder().decode([RecurringInstance].self, from: nextInstanceResponse.data),
+               let nextInstance = instances.first(where: { $0.noteId == nil }),
                nextInstance.occurrenceDate != expense.nextOccurrence {
                 // Update the recurring expense's nextOccurrence to the next pending instance
                 _ = try await postgrest
