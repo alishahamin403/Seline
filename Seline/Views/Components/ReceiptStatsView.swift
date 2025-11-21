@@ -431,14 +431,30 @@ struct RecurringExpenseStatsContent: View {
                                                     .foregroundColor(.secondary)
                                             }
                                         }
+
+                                        // Upcoming date
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "calendar")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                            Text(formatUpcomingDate(expense.nextOccurrence))
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.top, 2)
                                     }
 
                                     Spacer()
 
                                     VStack(alignment: .trailing, spacing: 4) {
-                                        Text(expense.formattedAmount)
-                                            .font(.subheadline)
-                                            .fontWeight(.regular)
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            Text(expense.formattedAmount)
+                                                .font(.subheadline)
+                                                .fontWeight(.regular)
+                                            Text("Yearly: \(getYearlyTotal(for: expense))")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
                                         if !expense.isActive {
                                             Text("Paused")
                                                 .font(.caption)
@@ -493,6 +509,51 @@ struct RecurringExpenseStatsContent: View {
                 print("❌ Error loading recurring expenses: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Format upcoming date in a readable way
+    private func formatUpcomingDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let targetDate = calendar.startOfDay(for: date)
+
+        let components = calendar.dateComponents([.day], from: today, to: targetDate)
+        let daysFromNow = components.day ?? 0
+
+        if daysFromNow == 0 {
+            return "Today"
+        } else if daysFromNow == 1 {
+            return "Tomorrow"
+        } else if daysFromNow > 1 && daysFromNow <= 7 {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: date)
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
+        }
+    }
+
+    /// Calculate yearly total for an expense based on its frequency
+    private func getYearlyTotal(for expense: RecurringExpense) -> String {
+        let amountDouble = Double(truncating: expense.amount as NSDecimalNumber)
+        let yearlyAmount: Double
+
+        switch expense.frequency {
+        case .daily:
+            yearlyAmount = amountDouble * 365
+        case .weekly:
+            yearlyAmount = amountDouble * 52
+        case .biweekly:
+            yearlyAmount = amountDouble * 26
+        case .monthly:
+            yearlyAmount = amountDouble * 12
+        case .yearly:
+            yearlyAmount = amountDouble
+        }
+
+        return CurrencyParser.formatAmountNoDecimals(yearlyAmount)
     }
 }
 
