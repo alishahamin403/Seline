@@ -597,8 +597,9 @@ struct RecurringExpenseStatsContent: View {
                 return
             }
 
-            // Save the "Recurring" category for this receipt
             let postgrest = await supabaseManager.getPostgrestClient()
+
+            // Save the "Recurring" category for this receipt
             _ = try await postgrest
                 .from("receipt_categories")
                 .insert([
@@ -608,8 +609,43 @@ struct RecurringExpenseStatsContent: View {
                 ])
                 .execute()
 
-            await MainActor.run {
-                print("✓ Receipt created for \(expense.title)")
+            // Update the recurring instance for this occurrence with the note_id
+            _ = try await postgrest
+                .from("recurring_instances")
+                .update(["note_id": note.id.uuidString, "status": "completed"])
+                .eq("recurring_expense_id", value: expense.id.uuidString)
+                .eq("occurrence_date", value: ISO8601DateFormatter().string(from: expense.nextOccurrence))
+                .execute()
+
+            // Find the next pending recurring instance without a note_id
+            let nextInstanceResponse = try await postgrest
+                .from("recurring_instances")
+                .select()
+                .eq("recurring_expense_id", value: expense.id.uuidString)
+                .is("note_id", value: "null")
+                .order("occurrence_date", ascending: true)
+                .limit(1)
+                .execute()
+
+            if let data = nextInstanceResponse.data,
+               let nextInstance = try? JSONDecoder().decode([RecurringInstance].self, from: data).first,
+               nextInstance.occurrenceDate != expense.nextOccurrence {
+                // Update the recurring expense's nextOccurrence to the next pending instance
+                _ = try await postgrest
+                    .from("recurring_expenses")
+                    .update(["next_occurrence": ISO8601DateFormatter().string(from: nextInstance.occurrenceDate)])
+                    .eq("id", value: expense.id.uuidString)
+                    .execute()
+
+                // Reload the list to show updated dates
+                await MainActor.run {
+                    loadRecurringExpenses()
+                    print("✓ Receipt created for \(expense.title) - Next due: \(formatUpcomingDate(nextInstance.occurrenceDate))")
+                }
+            } else {
+                await MainActor.run {
+                    print("✓ Receipt created for \(expense.title) - No more upcoming occurrences")
+                }
             }
         } catch {
             print("❌ Error creating receipt: \(error.localizedDescription)")
