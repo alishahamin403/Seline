@@ -10,7 +10,7 @@ struct EmailFolderListView: View {
         NavigationStack {
             ZStack {
                 // Background
-                Color(.systemGray6)
+                Color.white
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
@@ -55,7 +55,7 @@ struct EmailFolderListView: View {
                         }
                         .frame(maxWidth: .infinity)
                     } else {
-                        List {
+                        VStack(spacing: 0) {
                             ForEach(viewModel.folders) { folder in
                                 NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                     HStack(spacing: 12) {
@@ -80,7 +80,10 @@ struct EmailFolderListView: View {
                                         Image(systemName: "chevron.right")
                                             .foregroundColor(.gray)
                                     }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
                                 }
+                                .buttonStyle(PlainButtonStyle())
                                 .contextMenu {
                                     Button("Rename") {
                                         editingFolderName = folder.name
@@ -91,9 +94,14 @@ struct EmailFolderListView: View {
                                         viewModel.deleteFolder(folder)
                                     }
                                 }
+
+                                if folder != viewModel.folders.last {
+                                    Divider()
+                                        .padding(.horizontal, 16)
+                                }
                             }
                         }
-                        .listStyle(.plain)
+                        .padding(.horizontal, 0)
                     }
                 }
             }
