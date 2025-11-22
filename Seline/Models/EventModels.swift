@@ -2931,6 +2931,17 @@ class TagManager: ObservableObject {
         return tags.first { $0.id == id }
     }
 
+    /// Get or create the "Recurring" tag for recurring expenses
+    func getOrCreateRecurringTag() -> Tag? {
+        // Check if "Recurring" tag already exists
+        if let existingTag = tags.first(where: { $0.name == "Recurring" }) {
+            return existingTag
+        }
+
+        // Create the "Recurring" tag if it doesn't exist
+        return createTag(name: "Recurring")
+    }
+
     // MARK: - Supabase Sync
 
     func loadTagsFromSupabase() async {

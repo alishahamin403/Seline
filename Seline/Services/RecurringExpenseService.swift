@@ -248,10 +248,16 @@ class RecurringExpenseService {
             return
         }
 
+        // Get or create the "Recurring" tag
+        let recurringTag = await MainActor.run {
+            TagManager.shared.getOrCreateRecurringTag()
+        }
+        let tagId = recurringTag?.id
+
         let client = await supabaseManager.getPostgrestClient()
         let calendar = Calendar.current
 
-        print("📅 Creating tasks for \(instances.count) instances...")
+        print("📅 Creating tasks for \(instances.count) instances with tag: \(tagId ?? "none")...")
         var tasksCreated = 0
 
         for instance in instances {
@@ -264,18 +270,23 @@ class RecurringExpenseService {
             let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
             let weekdayString = weekdays[weekdayIndex - 1]
 
-            // Create task item
-            let taskData: [String: AnyCodable] = [
-                "id": AnyCodable(taskId),
-                "user_id": AnyCodable(userId.uuidString),
-                "title": AnyCodable(expense.title),
-                "is_completed": AnyCodable(false),
-                "weekday": AnyCodable(weekdayString),
-                "target_date": AnyCodable(targetDate.ISO8601Format()),
-                "description": AnyCodable("Amount: \(expense.formattedAmount)" + (expense.category.map { "\nCategory: \($0)" } ?? "")),
-                "is_recurring": AnyCodable(false),
-                "created_at": AnyCodable(Date().ISO8601Format())
+            // Create task item with Recurring tag
+            var taskData: [String: AnyCodable] = [
+                "id": AnyCodable(value: taskId),
+                "user_id": AnyCodable(value: userId.uuidString),
+                "title": AnyCodable(value: expense.title),
+                "is_completed": AnyCodable(value: false),
+                "weekday": AnyCodable(value: weekdayString),
+                "target_date": AnyCodable(value: targetDate.ISO8601Format()),
+                "description": AnyCodable(value: "Amount: \(expense.formattedAmount)" + (expense.category.map { "\nCategory: \($0)" } ?? "")),
+                "is_recurring": AnyCodable(value: false),
+                "created_at": AnyCodable(value: Date().ISO8601Format())
             ]
+
+            // Add tag ID if available
+            if let tagId = tagId {
+                taskData["tag_id"] = AnyCodable(value: tagId)
+            }
 
             do {
                 try await client
@@ -289,7 +300,7 @@ class RecurringExpenseService {
             }
         }
 
-        print("✅ Created \(tasksCreated)/\(instances.count) tasks for calendar")
+        print("✅ Created \(tasksCreated)/\(instances.count) tasks for calendar with Recurring tag")
     }
 
     /// Delete tasks associated with a recurring expense
@@ -307,7 +318,7 @@ class RecurringExpenseService {
                 .from("tasks")
                 .delete()
                 .eq("user_id", value: userId.uuidString)
-                .like("id", value: "recurring_\(expenseId)_%")
+                .like("id", pattern: "recurring_\(expenseId)_%")
                 .execute()
 
             print("🗑️ Deleted tasks for recurring expense")
