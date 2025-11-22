@@ -125,13 +125,6 @@ struct EmailFolderSidebarView: View {
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(colorScheme == .dark ?
-                                            Color.white.opacity(0.15) :
-                                            Color.black.opacity(0.08)
-                                        )
-                                )
                             }
                             .buttonStyle(PlainButtonStyle())
                             .contextMenu {
