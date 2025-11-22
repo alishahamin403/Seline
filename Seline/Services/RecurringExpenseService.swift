@@ -316,39 +316,3 @@ class RecurringExpenseService {
         }
     }
 }
-
-// MARK: - AnyCodable Helper
-
-/// Helper struct for encoding any value to JSON
-private struct AnyCodable: Encodable {
-    let value: Any
-
-    init(_ value: Any) {
-        self.value = value
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-
-        switch value {
-        case let string as String:
-            try container.encode(string)
-        case let int as Int:
-            try container.encode(int)
-        case let double as Double:
-            try container.encode(double)
-        case let bool as Bool:
-            try container.encode(bool)
-        case let array as [Any]:
-            try container.encode(array.map { AnyCodable($0) })
-        case is NSNull:
-            try container.encodeNil()
-        default:
-            let context = EncodingError.Context(
-                codingPath: container.codingPath,
-                debugDescription: "Cannot encode \(type(of: value))"
-            )
-            throw EncodingError.invalidValue(value, context)
-        }
-    }
-}
