@@ -130,7 +130,8 @@ class RecurringExpenseCalendarService {
         // Create a predicate to find events related to this expense
         let now = Date()
         let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) ?? now
-        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater)
+        let calendars = eventStore.calendars(for: .event)
+        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: calendars)
 
         let allEvents = eventStore.events(matching: predicate)
 
