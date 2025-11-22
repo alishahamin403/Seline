@@ -507,6 +507,11 @@ struct RecurringExpenseStatsContent: View {
         }
         .onAppear {
             loadRecurringExpenses()
+
+            // Auto-sync calendar events for existing recurring expenses
+            Task {
+                await RecurringExpenseCalendarService.shared.autoSyncCalendarEventsForExistingExpenses()
+            }
         }
     }
 

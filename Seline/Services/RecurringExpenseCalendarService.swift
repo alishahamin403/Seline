@@ -20,6 +20,73 @@ class RecurringExpenseCalendarService {
         return granted
     }
 
+    /// Auto-sync calendar events for existing recurring expenses (call on app launch)
+    func autoSyncCalendarEventsForExistingExpenses() async {
+        print("📅 Auto-syncing calendar events for existing recurring expenses...")
+
+        // Check if we have calendar permission
+        guard await requestCalendarAccess() else {
+            print("⚠️ Calendar permission not available - skipping auto-sync")
+            return
+        }
+
+        do {
+            // Fetch all existing recurring expenses
+            let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+            guard !expenses.isEmpty else {
+                print("✅ No existing recurring expenses to sync")
+                return
+            }
+
+            print("📅 Found \(expenses.count) existing recurring expenses")
+
+            // Get the default calendar
+            guard let calendar = getDefaultCalendar() else {
+                print("❌ No default calendar found")
+                return
+            }
+
+            var totalCreated = 0
+
+            // Sync each existing expense
+            for expense in expenses {
+                do {
+                    // Fetch instances for this expense
+                    let instances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
+
+                    print("📅 Syncing \(instances.count) instances for \(expense.title)")
+
+                    // Create calendar events for each instance
+                    var successCount = 0
+                    for instance in instances {
+                        do {
+                            try createAllDayEvent(
+                                for: expense,
+                                instance: instance,
+                                in: calendar
+                            )
+                            successCount += 1
+                        } catch {
+                            // Silently skip if event already exists
+                            if !error.localizedDescription.contains("already exist") {
+                                print("⚠️ Skipped event (may already exist): \(expense.title) on \(instance.occurrenceDate)")
+                            }
+                        }
+                    }
+
+                    totalCreated += successCount
+                    print("✅ Created/verified \(successCount)/\(instances.count) events for \(expense.title)")
+                } catch {
+                    print("⚠️ Failed to sync instances for \(expense.title): \(error.localizedDescription)")
+                }
+            }
+
+            print("✅ Auto-sync complete: Created/verified \(totalCreated) total calendar events")
+        } catch {
+            print("⚠️ Auto-sync failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Request calendar access and create all-day events for recurring expense instances
     func createCalendarEventsForRecurringExpense(
         _ expense: RecurringExpense,
