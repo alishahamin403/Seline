@@ -3805,7 +3805,7 @@ class OpenAIService: ObservableObject {
         }
 
         // Step 1: Compile lightweight metadata from all data sources
-        let allMetadata = MetadataBuilderService.buildAppMetadata(
+        let allMetadata = await MetadataBuilderService.buildAppMetadata(
             taskManager: taskManager,
             notesManager: notesManager,
             emailService: emailService,

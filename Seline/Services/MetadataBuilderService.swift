@@ -11,9 +11,16 @@ class MetadataBuilderService {
         notesManager: NotesManager,
         emailService: EmailService,
         locationsManager: LocationsManager
-    ) -> AppDataMetadata {
+    ) async -> AppDataMetadata {
         let receipts = buildReceiptMetadata(from: notesManager)
         let events = buildEventMetadata(from: taskManager)
+
+        // Preload visit stats for all saved places before building location metadata
+        print("📊 Preloading geofence visit stats for \(locationsManager.savedPlaces.count) locations...")
+        for place in locationsManager.savedPlaces {
+            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        }
+
         let locations = buildLocationMetadata(from: locationsManager)
         let notes = buildNoteMetadata(from: notesManager)
         let emails = buildEmailMetadata(from: emailService)
@@ -202,6 +209,37 @@ class MetadataBuilderService {
             print("   Address: \(location.address) → City: \(city ?? "N/A"), Province: \(province ?? "N/A")")
             print("   Folder: \(location.category) → FolderCity: \(folderCity ?? "N/A"), FolderProvince: \(folderProvince ?? "N/A")")
 
+            // Fetch visit stats from geofence tracking data
+            var visitCount: Int? = nil
+            var totalVisitDuration: TimeInterval? = nil
+            var averageVisitDuration: TimeInterval? = nil
+            var lastVisited: Date? = nil
+            var isFrequent: Bool? = nil
+            var peakVisitTimes: [String]? = nil
+            var mostVisitedDays: [String]? = nil
+
+            // Get cached stats if available
+            if let stats = LocationVisitAnalytics.shared.visitStats[location.id] {
+                visitCount = stats.totalVisits
+                averageVisitDuration = stats.averageDurationMinutes * 60 // Convert to seconds
+                lastVisited = stats.lastVisitDate
+                isFrequent = stats.totalVisits > 1
+
+                // Build peak visit times array from most common time of day
+                if let mostCommonTime = stats.mostCommonTimeOfDay {
+                    peakVisitTimes = [mostCommonTime]
+                }
+
+                // Build most visited days array from most common day of week
+                if let mostCommonDay = stats.mostCommonDayOfWeek {
+                    mostVisitedDays = [mostCommonDay]
+                }
+
+                print("   📊 Visit Stats: \(visitCount ?? 0) visits, Peak: \(peakVisitTimes?.joined(separator: ", ") ?? "N/A"), Days: \(mostVisitedDays?.joined(separator: ", ") ?? "N/A")")
+            } else {
+                print("   📊 No geofence visit data tracked yet")
+            }
+
             return LocationMetadata(
                 id: location.id,
                 name: location.name,
@@ -219,13 +257,13 @@ class MetadataBuilderService {
                 cuisine: location.userCuisine,
                 dateCreated: location.dateCreated,
                 dateModified: location.dateModified,
-                visitCount: nil,
-                totalVisitDuration: nil,
-                averageVisitDuration: nil,
-                lastVisited: nil,
-                isFrequent: nil,
-                peakVisitTimes: nil,
-                mostVisitedDays: nil
+                visitCount: visitCount,
+                totalVisitDuration: totalVisitDuration,
+                averageVisitDuration: averageVisitDuration,
+                lastVisited: lastVisited,
+                isFrequent: isFrequent,
+                peakVisitTimes: peakVisitTimes,
+                mostVisitedDays: mostVisitedDays
             )
         }
     }
