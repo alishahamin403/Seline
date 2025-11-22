@@ -168,10 +168,15 @@ class RecurringExpenseCalendarService {
     ) throws {
         let event = EKEvent(eventStore: eventStore)
 
+        // Normalize dates to midnight (local timezone) for all-day events
+        let dateCalendar = Calendar.current
+        let startOfDay = dateCalendar.startOfDay(for: instance.occurrenceDate)
+        let endOfDay = dateCalendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
+
         // Set as all-day event on the occurrence date
         event.title = expense.title
-        event.startDate = instance.occurrenceDate
-        event.endDate = instance.occurrenceDate
+        event.startDate = startOfDay
+        event.endDate = endOfDay
         event.isAllDay = true
 
         // Add description with amount and category info
@@ -189,7 +194,9 @@ class RecurringExpenseCalendarService {
 
         // Save event
         try eventStore.save(event, span: .thisEvent, commit: true)
-        print("✅ Created all-day calendar event: \(expense.title) on \(instance.occurrenceDate)")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        print("✅ Created all-day calendar event: \(expense.title) on \(dateFormatter.string(from: startOfDay))")
     }
 
     // MARK: - Calendar Selection
