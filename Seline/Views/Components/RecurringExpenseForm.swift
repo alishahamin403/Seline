@@ -71,9 +71,10 @@ struct RecurringExpenseForm: View {
                                 Text("Title")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                                TextField("e.g., Netflix Subscription", text: $title)
-                                    .textFieldStyle(.roundedBorder)
+                                TextField("Enter event title", text: $title)
+                                    .padding(12)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(8)
                             }
 
                             // Description
@@ -81,9 +82,11 @@ struct RecurringExpenseForm: View {
                                 Text("Description (Optional)")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                                TextField("Add notes...", text: $description)
-                                    .textFieldStyle(.roundedBorder)
+                                TextField("Add details...", text: $description)
+                                    .padding(12)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(8)
+                                    .frame(height: 80, alignment: .topLeading)
                             }
                         }
 
@@ -98,15 +101,18 @@ struct RecurringExpenseForm: View {
                                 Text("Amount")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
-                                HStack {
+                                HStack(spacing: 0) {
                                     Text("$")
                                         .font(.title3)
                                         .fontWeight(.semibold)
+                                        .padding(.leading, 12)
                                     TextField("0.00", text: $amount)
                                         .keyboardType(.decimalPad)
-                                        .textFieldStyle(.roundedBorder)
+                                        .padding(.vertical, 12)
+                                        .padding(.trailing, 12)
                                 }
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(8)
                             }
 
                             // Category
@@ -114,9 +120,10 @@ struct RecurringExpenseForm: View {
                                 Text("Category (Optional)")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
                                 TextField("e.g., Entertainment", text: $category)
-                                    .textFieldStyle(.roundedBorder)
+                                    .padding(12)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(8)
                             }
 
                             // Start Date
@@ -124,7 +131,6 @@ struct RecurringExpenseForm: View {
                                 Text("Start Date")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
                                 DatePicker(
                                     "Start Date",
                                     selection: $startDate,
@@ -133,6 +139,9 @@ struct RecurringExpenseForm: View {
                                 )
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
+                                .padding(12)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(8)
                             }
 
                             // Frequency
@@ -140,7 +149,6 @@ struct RecurringExpenseForm: View {
                                 Text("Recurrence Frequency")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
                                 Picker("Frequency", selection: $selectedFrequency) {
                                     Text("Weekly").tag(RecurrenceFrequency.weekly)
                                     Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
@@ -163,7 +171,6 @@ struct RecurringExpenseForm: View {
                                     Text("Set End Date")
                                         .font(.subheadline)
                                         .fontWeight(.semibold)
-                                        .foregroundColor(.primary)
                                 }
 
                                 if hasEndDate {
@@ -178,6 +185,9 @@ struct RecurringExpenseForm: View {
                                     )
                                     .datePickerStyle(.compact)
                                     .labelsHidden()
+                                    .padding(12)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(8)
                                 }
                             }
 
@@ -186,7 +196,6 @@ struct RecurringExpenseForm: View {
                                 Text("Reminder")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
                                 Picker("Reminder", selection: $selectedReminder) {
                                     ForEach(ReminderOption.allCases, id: \.self) { option in
                                         Text(option.displayName).tag(option)
@@ -194,6 +203,9 @@ struct RecurringExpenseForm: View {
                                 }
                                 .pickerStyle(.menu)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(8)
                             }
                         }
 
