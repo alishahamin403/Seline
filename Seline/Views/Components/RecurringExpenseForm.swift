@@ -59,132 +59,158 @@ struct RecurringExpenseForm: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollView {
-                    VStack(spacing: 20) {
-                    // Title
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Title", systemImage: "pencil.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        TextField("e.g., Netflix Subscription", text: $title)
-                            .textFieldStyle(.roundedBorder)
-                    }
+                    VStack(spacing: 24) {
+                        // BASIC INFO Section
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Basic Info")
+                                .font(.system(size: 16, weight: .bold))
+                                .padding(.horizontal, 4)
 
-                    // Description
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Description (Optional)", systemImage: "text.alignleft")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        TextField("Add notes...", text: $description)
-                            .textFieldStyle(.roundedBorder)
-                    }
+                            // Title
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Title")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                TextField("e.g., Netflix Subscription", text: $title)
+                                    .textFieldStyle(.roundedBorder)
+                            }
 
-                    // Amount
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Amount", systemImage: "dollarsign.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        HStack {
-                            Text("$")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                            TextField("0.00", text: $amount)
-                                .keyboardType(.decimalPad)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                    }
-
-                    // Category
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Category (Optional)", systemImage: "tag.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        TextField("e.g., Entertainment", text: $category)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    // Frequency
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Recurrence Frequency", systemImage: "repeat.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Picker("Frequency", selection: $selectedFrequency) {
-                            // Exclude daily frequency for recurring expenses
-                            Text("Weekly").tag(RecurrenceFrequency.weekly)
-                            Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
-                            Text("Monthly").tag(RecurrenceFrequency.monthly)
-                            Text("Yearly").tag(RecurrenceFrequency.yearly)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-
-                    // Start Date
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Start Date", systemImage: "calendar.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        DatePicker(
-                            "Start Date",
-                            selection: $startDate,
-                            in: Date()...,
-                            displayedComponents: .date
-                        )
-                        .datePickerStyle(.compact)
-                        .labelsHidden()
-                    }
-
-                    // End Date Toggle
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle(isOn: $hasEndDate) {
-                            Label("Set End Date", systemImage: "calendar.badge.minus")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                        }
-
-                        if hasEndDate {
-                            DatePicker(
-                                "End Date",
-                                selection: Binding(
-                                    get: { endDate ?? Date() },
-                                    set: { endDate = $0 }
-                                ),
-                                in: startDate...,
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.compact)
-                            .labelsHidden()
-                        }
-                    }
-
-                    // Reminder Option
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Reminder", systemImage: "bell.circle.fill")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Picker("Reminder", selection: $selectedReminder) {
-                            ForEach(ReminderOption.allCases, id: \.self) { option in
-                                Text(option.displayName).tag(option)
+                            // Description
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Description (Optional)")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                TextField("Add notes...", text: $description)
+                                    .textFieldStyle(.roundedBorder)
                             }
                         }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
 
-                    Spacer()
+                        // DETAILS Section
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Details")
+                                .font(.system(size: 16, weight: .bold))
+                                .padding(.horizontal, 4)
 
-                    // Error Message
-                    if showError {
-                        HStack(spacing: 12) {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .foregroundColor(.red)
-                            Text(errorMessage)
-                                .font(.subheadline)
-                                .lineLimit(3)
-                            Spacer()
+                            // Amount
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Amount")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                HStack {
+                                    Text("$")
+                                        .font(.title3)
+                                        .fontWeight(.semibold)
+                                    TextField("0.00", text: $amount)
+                                        .keyboardType(.decimalPad)
+                                        .textFieldStyle(.roundedBorder)
+                                }
+                            }
+
+                            // Category
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Category (Optional)")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                TextField("e.g., Entertainment", text: $category)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            // Start Date
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Start Date")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                DatePicker(
+                                    "Start Date",
+                                    selection: $startDate,
+                                    in: Date()...,
+                                    displayedComponents: .date
+                                )
+                                .datePickerStyle(.compact)
+                                .labelsHidden()
+                            }
+
+                            // Frequency
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Recurrence Frequency")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                Picker("Frequency", selection: $selectedFrequency) {
+                                    Text("Weekly").tag(RecurrenceFrequency.weekly)
+                                    Text("Bi-weekly").tag(RecurrenceFrequency.biweekly)
+                                    Text("Monthly").tag(RecurrenceFrequency.monthly)
+                                    Text("Yearly").tag(RecurrenceFrequency.yearly)
+                                }
+                                .pickerStyle(.segmented)
+                            }
                         }
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(8)
-                    }
+
+                        // ADVANCED Section
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Advanced")
+                                .font(.system(size: 16, weight: .bold))
+                                .padding(.horizontal, 4)
+
+                            // End Date Toggle
+                            VStack(alignment: .leading, spacing: 12) {
+                                Toggle(isOn: $hasEndDate) {
+                                    Text("Set End Date")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.primary)
+                                }
+
+                                if hasEndDate {
+                                    DatePicker(
+                                        "End Date",
+                                        selection: Binding(
+                                            get: { endDate ?? Date() },
+                                            set: { endDate = $0 }
+                                        ),
+                                        in: startDate...,
+                                        displayedComponents: .date
+                                    )
+                                    .datePickerStyle(.compact)
+                                    .labelsHidden()
+                                }
+                            }
+
+                            // Reminder Option
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Reminder")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                Picker("Reminder", selection: $selectedReminder) {
+                                    ForEach(ReminderOption.allCases, id: \.self) { option in
+                                        Text(option.displayName).tag(option)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+
+                        // Error Message
+                        if showError {
+                            HStack(spacing: 12) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundColor(.red)
+                                Text(errorMessage)
+                                    .font(.subheadline)
+                                    .lineLimit(3)
+                                Spacer()
+                            }
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                        }
                     }
                     .padding(16)
                 }
