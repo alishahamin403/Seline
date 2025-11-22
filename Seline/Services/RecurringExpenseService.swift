@@ -46,6 +46,9 @@ class RecurringExpenseService {
         // Schedule reminders
         RecurringExpenseManager.shared.scheduleReminder(for: mutableExpense)
 
+        // Create corresponding tasks for each instance so they appear in calendar
+        await createTasksForInstances(instances, expense: mutableExpense)
+
         return mutableExpense
     }
 
@@ -100,8 +103,19 @@ class RecurringExpenseService {
 
     /// Fetch a single recurring expense by ID
     func fetchRecurringExpense(id: UUID) async throws -> RecurringExpense {
-        // TODO: Fetch from Supabase database
-        throw NSError(domain: "RecurringExpenseService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Not yet implemented"])
+        let client = await supabaseManager.getPostgrestClient()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let response = try await client
+            .from("recurring_expenses")
+            .select()
+            .eq("id", value: id.uuidString)
+            .single()
+            .execute()
+
+        let expense = try decoder.decode(RecurringExpense.self, from: response.data)
+        return expense
     }
 
     // MARK: - Update
@@ -136,9 +150,19 @@ class RecurringExpenseService {
 
         print("💾 Updated recurring expense active status in Supabase")
 
-        // Cancel or reschedule reminders
+        // Cancel or reschedule reminders and tasks
         if !isActive {
             RecurringExpenseManager.shared.cancelReminder(for: id)
+            // Delete corresponding tasks when pausing
+            await deleteTasksForRecurringExpense(id)
+        } else {
+            // Recreate tasks when resuming
+            if let expense = try? await fetchRecurringExpense(id: id) {
+                let instances = try? await fetchInstances(for: id)
+                if let instances = instances {
+                    await createTasksForInstances(instances, expense: expense)
+                }
+            }
         }
     }
 
@@ -170,6 +194,9 @@ class RecurringExpenseService {
 
         // Cancel reminders
         RecurringExpenseManager.shared.cancelReminder(for: id)
+
+        // Delete corresponding tasks
+        await deleteTasksForRecurringExpense(id)
     }
 
     // MARK: - Instances
@@ -210,5 +237,118 @@ class RecurringExpenseService {
         // For now, this is a placeholder - full implementation would require
         // fetching the instance first, updating it, and re-saving
         print("💾 Instance linked to note")
+    }
+
+    // MARK: - Tasks Integration
+
+    /// Create tasks for each recurring instance so they appear in calendar
+    private func createTasksForInstances(_ instances: [RecurringInstance], expense: RecurringExpense) async {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            print("⚠️ Could not get user ID for task creation")
+            return
+        }
+
+        let client = await supabaseManager.getPostgrestClient()
+        let calendar = Calendar.current
+
+        print("📅 Creating tasks for \(instances.count) instances...")
+        var tasksCreated = 0
+
+        for instance in instances {
+            // Create a task for this instance
+            let taskId = "recurring_\(expense.id)_\(instance.id)"
+            let targetDate = instance.occurrenceDate
+
+            // Determine the weekday
+            let weekdayIndex = calendar.component(.weekday, from: targetDate)
+            let weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+            let weekdayString = weekdays[weekdayIndex - 1]
+
+            // Create task item
+            let taskData: [String: AnyCodable] = [
+                "id": AnyCodable(taskId),
+                "user_id": AnyCodable(userId.uuidString),
+                "title": AnyCodable(expense.title),
+                "is_completed": AnyCodable(false),
+                "weekday": AnyCodable(weekdayString),
+                "target_date": AnyCodable(targetDate.ISO8601Format()),
+                "description": AnyCodable("Amount: \(expense.formattedAmount)" + (expense.category.map { "\nCategory: \($0)" } ?? "")),
+                "is_recurring": AnyCodable(false),
+                "created_at": AnyCodable(Date().ISO8601Format())
+            ]
+
+            do {
+                try await client
+                    .from("tasks")
+                    .insert(taskData)
+                    .execute()
+                tasksCreated += 1
+            } catch {
+                // Silently skip if task already exists
+                print("⚠️ Task already exists or error creating task for instance: \(error.localizedDescription)")
+            }
+        }
+
+        print("✅ Created \(tasksCreated)/\(instances.count) tasks for calendar")
+    }
+
+    /// Delete tasks associated with a recurring expense
+    func deleteTasksForRecurringExpense(_ expenseId: UUID) async {
+        guard let userId = supabaseManager.getCurrentUser()?.id else {
+            print("⚠️ Could not get user ID for task deletion")
+            return
+        }
+
+        let client = await supabaseManager.getPostgrestClient()
+
+        do {
+            // Delete all tasks that match this recurring expense pattern
+            try await client
+                .from("tasks")
+                .delete()
+                .eq("user_id", value: userId.uuidString)
+                .like("id", value: "recurring_\(expenseId)_%")
+                .execute()
+
+            print("🗑️ Deleted tasks for recurring expense")
+        } catch {
+            print("⚠️ Error deleting tasks: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - AnyCodable Helper
+
+/// Helper struct for encoding any value to JSON
+private struct AnyCodable: Encodable {
+    let value: Any
+
+    init(_ value: Any) {
+        self.value = value
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch value {
+        case let string as String:
+            try container.encode(string)
+        case let int as Int:
+            try container.encode(int)
+        case let double as Double:
+            try container.encode(double)
+        case let bool as Bool:
+            try container.encode(bool)
+        case let array as [Any]:
+            try container.encode(array.map { AnyCodable($0) })
+        case is NSNull:
+            try container.encodeNil()
+        default:
+            let context = EncodingError.Context(
+                codingPath: container.codingPath,
+                debugDescription: "Cannot encode \(type(of: value))"
+            )
+            throw EncodingError.invalidValue(value, context)
+        }
     }
 }
