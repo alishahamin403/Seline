@@ -3875,17 +3875,57 @@ class OpenAIService: ObservableObject {
             context += "\n"
         }
 
-        // Add locations
+        // Add locations with visit statistics
         if !fullData.locations.isEmpty {
-            context += "=== SAVED LOCATIONS ===\n"
+            context += "=== SAVED LOCATIONS WITH VISIT DATA ===\n"
             for location in fullData.locations {
-                var locStr = "• \(location.displayName) - \(location.category)"
-                if let rating = location.userRating {
-                    locStr += " (Rating: \(rating)/10)"
-                }
-                context += locStr + "\n"
-                if let notes = location.userNotes {
-                    context += "  Notes: \(notes)\n"
+                // Find corresponding metadata with visit stats
+                if let locMeta = allMetadata.locations.first(where: { $0.id == location.id }) {
+                    var locStr = "• \(location.displayName) - \(location.category)"
+                    if let rating = location.userRating {
+                        locStr += " (Rating: \(rating)/10)"
+                    }
+                    context += locStr + "\n"
+
+                    // Add geofence visit tracking data
+                    if let visitCount = locMeta.visitCount {
+                        context += "  📊 Visits: \(visitCount) times"
+                        if let lastVisited = locMeta.lastVisited {
+                            let lastVisitStr = dateFormatter.string(from: lastVisited)
+                            context += " | Last visited: \(lastVisitStr)"
+                        }
+                        context += "\n"
+
+                        if let peakTimes = locMeta.peakVisitTimes, !peakTimes.isEmpty {
+                            context += "  🕐 Peak times: \(peakTimes.joined(separator: ", "))\n"
+                        }
+                        if let visitDays = locMeta.mostVisitedDays, !visitDays.isEmpty {
+                            context += "  📅 Most visited: \(visitDays.joined(separator: ", "))\n"
+                        }
+                        if let avgDuration = locMeta.averageVisitDuration {
+                            let minutes = Int(avgDuration / 60)
+                            if minutes > 0 {
+                                context += "  ⏱️ Average visit: \(minutes) minutes\n"
+                            }
+                        }
+                    } else {
+                        context += "  ⓘ No geofence tracking data yet\n"
+                    }
+
+                    if let notes = location.userNotes {
+                        context += "  📝 Notes: \(notes)\n"
+                    }
+                    context += "\n"
+                } else {
+                    // Fallback if metadata not found
+                    var locStr = "• \(location.displayName) - \(location.category)"
+                    if let rating = location.userRating {
+                        locStr += " (Rating: \(rating)/10)"
+                    }
+                    context += locStr + "\n"
+                    if let notes = location.userNotes {
+                        context += "  Notes: \(notes)\n"
+                    }
                 }
             }
             context += "\n"
