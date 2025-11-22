@@ -2104,10 +2104,24 @@ class OpenAIService: ObservableObject {
         **FOR RECEIPTS/EXPENSES:**
         - Show one-time receipts AND recurring expenses (subscriptions, bills, regular payments)
         - Include receipt/expense name, amount, date, category if available
-        - For recurring expenses, show frequency: "**[Name]** - **$[Amount]** ([Frequency])"
+
+        **FOR RECURRING EXPENSES (DETAILED ANALYSIS):**
+        - Use ALL provided fields: amount, frequency, start date, next occurrence, end date (if applicable), notes/description, category, active status
+        - Analyze and explain patterns:
+          - How often does this occur? (daily/weekly/biweekly/monthly/yearly)
+          - When did it start? Is it ongoing or ending?
+          - What's the next payment date?
+          - Is it currently active or paused?
+          - Include any notes/description about the expense
+        - For each recurring expense, calculate the annualized cost and explain
+        - Compare recurring expenses to identify which ones are highest impact (e.g., "Your subscriptions cost $X/month combined")
+        - Identify patterns like: "You have [X] active subscriptions totaling $[amount]/month"
+        - Show ALL details provided in the recurring expense section - don't skip notes, categories, or status information
+        - When analyzing spending, always include analysis of recurring expenses separately from one-time expenses
+
         - Show combined total of one-time + recurring expenses for the period
         - Group by date or merchant for clarity
-        - When user asks about spending/expenses/budget, analyze patterns and totals including BOTH types
+        - When user asks about spending/expenses/budget, analyze patterns and totals including BOTH types with detailed breakdown
 
         GENERAL RULES:
         - Answer what the user asked for, nothing more
@@ -2384,10 +2398,24 @@ class OpenAIService: ObservableObject {
         **FOR RECEIPTS/EXPENSES:**
         - Show one-time receipts AND recurring expenses (subscriptions, bills, regular payments)
         - Include receipt/expense name, amount, date, category if available
-        - For recurring expenses, show frequency: "**[Name]** - **$[Amount]** ([Frequency])"
+
+        **FOR RECURRING EXPENSES (DETAILED ANALYSIS):**
+        - Use ALL provided fields: amount, frequency, start date, next occurrence, end date (if applicable), notes/description, category, active status
+        - Analyze and explain patterns:
+          - How often does this occur? (daily/weekly/biweekly/monthly/yearly)
+          - When did it start? Is it ongoing or ending?
+          - What's the next payment date?
+          - Is it currently active or paused?
+          - Include any notes/description about the expense
+        - For each recurring expense, calculate the annualized cost and explain
+        - Compare recurring expenses to identify which ones are highest impact (e.g., "Your subscriptions cost $X/month combined")
+        - Identify patterns like: "You have [X] active subscriptions totaling $[amount]/month"
+        - Show ALL details provided in the recurring expense section - don't skip notes, categories, or status information
+        - When analyzing spending, always include analysis of recurring expenses separately from one-time expenses
+
         - Show combined total of one-time + recurring expenses for the period
         - Group by date or merchant for clarity
-        - When user asks about spending/expenses/budget, analyze patterns and totals including BOTH types
+        - When user asks about spending/expenses/budget, analyze patterns and totals including BOTH types with detailed breakdown
 
         GENERAL RULES:
         - Answer what the user asked for, nothing more
@@ -3279,9 +3307,28 @@ class OpenAIService: ObservableObject {
 
         // Add recurring expenses first
         if !recurringExpenses.isEmpty {
-            context += "💳 **RECURRING EXPENSES:**\n"
+            context += "💳 **RECURRING EXPENSES (DETAILED):**\n\n"
             for expense in recurringExpenses.sorted(by: { $0.nextOccurrence < $1.nextOccurrence }) {
-                context += "   • \(expense.title): \(expense.formattedAmount) (\(expense.frequency.rawValue))\n"
+                context += "   **\(expense.title)**\n"
+                context += "      Amount: \(expense.formattedAmount)\n"
+                context += "      Frequency: \(expense.frequency.rawValue.capitalized)\n"
+                context += "      Next occurrence: \(dateFormatter.string(from: expense.nextOccurrence))\n"
+                context += "      Started: \(dateFormatter.string(from: expense.startDate))\n"
+
+                if let endDate = expense.endDate {
+                    context += "      Ends: \(dateFormatter.string(from: endDate))\n"
+                }
+
+                if let description = expense.description, !description.isEmpty {
+                    context += "      Notes: \(description)\n"
+                }
+
+                if let category = expense.category, !category.isEmpty {
+                    context += "      Category: \(category)\n"
+                }
+
+                context += "      Status: \(expense.isActive ? "✅ Active" : "⏸️ Paused")\n"
+                context += "\n"
             }
             context += "\n"
         }

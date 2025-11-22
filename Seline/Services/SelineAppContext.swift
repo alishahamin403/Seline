@@ -1281,9 +1281,19 @@ class SelineAppContext {
         context += dateFormatter.string(from: currentDate) + "\n\n"
 
         // Data summary
+        // Fetch recurring expenses count
+        var recurringCount = 0
+        do {
+            let activeRecurring = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+            recurringCount = activeRecurring.count
+        } catch {
+            print("⚠️ Could not fetch recurring expenses count: \(error)")
+        }
+
         context += "=== DATA SUMMARY ===\n"
         context += "Total Events: \(events.count)\n"
         context += "Total Receipts: \(receipts.count)\n"
+        context += "Total Recurring Expenses: \(recurringCount)\n"
         context += "Total Notes: \(notes.count)\n"
         context += "Total Emails: \(emails.count)\n"
         context += "Total Locations: \(locations.count)\n\n"
@@ -1559,6 +1569,77 @@ class SelineAppContext {
             }
         } else {
             context += "  No receipts\n"
+        }
+
+        // Recurring Expenses - Detailed breakdown with all information
+        context += "\n=== RECURRING EXPENSES (SUBSCRIPTIONS & BILLS) ===\n"
+        do {
+            let activeRecurring = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+
+            if !activeRecurring.isEmpty {
+                // Calculate totals
+                let totalMonthly = activeRecurring.reduce(0.0) { total, expense in
+                    let amount = Double(truncating: expense.amount as NSDecimalNumber)
+                    switch expense.frequency {
+                    case .daily:
+                        return total + (amount * 30)
+                    case .weekly:
+                        return total + (amount * 4.3)
+                    case .biweekly:
+                        return total + (amount * 2.15)
+                    case .monthly:
+                        return total + amount
+                    case .yearly:
+                        return total + (amount / 12)
+                    }
+                }
+
+                let totalYearly = activeRecurring.reduce(0.0) { total, expense in
+                    let amount = Double(truncating: expense.amount as NSDecimalNumber)
+                    switch expense.frequency {
+                    case .daily:
+                        return total + (amount * 365)
+                    case .weekly:
+                        return total + (amount * 52)
+                    case .biweekly:
+                        return total + (amount * 26)
+                    case .monthly:
+                        return total + (amount * 12)
+                    case .yearly:
+                        return total + amount
+                    }
+                }
+
+                context += "**Monthly Total: $\(String(format: "%.2f", totalMonthly))** | **Yearly Total: $\(String(format: "%.2f", totalYearly))**\n"
+                context += "**Active Subscriptions: \(activeRecurring.count)**\n\n"
+
+                // Sort by next occurrence
+                for expense in activeRecurring.sorted(by: { $0.nextOccurrence < $1.nextOccurrence }) {
+                    let amount = Double(truncating: expense.amount as NSDecimalNumber)
+                    context += "• **\(expense.title)**\n"
+                    context += "    Amount: \(expense.formattedAmount) | Frequency: \(expense.frequency.rawValue.capitalized)\n"
+                    context += "    Next: \(formatDate(expense.nextOccurrence)) | Started: \(formatDate(expense.startDate))\n"
+
+                    if let endDate = expense.endDate {
+                        context += "    Ends: \(formatDate(endDate))\n"
+                    }
+
+                    if let description = expense.description, !description.isEmpty {
+                        context += "    Notes: \(description)\n"
+                    }
+
+                    if let category = expense.category, !category.isEmpty {
+                        context += "    Category: \(category)\n"
+                    }
+
+                    context += "    Status: \(expense.isActive ? "✅ Active" : "⏸️ Paused")\n"
+                    context += "\n"
+                }
+            } else {
+                context += "  No active recurring expenses\n"
+            }
+        } catch {
+            context += "  Error fetching recurring expenses: \(error.localizedDescription)\n"
         }
 
         // Emails detail - Comprehensive with folder organization, metadata, and full content
