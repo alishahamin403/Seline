@@ -35,13 +35,15 @@ struct StructuredLLMContext: Encodable {
         let locations: [LocationJSON]?
         let tasks: [TaskJSON]?
         let emails: [EmailJSON]?
+        let emailFolders: [EmailFolderJSON]?  // organized by folders/labels
         let receipts: [ReceiptJSON]?
         let receiptSummary: ReceiptSummaryJSON?
 
         struct NoteJSON: Encodable {
             let id: String
             let title: String
-            let excerpt: String
+            let content: String  // full note content
+            let folder: String?
             let relevanceScore: Double
             let matchType: String
         }
@@ -49,26 +51,50 @@ struct StructuredLLMContext: Encodable {
         struct LocationJSON: Encodable {
             let id: String
             let name: String
-            let category: String?
+            let folderName: String?  // which folder it's saved in
             let city: String?
             let province: String?
             let country: String?
             let userRating: Double?
             let googleRating: Double?
+            let visitCount: Int?  // Total number of visits
+            let totalVisitDuration: String?  // formatted duration
+            let averageVisitDuration: String?  // formatted duration
+            let lastVisited: String?  // formatted date
+            let visitHistory: [VisitHistoryJSON]?  // detailed visit history
+            let peakVisitTimes: [String]?  // most common times of day
+            let mostVisitedDays: [String]?  // most frequently visited days
             let relevanceScore: Double
             let matchType: String
             let distanceFromLocation: String?
+
+            struct VisitHistoryJSON: Encodable {
+                let visitDate: String  // formatted date
+                let duration: String?  // formatted duration
+                let timeOfDay: String?
+                let dayOfWeek: String?
+            }
         }
 
         struct TaskJSON: Encodable {
             let id: String
             let title: String
+            let description: String?  // full event description
             let scheduledTime: String?
             let dayOfWeek: String?  // Explicit day of week to prevent LLM confusion
             let duration: Int?  // minutes
             let isCompleted: Bool
+            let relatedEmails: [RelatedEmailJSON]?  // emails connected to this event
             let relevanceScore: Double
             let matchType: String
+
+            struct RelatedEmailJSON: Encodable {
+                let emailId: String
+                let from: String
+                let subject: String
+                let snippet: String
+                let date: String  // formatted date
+            }
         }
 
         struct EmailJSON: Encodable {
@@ -78,9 +104,20 @@ struct StructuredLLMContext: Encodable {
             let timestamp: String
             let isRead: Bool
             let excerpt: String
+            let body: String?  // full email body content
+            let folder: String?  // Gmail label or app folder name
+            let folderId: String?  // Gmail label ID or app folder ID
             let relevanceScore: Double
             let matchType: String
             let importanceIndicators: [String]
+        }
+
+        struct EmailFolderJSON: Encodable {
+            let id: String
+            let name: String
+            let isGmailLabel: Bool  // true if from Gmail, false if app-created
+            let emailCount: Int
+            let emails: [EmailJSON]?  // all emails within this folder
         }
 
         struct ReceiptJSON: Encodable {
@@ -161,6 +198,7 @@ class ContextBuilder {
             locations: buildLocationsJSON(from: filteredContext.locations),
             tasks: buildTasksJSON(from: filteredContext.tasks),
             emails: buildEmailsJSON(from: filteredContext.emails),
+            emailFolders: buildEmailFoldersJSON(from: filteredContext.emailFolders),
             receipts: buildReceiptsJSON(from: filteredContext.receipts),
             receiptSummary: buildReceiptSummaryJSON(from: filteredContext.receiptStatistics)
         )
@@ -211,7 +249,8 @@ class ContextBuilder {
             StructuredLLMContext.ContextData.NoteJSON(
                 id: noteWithRelevance.note.id.uuidString,
                 title: noteWithRelevance.note.title,
-                excerpt: extractExcerpt(from: noteWithRelevance.note.content, maxLength: 200),
+                content: noteWithRelevance.note.content,  // full content sent to LLM
+                folder: noteWithRelevance.note.folder,
                 relevanceScore: noteWithRelevance.relevanceScore,
                 matchType: noteWithRelevance.matchType.rawValue
             )
@@ -219,19 +258,29 @@ class ContextBuilder {
     }
 
     /// Build locations JSON from filtered locations
+    /// Note: Visit statistics would be fetched from LocationVisitAnalytics in the calling code
     private func buildLocationsJSON(from locations: [SavedPlaceWithRelevance]?) -> [StructuredLLMContext.ContextData.LocationJSON]? {
         guard let locations = locations, !locations.isEmpty else { return nil }
 
         return locations.map { locationWithRelevance in
-            StructuredLLMContext.ContextData.LocationJSON(
+            let place = locationWithRelevance.place
+
+            return StructuredLLMContext.ContextData.LocationJSON(
                 id: locationWithRelevance.place.id.uuidString,
-                name: locationWithRelevance.place.name,
-                category: locationWithRelevance.place.category,
-                city: locationWithRelevance.place.city,
-                province: locationWithRelevance.place.province,
-                country: locationWithRelevance.place.country,
-                userRating: locationWithRelevance.place.userRating.map { Double($0) },
-                googleRating: locationWithRelevance.place.rating,
+                name: place.name,
+                folderName: place.category,  // use category as folder name
+                city: place.city,
+                province: place.province,
+                country: place.country,
+                userRating: place.userRating.map { Double($0) },
+                googleRating: place.rating,
+                visitCount: nil,  // Would be populated from LocationVisitAnalytics
+                totalVisitDuration: nil,  // Would be populated from LocationVisitAnalytics
+                averageVisitDuration: nil,  // Would be populated from LocationVisitAnalytics
+                lastVisited: nil,  // Would be populated from LocationVisitAnalytics
+                visitHistory: nil,  // Would be populated from LocationVisitAnalytics
+                peakVisitTimes: nil,  // Would be populated from LocationVisitAnalytics
+                mostVisitedDays: nil,  // Would be populated from LocationVisitAnalytics
                 relevanceScore: locationWithRelevance.relevanceScore,
                 matchType: locationWithRelevance.matchType.rawValue,
                 distanceFromLocation: locationWithRelevance.distanceFromLocation
@@ -239,7 +288,7 @@ class ContextBuilder {
         }
     }
 
-    /// Build tasks JSON from filtered tasks
+    /// Build tasks JSON from filtered tasks (events with descriptions and related emails)
     private func buildTasksJSON(from tasks: [TaskItemWithRelevance]?) -> [StructuredLLMContext.ContextData.TaskJSON]? {
         guard let tasks = tasks, !tasks.isEmpty else { return nil }
 
@@ -261,13 +310,26 @@ class ContextBuilder {
                 weekdayFormatter.string(from: date)
             }
 
+            // Build related emails JSON if available
+            let relatedEmailsJSON = taskWithRelevance.task.relatedEmails?.map { email in
+                StructuredLLMContext.ContextData.TaskJSON.RelatedEmailJSON(
+                    emailId: email.emailId,
+                    from: email.from,
+                    subject: email.subject,
+                    snippet: email.snippet,
+                    date: formatLocalDateForLLM(email.date)
+                )
+            }
+
             return StructuredLLMContext.ContextData.TaskJSON(
                 id: taskWithRelevance.task.id,
                 title: taskWithRelevance.task.title,
+                description: taskWithRelevance.task.description,  // full event description
                 scheduledTime: taskWithRelevance.task.scheduledTime.map { formatLocalDateForLLM($0) },
                 dayOfWeek: dayOfWeek,
                 duration: duration,
                 isCompleted: taskWithRelevance.task.isCompleted,
+                relatedEmails: relatedEmailsJSON,  // connected emails
                 relevanceScore: taskWithRelevance.relevanceScore,
                 matchType: taskWithRelevance.matchType.rawValue
             )
@@ -288,9 +350,44 @@ class ContextBuilder {
                 timestamp: formatLocalDateForLLM(emailWithRelevance.email.timestamp),
                 isRead: emailWithRelevance.email.isRead,
                 excerpt: extractExcerpt(from: emailWithRelevance.email.body ?? "", maxLength: 300),
+                body: emailWithRelevance.email.body,  // full email body
+                folder: emailWithRelevance.email.folder,  // folder/label name
+                folderId: emailWithRelevance.email.folderId,  // folder/label ID
                 relevanceScore: emailWithRelevance.relevanceScore,
                 matchType: emailWithRelevance.matchType.rawValue,
                 importanceIndicators: emailWithRelevance.importanceIndicators
+            )
+        }
+    }
+
+    /// Build email folders JSON organized by labels/folders with all emails inside
+    private func buildEmailFoldersJSON(from folders: [EmailFolder]?) -> [StructuredLLMContext.ContextData.EmailFolderJSON]? {
+        guard let folders = folders, !folders.isEmpty else { return nil }
+
+        return folders.map { folder in
+            let emailsJSON = folder.emails?.map { email in
+                StructuredLLMContext.ContextData.EmailJSON(
+                    id: email.id,
+                    from: email.from,
+                    subject: email.subject,
+                    timestamp: formatLocalDateForLLM(email.date),
+                    isRead: email.isRead,
+                    excerpt: extractExcerpt(from: email.body ?? "", maxLength: 300),
+                    body: email.body,  // full email body
+                    folder: email.folder,
+                    folderId: email.folderId,
+                    relevanceScore: 1.0,  // folders include all emails, high relevance
+                    matchType: "folder_organization",
+                    importanceIndicators: email.isImportant ? ["important"] : []
+                )
+            }
+
+            return StructuredLLMContext.ContextData.EmailFolderJSON(
+                id: folder.id,
+                name: folder.name,
+                isGmailLabel: folder.isGmailLabel,
+                emailCount: folder.emailCount,
+                emails: emailsJSON
             )
         }
     }
@@ -377,6 +474,21 @@ class ContextBuilder {
         }
 
         return truncated + "..."
+    }
+
+    /// Format a duration (in seconds) to human-readable string
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let hours = Int(seconds) / 3600
+        let minutes = (Int(seconds) % 3600) / 60
+        let secs = Int(seconds) % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else if minutes > 0 {
+            return "\(minutes)m \(secs)s"
+        } else {
+            return "\(secs)s"
+        }
     }
 
     // MARK: - Temporal & Follow-up Context Analysis

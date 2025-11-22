@@ -46,7 +46,7 @@ struct EventMetadata: Codable, Identifiable {
     let date: Date?
     let time: Date? // scheduled time
     let endTime: Date?
-    let description: String? // description field
+    let description: String? // full description/notes for the event
     let location: String? // location if available
     let reminder: String? // reminder time
     let isRecurring: Bool
@@ -55,6 +55,7 @@ struct EventMetadata: Codable, Identifiable {
     let completedDates: [Date]? // for recurring: which instances were completed
     let eventType: String? // "work", "personal", "fitness", "meeting", etc
     let priority: Int? // 1-5 priority level if available
+    let relatedEmails: [RelatedEmailReference]? // emails connected to this event
 
     var formattedDateTime: String {
         let dateFormatter = DateFormatter()
@@ -100,13 +101,33 @@ struct EventMetadata: Codable, Identifiable {
     }
 }
 
+// MARK: - Related Email Reference (for events)
+
+struct RelatedEmailReference: Codable {
+    let emailId: String
+    let from: String
+    let subject: String
+    let snippet: String
+    let date: Date
+}
+
+// MARK: - Location Visit History
+
+struct LocationVisitRecord: Codable {
+    let visitDate: Date // exact date and time of visit
+    let duration: TimeInterval? // exact duration in seconds
+    let timeOfDay: String? // "morning", "afternoon", "evening", "night"
+    let dayOfWeek: String? // "Monday", "Tuesday", etc
+    let notes: String? // notes about this specific visit
+}
+
 // MARK: - Location Metadata
 
 struct LocationMetadata: Codable, Identifiable {
     let id: UUID
     let name: String
     let customName: String?
-    let category: String // folder/category name
+    let folderName: String? // which folder/category the location is saved in
     let address: String
     let city: String? // City/Town name for geographic filtering
     let province: String? // Province/State name for geographic filtering
@@ -119,9 +140,14 @@ struct LocationMetadata: Codable, Identifiable {
     let cuisine: String? // user's cuisine classification
     let dateCreated: Date
     let dateModified: Date
-    let visitCount: Int? // Total number of visits/mentions
+    let visitCount: Int? // Total number of visits
+    let totalVisitDuration: TimeInterval? // total time spent across all visits
+    let averageVisitDuration: TimeInterval? // average time per visit
     let lastVisited: Date? // Last time visited
     let isFrequent: Bool? // True if visited more than once
+    let visitHistory: [LocationVisitRecord]? // detailed history of each visit
+    let peakVisitTimes: [String]? // most common times of day (e.g., ["lunch", "evening"])
+    let mostVisitedDays: [String]? // most frequently visited days of week
 
     var displayName: String {
         customName ?? name
@@ -132,13 +158,12 @@ struct LocationMetadata: Codable, Identifiable {
     }
 
     var visitFrequencyLabel: String {
-        guard let count = visitCount else { return "Not tracked" }
-        switch count {
+        switch visitCount {
         case 0: return "Not visited"
         case 1: return "Once"
-        case 2...5: return "\(count) times (occasional)"
-        case 6...: return "\(count) times (frequent)"
-        default: return "\(count) times"
+        case 2...5: return "\(visitCount) times (occasional)"
+        case 6...: return "\(visitCount) times (frequent)"
+        default: return "\(visitCount) times"
         }
     }
 
@@ -154,7 +179,7 @@ struct LocationMetadata: Codable, Identifiable {
 struct NoteMetadata: Codable, Identifiable {
     let id: UUID
     let title: String
-    let preview: String // First 100 chars
+    let content: String // full note content
     let dateCreated: Date
     let dateModified: Date
     let isPinned: Bool
@@ -178,6 +203,9 @@ struct EmailMetadata: Codable, Identifiable {
     let isRead: Bool
     let isImportant: Bool
     let hasAttachments: Bool
+    let folder: String? // Gmail label or app-created folder name
+    let folderId: String? // Gmail label ID or app folder ID
+    let body: String? // full email body content
 
     var formattedDate: String {
         let dateFormatter = DateFormatter()
@@ -185,6 +213,16 @@ struct EmailMetadata: Codable, Identifiable {
         dateFormatter.timeStyle = .short
         return dateFormatter.string(from: date)
     }
+}
+
+// MARK: - Email Folder Structure (for organizing emails by labels and folders)
+
+struct EmailFolder: Codable {
+    let id: String
+    let name: String
+    let isGmailLabel: Bool // true if from Gmail, false if app-created
+    let emailCount: Int
+    let emails: [EmailMetadata]? // all emails within this folder
 }
 
 // MARK: - LLM Response Model

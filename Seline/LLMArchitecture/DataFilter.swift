@@ -69,6 +69,7 @@ struct FilteredContext {
     let locations: [SavedPlaceWithRelevance]?
     let tasks: [TaskItemWithRelevance]?
     let emails: [EmailWithRelevance]?
+    let emailFolders: [EmailFolder]?  // organized by folders/labels with all emails
     let receipts: [ReceiptWithRelevance]?
     let receiptStatistics: ReceiptStatistics?
     let weather: WeatherData?
@@ -193,6 +194,7 @@ class DataFilter {
             locations: filteredLocations,
             tasks: filteredTasks,
             emails: filteredEmails,
+            emailFolders: nil,  // TODO: populate with organized email folders from EmailService
             receipts: filteredReceipts,
             receiptStatistics: receiptStats,
             weather: weather,
