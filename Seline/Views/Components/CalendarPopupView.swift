@@ -489,9 +489,15 @@ struct ShadcnCalendar: View {
     @State private var currentMonth = Date()
     @State private var dragStartX: CGFloat = 0
     @State private var monthEventCountsCache: [String: Int] = [:]
+    @State private var cachedForSelectedTagId: String? = nil
 
     private var calendar: Calendar {
         Calendar.current
+    }
+
+    /// Check if cache needs recomputation (filter or tasks changed)
+    private var needsRecomputation: Bool {
+        cachedForSelectedTagId != selectedTagId
     }
 
     /// Recompute event counts for current month based on current filter
@@ -506,6 +512,7 @@ struct ShadcnCalendar: View {
         }
 
         monthEventCountsCache = counts
+        cachedForSelectedTagId = selectedTagId
     }
 
     private var monthYearFormatter: DateFormatter {
@@ -542,6 +549,14 @@ struct ShadcnCalendar: View {
     }
 
     private let weekdaySymbols = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+
+    /// Get current event count, recomputing cache if filter changed
+    private func getCurrentEventCount(for key: String) -> Int {
+        if needsRecomputation {
+            recomputeMonthEventCounts()
+        }
+        return monthEventCountsCache[key] ?? 0
+    }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -616,7 +631,7 @@ struct ShadcnCalendar: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
                 ForEach(daysInMonth, id: \.self) { date in
                     let key = calendar.dateComponents([.year, .month, .day], from: date).description
-                    let eventCount = monthEventCountsCache[key] ?? 0
+                    let eventCount = getCurrentEventCount(for: key)
 
                     ShadcnDayCell(
                         date: date,
