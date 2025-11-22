@@ -40,6 +40,10 @@ class RecurringExpenseCalendarService {
 
             print("📅 Found \(expenses.count) existing recurring expenses")
 
+            // Clean up old incorrectly-formatted events first
+            print("🧹 Cleaning up old incorrectly-formatted calendar events...")
+            await cleanupOldCalendarEvents(for: expenses)
+
             // Get the default calendar
             guard let calendar = getDefaultCalendar() else {
                 print("❌ No default calendar found")
@@ -84,6 +88,35 @@ class RecurringExpenseCalendarService {
             print("✅ Auto-sync complete: Created/verified \(totalCreated) total calendar events")
         } catch {
             print("⚠️ Auto-sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Clean up old incorrectly-formatted calendar events
+    private func cleanupOldCalendarEvents(for expenses: [RecurringExpense]) async {
+        let now = Date()
+        let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) ?? now
+        let calendars = eventStore.calendars(for: .event)
+        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: calendars)
+
+        let allEvents = eventStore.events(matching: predicate)
+        var deletedCount = 0
+
+        // Find and delete events that match our recurring expense titles
+        for event in allEvents {
+            // Check if this event title matches any of our recurring expenses
+            if expenses.contains(where: { $0.title == event.title }) {
+                do {
+                    try eventStore.remove(event, span: .thisEvent, commit: true)
+                    deletedCount += 1
+                    print("🗑️ Deleted old event: \(event.title)")
+                } catch {
+                    print("⚠️ Failed to delete event: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        if deletedCount > 0 {
+            print("✅ Cleaned up \(deletedCount) old incorrectly-formatted calendar events")
         }
     }
 
