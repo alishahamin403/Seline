@@ -3737,7 +3737,12 @@ class OpenAIService: ObservableObject {
         // SPECIAL HANDLING FOR FUTURE DATE QUERIES
         // Directly calculate events for tomorrow/next week instead of complex LLM filtering
         let lowerQuery = query.lowercased()
-        if let futureContext = checkForFutureDateQuery(query: lowerQuery, currentDate: currentDate, taskManager: taskManager) {
+
+        // Check if this is a location/visit query - if so, skip the event-only early return
+        let locationKeywords = ["location", "locations", "place", "places", "where", "saved", "restaurant", "cafe", "visit", "visits", "visited", "geofence"]
+        let isLocationQuery = locationKeywords.contains { lowerQuery.contains($0) }
+
+        if !isLocationQuery, let futureContext = checkForFutureDateQuery(query: lowerQuery, currentDate: currentDate, taskManager: taskManager) {
             print("🗓️ Detected future date query: \(futureContext)")
             return futureContext
         }
