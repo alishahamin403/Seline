@@ -3852,7 +3852,8 @@ class OpenAIService: ObservableObject {
             events: filteredEvents,
             locations: allMetadata.locations,  // Locations don't have dates, keep all
             notes: filteredNotes,
-            emails: filteredEmails
+            emails: filteredEmails,
+            recurringExpenses: allMetadata.recurringExpenses  // Recurring expenses don't have dates, keep all
         )
 
         print("📊 METADATA AFTER TEMPORAL FILTER:")
