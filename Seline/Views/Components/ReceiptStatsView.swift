@@ -507,6 +507,11 @@ struct RecurringExpenseStatsContent: View {
         }
         .onAppear {
             loadRecurringExpenses()
+
+            // Auto-sync instances for recurring expenses (generate for 12 months if needed)
+            Task {
+                await autoSyncRecurringInstances()
+            }
         }
     }
 
@@ -573,6 +578,79 @@ struct RecurringExpenseStatsContent: View {
         }
 
         return CurrencyParser.formatAmountNoDecimals(yearlyAmount)
+    }
+
+    /// Auto-generate instances for recurring expenses (12 months forward)
+    private func autoSyncRecurringInstances() async {
+        print("📅 Auto-syncing recurring expense instances for 12 months...")
+
+        do {
+            // Fetch all recurring expenses
+            let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+            guard !expenses.isEmpty else {
+                print("✅ No recurring expenses to sync")
+                return
+            }
+
+            print("📅 Found \(expenses.count) recurring expenses")
+
+            var totalInstancesCreated = 0
+
+            // Generate instances for each expense
+            for expense in expenses {
+                // Fetch existing instances
+                let existingInstances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
+                let calendar = Calendar.current
+                let now = calendar.startOfDay(for: Date())
+
+                // Check if we need to generate more instances (12 months from now)
+                let targetDate = calendar.date(byAdding: .month, value: 12, to: now) ?? now
+                let latestInstance = existingInstances.max { $0.occurrenceDate < $1.occurrenceDate }
+                let latestDate = latestInstance?.occurrenceDate ?? expense.startDate
+
+                // If latest instance is before our target, generate more
+                if latestDate < targetDate {
+                    print("📅 Generating additional instances for \(expense.title)...")
+
+                    // Generate instances from the latest one to 12 months ahead
+                    let newInstances = RecurringExpenseManager.shared.generateInstances(
+                        for: expense,
+                        futureMonths: 12
+                    )
+
+                    // Save new instances
+                    let client = await SupabaseManager.shared.getPostgrestClient()
+                    var createdCount = 0
+
+                    for instance in newInstances {
+                        // Only save if it doesn't already exist
+                        let exists = existingInstances.contains { $0.occurrenceDate == instance.occurrenceDate }
+                        if !exists {
+                            do {
+                                try await client
+                                    .from("recurring_instances")
+                                    .insert(instance)
+                                    .execute()
+                                createdCount += 1
+                            } catch {
+                                print("⚠️ Failed to create instance: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+
+                    if createdCount > 0 {
+                        print("✅ Created \(createdCount) new instances for \(expense.title)")
+                        totalInstancesCreated += createdCount
+                    }
+                }
+            }
+
+            if totalInstancesCreated > 0 {
+                print("✅ Auto-sync complete: Created \(totalInstancesCreated) new instances")
+            }
+        } catch {
+            print("⚠️ Auto-sync failed: \(error.localizedDescription)")
+        }
     }
 
 }
