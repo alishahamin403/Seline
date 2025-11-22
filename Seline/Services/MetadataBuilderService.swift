@@ -24,13 +24,15 @@ class MetadataBuilderService {
         let locations = buildLocationMetadata(from: locationsManager)
         let notes = buildNoteMetadata(from: notesManager)
         let emails = buildEmailMetadata(from: emailService)
+        let recurringExpenses = await buildRecurringExpenseMetadata()
 
         return AppDataMetadata(
             receipts: receipts,
             events: events,
             locations: locations,
             notes: notes,
-            emails: emails
+            emails: emails,
+            recurringExpenses: recurringExpenses
         )
     }
 
@@ -422,6 +424,88 @@ class MetadataBuilderService {
                 labels: email.labels,
                 body: email.body
             )
+        }
+    }
+
+    // MARK: - Recurring Expense Metadata Builder
+
+    @MainActor
+    private static func buildRecurringExpenseMetadata() async -> [RecurringExpenseMetadata] {
+        print("💰 Building recurring expense metadata...")
+
+        do {
+            // Fetch active recurring expenses from Supabase
+            let activeExpenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+
+            print("💰 Found \(activeExpenses.count) active recurring expenses")
+
+            // Convert to metadata with calculated totals
+            var metadata: [RecurringExpenseMetadata] = []
+
+            for expense in activeExpenses {
+                // Calculate total occurrences to date
+                let calendar = Calendar.current
+                let daysSinceStart = calendar.dateComponents([.day], from: expense.startDate, to: Date()).day ?? 0
+
+                var totalOccurrences = 0
+                let frequencyDays: Int
+
+                switch expense.frequency {
+                case .daily:
+                    frequencyDays = 1
+                case .weekly:
+                    frequencyDays = 7
+                case .biweekly:
+                    frequencyDays = 14
+                case .monthly:
+                    frequencyDays = 30
+                case .yearly:
+                    frequencyDays = 365
+                }
+
+                totalOccurrences = max(1, daysSinceStart / frequencyDays + 1)
+
+                // Calculate monthly estimate
+                let amountDouble = Double(truncating: expense.amount as NSDecimalNumber)
+                let monthlyEstimate: Double
+
+                switch expense.frequency {
+                case .daily:
+                    monthlyEstimate = amountDouble * 30
+                case .weekly:
+                    monthlyEstimate = amountDouble * 4.3
+                case .biweekly:
+                    monthlyEstimate = amountDouble * 2.15
+                case .monthly:
+                    monthlyEstimate = amountDouble
+                case .yearly:
+                    monthlyEstimate = amountDouble / 12
+                }
+
+                let meta = RecurringExpenseMetadata(
+                    id: expense.id,
+                    title: expense.title,
+                    description: expense.description,
+                    amount: amountDouble,
+                    category: expense.category,
+                    frequency: expense.frequency.rawValue,
+                    startDate: expense.startDate,
+                    endDate: expense.endDate,
+                    nextOccurrence: expense.nextOccurrence,
+                    isActive: expense.isActive,
+                    totalOccurrences: totalOccurrences,
+                    monthlyEstimate: monthlyEstimate
+                )
+
+                metadata.append(meta)
+
+                print("   💰 \(expense.title) - \(amountDouble.formatted(.currency(code: "USD"))) \(expense.frequency.rawValue) | Next: \(expense.nextOccurrence.formatted(date: .abbreviated, time: .omitted))")
+            }
+
+            return metadata
+        } catch {
+            print("❌ Error fetching recurring expenses: \(error.localizedDescription)")
+            return []
         }
     }
 

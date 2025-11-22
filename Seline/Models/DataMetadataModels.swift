@@ -9,9 +9,10 @@ struct AppDataMetadata: Codable {
     let locations: [LocationMetadata]
     let notes: [NoteMetadata]
     let emails: [EmailMetadata]
+    let recurringExpenses: [RecurringExpenseMetadata]
 
     var isEmpty: Bool {
-        receipts.isEmpty && events.isEmpty && locations.isEmpty && notes.isEmpty && emails.isEmpty
+        receipts.isEmpty && events.isEmpty && locations.isEmpty && notes.isEmpty && emails.isEmpty && recurringExpenses.isEmpty
     }
 }
 
@@ -35,6 +36,48 @@ struct ReceiptMetadata: Codable, Identifiable {
         let calendar = Calendar.current
         let daysAgo = calendar.dateComponents([.day], from: date, to: Date()).day ?? Int.max
         return daysAgo <= 30
+    }
+}
+
+// MARK: - Recurring Expense Metadata
+
+struct RecurringExpenseMetadata: Codable, Identifiable {
+    let id: UUID
+    let title: String
+    let description: String?
+    let amount: Double
+    let category: String?
+    let frequency: String // "daily", "weekly", "biweekly", "monthly", "yearly"
+    let startDate: Date
+    let endDate: Date?
+    let nextOccurrence: Date
+    let isActive: Bool
+    let totalOccurrences: Int // How many times this has occurred (for pattern analysis)
+    let monthlyEstimate: Double // Estimated monthly cost (for budget analysis)
+
+    var formattedAmount: String {
+        String(format: "$%.2f", amount)
+    }
+
+    var isUpcoming: Bool {
+        nextOccurrence > Date() && isActive
+    }
+
+    var daysUntilNext: Int? {
+        guard isActive else { return nil }
+        let calendar = Calendar.current
+        return calendar.dateComponents([.day], from: Date(), to: nextOccurrence).day
+    }
+
+    var frequencyLabel: String {
+        switch frequency.lowercased() {
+        case "daily": return "Daily"
+        case "weekly": return "Weekly"
+        case "biweekly": return "Bi-weekly"
+        case "monthly": return "Monthly"
+        case "yearly": return "Yearly"
+        default: return frequency
+        }
     }
 }
 
