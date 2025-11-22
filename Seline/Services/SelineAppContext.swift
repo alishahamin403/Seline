@@ -482,6 +482,13 @@ class SelineAppContext {
         // Refresh all data
         await refresh()
 
+        // CRITICAL: Fetch geofence visit stats for all locations before building context
+        print("📊 Fetching geofence visit stats for context building...")
+        for place in locations {
+            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        }
+        print("✅ Visit stats loaded for \(LocationVisitAnalytics.shared.visitStats.count) locations")
+
         // Filter events based on extracted intent
         var filteredEvents = events
 
@@ -883,6 +890,23 @@ class SelineAppContext {
                             context += "    Cuisine: \(cuisine)\n"
                         }
 
+                        // GEOFENCE VISIT DATA - Include location tracking statistics
+                        if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
+                            context += "    📊 Visits: \(stats.totalVisits) times\n"
+                            if let lastVisit = stats.lastVisitDate {
+                                let lastVisitFormatter = RelativeDateTimeFormatter()
+                                lastVisitFormatter.unitsStyle = .short
+                                let lastVisitStr = lastVisitFormatter.localizedString(for: lastVisit, relativeTo: Date())
+                                context += "    Last visited: \(lastVisitStr)\n"
+                            }
+                            if let peakTime = stats.mostCommonTimeOfDay {
+                                context += "    Peak time: \(peakTime)\n"
+                            }
+                            if let peakDay = stats.mostCommonDayOfWeek {
+                                context += "    Most visited day: \(peakDay)\n"
+                            }
+                        }
+
                         // User notes
                         if let notes = place.userNotes, !notes.isEmpty {
                             context += "    Notes: \(notes)\n"
@@ -928,6 +952,23 @@ class SelineAppContext {
                             // Cuisine for restaurants
                             if let cuisine = place.userCuisine {
                                 context += "    Cuisine: \(cuisine)\n"
+                            }
+
+                            // GEOFENCE VISIT DATA - Include location tracking statistics
+                            if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
+                                context += "    📊 Visits: \(stats.totalVisits) times\n"
+                                if let lastVisit = stats.lastVisitDate {
+                                    let lastVisitFormatter = RelativeDateTimeFormatter()
+                                    lastVisitFormatter.unitsStyle = .short
+                                    let lastVisitStr = lastVisitFormatter.localizedString(for: lastVisit, relativeTo: Date())
+                                    context += "    Last visited: \(lastVisitStr)\n"
+                                }
+                                if let peakTime = stats.mostCommonTimeOfDay {
+                                    context += "    Peak time: \(peakTime)\n"
+                                }
+                                if let peakDay = stats.mostCommonDayOfWeek {
+                                    context += "    Most visited day: \(peakDay)\n"
+                                }
                             }
 
                             // User notes
@@ -1203,6 +1244,13 @@ class SelineAppContext {
     private func buildContextPromptInternal() async -> String {
         // Refresh all data including custom email folders
         await refresh()
+
+        // CRITICAL: Fetch geofence visit stats for all locations before building context
+        print("📊 Fetching geofence visit stats for context building...")
+        for place in locations {
+            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        }
+        print("✅ Visit stats loaded for \(LocationVisitAnalytics.shared.visitStats.count) locations")
 
         var context = ""
 
@@ -1761,6 +1809,15 @@ class SelineAppContext {
             for location in locations.prefix(15) {
                 let rating = location.userRating.map { "⭐ \($0)/10" } ?? "No rating"
                 context += "  • \(location.displayName) - \(location.address) (\(rating))\n"
+
+                // Include geofence visit data if available
+                if let stats = LocationVisitAnalytics.shared.visitStats[location.id] {
+                    context += "    📊 \(stats.totalVisits) visits"
+                    if let peakTime = stats.mostCommonTimeOfDay {
+                        context += " | Peak: \(peakTime)"
+                    }
+                    context += "\n"
+                }
             }
             if locations.count > 15 {
                 context += "  ... and \(locations.count - 15) more locations\n"
