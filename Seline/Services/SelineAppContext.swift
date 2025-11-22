@@ -890,20 +890,29 @@ class SelineAppContext {
                             context += "    Cuisine: \(cuisine)\n"
                         }
 
-                        // GEOFENCE VISIT DATA - Include location tracking statistics
+                        // GEOFENCE VISIT DATA - Include detailed location tracking statistics
                         if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
-                            context += "    📊 Visits: \(stats.totalVisits) times\n"
+                            context += "    📊 Visit Statistics:\n"
+                            context += "      Total visits: \(stats.totalVisits) times\n"
+                            context += "      This month: \(stats.thisMonthVisits) visits\n"
+                            context += "      This year: \(stats.thisYearVisits) visits\n"
+
+                            if stats.averageDurationMinutes > 0 {
+                                context += "      Average duration: \(stats.formattedAverageDuration)\n"
+                            }
+
                             if let lastVisit = stats.lastVisitDate {
                                 let lastVisitFormatter = RelativeDateTimeFormatter()
                                 lastVisitFormatter.unitsStyle = .short
                                 let lastVisitStr = lastVisitFormatter.localizedString(for: lastVisit, relativeTo: Date())
-                                context += "    Last visited: \(lastVisitStr)\n"
+                                context += "      Last visited: \(lastVisitStr)\n"
                             }
+
                             if let peakTime = stats.mostCommonTimeOfDay {
-                                context += "    Peak time: \(peakTime)\n"
+                                context += "      Most common time: \(peakTime)\n"
                             }
                             if let peakDay = stats.mostCommonDayOfWeek {
-                                context += "    Most visited day: \(peakDay)\n"
+                                context += "      Most visited day: \(peakDay)\n"
                             }
                         }
 
@@ -954,20 +963,29 @@ class SelineAppContext {
                                 context += "    Cuisine: \(cuisine)\n"
                             }
 
-                            // GEOFENCE VISIT DATA - Include location tracking statistics
+                            // GEOFENCE VISIT DATA - Include detailed location tracking statistics
                             if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
-                                context += "    📊 Visits: \(stats.totalVisits) times\n"
+                                context += "    📊 Visit Statistics:\n"
+                                context += "      Total visits: \(stats.totalVisits) times\n"
+                                context += "      This month: \(stats.thisMonthVisits) visits\n"
+                                context += "      This year: \(stats.thisYearVisits) visits\n"
+
+                                if stats.averageDurationMinutes > 0 {
+                                    context += "      Average duration: \(stats.formattedAverageDuration)\n"
+                                }
+
                                 if let lastVisit = stats.lastVisitDate {
                                     let lastVisitFormatter = RelativeDateTimeFormatter()
                                     lastVisitFormatter.unitsStyle = .short
                                     let lastVisitStr = lastVisitFormatter.localizedString(for: lastVisit, relativeTo: Date())
-                                    context += "    Last visited: \(lastVisitStr)\n"
+                                    context += "      Last visited: \(lastVisitStr)\n"
                                 }
+
                                 if let peakTime = stats.mostCommonTimeOfDay {
-                                    context += "    Peak time: \(peakTime)\n"
+                                    context += "      Most common time: \(peakTime)\n"
                                 }
                                 if let peakDay = stats.mostCommonDayOfWeek {
-                                    context += "    Most visited day: \(peakDay)\n"
+                                    context += "      Most visited day: \(peakDay)\n"
                                 }
                             }
 
