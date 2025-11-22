@@ -55,9 +55,8 @@ struct EmailFolderListView: View {
                         }
                         .frame(maxWidth: .infinity)
                     } else {
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(viewModel.folders) { folder in
+                        VStack(spacing: 0) {
+                            ForEach(viewModel.folders) { folder in
                                 NavigationLink(destination: SavedEmailsListView(folder: folder)) {
                                     HStack(spacing: 12) {
                                         Image(systemName: "folder.fill")
@@ -83,7 +82,6 @@ struct EmailFolderListView: View {
                                     }
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 12)
-                                    .background(Color.white)
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .contextMenu {
@@ -104,7 +102,6 @@ struct EmailFolderListView: View {
                             }
                         }
                         .padding(.horizontal, 0)
-                    }
                     }
                 }
             }
