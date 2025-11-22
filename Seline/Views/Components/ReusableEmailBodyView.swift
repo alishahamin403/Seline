@@ -5,7 +5,6 @@ import SwiftUI
 struct ReusableEmailBodyView: View {
     let htmlContent: String?
     let plainTextContent: String?
-    let aiSummary: String?
     let isExpanded: Bool
     let onToggleExpand: () -> Void
     let isLoading: Bool
@@ -67,36 +66,6 @@ struct ReusableEmailBodyView: View {
                     )
                 } else {
                     VStack(spacing: 12) {
-                        // AI Summary Section (if available)
-                        if let summary = aiSummary, !summary.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                                    Text("AI Summary")
-                                        .font(FontManager.geist(size: .body, weight: .semibold))
-                                        .foregroundColor(Color.shadcnForeground(colorScheme))
-                                }
-
-                                Text(summary)
-                                    .font(FontManager.geist(size: .body, weight: .regular))
-                                    .foregroundColor(Color.shadcnForeground(colorScheme))
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(12)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(colorScheme == .dark ?
-                                                Color.white.opacity(0.05) :
-                                                Color.black.opacity(0.03))
-                                    )
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 12)
-                        }
-
                         // Original Email Body
                         if hasHTMLContent {
                             // HTML content with zoom capability
@@ -155,7 +124,6 @@ struct ReusableEmailBodyView: View {
     ReusableEmailBodyView(
         htmlContent: "<p>This is a sample email with HTML content</p>",
         plainTextContent: "Sample plain text email",
-        aiSummary: "This email discusses an important meeting scheduled for next week.",
         isExpanded: true,
         onToggleExpand: {},
         isLoading: false

@@ -211,7 +211,6 @@ struct EmailDetailView: View {
         ReusableEmailBodyView(
             htmlContent: fullEmail?.body ?? email.body,
             plainTextContent: fullEmail?.snippet ?? email.snippet,
-            aiSummary: fullEmail?.aiSummary ?? email.aiSummary,
             isExpanded: isOriginalEmailExpanded,
             onToggleExpand: {
                 withAnimation(.easeInOut(duration: 0.2)) {

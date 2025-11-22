@@ -178,12 +178,11 @@ struct ViewEventView: View {
                                 }
                             }
 
-                            // Email body with AI summary when expanded
+                            // Email body when expanded
                             if isEmailExpanded {
                                 ReusableEmailBodyView(
                                     htmlContent: task.emailBody,
                                     plainTextContent: task.emailSnippet,
-                                    aiSummary: task.emailAiSummary,
                                     isExpanded: true,
                                     onToggleExpand: {
                                         withAnimation(.easeInOut(duration: 0.2)) {
