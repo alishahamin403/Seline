@@ -259,26 +259,31 @@ class RecurringExpenseCalendarService {
 
     /// Get the default calendar (Calendar app's main calendar)
     private func getDefaultCalendar() -> EKCalendar? {
-        // Try to get the default calendar
-        if let defaultCalendar = eventStore.defaultCalendarForNewEvents {
-            print("📅 Using default calendar: \(defaultCalendar.title) (type: \(defaultCalendar.type))")
-            return defaultCalendar
-        }
-
-        // Get all available calendars and log them
         let calendars = eventStore.calendars(for: .event)
         print("📅 Available calendars: \(calendars.map { "\($0.title) (type: \($0.type))" }.joined(separator: ", "))")
 
-        // Fallback: get first local calendar (most visible)
+        // Priority 1: Look for "Calendar" (the main iOS local calendar)
+        if let mainCalendar = calendars.first(where: { $0.title == "Calendar" && $0.type == .local }) {
+            print("📅 Using main local calendar: \(mainCalendar.title)")
+            return mainCalendar
+        }
+
+        // Priority 2: Get first local calendar (most visible)
         if let localCalendar = calendars.first(where: { $0.type == .local }) {
             print("📅 Using local calendar: \(localCalendar.title)")
             return localCalendar
         }
 
-        // Then try CalDAV
-        if let caldavCalendar = calendars.first(where: { $0.type == .calDAV }) {
-            print("📅 Using CalDAV calendar: \(caldavCalendar.title)")
-            return caldavCalendar
+        // Priority 3: Try iCloud calendar
+        if let icloudCalendar = calendars.first(where: { $0.title.contains("iCloud") }) {
+            print("📅 Using iCloud calendar: \(icloudCalendar.title)")
+            return icloudCalendar
+        }
+
+        // Priority 4: Use the default calendar for new events (Gmail, CalDAV, etc)
+        if let defaultCalendar = eventStore.defaultCalendarForNewEvents {
+            print("⚠️ No local calendar found, using default: \(defaultCalendar.title) (type: \(defaultCalendar.type))")
+            return defaultCalendar
         }
 
         // Last resort: any writable calendar
