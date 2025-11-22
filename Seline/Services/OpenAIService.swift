@@ -4305,7 +4305,7 @@ class OpenAIService: ObservableObject {
             for location in metadata.locations {
                 formatted += "- ID: \(location.id.uuidString)\n"
                 formatted += "  Name: \(location.displayName)\n"
-                formatted += "  Folder: \(location.category)\n"
+                formatted += "  Folder: \(location.folderName ?? "Uncategorized")\n"
 
                 // Show folder's geographic context
                 if let folderCity = location.folderCity {
@@ -4354,7 +4354,7 @@ class OpenAIService: ObservableObject {
                 if let folder = note.folder {
                     formatted += "  Folder: \(folder)\n"
                 }
-                formatted += "  Preview: \(note.preview)\n"
+                formatted += "  Content: \(note.content)\n"
                 formatted += "\n"
             }
         } else {

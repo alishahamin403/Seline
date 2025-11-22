@@ -206,7 +206,7 @@ class MetadataBuilderService {
                 id: location.id,
                 name: location.name,
                 customName: location.customName,
-                category: location.category,
+                folderName: location.category,
                 address: location.address,
                 city: city,
                 province: province,
@@ -220,8 +220,12 @@ class MetadataBuilderService {
                 dateCreated: location.dateCreated,
                 dateModified: location.dateModified,
                 visitCount: nil,
+                totalVisitDuration: nil,
+                averageVisitDuration: nil,
                 lastVisited: nil,
-                isFrequent: nil
+                isFrequent: nil,
+                peakVisitTimes: nil,
+                mostVisitedDays: nil
             )
         }
     }
@@ -348,7 +352,7 @@ class MetadataBuilderService {
                 return NoteMetadata(
                     id: note.id,
                     title: note.title,
-                    preview: note.preview,
+                    content: note.content,
                     dateCreated: note.dateCreated,
                     dateModified: note.dateModified,
                     isPinned: note.isPinned,
@@ -376,7 +380,9 @@ class MetadataBuilderService {
                 date: email.timestamp,
                 isRead: email.isRead,
                 isImportant: email.isImportant,
-                hasAttachments: email.hasAttachments
+                hasAttachments: email.hasAttachments,
+                labels: email.labels,
+                body: email.body
             )
         }
     }
