@@ -105,6 +105,7 @@ struct RecurringExpenseEditView: View {
                                     .frame(height: 80, alignment: .topLeading)
                             }
                         }
+                        .padding(.bottom, 8)
 
                         // DETAILS Section
                         VStack(alignment: .leading, spacing: 16) {
@@ -120,7 +121,6 @@ struct RecurringExpenseEditView: View {
                                 HStack(spacing: 0) {
                                     Text("$")
                                         .font(.title3)
-                                        .fontWeight(.semibold)
                                         .padding(.leading, 12)
                                     TextField("0.00", text: $amount)
                                         .keyboardType(.decimalPad)
@@ -154,9 +154,6 @@ struct RecurringExpenseEditView: View {
                                 )
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
-                                .padding(12)
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(8)
                             }
 
                             // Frequency
@@ -200,9 +197,6 @@ struct RecurringExpenseEditView: View {
                                     )
                                     .datePickerStyle(.compact)
                                     .labelsHidden()
-                                    .padding(12)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(8)
                                 }
                             }
 
@@ -218,9 +212,6 @@ struct RecurringExpenseEditView: View {
                                 }
                                 .pickerStyle(.menu)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12)
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(8)
                             }
                         }
 
