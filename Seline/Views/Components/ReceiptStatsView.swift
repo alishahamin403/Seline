@@ -517,8 +517,8 @@ struct RecurringExpenseStatsContent: View {
                 // Fetch all expenses (both active and paused)
                 let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
                 await MainActor.run {
-                    // Sort by most recent first
-                    recurringExpenses = expenses.sorted { $0.createdAt > $1.createdAt }
+                    // Sort by upcoming due date (soonest first)
+                    recurringExpenses = expenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
                     isLoading = false
                 }
             } catch {
