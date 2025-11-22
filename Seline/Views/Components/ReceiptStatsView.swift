@@ -310,6 +310,7 @@ struct ReceiptStatsView: View {
 
 struct RecurringExpenseStatsContent: View {
     @State private var recurringExpenses: [RecurringExpense] = []
+    @State private var recurringInstances: [RecurringInstance] = []
     @State private var isLoading = true
     @State private var selectedExpense: RecurringExpense? = nil
     @State private var showEditSheet = false
@@ -328,6 +329,11 @@ struct RecurringExpenseStatsContent: View {
 
     var activeCount: Int {
         recurringExpenses.filter { $0.isActive }.count
+    }
+
+    // Sort instances by occurrence date (soonest first)
+    var sortedInstances: [RecurringInstance] {
+        recurringInstances.sorted { $0.occurrenceDate < $1.occurrenceDate }
     }
 
     var body: some View {
@@ -381,99 +387,83 @@ struct RecurringExpenseStatsContent: View {
                 .padding(.top, -4)
                 .padding(.bottom, 4)
 
-                // Recurring expenses list
+                // Recurring instances list (sorted by due date)
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
-                        ForEach(recurringExpenses) { expense in
-                            Menu {
-                                Button(action: {
-                                    selectedExpense = expense
-                                    // Add small delay to ensure state is updated before sheet shows
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                                        showEditSheet = true
-                                    }
-                                }) {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-
-                                Button(action: {
-                                    Task {
-                                        try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
-                                        // Reload the list
-                                        await MainActor.run {
-                                            loadRecurringExpenses()
+                        ForEach(sortedInstances) { instance in
+                            // Find the parent expense
+                            if let expense = recurringExpenses.first(where: { $0.id == instance.recurringExpenseId }) {
+                                Menu {
+                                    Button(action: {
+                                        selectedExpense = expense
+                                        // Add small delay to ensure state is updated before sheet shows
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                                            showEditSheet = true
                                         }
+                                    }) {
+                                        Label("Edit Recurring", systemImage: "pencil")
                                     }
-                                }) {
-                                    Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
-                                }
 
-                                Button(role: .destructive, action: {
-                                    Task {
-                                        try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
-                                        // Reload the list
-                                        await MainActor.run {
-                                            loadRecurringExpenses()
+                                    Button(action: {
+                                        Task {
+                                            try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
+                                            // Reload the list
+                                            await MainActor.run {
+                                                loadRecurringExpenses()
+                                            }
                                         }
+                                    }) {
+                                        Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
                                     }
-                                }) {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(expense.title)
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                        HStack(spacing: 8) {
-                                            Text(expense.frequency.displayName)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                            if let category = expense.category {
-                                                Text("•")
+
+                                    Button(role: .destructive, action: {
+                                        Task {
+                                            try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
+                                            // Reload the list
+                                            await MainActor.run {
+                                                loadRecurringExpenses()
+                                            }
+                                        }
+                                    }) {
+                                        Label("Delete Recurring", systemImage: "trash")
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(expense.title)
+                                                .font(.subheadline)
+                                                .fontWeight(.semibold)
+                                            HStack(spacing: 8) {
+                                                // Show instance date
+                                                Image(systemName: "calendar")
+                                                    .font(.system(size: 11))
                                                     .foregroundColor(.secondary)
-                                                Text(category)
+                                                Text(formatInstanceDate(instance.occurrenceDate))
                                                     .font(.caption)
                                                     .foregroundColor(.secondary)
                                             }
                                         }
 
-                                        // Upcoming date
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "calendar")
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.secondary)
-                                            Text(formatUpcomingDate(expense.nextOccurrence))
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .padding(.top, 2)
-                                    }
+                                        Spacer()
 
-                                    Spacer()
-
-                                    VStack(alignment: .trailing, spacing: 4) {
-                                        VStack(alignment: .trailing, spacing: 2) {
-                                            Text(expense.formattedAmount)
+                                        VStack(alignment: .trailing, spacing: 4) {
+                                            Text(CurrencyParser.formatAmount(Double(truncating: instance.amount as NSDecimalNumber)))
                                                 .font(.subheadline)
                                                 .fontWeight(.regular)
-                                            Text("Yearly: \(getYearlyTotal(for: expense))")
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        if !expense.isActive {
-                                            Text("Paused")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
+                                            if let category = expense.category {
+                                                Text(category)
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
                                         }
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
+                                    .cornerRadius(8)
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
-                                .cornerRadius(8)
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                         }
                     }
@@ -516,9 +506,19 @@ struct RecurringExpenseStatsContent: View {
             do {
                 // Fetch all expenses (both active and paused)
                 let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
+
+                // Fetch all instances for all expenses
+                var allInstances: [RecurringInstance] = []
+                for expense in expenses {
+                    let instances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
+                    allInstances.append(contentsOf: instances)
+                }
+
                 await MainActor.run {
-                    // Sort by upcoming due date (soonest first)
+                    // Sort expenses by upcoming due date (soonest first)
                     recurringExpenses = expenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
+                    // Instances are sorted by occurrence date in the computed property
+                    recurringInstances = allInstances
                     isLoading = false
                 }
             } catch {
@@ -527,6 +527,29 @@ struct RecurringExpenseStatsContent: View {
                 }
                 print("❌ Error loading recurring expenses: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Format instance date in readable way
+    private func formatInstanceDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let targetDate = calendar.startOfDay(for: date)
+
+        let components = calendar.dateComponents([.day], from: today, to: targetDate)
+        let daysFromNow = components.day ?? 0
+
+        if daysFromNow == 0 {
+            return "Today"
+        } else if daysFromNow == 1 {
+            return "Tomorrow"
+        } else if daysFromNow > 1 && daysFromNow <= 7 {
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: date)
+        } else {
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
         }
     }
 
