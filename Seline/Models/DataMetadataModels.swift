@@ -136,12 +136,13 @@ struct LocationMetadata: Codable, Identifiable {
     }
 
     var visitFrequencyLabel: String {
-        switch visitCount {
+        guard let count = visitCount else { return "Not tracked" }
+        switch count {
         case 0: return "Not visited"
         case 1: return "Once"
-        case 2...5: return "\(visitCount) times (occasional)"
-        case 6...: return "\(visitCount) times (frequent)"
-        default: return "\(visitCount) times"
+        case 2...5: return "\(count) times (occasional)"
+        case 6...: return "\(count) times (frequent)"
+        default: return "\(count) times"
         }
     }
 
