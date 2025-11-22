@@ -257,36 +257,54 @@ class RecurringExpenseCalendarService {
 
     // MARK: - Calendar Selection
 
-    /// Get the default calendar (Calendar app's main calendar)
+    /// Get the calendar that matches the user's logged-in email address
     private func getDefaultCalendar() -> EKCalendar? {
         let calendars = eventStore.calendars(for: .event)
         print("📅 Available calendars: \(calendars.map { "\($0.title) (type: \($0.type))" }.joined(separator: ", "))")
 
+        // Get the currently logged-in user's email
+        guard let currentUser = SupabaseManager.shared.getCurrentUser(),
+              let userEmail = currentUser.email else {
+            print("⚠️ Could not get current user email")
+            return fallbackCalendarSelection(from: calendars)
+        }
+
+        print("👤 Current user email: \(userEmail)")
+
+        // Priority 1: Find the calendar matching the user's logged-in email
+        if let userCalendar = calendars.first(where: { $0.title.lowercased() == userEmail.lowercased() }) {
+            print("📅 Found calendar matching user email: \(userCalendar.title)")
+            return userCalendar
+        }
+
+        // Priority 2: Look for a Gmail calendar containing the user's email
+        if let gmailCalendar = calendars.first(where: {
+            $0.title.lowercased().contains(userEmail.lowercased().split(separator: "@").first ?? "")
+        }) {
+            print("📅 Found Gmail calendar for user: \(gmailCalendar.title)")
+            return gmailCalendar
+        }
+
+        // Fallback if no matching calendar found
+        print("⚠️ No calendar found matching user email \(userEmail)")
+        return fallbackCalendarSelection(from: calendars)
+    }
+
+    /// Fallback calendar selection if user's email calendar not found
+    private func fallbackCalendarSelection(from calendars: [EKCalendar]) -> EKCalendar? {
         // Priority 1: Look for "Calendar" (the main iOS local calendar)
         if let mainCalendar = calendars.first(where: { $0.title == "Calendar" && $0.type == .local }) {
             print("📅 Using main local calendar: \(mainCalendar.title)")
             return mainCalendar
         }
 
-        // Priority 2: Get first local calendar (most visible)
-        if let localCalendar = calendars.first(where: { $0.type == .local }) {
-            print("📅 Using local calendar: \(localCalendar.title)")
-            return localCalendar
-        }
-
-        // Priority 3: Try iCloud calendar
-        if let icloudCalendar = calendars.first(where: { $0.title.contains("iCloud") }) {
-            print("📅 Using iCloud calendar: \(icloudCalendar.title)")
-            return icloudCalendar
-        }
-
-        // Priority 4: Use the default calendar for new events (Gmail, CalDAV, etc)
+        // Priority 2: Use the default calendar for new events
         if let defaultCalendar = eventStore.defaultCalendarForNewEvents {
-            print("⚠️ No local calendar found, using default: \(defaultCalendar.title) (type: \(defaultCalendar.type))")
+            print("📅 Using default calendar: \(defaultCalendar.title)")
             return defaultCalendar
         }
 
-        // Last resort: any writable calendar
+        // Priority 3: Any writable calendar
         if let writableCalendar = calendars.first(where: { !$0.isImmutable }) {
             print("📅 Using writable calendar: \(writableCalendar.title)")
             return writableCalendar
