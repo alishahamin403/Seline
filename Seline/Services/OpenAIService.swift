@@ -3722,7 +3722,7 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         navigationService: NavigationService? = nil
     ) async -> String {
-        print("🧠 buildSmartContextForQuestion with query: '\(query)'")
+        print("🧠 buildSmartContextForQuestion with query: '\(query)'\n⚡ Using unified metadata approach (no keyword routing)")
         let currentDate = Date()
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
@@ -3734,149 +3734,8 @@ class OpenAIService: ObservableObject {
         // Add current context
         context += "Current date/time: \(dateFormatter.string(from: currentDate)) at \(timeFormatter.string(from: currentDate))\n\n"
 
-        // SPECIAL HANDLING FOR FUTURE DATE QUERIES
-        // Directly calculate events for tomorrow/next week instead of complex LLM filtering
-        let lowerQuery = query.lowercased()
-
-        // Check if this is a location/visit query - if so, skip the event-only early return
-        let locationKeywords = ["location", "locations", "place", "places", "where", "saved", "restaurant", "cafe", "visit", "visits", "visited", "geofence"]
-        let isLocationQuery = locationKeywords.contains { lowerQuery.contains($0) }
-
-        if !isLocationQuery, let futureContext = checkForFutureDateQuery(query: lowerQuery, currentDate: currentDate, taskManager: taskManager) {
-            print("🗓️ Detected future date query: \(futureContext)")
-            return futureContext
-        }
-
-        // SPECIAL HANDLING FOR EXPENSE QUERIES
-        // Detect purchase queries: "when did I buy X", "did I ever buy Y", "how much did I spend on Z"
-
-        // Detect expense queries by keywords OR by purchase-related patterns
-        let expenseKeywords = ["spend", "expense", "cost", "receipt", "month", "budget", "spent", "purchase", "purchased"]
-        let purchaseVerbs = ["buy", "bought", "purchase", "purchased", "get", "got"]  // Verbs that indicate buying
-
-        let hasExpenseKeyword = expenseKeywords.contains { lowerQuery.contains($0) }
-        let hasPurchaseVerb = purchaseVerbs.contains { lowerQuery.contains($0) }
-
-        // Any query with a purchase verb OR expense keyword is an expense query
-        let isExpenseQuery = hasExpenseKeyword || hasPurchaseVerb
-
-        if isExpenseQuery {
-            print("💰 Detected expense query")
-
-            // TIER 1: Use LLM to intelligently extract intent, then search receipts directly
-            if let intent = await extractExpenseIntent(from: query) {
-                print("🔍 Tier 1: LLM extracted intent - product='\(intent.productName)', type=\(intent.queryType)")
-
-                // Get all receipts
-                let allReceipts = await notesManager.getReceiptStatistics().flatMap { $0.monthlySummaries }.flatMap { $0.receipts }
-
-                // Create notes dictionary for ItemSearchService
-                let notesDict = Dictionary(uniqueKeysWithValues:
-                    notesManager.notes.map { ($0.id, $0) }
-                )
-
-                print("🔍 Tier 1: Searching \(allReceipts.count) receipts with \(notesDict.count) notes available")
-
-                // For aggregation queries, find ALL matches
-                if intent.queryType != .lookup {
-                    print("📊 Tier 1: Aggregation query - finding ALL matches using \(intent.alternateSearchTerms.count) search term(s)")
-                    let allMatches = ItemSearchService.shared.searchAllReceiptsForProduct(intent.alternateSearchTerms, in: allReceipts, notes: notesDict)
-
-                    if !allMatches.isEmpty {
-                        print("✅ Tier 1 SUCCESS: Found \(allMatches.count) receipt(s) for '\(intent.productName)'")
-
-                        // Generate response based on query type
-                        switch intent.queryType {
-                        case .countUnique:
-                            return formatCountUniqueResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
-                        case .listAll:
-                            return formatListAllResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
-                        case .sumAmount:
-                            return formatSumResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
-                        case .frequency:
-                            return formatFrequencyResponseWithItems(productName: intent.productName, matches: allMatches, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
-                        case .lookup:
-                            // This shouldn't happen, but handle it
-                            return formatLookupResponseWithItems(productName: intent.productName, result: allMatches.first!, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
-                        }
-                    } else {
-                        print("❌ Tier 1 FAILED: No matches for '\(intent.productName)'")
-                        return "I couldn't find any receipts for **\(intent.productName)**."
-                    }
-                }
-
-                // For lookup queries, find just the most recent
-                if let itemResult = ItemSearchService.shared.searchReceiptItems(for: intent.productName, in: allReceipts, notes: notesDict) {
-                    print("✅ Tier 1 SUCCESS: Found '\(intent.productName)' in receipt from \(itemResult.formattedDate) at \(itemResult.merchant)")
-                    print("   Confidence: \(String(format: "%.0f%%", itemResult.confidence * 100))")
-
-                    return formatLookupResponseWithItems(productName: intent.productName, result: itemResult, dateFormatter: dateFormatter, allReceipts: allReceipts, notes: notesDict)
-                } else {
-                    print("⚠️ Tier 1 FAILED: Product '\(intent.productName)' not found in receipts")
-                    print("   Falling back to Tier 2 (full context analysis)")
-                }
-            } else {
-                print("⚠️ LLM intent extraction failed")
-                print("   Using Tier 2 (full context analysis)")
-            }
-
-            // TIER 2: Fall back to receipt-only search (no LLM for item matching, but use LLM for analysis)
-            print("📊 Tier 2: Searching all receipts for product")
-
-            let allReceipts = await notesManager.getReceiptStatistics().flatMap { $0.monthlySummaries }.flatMap { $0.receipts }
-            let notesDict = Dictionary(uniqueKeysWithValues:
-                notesManager.notes.map { ($0.id, $0) }
-            )
-
-            // Search for all occurrences (not just the most recent)
-            if false {  // extractProductName removed - use LLM intent extraction instead
-                let productName = ""  // unreachable
-                let allMatches = ItemSearchService.shared.searchAllReceiptsForProduct(productName, in: allReceipts, notes: notesDict)
-
-                if !allMatches.isEmpty {
-                    print("✅ Found \(allMatches.count) receipt(s) matching '\(productName)'")
-
-                    // Format results
-                    var response = "I found \(allMatches.count) receipt"
-                    if allMatches.count != 1 { response += "s" }
-                    response += " for **\(productName)**:\n\n"
-
-                    for (index, match) in allMatches.prefix(10).enumerated() {
-                        let dateStr = dateFormatter.string(from: match.receiptDate)
-                        response += "**\(index + 1). \(dateStr)** - \(match.merchant)"
-
-                        if match.amount > 0 {
-                            let formattedAmount = String(format: "$%.2f", match.amount)
-                            response += " - \(formattedAmount)"
-                        }
-
-                        if match.confidence < 1.0 {
-                            response += " (\(String(format: "%.0f%%", match.confidence * 100)) confidence)"
-                        }
-
-                        response += "\n"
-                    }
-
-                    if allMatches.count > 10 {
-                        response += "\n...and \(allMatches.count - 10) more"
-                    }
-
-                    return response
-                } else {
-                    print("❌ No receipts found for '\(productName)'")
-                    return "I couldn't find any receipts for **\(productName)**. The product might be listed under a different name or with a merchant. Try checking your receipts for items or merchants."
-                }
-            }
-
-            // If product name extraction failed, fall back to full context
-            print("📊 Tier 2: Using full context analysis")
-            return await buildSmartExpenseContext(
-                query: query,
-                notesManager: notesManager,
-                dateFormatter: dateFormatter,
-                timeFormatter: timeFormatter
-            )
-        }
+        // NO MORE KEYWORD ROUTING - Just always build complete metadata
+        print("📊 Building complete metadata for all data types...")
 
         // Step 1: Compile lightweight metadata from all data sources
         let allMetadata = await MetadataBuilderService.buildAppMetadata(
