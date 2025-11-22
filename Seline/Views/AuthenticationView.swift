@@ -67,7 +67,7 @@ struct AuthenticationView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .padding(.horizontal, 40)
                     } else {
-                        // Custom Google Sign-In Button using slate colors
+                        // Custom Google Sign-In Button
                         Button(action: {
                             Task {
                                 await authManager.signInWithGoogle()
@@ -76,25 +76,15 @@ struct AuthenticationView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "globe")
                                     .font(.geistTitle2)
-                                    .foregroundColor(colorScheme == .dark ?
-                                        Color(red: 0.07, green: 0.09, blue: 0.11) : // slate-900
-                                        Color(red: 0.98, green: 0.98, blue: 0.99)   // slate-50
-                                    )
+                                    .foregroundColor(colorScheme == .dark ? .black : .white)
 
                                 Text("Continue with Google")
                                     .font(.geistButton)
-                                    .foregroundColor(colorScheme == .dark ?
-                                        Color(red: 0.07, green: 0.09, blue: 0.11) : // slate-900
-                                        Color(red: 0.98, green: 0.98, blue: 0.99)   // slate-50
-                                    )
+                                    .foregroundColor(colorScheme == .dark ? .black : .white)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 52)
-                            .background(
-                                colorScheme == .dark ?
-                                    Color(red: 0.64, green: 0.68, blue: 0.73) : // slate-400
-                                    Color(red: 0.27, green: 0.32, blue: 0.38)   // slate-700
-                            )
+                            .background(colorScheme == .dark ? .white : .black)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .shadow(
                                 color: colorScheme == .dark ?
