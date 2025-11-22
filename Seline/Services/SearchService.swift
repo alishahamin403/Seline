@@ -1029,7 +1029,7 @@ class SearchService: ObservableObject {
     /// Generate a conversation title based on the full conversation summary
     /// Called when user exits the conversation
     func generateFinalConversationTitle() async {
-        guard conversationHistory.count >= 2 else { return }
+        guard !conversationHistory.isEmpty else { return }
 
         // Build conversation context with both user and AI messages
         var conversationContext = ""
@@ -1080,18 +1080,38 @@ class SearchService: ObservableObject {
                 .replacingOccurrences(of: "\"", with: "")
                 .replacingOccurrences(of: "'", with: "")
 
-            if !cleanedTitle.isEmpty && cleanedTitle.count < 60 && !cleanedTitle.contains("conversation") {
+            if !cleanedTitle.isEmpty && cleanedTitle.count < 60 {
                 conversationTitle = cleanedTitle
-            } else if !cleanedTitle.isEmpty && cleanedTitle.count < 60 {
-                conversationTitle = cleanedTitle
+                return  // Successfully generated a title, return early
             }
         } catch {
-            // If AI fails, fall back to creating a title from first and last user message
-            if let firstMessage = conversationHistory.first(where: { $0.isUser }) {
-                let words = firstMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
-                conversationTitle = String(words.isEmpty ? "Conversation" : words)
+            // If AI fails, continue to fallback logic
+        }
+
+        // Fallback 1: Try to extract from first user message
+        if let firstMessage = conversationHistory.first(where: { $0.isUser }) {
+            let words = firstMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
+            let fallbackTitle = String(words.isEmpty ? "" : words)
+            if !fallbackTitle.isEmpty {
+                conversationTitle = fallbackTitle
+                return
             }
         }
+
+        // Fallback 2: Extract from first AI message if available
+        if let firstAIMessage = conversationHistory.first(where: { !$0.isUser }) {
+            let words = firstAIMessage.text.split(separator: " ").prefix(5).joined(separator: " ")
+            let fallbackTitle = String(words.isEmpty ? "" : words)
+            if !fallbackTitle.isEmpty {
+                conversationTitle = fallbackTitle
+                return
+            }
+        }
+
+        // Fallback 3: Use timestamp-based title as last resort
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, h:mm a"
+        conversationTitle = "Chat on \(formatter.string(from: Date()))"
     }
 
     /// Save conversation to local storage
