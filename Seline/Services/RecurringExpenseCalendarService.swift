@@ -8,6 +8,18 @@ class RecurringExpenseCalendarService {
 
     // MARK: - Calendar Access
 
+    /// Explicitly request calendar permission (call this from UI for proper permission prompt context)
+    func requestCalendarPermission() async -> Bool {
+        print("📅 Requesting calendar permission...")
+        let granted = await requestCalendarAccess()
+        if granted {
+            print("✅ Calendar permission granted")
+        } else {
+            print("❌ Calendar permission denied")
+        }
+        return granted
+    }
+
     /// Request calendar access and create all-day events for recurring expense instances
     func createCalendarEventsForRecurringExpense(
         _ expense: RecurringExpense,
@@ -17,16 +29,21 @@ class RecurringExpenseCalendarService {
         let granted = await requestCalendarAccess()
         guard granted else {
             print("❌ Calendar access denied for recurring expense \(expense.title)")
+            print("⚠️ User needs to grant calendar permission in Settings > Seline > Calendars")
             return
         }
 
         // Get the default calendar
         guard let calendar = getDefaultCalendar() else {
             print("❌ No default calendar found")
+            print("⚠️ Make sure you have at least one calendar available in Calendar app")
             return
         }
 
+        print("📅 Creating \(instances.count) calendar events for \(expense.title)")
+
         // Create an all-day event for each instance
+        var successCount = 0
         for instance in instances {
             do {
                 try createAllDayEvent(
@@ -34,10 +51,13 @@ class RecurringExpenseCalendarService {
                     instance: instance,
                     in: calendar
                 )
+                successCount += 1
             } catch {
                 print("❌ Failed to create calendar event for instance: \(error.localizedDescription)")
             }
         }
+
+        print("✅ Successfully created \(successCount)/\(instances.count) calendar events")
     }
 
     /// Request full calendar access (iOS 17+)

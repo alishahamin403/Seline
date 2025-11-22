@@ -250,6 +250,13 @@ struct RecurringExpenseForm: View {
 
         Task {
             do {
+                // Request calendar permission first
+                print("📅 Requesting calendar permission for recurring expense...")
+                let calendarAccessGranted = await RecurringExpenseCalendarService.shared.requestCalendarPermission()
+                if !calendarAccessGranted {
+                    print("⚠️ Calendar permission was denied - events won't be created in Calendar app")
+                }
+
                 // Calculate next occurrence
                 let nextOccurrence = RecurringExpense.calculateNextOccurrence(
                     from: startDate,
