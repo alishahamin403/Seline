@@ -2631,7 +2631,7 @@ class OpenAIService: ObservableObject {
         let eventKeywords = ["event", "meeting", "appointment", "calendar", "schedule", "task", "todo"]
         let noteKeywords = ["note", "notes", "remind", "reminder", "document", "memo"]
         let emailKeywords = ["email", "emails", "mail", "inbox", "message", "from"]
-        let locationKeywords = ["location", "locations", "place", "places", "where", "saved", "restaurant", "cafe"]
+        let locationKeywords = ["location", "locations", "place", "places", "where", "saved", "restaurant", "cafe", "visit", "visits", "visited", "geofence"]
         let weatherKeywords = ["weather", "temperature", "rain", "sunny", "forecast"]
         let navigationKeywords = ["eta", "how far", "distance", "how long", "arrive", "travel time"]
         let receiptKeywords = ["receipt", "receipts", "purchase", "transaction", "spent", "spending", "expense", "expenses", "money", "cost", "price", "bought", "merchant", "store", "grocery", "restaurant bill"]
@@ -2702,7 +2702,7 @@ class OpenAIService: ObservableObject {
         } else if intents.contains("notes") && intents.count == 1 {
             return "Use this format: Your notes: • **[Folder]** Title - Content or preview"
         } else if intents.contains("locations") && intents.count == 1 {
-            return "Use this format: Your saved locations: • **Name** | Category | Location | Rating: X/5"
+            return "Use this format: Your saved locations and visit data: • **Name** | Category | Visits: X | Peak time: [TimeOfDay] | Most visited: [DayOfWeek]"
         } else if intents.contains("weather") && intents.count == 1 {
             return "Use this format: Current weather in [City]: Temperature: XX°C, Conditions. 6-Day Forecast: • Tomorrow: XX°C"
         } else if intents.contains("navigation") && intents.count == 1 {
