@@ -332,9 +332,9 @@ struct RecurringExpenseStatsContent: View {
         recurringExpenses.filter { $0.isActive }.count
     }
 
-    // Sort instances by occurrence date (soonest first)
-    var sortedInstances: [RecurringInstance] {
-        recurringInstances.sorted { $0.occurrenceDate < $1.occurrenceDate }
+    // Sort expenses by next occurrence date (soonest first)
+    var sortedExpenses: [RecurringExpense] {
+        recurringExpenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
     }
 
     var body: some View {
@@ -388,83 +388,85 @@ struct RecurringExpenseStatsContent: View {
                 .padding(.top, -4)
                 .padding(.bottom, 4)
 
-                // Recurring instances list (sorted by due date)
+                // Recurring expenses list (sorted by next occurrence date)
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
-                        ForEach(sortedInstances) { instance in
-                            // Find the parent expense
-                            if let expense = recurringExpenses.first(where: { $0.id == instance.recurringExpenseId }) {
-                                Menu {
-                                    Button(action: {
-                                        selectedExpense = expense
-                                        // Add small delay to ensure state is updated before sheet shows
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                                            showEditSheet = true
-                                        }
-                                    }) {
-                                        Label("Edit Recurring", systemImage: "pencil")
+                        ForEach(sortedExpenses) { expense in
+                            Menu {
+                                Button(action: {
+                                    selectedExpense = expense
+                                    // Add small delay to ensure state is updated before sheet shows
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                                        showEditSheet = true
                                     }
-
-                                    Button(action: {
-                                        Task {
-                                            try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
-                                            // Refresh the list
-                                            await MainActor.run {
-                                                refreshRecurringExpenses()
-                                            }
-                                        }
-                                    }) {
-                                        Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
-                                    }
-
-                                    Button(role: .destructive, action: {
-                                        Task {
-                                            try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
-                                            // Refresh the list
-                                            await MainActor.run {
-                                                refreshRecurringExpenses()
-                                            }
-                                        }
-                                    }) {
-                                        Label("Delete Recurring", systemImage: "trash")
-                                    }
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(expense.title)
-                                                .font(.subheadline)
-                                                .fontWeight(.semibold)
-                                            HStack(spacing: 8) {
-                                                // Show instance date
-                                                Image(systemName: "calendar")
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(.secondary)
-                                                Text(formatInstanceDate(instance.occurrenceDate))
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                        }
-
-                                        Spacer()
-
-                                        VStack(alignment: .trailing, spacing: 4) {
-                                            Text(CurrencyParser.formatAmount(Double(truncating: instance.amount as NSDecimalNumber)))
-                                                .font(.subheadline)
-                                                .fontWeight(.regular)
-                                            if let category = expense.category {
-                                                Text(category)
-                                                    .font(.caption2)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 12)
-                                    .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
-                                    .cornerRadius(8)
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                }) {
+                                    Label("Edit Recurring", systemImage: "pencil")
                                 }
+
+                                Button(action: {
+                                    Task {
+                                        try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
+                                        // Refresh the list
+                                        await MainActor.run {
+                                            refreshRecurringExpenses()
+                                        }
+                                    }
+                                }) {
+                                    Label(expense.isActive ? "Pause" : "Resume", systemImage: expense.isActive ? "pause.circle" : "play.circle")
+                                }
+
+                                Button(role: .destructive, action: {
+                                    Task {
+                                        try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
+                                        // Refresh the list
+                                        await MainActor.run {
+                                            refreshRecurringExpenses()
+                                        }
+                                    }
+                                }) {
+                                    Label("Delete Recurring", systemImage: "trash")
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(expense.title)
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                        HStack(spacing: 8) {
+                                            // Show next occurrence date
+                                            Image(systemName: "calendar")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                            Text(formatInstanceDate(expense.nextOccurrence))
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+
+                                            // Show frequency
+                                            Text("• \(expense.frequency.displayName)")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+
+                                    Spacer()
+
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text(expense.formattedAmount)
+                                            .font(.subheadline)
+                                            .fontWeight(.regular)
+                                        if let category = expense.category {
+                                            Text(category)
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.05))
+                                .cornerRadius(8)
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                         }
                     }
@@ -511,24 +513,9 @@ struct RecurringExpenseStatsContent: View {
                 // Fetch all expenses (both active and paused)
                 let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
 
-                // Fetch all instances for all expenses (in parallel for faster loading)
-                var allInstances: [RecurringInstance] = []
-                let instanceFetches = expenses.map { expense in
-                    Task {
-                        try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
-                    }
-                }
-
-                for fetch in instanceFetches {
-                    let instances = try await fetch.value
-                    allInstances.append(contentsOf: instances)
-                }
-
                 await MainActor.run {
                     // Sort expenses by upcoming due date (soonest first)
                     recurringExpenses = expenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
-                    // Instances are sorted by occurrence date in the computed property
-                    recurringInstances = allInstances
                     isLoading = false
                     hasLoadedData = true
                 }
