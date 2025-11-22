@@ -234,7 +234,7 @@ class SelineAppContext {
     /// Detects if query is related to expenses/spending
     private func isExpenseQuery(_ query: String) -> Bool {
         let lowercaseQuery = query.lowercased()
-        let expenseKeywords = ["spend", "spending", "spent", "receipt", "receipts", "cost", "costs", "expense", "expenses", "money", "budget", "amount", "price", "paid", "how much", "total", "breakdown"]
+        let expenseKeywords = ["spend", "spending", "spent", "receipt", "receipts", "cost", "costs", "expense", "expenses", "money", "budget", "amount", "price", "paid", "how much", "total", "breakdown", "recurring", "subscription", "subscriptions", "bill", "bills", "monthly", "annually"]
 
         return expenseKeywords.contains { keyword in
             lowercaseQuery.contains(keyword)
@@ -796,7 +796,7 @@ class SelineAppContext {
 
         // Add context about the data source for the user's query
         if userAskedAboutExpenses {
-            context += "**NOTE: User asked about expenses/spending. Use the RECEIPTS data below as the primary source for their expense information.**\n\n"
+            context += "**NOTE: User asked about expenses/spending. Use BOTH RECEIPTS and RECURRING EXPENSES data below. Show one-time receipts AND recurring subscriptions/bills with comprehensive analysis.**\n\n"
         } else if userAskedAboutBankStatement {
             context += "**NOTE: User asked about bank/credit card statements. These are typically stored in NOTES folder. Check the NOTES section for bank statements, credit card statements, or transaction lists from American Express, Visa, Mastercard, etc.**\n\n"
         }
@@ -849,6 +849,76 @@ class SelineAppContext {
             } else {
                 context += "  No receipts\n"
             }
+
+        // Add recurring expenses section (detailed)
+        do {
+            let activeRecurring = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+
+            if !activeRecurring.isEmpty {
+                context += "\n=== RECURRING EXPENSES (SUBSCRIPTIONS & BILLS) ===\n\n"
+
+                // Calculate totals
+                let totalMonthly = activeRecurring.reduce(0.0) { total, expense in
+                    let amount = Double(truncating: expense.amount as NSDecimalNumber)
+                    switch expense.frequency {
+                    case .daily:
+                        return total + (amount * 30)
+                    case .weekly:
+                        return total + (amount * 4.3)
+                    case .biweekly:
+                        return total + (amount * 2.15)
+                    case .monthly:
+                        return total + amount
+                    case .yearly:
+                        return total + (amount / 12)
+                    }
+                }
+
+                let totalYearly = activeRecurring.reduce(0.0) { total, expense in
+                    let amount = Double(truncating: expense.amount as NSDecimalNumber)
+                    switch expense.frequency {
+                    case .daily:
+                        return total + (amount * 365)
+                    case .weekly:
+                        return total + (amount * 52)
+                    case .biweekly:
+                        return total + (amount * 26)
+                    case .monthly:
+                        return total + (amount * 12)
+                    case .yearly:
+                        return total + amount
+                    }
+                }
+
+                context += "**💰 Monthly Total: $\(String(format: "%.2f", totalMonthly))** | **Yearly Total: $\(String(format: "%.2f", totalYearly))**\n"
+                context += "**Active Subscriptions: \(activeRecurring.count)**\n\n"
+
+                // Sort by next occurrence
+                for expense in activeRecurring.sorted(by: { $0.nextOccurrence < $1.nextOccurrence }) {
+                    let amount = Double(truncating: expense.amount as NSDecimalNumber)
+                    context += "• **\(expense.title)**\n"
+                    context += "    Amount: \(expense.formattedAmount) | Frequency: \(expense.frequency.rawValue.capitalized)\n"
+                    context += "    Next: \(formatDate(expense.nextOccurrence)) | Started: \(formatDate(expense.startDate))\n"
+
+                    if let endDate = expense.endDate {
+                        context += "    Ends: \(formatDate(endDate))\n"
+                    }
+
+                    if let description = expense.description, !description.isEmpty {
+                        context += "    Notes: \(description)\n"
+                    }
+
+                    if let category = expense.category, !category.isEmpty {
+                        context += "    Category: \(category)\n"
+                    }
+
+                    context += "    Status: \(expense.isActive ? "✅ Active" : "⏸️ Paused")\n"
+                    context += "\n"
+                }
+            }
+        } catch {
+            print("⚠️ Error fetching recurring expenses for context: \(error)")
+        }
 
         // Add locations section (always included)
         context += "\n=== SAVED LOCATIONS ===\n"
