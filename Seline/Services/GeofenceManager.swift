@@ -68,6 +68,66 @@ struct LocationVisitRecord: Codable, Identifiable {
         self.updatedAt = Date()
     }
 
+    /// Checks if the visit spans across midnight (entry and exit on different calendar days)
+    func spansMidnight() -> Bool {
+        guard let exit = exitTime else { return false }
+        let calendar = Calendar.current
+        let entryDay = calendar.dateComponents([.year, .month, .day], from: entryTime)
+        let exitDay = calendar.dateComponents([.year, .month, .day], from: exit)
+        return entryDay != exitDay
+    }
+
+    /// Splits the visit into two records at midnight if it spans across days
+    /// Returns an array with 1 or 2 visits depending on whether midnight was crossed
+    func splitAtMidnightIfNeeded() -> [LocationVisitRecord] {
+        guard spansMidnight(), let exit = exitTime else {
+            return [self]
+        }
+
+        let calendar = Calendar.current
+
+        // Find midnight between entry and exit
+        var midnightComponents = calendar.dateComponents([.year, .month, .day], from: entryTime)
+        midnightComponents.hour = 23
+        midnightComponents.minute = 59
+        midnightComponents.second = 59
+
+        guard let midnightOfEntryDay = calendar.date(from: midnightComponents) else {
+            return [self]
+        }
+
+        // Visit 1: Entry to end of entry day (11:59:59 PM)
+        var visit1 = self
+        visit1.id = UUID() // New ID for split visit
+        visit1.exitTime = midnightOfEntryDay
+        let minutes1 = Int(midnightOfEntryDay.timeIntervalSince(entryTime) / 60)
+        visit1.durationMinutes = max(minutes1, 1)
+        visit1.updatedAt = Date()
+
+        // Visit 2: Start of exit day (12:00:00 AM) to exit
+        var visit2 = self
+        visit2.id = UUID() // New ID for split visit
+
+        var midnightOfExitDay = calendar.dateComponents([.year, .month, .day], from: exit)
+        midnightOfExitDay.hour = 0
+        midnightOfExitDay.minute = 0
+        midnightOfExitDay.second = 0
+
+        guard let midnightStart = calendar.date(from: midnightOfExitDay) else {
+            return [self]
+        }
+
+        visit2.entryTime = midnightStart
+        visit2.exitTime = exit
+        let minutes2 = Int(exit.timeIntervalSince(midnightStart) / 60)
+        visit2.durationMinutes = max(minutes2, 1)
+        visit2.dayOfWeek = Self.dayOfWeekName(for: calendar.dateComponents([.weekday], from: exit).weekday ?? 1)
+        visit2.timeOfDay = Self.timeOfDayName(for: exit)
+        visit2.updatedAt = Date()
+
+        return [visit1, visit2]
+    }
+
     private static func dayOfWeekName(for dayIndex: Int) -> String {
         let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         // dayIndex from Calendar.dateComponents is 1-7 (1=Sunday), but array is 0-indexed
@@ -244,18 +304,20 @@ class GeofenceManager: NSObject, ObservableObject {
                 print("🔄 Found recent visit from \(previousVisit.entryTime) to \(previousVisit.exitTime?.description ?? "unknown")")
 
                 var mergedVisit = previousVisit
+                // Update entry time to current re-entry (don't keep old entry time from previous visit)
+                mergedVisit.entryTime = Date()
                 // Clear the exit time to reopen the visit
                 mergedVisit.exitTime = nil
                 mergedVisit.durationMinutes = nil
                 mergedVisit.updatedAt = Date()
 
-                // Add back to active visits using the original entry time (continuous session)
+                // Add back to active visits with updated entry time
                 self.activeVisits[placeId] = mergedVisit
 
-                print("🔄 Reopened visit from \(mergedVisit.entryTime) (original entry)")
+                print("🔄 Reopened visit with new entry time: \(mergedVisit.entryTime)")
                 print("🔄 ============================\n")
 
-                // Update Supabase to clear the exit time
+                // Update Supabase to clear the exit time and update entry time
                 await self.mergeVisitInSupabase(mergedVisit)
             } else {
                 // Create a new visit record
@@ -295,8 +357,20 @@ class GeofenceManager: NSObject, ObservableObject {
             // First, check if we have an active visit in memory
             if var visit = self.activeVisits.removeValue(forKey: placeId) {
                 visit.recordExit(exitTime: Date())
-                print("✅ Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
-                await self.updateVisitInSupabase(visit)
+
+                // Check if visit spans midnight and split if needed
+                let visitsToSave = visit.splitAtMidnightIfNeeded()
+
+                if visitsToSave.count > 1 {
+                    print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+                    for visitPart in visitsToSave {
+                        print("  - \(visitPart.dayOfWeek): \(visitPart.entryTime) to \(visitPart.exitTime?.description ?? "nil") (\(visitPart.durationMinutes ?? 0) min)")
+                        await self.saveVisitToSupabase(visitPart)
+                    }
+                } else {
+                    print("✅ Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
+                    await self.updateVisitInSupabase(visit)
+                }
             } else {
                 // If not in memory (app was backgrounded/killed), fetch from Supabase
                 print("⚠️ Visit not found in memory, fetching from Supabase...")
@@ -385,8 +459,20 @@ class GeofenceManager: NSObject, ObservableObject {
                 // Only close if it doesn't already have an exit time
                 if visit.exitTime == nil {
                     visit.recordExit(exitTime: Date())
-                    print("✅ CLOSED INCOMPLETE VISIT - Place: \(placeId), Duration: \(visit.durationMinutes ?? 0) min")
-                    await self.updateVisitInSupabase(visit)
+
+                    // Check if visit spans midnight and split if needed
+                    let visitsToSave = visit.splitAtMidnightIfNeeded()
+
+                    if visitsToSave.count > 1 {
+                        print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+                        for visitPart in visitsToSave {
+                            print("  - \(visitPart.dayOfWeek): \(visitPart.entryTime) to \(visitPart.exitTime?.description ?? "nil") (\(visitPart.durationMinutes ?? 0) min)")
+                            await self.saveVisitToSupabase(visitPart)
+                        }
+                    } else {
+                        print("✅ CLOSED INCOMPLETE VISIT - Place: \(placeId), Duration: \(visit.durationMinutes ?? 0) min")
+                        await self.updateVisitInSupabase(visit)
+                    }
                 } else {
                     print("ℹ️ Most recent visit already has exit time at \(visit.exitTime?.description ?? "unknown"), skipping")
                 }

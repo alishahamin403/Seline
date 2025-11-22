@@ -58,10 +58,6 @@ struct VisitHistoryCard: View {
                                     .font(.system(size: 14))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             }
-                        } else {
-                            Text("\(visitHistory.count) visit\(visitHistory.count == 1 ? "" : "s")")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
                     }
 
