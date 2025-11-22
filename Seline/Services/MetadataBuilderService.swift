@@ -19,6 +19,11 @@ class MetadataBuilderService {
         print("📊 Preloading geofence visit stats for \(locationsManager.savedPlaces.count) locations...")
         for place in locationsManager.savedPlaces {
             await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+            if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
+                print("✅ Loaded stats for \(place.name): \(stats.totalVisits) visits")
+            } else {
+                print("⚠️  No visit data for \(place.name) (no geofence records)")
+            }
         }
 
         let locations = buildLocationMetadata(from: locationsManager)
@@ -239,7 +244,8 @@ class MetadataBuilderService {
 
                 print("   📊 Visit Stats: \(visitCount ?? 0) visits, Peak: \(peakVisitTimes?.joined(separator: ", ") ?? "N/A"), Days: \(mostVisitedDays?.joined(separator: ", ") ?? "N/A")")
             } else {
-                print("   📊 No geofence visit data tracked yet")
+                print("   📊 No geofence visit data found in cache for location: \(location.id)")
+                print("      Cache keys available: \(LocationVisitAnalytics.shared.visitStats.keys.count) location(s)")
             }
 
             return LocationMetadata(
