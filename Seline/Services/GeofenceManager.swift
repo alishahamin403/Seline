@@ -5,16 +5,16 @@ import PostgREST
 // MARK: - LocationVisitRecord Model
 
 struct LocationVisitRecord: Codable, Identifiable {
-    let id: UUID
+    var id: UUID
     let userId: UUID
     let savedPlaceId: UUID
-    let entryTime: Date
+    var entryTime: Date
     var exitTime: Date?
     var durationMinutes: Int?
-    let dayOfWeek: String
-    let timeOfDay: String
-    let month: Int
-    let year: Int
+    var dayOfWeek: String
+    var timeOfDay: String
+    var month: Int
+    var year: Int
     let createdAt: Date
     var updatedAt: Date
 
@@ -121,8 +121,11 @@ struct LocationVisitRecord: Codable, Identifiable {
         visit2.exitTime = exit
         let minutes2 = Int(exit.timeIntervalSince(midnightStart) / 60)
         visit2.durationMinutes = max(minutes2, 1)
-        visit2.dayOfWeek = Self.dayOfWeekName(for: calendar.dateComponents([.weekday], from: exit).weekday ?? 1)
+        let exitComponents = calendar.dateComponents([.weekday, .month, .year], from: exit)
+        visit2.dayOfWeek = Self.dayOfWeekName(for: exitComponents.weekday ?? 1)
         visit2.timeOfDay = Self.timeOfDayName(for: exit)
+        visit2.month = exitComponents.month ?? 1
+        visit2.year = exitComponents.year ?? 2024
         visit2.updatedAt = Date()
 
         return [visit1, visit2]
