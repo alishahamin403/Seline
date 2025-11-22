@@ -46,12 +46,6 @@ class RecurringExpenseService {
         // Schedule reminders
         RecurringExpenseManager.shared.scheduleReminder(for: mutableExpense)
 
-        // Create all-day calendar events for each instance
-        await RecurringExpenseCalendarService.shared.createCalendarEventsForRecurringExpense(
-            mutableExpense,
-            instances: instances
-        )
-
         return mutableExpense
     }
 
@@ -145,8 +139,6 @@ class RecurringExpenseService {
         // Cancel or reschedule reminders
         if !isActive {
             RecurringExpenseManager.shared.cancelReminder(for: id)
-            // Delete calendar events when pausing
-            await RecurringExpenseCalendarService.shared.deleteCalendarEventsForRecurringExpense(id)
         }
     }
 
@@ -178,9 +170,6 @@ class RecurringExpenseService {
 
         // Cancel reminders
         RecurringExpenseManager.shared.cancelReminder(for: id)
-
-        // Delete calendar events
-        await RecurringExpenseCalendarService.shared.deleteCalendarEventsForRecurringExpense(id)
     }
 
     // MARK: - Instances
