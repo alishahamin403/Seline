@@ -314,6 +314,7 @@ struct RecurringExpenseStatsContent: View {
     @State private var isLoading = true
     @State private var selectedExpense: RecurringExpense? = nil
     @State private var showEditSheet = false
+    @State private var hasLoadedData = false
     @Environment(\.colorScheme) var colorScheme
 
     var monthlyTotal: Double {
@@ -407,9 +408,9 @@ struct RecurringExpenseStatsContent: View {
                                     Button(action: {
                                         Task {
                                             try? await RecurringExpenseService.shared.toggleRecurringExpenseActive(id: expense.id, isActive: !expense.isActive)
-                                            // Reload the list
+                                            // Refresh the list
                                             await MainActor.run {
-                                                loadRecurringExpenses()
+                                                refreshRecurringExpenses()
                                             }
                                         }
                                     }) {
@@ -419,9 +420,9 @@ struct RecurringExpenseStatsContent: View {
                                     Button(role: .destructive, action: {
                                         Task {
                                             try? await RecurringExpenseService.shared.deleteRecurringExpense(id: expense.id)
-                                            // Reload the list
+                                            // Refresh the list
                                             await MainActor.run {
-                                                loadRecurringExpenses()
+                                                refreshRecurringExpenses()
                                             }
                                         }
                                     }) {
@@ -474,8 +475,8 @@ struct RecurringExpenseStatsContent: View {
         .padding(.vertical, 4)
         .sheet(isPresented: $showEditSheet, onDismiss: {
             selectedExpense = nil
-            // Reload the list when sheet closes
-            loadRecurringExpenses()
+            // Refresh the list when sheet closes (in case data was edited)
+            refreshRecurringExpenses()
         }) {
             if let expense = selectedExpense {
                 RecurringExpenseEditView(expense: expense, isPresented: $showEditSheet)
@@ -496,7 +497,10 @@ struct RecurringExpenseStatsContent: View {
             }
         }
         .onAppear {
-            loadRecurringExpenses()
+            // Only load if we haven't already loaded
+            if !hasLoadedData {
+                loadRecurringExpenses()
+            }
         }
     }
 
@@ -507,10 +511,16 @@ struct RecurringExpenseStatsContent: View {
                 // Fetch all expenses (both active and paused)
                 let expenses = try await RecurringExpenseService.shared.fetchAllRecurringExpenses()
 
-                // Fetch all instances for all expenses
+                // Fetch all instances for all expenses (in parallel for faster loading)
                 var allInstances: [RecurringInstance] = []
-                for expense in expenses {
-                    let instances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
+                let instanceFetches = expenses.map { expense in
+                    Task {
+                        try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
+                    }
+                }
+
+                for fetch in instanceFetches {
+                    let instances = try await fetch.value
                     allInstances.append(contentsOf: instances)
                 }
 
@@ -520,6 +530,7 @@ struct RecurringExpenseStatsContent: View {
                     // Instances are sorted by occurrence date in the computed property
                     recurringInstances = allInstances
                     isLoading = false
+                    hasLoadedData = true
                 }
             } catch {
                 await MainActor.run {
@@ -528,6 +539,12 @@ struct RecurringExpenseStatsContent: View {
                 print("❌ Error loading recurring expenses: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Manual refresh - reload data even if already loaded
+    private func refreshRecurringExpenses() {
+        hasLoadedData = false
+        loadRecurringExpenses()
     }
 
     /// Format instance date in readable way
