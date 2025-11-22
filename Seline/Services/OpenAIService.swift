@@ -3777,6 +3777,17 @@ class OpenAIService: ObservableObject {
             locationsManager: locationsManager ?? LocationsManager.shared
         )
 
+        // DEBUG: Show what's in the location metadata
+        print("🔍 DEBUG: Location metadata analysis:")
+        print("   Total locations in metadata: \(allMetadata.locations.count)")
+        for loc in allMetadata.locations.prefix(5) {
+            print("   - \(loc.name): visitCount=\(loc.visitCount ?? -1), lastVisited=\(loc.lastVisited != nil ? "YES" : "NO"), peakTimes=\(loc.peakVisitTimes?.joined(separator: ",") ?? "NONE")")
+        }
+        print("   LocationVisitAnalytics cache status: \(LocationVisitAnalytics.shared.visitStats.count) locations cached")
+        for (id, stats) in LocationVisitAnalytics.shared.visitStats.prefix(3) {
+            print("   - \(id): \(stats.totalVisits) visits, peak=\(stats.mostCommonTimeOfDay ?? "N/A")")
+        }
+
         // Step 1.5: CRITICAL - Filter metadata by temporal bounds BEFORE LLM sees it
         // This ensures LLM only receives data from the requested time period
         let temporalFilter = TemporalDataFilterService.shared
@@ -3878,9 +3889,13 @@ class OpenAIService: ObservableObject {
         // Add locations with visit statistics
         if !fullData.locations.isEmpty {
             context += "=== SAVED LOCATIONS WITH VISIT DATA ===\n"
+            print("🔍 DEBUG LOCATION FORMATTING:")
+            print("   fullData has \(fullData.locations.count) locations")
+            print("   allMetadata has \(allMetadata.locations.count) locations to match against")
             for location in fullData.locations {
                 // Find corresponding metadata with visit stats
                 if let locMeta = allMetadata.locations.first(where: { $0.id == location.id }) {
+                    print("   ✓ Found metadata for \(location.displayName): visitCount=\(locMeta.visitCount ?? -1)")
                     var locStr = "• \(location.displayName) - \(location.category)"
                     if let rating = location.userRating {
                         locStr += " (Rating: \(rating)/10)"
@@ -3918,6 +3933,8 @@ class OpenAIService: ObservableObject {
                     context += "\n"
                 } else {
                     // Fallback if metadata not found
+                    print("   ✗ NO METADATA FOUND for \(location.displayName) (ID: \(location.id))")
+                    print("     Available metadata IDs: \(allMetadata.locations.map { $0.id.uuidString }.joined(separator: ", "))")
                     var locStr = "• \(location.displayName) - \(location.category)"
                     if let rating = location.userRating {
                         locStr += " (Rating: \(rating)/10)"
