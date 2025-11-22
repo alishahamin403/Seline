@@ -63,11 +63,16 @@ class LocationVisitAnalytics: ObservableObject {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             errorMessage = "User not authenticated"
             isLoading = false
+            print("❌ LocationVisitAnalytics: User not authenticated when fetching stats for \(placeId)")
             return
         }
 
+        print("📊 LocationVisitAnalytics: Fetching visits for place \(placeId) with user \(userId)")
+
         do {
             let visits = try await fetchVisits(for: placeId, userId: userId)
+            print("📊 LocationVisitAnalytics: Found \(visits.count) visits for place \(placeId)")
+
             // Include the active visit if one exists for this location
             let activeVisit = GeofenceManager.shared.activeVisits[placeId]
             let stats = calculateStats(from: visits, activeVisit: activeVisit)
@@ -78,10 +83,11 @@ class LocationVisitAnalytics: ObservableObject {
                 self.statsCache[placeId] = CachedStats(stats: stats, timestamp: Date())
             }
 
-            print("📊 Fetched stats for place \(placeId): \(stats.totalVisits) visits")
+            print("📊 Fetched stats for place \(placeId): \(stats.totalVisits) visits, Peak time: \(stats.mostCommonTimeOfDay ?? "N/A")")
         } catch {
             errorMessage = "Failed to fetch visit stats: \(error.localizedDescription)"
-            print("❌ Error fetching stats: \(error)")
+            print("❌ Error fetching stats for place \(placeId): \(error.localizedDescription)")
+            print("   Full error: \(error)")
         }
 
         isLoading = false
@@ -175,18 +181,26 @@ class LocationVisitAnalytics: ObservableObject {
     // MARK: - Private Methods
 
     private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {
+        print("📊 LocationVisitAnalytics.fetchVisits: Querying location_visits for place=\(placeId), user=\(userId)")
+
         let client = await SupabaseManager.shared.getPostgrestClient()
 
-        let response: [LocationVisitRecord] = try await client
-            .from("location_visits")
-            .select()
-            .eq("user_id", value: userId.uuidString)
-            .eq("saved_place_id", value: placeId.uuidString)
-            .order("entry_time", ascending: false)
-            .execute()
-            .value
+        do {
+            let response: [LocationVisitRecord] = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+                .value
 
-        return response
+            print("📊 LocationVisitAnalytics.fetchVisits: Query returned \(response.count) records")
+            return response
+        } catch {
+            print("❌ LocationVisitAnalytics.fetchVisits: Query failed with error: \(error)")
+            throw error
+        }
     }
 
     private func calculateStats(from visits: [LocationVisitRecord], activeVisit: LocationVisitRecord? = nil) -> LocationVisitStats {

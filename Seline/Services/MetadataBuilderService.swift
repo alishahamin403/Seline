@@ -17,12 +17,17 @@ class MetadataBuilderService {
 
         // Preload visit stats for all saved places before building location metadata
         print("📊 Preloading geofence visit stats for \(locationsManager.savedPlaces.count) locations...")
+        print("   Current user: \(SupabaseManager.shared.getCurrentUser()?.id.uuidString ?? "NOT AUTHENTICATED")")
+
         for place in locationsManager.savedPlaces {
+            print("   📍 Fetching stats for \(place.name) (ID: \(place.id))...")
             await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+
             if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
-                print("✅ Loaded stats for \(place.name): \(stats.totalVisits) visits")
+                print("   ✅ Loaded stats for \(place.name): \(stats.totalVisits) visits, Peak: \(stats.mostCommonTimeOfDay ?? "N/A"), Last visit: \(stats.lastVisitDate?.formatted(date: .abbreviated, time: .shortened) ?? "N/A")")
             } else {
-                print("⚠️  No visit data for \(place.name) (no geofence records)")
+                let errorMsg = LocationVisitAnalytics.shared.errorMessage ?? "Unknown error"
+                print("   ❌ Failed to load visit data for \(place.name): \(errorMsg)")
             }
         }
 
