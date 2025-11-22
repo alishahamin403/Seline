@@ -6,46 +6,67 @@ struct PlaceDetailSheet: View {
     var isFromRanking: Bool = false
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var mapsService = GoogleMapsService.shared
+    @State private var isLoading = true
+
+    var isPlaceDataComplete: Bool {
+        !place.name.isEmpty && !place.address.isEmpty && !place.displayName.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Photos carousel
-                    if !place.photos.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(place.photos.indices, id: \.self) { index in
-                                    AsyncImage(url: URL(string: place.photos[index])) { phase in
-                                        switch phase {
-                                        case .empty:
-                                            ProgressView()
-                                                .frame(width: 280, height: 200)
-                                        case .success(let image):
-                                            image
-                                                .resizable()
-                                                .aspectRatio(contentMode: .fill)
-                                                .frame(width: 280, height: 200)
-                                                .clipped()
-                                                .cornerRadius(12)
-                                        case .failure:
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .fill(Color.gray.opacity(0.3))
-                                                .frame(width: 280, height: 200)
-                                                .overlay(
-                                                    Image(systemName: "photo")
-                                                        .font(.system(size: 40))
-                                                        .foregroundColor(.gray)
-                                                )
-                                        @unknown default:
-                                            EmptyView()
+            if !isPlaceDataComplete {
+                // Show loading state if place data is incomplete
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+
+                    Text("Loading location details...")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+                        .ignoresSafeArea()
+                )
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Photos carousel
+                        if !place.photos.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(place.photos.indices, id: \.self) { index in
+                                        AsyncImage(url: URL(string: place.photos[index])) { phase in
+                                            switch phase {
+                                            case .empty:
+                                                ProgressView()
+                                                    .frame(width: 280, height: 200)
+                                            case .success(let image):
+                                                image
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
+                                                    .frame(width: 280, height: 200)
+                                                    .clipped()
+                                                    .cornerRadius(12)
+                                            case .failure:
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .fill(Color.gray.opacity(0.3))
+                                                    .frame(width: 280, height: 200)
+                                                    .overlay(
+                                                        Image(systemName: "photo")
+                                                            .font(.system(size: 40))
+                                                            .foregroundColor(.gray)
+                                                    )
+                                            @unknown default:
+                                                EmptyView()
+                                            }
                                         }
                                     }
                                 }
+                                .padding(.horizontal, 20)
                             }
-                            .padding(.horizontal, 20)
                         }
-                    }
 
                     VStack(alignment: .leading, spacing: 16) {
                         // Place name and category
@@ -182,6 +203,7 @@ struct PlaceDetailSheet: View {
                 (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                     .ignoresSafeArea()
             )
+            }
         }
         .background(
             (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
