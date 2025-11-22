@@ -634,6 +634,10 @@ struct ShadcnCalendar: View {
                 // Pre-compute event counts when month changes (batch operation, not per-cell)
                 updateEventCounts()
             }
+            .onChange(of: selectedTagId) { _ in
+                // Recalculate event counts when tag filter changes
+                updateEventCounts()
+            }
             .gesture(
                 DragGesture()
                     .onChanged { value in
