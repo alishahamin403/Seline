@@ -94,32 +94,43 @@ class RecurringExpenseCalendarService {
         }
     }
 
-    /// Verify that calendar events were created and show which calendars they're in
+    /// Verify that calendar events were created in local calendars
     private func verifyCalendarEvents(for expenses: [RecurringExpense]) async {
         let now = Date()
         let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) ?? now
-        let calendars = eventStore.calendars(for: .event)
+        let allCalendars = eventStore.calendars(for: .event)
+        let localCalendars = allCalendars.filter { $0.type == .local }
 
         print("📅 Verifying calendar events...")
-        print("📅 Calendars in iPhone Calendar app:")
-        for calendar in calendars {
+        print("📅 Local calendars on device:")
+        for calendar in localCalendars {
             let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: [calendar])
             let events = eventStore.events(matching: predicate)
             let recurringExpenseEvents = events.filter { event in
                 expenses.contains(where: { $0.title == event.title })
             }
             if !recurringExpenseEvents.isEmpty {
-                print("   - \(calendar.title) (type: \(calendar.type)): \(recurringExpenseEvents.count) recurring expense events")
+                print("   - \(calendar.title): \(recurringExpenseEvents.count) recurring expense events")
+            } else {
+                print("   - \(calendar.title): 0 recurring expense events")
             }
         }
     }
 
-    /// Clean up old incorrectly-formatted calendar events
+    /// Clean up old incorrectly-formatted calendar events (from local calendars only)
     private func cleanupOldCalendarEvents(for expenses: [RecurringExpense]) async {
         let now = Date()
         let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) ?? now
-        let calendars = eventStore.calendars(for: .event)
-        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: calendars)
+        let allCalendars = eventStore.calendars(for: .event)
+
+        // Only look in local calendars, not email-synced ones
+        let localCalendars = allCalendars.filter { $0.type == .local }
+        guard !localCalendars.isEmpty else {
+            print("⚠️ No local calendars found")
+            return
+        }
+
+        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: localCalendars)
 
         let allEvents = eventStore.events(matching: predicate)
         var deletedCount = 0
@@ -257,64 +268,29 @@ class RecurringExpenseCalendarService {
 
     // MARK: - Calendar Selection
 
-    /// Get the calendar that matches the user's logged-in email address
+    /// Get the local device calendar (not synced to email)
     private func getDefaultCalendar() -> EKCalendar? {
         let calendars = eventStore.calendars(for: .event)
         print("📅 Available calendars: \(calendars.map { "\($0.title) (type: \($0.type))" }.joined(separator: ", "))")
 
-        // Get the currently logged-in user's email
-        guard let currentUser = SupabaseManager.shared.getCurrentUser(),
-              let userEmail = currentUser.email else {
-            print("⚠️ Could not get current user email")
-            return fallbackCalendarSelection(from: calendars)
-        }
-
-        print("👤 Current user email: \(userEmail)")
-
-        // Priority 1: Find the calendar matching the user's logged-in email
-        if let userCalendar = calendars.first(where: { $0.title.lowercased() == userEmail.lowercased() }) {
-            print("📅 Found calendar matching user email: \(userCalendar.title)")
-            return userCalendar
-        }
-
-        // Priority 2: Look for a Gmail calendar containing the user's email
-        if let gmailCalendar = calendars.first(where: {
-            $0.title.lowercased().contains(userEmail.lowercased().split(separator: "@").first ?? "")
-        }) {
-            print("📅 Found Gmail calendar for user: \(gmailCalendar.title)")
-            return gmailCalendar
-        }
-
-        // Fallback if no matching calendar found
-        print("⚠️ No calendar found matching user email \(userEmail)")
-        return fallbackCalendarSelection(from: calendars)
-    }
-
-    /// Fallback calendar selection if user's email calendar not found
-    private func fallbackCalendarSelection(from calendars: [EKCalendar]) -> EKCalendar? {
+        // Only use LOCAL calendars (not email-synced calendars)
         // Priority 1: Look for "Calendar" (the main iOS local calendar)
         if let mainCalendar = calendars.first(where: { $0.title == "Calendar" && $0.type == .local }) {
-            print("📅 Using main local calendar: \(mainCalendar.title)")
+            print("📅 Using local device calendar: \(mainCalendar.title)")
             return mainCalendar
         }
 
-        // Priority 2: Use the default calendar for new events
-        if let defaultCalendar = eventStore.defaultCalendarForNewEvents {
-            print("📅 Using default calendar: \(defaultCalendar.title)")
-            return defaultCalendar
+        // Priority 2: Any other local calendar
+        if let localCalendar = calendars.first(where: { $0.type == .local }) {
+            print("📅 Using local device calendar: \(localCalendar.title)")
+            return localCalendar
         }
 
-        // Priority 3: Any writable calendar
-        if let writableCalendar = calendars.first(where: { !$0.isImmutable }) {
-            print("📅 Using writable calendar: \(writableCalendar.title)")
-            return writableCalendar
-        }
-
-        print("❌ No writable calendar found")
+        print("❌ No local device calendar found - events are stored in Supabase only")
         return nil
     }
 
-    /// Delete calendar events for a recurring expense
+    /// Delete calendar events for a recurring expense (from local calendars only)
     func deleteCalendarEventsForRecurringExpense(_ expenseId: UUID) async {
         let granted = await requestCalendarAccess()
         guard granted else {
@@ -322,11 +298,12 @@ class RecurringExpenseCalendarService {
             return
         }
 
-        // Create a predicate to find events related to this expense
+        // Create a predicate to find events related to this expense (from local calendars only)
         let now = Date()
         let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) ?? now
-        let calendars = eventStore.calendars(for: .event)
-        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: calendars)
+        let allCalendars = eventStore.calendars(for: .event)
+        let localCalendars = allCalendars.filter { $0.type == .local }
+        let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: localCalendars)
 
         let allEvents = eventStore.events(matching: predicate)
 
