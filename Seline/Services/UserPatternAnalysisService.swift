@@ -208,7 +208,7 @@ class UserPatternAnalysisService {
                 LocationVisit(
                     name: location.displayName,
                     visitCount: location.visitCount ?? 0,
-                    category: location.category,
+                    category: location.folderName ?? "Uncategorized",
                     lastVisited: location.lastVisited
                 )
             }
