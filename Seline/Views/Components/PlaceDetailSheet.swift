@@ -50,7 +50,7 @@ struct PlaceDetailSheet: View {
                     VStack(alignment: .leading, spacing: 16) {
                         // Place name and category
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(place.name)
+                            Text(place.displayName)
                                 .font(.system(size: 24, weight: .bold))
                                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
