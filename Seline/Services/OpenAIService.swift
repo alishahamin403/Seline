@@ -2001,6 +2001,10 @@ class OpenAIService: ObservableObject {
         navigationService: NavigationService? = nil,
         conversationHistory: [ConversationMessage] = []
     ) async throws -> String {
+        print("🎯 ===== START answerQuestion =====")
+        print("🎯 Query: '\(query)'")
+        defer { print("🎯 ===== END answerQuestion =====") }
+
         // Rate limiting
         await enforceRateLimit()
 
@@ -3754,7 +3758,10 @@ class OpenAIService: ObservableObject {
         weatherService: WeatherService? = nil,
         navigationService: NavigationService? = nil
     ) async -> String {
-        print("🧠 buildSmartContextForQuestion with query: '\(query)'\n⚡ Using unified metadata approach (no keyword routing)")
+        print("🧠 ===== START buildSmartContextForQuestion =====")
+        print("🧠 Query: '\(query)'")
+        print("🧠 Using unified metadata approach (no keyword routing)")
+        defer { print("🧠 ===== END buildSmartContextForQuestion =====") }
         let currentDate = Date()
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
@@ -3839,11 +3846,22 @@ class OpenAIService: ObservableObject {
         print("   Emails: \(allMetadata.emails.count) → \(filteredEmails.count)")
 
         // Step 2: Ask LLM which items are relevant based on FILTERED metadata
+        print("🤖 STEP 2: Asking LLM which items are relevant...")
+        print("   Metadata available: \(metadata.locations.count) locations")
         let relevantItemIds = await getRelevantDataIds(
             forQuestion: query,
             metadata: metadata,
             currentDate: currentDate
         )
+        print("🤖 LLM SELECTED:")
+        print("   Locations: \(relevantItemIds.locationIds?.count ?? 0)")
+        print("   Events: \(relevantItemIds.eventIds?.count ?? 0)")
+        print("   Receipts: \(relevantItemIds.receiptIds?.count ?? 0)")
+        print("   Notes: \(relevantItemIds.noteIds?.count ?? 0)")
+        print("   Emails: \(relevantItemIds.emailIds?.count ?? 0)")
+        if let locIds = relevantItemIds.locationIds {
+            print("   Location IDs selected: \(locIds.map { $0.uuidString }.joined(separator: ", "))")
+        }
 
         // Step 3: Fetch full details of relevant items
         let fullData = await fetchFullDataForIds(
