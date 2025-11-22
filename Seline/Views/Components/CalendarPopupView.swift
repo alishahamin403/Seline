@@ -488,17 +488,23 @@ struct ShadcnCalendar: View {
 
     @State private var currentMonth = Date()
     @State private var dragStartX: CGFloat = 0
-    // Cache event counts by date to avoid N+1 lookups
-    @State private var eventCountsByDate: [String: Int] = [:]
-    @State private var cachedMonthForEvents: Date?
 
     private var calendar: Calendar {
         Calendar.current
     }
 
-    /// Cached event counts for current month (pre-computed in onChange)
+    /// Dynamically compute event counts for current month based on current filter
     private var monthEventCountsCache: [String: Int] {
-        eventCountsByDate
+        var counts: [String: Int] = [:]
+
+        for date in daysInMonth {
+            let key = calendar.dateComponents([.year, .month, .day], from: date).description
+            let allTasks = taskManager.getAllTasks(for: date)
+            let filteredTasks = applyFilter(to: allTasks)
+            counts[key] = filteredTasks.count
+        }
+
+        return counts
     }
 
     private var monthYearFormatter: DateFormatter {
@@ -626,18 +632,6 @@ struct ShadcnCalendar: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-            .onAppear {
-                // Pre-compute event counts on first appearance
-                updateEventCounts()
-            }
-            .onChange(of: currentMonth) { _ in
-                // Pre-compute event counts when month changes (batch operation, not per-cell)
-                updateEventCounts()
-            }
-            .onChange(of: selectedTagId) { _ in
-                // Recalculate event counts when tag filter changes
-                updateEventCounts()
-            }
             .gesture(
                 DragGesture()
                     .onChanged { value in
@@ -665,21 +659,6 @@ struct ShadcnCalendar: View {
 
     private func nextMonth() {
         currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
-    }
-
-    private func updateEventCounts() {
-        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonth))!
-        var counts: [String: Int] = [:]
-
-        for date in daysInMonth {
-            let key = calendar.dateComponents([.year, .month, .day], from: date).description
-            let allTasks = taskManager.getAllTasks(for: date)
-            let filteredTasks = applyFilter(to: allTasks)
-            counts[key] = filteredTasks.count
-        }
-
-        eventCountsByDate = counts
-        cachedMonthForEvents = monthStart
     }
 
     /// Apply the current filter to tasks
