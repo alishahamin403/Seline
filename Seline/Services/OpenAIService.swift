@@ -3221,9 +3221,36 @@ class OpenAIService: ObservableObject {
         print("💰 Found \(receiptsInRange.count) receipts in date range")
         print("💰 Date filter: \(dateFormatter.string(from: startDate)) to \(dateFormatter.string(from: endDate))")
 
+        // Fetch recurring expenses for this period
+        var recurringTotal: Double = 0
+        var recurringExpenses: [RecurringExpense] = []
+        do {
+            let activeRecurring = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+            recurringExpenses = activeRecurring.filter { expense in
+                // Include if expense occurs during this period
+                expense.nextOccurrence >= startDate && expense.startDate <= endDate
+            }
+            for expense in recurringExpenses {
+                recurringTotal += Double(truncating: expense.amount as NSDecimalNumber)
+            }
+            print("💰 Found \(recurringExpenses.count) recurring expenses in date range")
+        } catch {
+            print("⚠️ Could not fetch recurring expenses: \(error.localizedDescription)")
+        }
+
         // Format receipts for LLM
         context += "=== EXPENSES FOR REQUESTED PERIOD ===\n\n"
 
+        // Add recurring expenses first
+        if !recurringExpenses.isEmpty {
+            context += "💳 **RECURRING EXPENSES:**\n"
+            for expense in recurringExpenses.sorted(by: { $0.nextOccurrence < $1.nextOccurrence }) {
+                context += "   • \(expense.title): \(expense.formattedAmount) (\(expense.frequency.rawValue))\n"
+            }
+            context += "\n"
+        }
+
+        // Then add one-time receipts
         if !receiptsInRange.isEmpty {
             var totalAmount: Double = 0
             var amountDetails: [(title: String, amount: Double)] = []
@@ -3270,12 +3297,20 @@ class OpenAIService: ObservableObject {
 
             // Summary - Make it stand out with visual emphasis
             let avgAmount = totalAmount / Double(receiptsInRange.count)
+            let combinedTotal = totalAmount + recurringTotal
             context += "\n════════════════════════════════════════════════════════\n"
             context += "🔍 **FINAL SUMMARY** - USE THIS FOR YOUR ANSWER:\n"
             context += "════════════════════════════════════════════════════════\n"
-            context += "💰 **TOTAL SPENDING: $\(String(format: "%.2f", totalAmount))** ← THIS IS THE ANSWER\n"
-            context += "📊 Number of Transactions: \(receiptsInRange.count)\n"
-            context += "📈 Average per Transaction: $\(String(format: "%.2f", avgAmount))\n"
+            context += "💰 **ONE-TIME EXPENSES: $\(String(format: "%.2f", totalAmount))**\n"
+            if recurringTotal > 0 {
+                context += "💳 **RECURRING EXPENSES: $\(String(format: "%.2f", recurringTotal))**\n"
+                context += "💵 **TOTAL SPENDING: $\(String(format: "%.2f", combinedTotal))** ← THIS IS THE ANSWER\n"
+            } else {
+                context += "💰 **TOTAL SPENDING: $\(String(format: "%.2f", totalAmount))** ← THIS IS THE ANSWER\n"
+            }
+            context += "📊 Number of One-Time Transactions: \(receiptsInRange.count)\n"
+            context += "📊 Number of Recurring Expenses: \(recurringExpenses.count)\n"
+            context += "📈 Average per One-Time Transaction: $\(String(format: "%.2f", avgAmount))\n"
             context += "📌 Highest Transaction: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.max() ?? 0))\n"
             context += "📌 Lowest Transaction: $\(String(format: "%.2f", receiptsInRange.map { CurrencyParser.extractAmount(from: $0.content.isEmpty ? $0.title : $0.content) }.min() ?? 0))\n"
 
@@ -3289,7 +3324,19 @@ class OpenAIService: ObservableObject {
 
             context += "════════════════════════════════════════════════════════\n"
         } else {
-            context += "No receipts found for the requested period.\n"
+            // No receipts, but might have recurring expenses
+            if !recurringExpenses.isEmpty {
+                context += "No one-time receipts found, but you have recurring expenses:\n\n"
+                context += "💳 **RECURRING EXPENSES:**\n"
+                for expense in recurringExpenses.sorted(by: { $0.nextOccurrence < $1.nextOccurrence }) {
+                    context += "   • \(expense.title): \(expense.formattedAmount) (\(expense.frequency.rawValue))\n"
+                }
+                context += "\n════════════════════════════════════════════════════════\n"
+                context += "💳 **TOTAL RECURRING EXPENSES: $\(String(format: "%.2f", recurringTotal))** ← THIS IS THE ANSWER\n"
+                context += "════════════════════════════════════════════════════════\n"
+            } else {
+                context += "No expenses found for the requested period.\n"
+            }
         }
 
         return context
@@ -3536,6 +3583,28 @@ class OpenAIService: ObservableObject {
         context += "LLM extracted product intent: \(expenseQuery.keywords.joined(separator: ", "))\n"
         context += "Using embeddings to find semantically similar receipts (no hardcoded keywords!)\n"
         context += "Date range: \(dateFormatter.string(from: expenseQuery.dateRange.start)) to \(dateFormatter.string(from: expenseQuery.dateRange.end))\n\n"
+
+        // Include recurring expenses in the date range
+        do {
+            let activeRecurring = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+            let recurringInRange = activeRecurring.filter { expense in
+                // Check if recurring expense occurs during the query date range
+                expense.nextOccurrence >= expenseQuery.dateRange.start && expense.startDate <= expenseQuery.dateRange.end
+            }
+
+            if !recurringInRange.isEmpty {
+                context += "💳 RECURRING EXPENSES IN DATE RANGE:\n"
+                var recurringTotal: Double = 0
+                for expense in recurringInRange.sorted(by: { $0.nextOccurrence < $1.nextOccurrence }) {
+                    let amountDouble = Double(truncating: expense.amount as NSDecimalNumber)
+                    recurringTotal += amountDouble
+                    context += "• \(expense.title) - \(expense.formattedAmount) (\(expense.frequency.rawValue))\n"
+                }
+                context += "Subtotal (recurring): $\(String(format: "%.2f", recurringTotal))\n\n"
+            }
+        } catch {
+            print("⚠️ Could not fetch recurring expenses: \(error.localizedDescription)")
+        }
 
         // Get all receipts in the date range
         let receiptsFolder = notesManager.getOrCreateReceiptsFolder()
