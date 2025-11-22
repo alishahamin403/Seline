@@ -234,7 +234,7 @@ class SelineAppContext {
     /// Detects if query is related to expenses/spending
     private func isExpenseQuery(_ query: String) -> Bool {
         let lowercaseQuery = query.lowercased()
-        let expenseKeywords = ["spend", "spending", "spent", "receipt", "receipts", "cost", "costs", "expense", "expenses", "money", "budget", "amount", "price", "paid", "how much", "total", "breakdown", "recurring", "subscription", "subscriptions", "bill", "bills", "monthly", "annually"]
+        let expenseKeywords = ["spend", "spending", "spent", "receipt", "receipts", "cost", "costs", "expense", "expenses", "money", "budget", "amount", "price", "paid", "how much", "total", "breakdown"]
 
         return expenseKeywords.contains { keyword in
             lowercaseQuery.contains(keyword)
@@ -795,9 +795,7 @@ class SelineAppContext {
         context += "\n=== RECEIPTS & EXPENSES ===\n"
 
         // Add context about the data source for the user's query
-        if userAskedAboutExpenses {
-            context += "**NOTE: User asked about expenses/spending. Use BOTH RECEIPTS and RECURRING EXPENSES data below. Show one-time receipts AND recurring subscriptions/bills with comprehensive analysis.**\n\n"
-        } else if userAskedAboutBankStatement {
+        if userAskedAboutBankStatement {
             context += "**NOTE: User asked about bank/credit card statements. These are typically stored in NOTES folder. Check the NOTES section for bank statements, credit card statements, or transaction lists from American Express, Visa, Mastercard, etc.**\n\n"
         }
 
