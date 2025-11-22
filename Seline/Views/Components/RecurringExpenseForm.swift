@@ -41,7 +41,7 @@ struct RecurringExpenseForm: View {
             }
 
             Button(action: saveRecurringExpense) {
-                Text(isSaving ? "Creating..." : "Create Recurring Expense")
+                Text(isSaving ? "Creating..." : "Create")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(isFormValid && !isSaving ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
                     .frame(maxWidth: .infinity)
