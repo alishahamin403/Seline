@@ -43,7 +43,6 @@ struct StructuredLLMContext: Encodable {
             let id: String
             let title: String
             let content: String  // full note content
-            let folder: String?
             let relevanceScore: Double
             let matchType: String
         }
@@ -84,17 +83,8 @@ struct StructuredLLMContext: Encodable {
             let dayOfWeek: String?  // Explicit day of week to prevent LLM confusion
             let duration: Int?  // minutes
             let isCompleted: Bool
-            let relatedEmails: [RelatedEmailJSON]?  // emails connected to this event
             let relevanceScore: Double
             let matchType: String
-
-            struct RelatedEmailJSON: Encodable {
-                let emailId: String
-                let from: String
-                let subject: String
-                let snippet: String
-                let date: String  // formatted date
-            }
         }
 
         struct EmailJSON: Encodable {
@@ -105,8 +95,7 @@ struct StructuredLLMContext: Encodable {
             let isRead: Bool
             let excerpt: String
             let body: String?  // full email body content
-            let folder: String?  // Gmail label or app folder name
-            let folderId: String?  // Gmail label ID or app folder ID
+            let labels: [String]?  // Gmail labels or folder tags
             let relevanceScore: Double
             let matchType: String
             let importanceIndicators: [String]
@@ -250,7 +239,6 @@ class ContextBuilder {
                 id: noteWithRelevance.note.id.uuidString,
                 title: noteWithRelevance.note.title,
                 content: noteWithRelevance.note.content,  // full content sent to LLM
-                folder: noteWithRelevance.note.folder,
                 relevanceScore: noteWithRelevance.relevanceScore,
                 matchType: noteWithRelevance.matchType.rawValue
             )
@@ -288,7 +276,7 @@ class ContextBuilder {
         }
     }
 
-    /// Build tasks JSON from filtered tasks (events with descriptions and related emails)
+    /// Build tasks JSON from filtered tasks (events with descriptions)
     private func buildTasksJSON(from tasks: [TaskItemWithRelevance]?) -> [StructuredLLMContext.ContextData.TaskJSON]? {
         guard let tasks = tasks, !tasks.isEmpty else { return nil }
 
@@ -310,17 +298,6 @@ class ContextBuilder {
                 weekdayFormatter.string(from: date)
             }
 
-            // Build related emails JSON if available
-            let relatedEmailsJSON = taskWithRelevance.task.relatedEmails?.map { email in
-                StructuredLLMContext.ContextData.TaskJSON.RelatedEmailJSON(
-                    emailId: email.emailId,
-                    from: email.from,
-                    subject: email.subject,
-                    snippet: email.snippet,
-                    date: formatLocalDateForLLM(email.date)
-                )
-            }
-
             return StructuredLLMContext.ContextData.TaskJSON(
                 id: taskWithRelevance.task.id,
                 title: taskWithRelevance.task.title,
@@ -329,7 +306,6 @@ class ContextBuilder {
                 dayOfWeek: dayOfWeek,
                 duration: duration,
                 isCompleted: taskWithRelevance.task.isCompleted,
-                relatedEmails: relatedEmailsJSON,  // connected emails
                 relevanceScore: taskWithRelevance.relevanceScore,
                 matchType: taskWithRelevance.matchType.rawValue
             )
@@ -351,8 +327,7 @@ class ContextBuilder {
                 isRead: emailWithRelevance.email.isRead,
                 excerpt: extractExcerpt(from: emailWithRelevance.email.body ?? "", maxLength: 300),
                 body: emailWithRelevance.email.body,  // full email body
-                folder: emailWithRelevance.email.folder,  // folder/label name
-                folderId: emailWithRelevance.email.folderId,  // folder/label ID
+                labels: emailWithRelevance.email.labels,  // Gmail labels
                 relevanceScore: emailWithRelevance.relevanceScore,
                 matchType: emailWithRelevance.matchType.rawValue,
                 importanceIndicators: emailWithRelevance.importanceIndicators
@@ -361,7 +336,7 @@ class ContextBuilder {
     }
 
     /// Build email folders JSON organized by labels/folders with all emails inside
-    private func buildEmailFoldersJSON(from folders: [EmailFolder]?) -> [StructuredLLMContext.ContextData.EmailFolderJSON]? {
+    private func buildEmailFoldersJSON(from folders: [EmailFolderGroup]?) -> [StructuredLLMContext.ContextData.EmailFolderJSON]? {
         guard let folders = folders, !folders.isEmpty else { return nil }
 
         return folders.map { folder in
@@ -374,8 +349,7 @@ class ContextBuilder {
                     isRead: email.isRead,
                     excerpt: extractExcerpt(from: email.body ?? "", maxLength: 300),
                     body: email.body,  // full email body
-                    folder: email.folder,
-                    folderId: email.folderId,
+                    labels: nil,  // labels already grouped by folder organization
                     relevanceScore: 1.0,  // folders include all emails, high relevance
                     matchType: "folder_organization",
                     importanceIndicators: email.isImportant ? ["important"] : []

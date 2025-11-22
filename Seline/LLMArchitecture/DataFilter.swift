@@ -69,7 +69,7 @@ struct FilteredContext {
     let locations: [SavedPlaceWithRelevance]?
     let tasks: [TaskItemWithRelevance]?
     let emails: [EmailWithRelevance]?
-    let emailFolders: [EmailFolder]?  // organized by folders/labels with all emails
+    let emailFolders: [EmailFolderGroup]?  // organized by folders/labels with all emails
     let receipts: [ReceiptWithRelevance]?
     let receiptStatistics: ReceiptStatistics?
     let weather: WeatherData?
