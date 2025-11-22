@@ -488,13 +488,14 @@ struct ShadcnCalendar: View {
 
     @State private var currentMonth = Date()
     @State private var dragStartX: CGFloat = 0
+    @State private var monthEventCountsCache: [String: Int] = [:]
 
     private var calendar: Calendar {
         Calendar.current
     }
 
-    /// Dynamically compute event counts for current month based on current filter
-    private var monthEventCountsCache: [String: Int] {
+    /// Recompute event counts for current month based on current filter
+    private func recomputeMonthEventCounts() {
         var counts: [String: Int] = [:]
 
         for date in daysInMonth {
@@ -504,7 +505,7 @@ struct ShadcnCalendar: View {
             counts[key] = filteredTasks.count
         }
 
-        return counts
+        monthEventCountsCache = counts
     }
 
     private var monthYearFormatter: DateFormatter {
@@ -650,6 +651,18 @@ struct ShadcnCalendar: View {
                         }
                     }
             )
+        }
+        .onAppear {
+            recomputeMonthEventCounts()
+        }
+        .onChange(of: currentMonth) { _ in
+            recomputeMonthEventCounts()
+        }
+        .onChange(of: selectedTagId) { _ in
+            recomputeMonthEventCounts()
+        }
+        .onChange(of: taskManager.tasks) { _ in
+            recomputeMonthEventCounts()
         }
     }
 
