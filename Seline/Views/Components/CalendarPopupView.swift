@@ -488,26 +488,16 @@ struct ShadcnCalendar: View {
 
     @State private var currentMonth = Date()
     @State private var dragStartX: CGFloat = 0
-    @State private var monthEventCountsCache: [String: Int] = [:]
-    @State private var cachedForSelectedTagId: String? = nil
 
     private var calendar: Calendar {
         Calendar.current
     }
 
-    /// Recompute event counts for current month based on current filter
-    private func recomputeMonthEventCounts() {
-        var counts: [String: Int] = [:]
-
-        for date in daysInMonth {
-            let key = calendar.dateComponents([.year, .month, .day], from: date).description
-            let allTasks = taskManager.getAllTasks(for: date)
-            let filteredTasks = applyFilter(to: allTasks)
-            counts[key] = filteredTasks.count
-        }
-
-        monthEventCountsCache = counts
-        cachedForSelectedTagId = selectedTagId
+    /// Get event count for a specific date with current filter applied
+    private func getEventCountForDate(_ date: Date) -> Int {
+        let allTasks = taskManager.getAllTasks(for: date)
+        let filteredTasks = applyFilter(to: allTasks)
+        return filteredTasks.count
     }
 
     private var monthYearFormatter: DateFormatter {
@@ -617,8 +607,7 @@ struct ShadcnCalendar: View {
             // Calendar grid
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
                 ForEach(daysInMonth, id: \.self) { date in
-                    let key = calendar.dateComponents([.year, .month, .day], from: date).description
-                    let eventCount = monthEventCountsCache[key] ?? 0
+                    let eventCount = getEventCountForDate(date)
 
                     ShadcnDayCell(
                         date: date,
@@ -635,7 +624,6 @@ struct ShadcnCalendar: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-            .id(selectedTagId)
             .gesture(
                 DragGesture()
                     .onChanged { value in
@@ -654,18 +642,6 @@ struct ShadcnCalendar: View {
                         }
                     }
             )
-        }
-        .onAppear {
-            recomputeMonthEventCounts()
-        }
-        .onChange(of: currentMonth) { _ in
-            recomputeMonthEventCounts()
-        }
-        .onChange(of: selectedTagId) { _ in
-            recomputeMonthEventCounts()
-        }
-        .onChange(of: taskManager.tasks) { _ in
-            recomputeMonthEventCounts()
         }
     }
 
