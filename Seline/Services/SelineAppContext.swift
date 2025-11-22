@@ -984,6 +984,22 @@ class SelineAppContext {
                             }
                         }
 
+                        // SPECIFIC DATE VISITS - Include if user asked about a specific time period
+                        if let timePeriod = timePeriodFilter {
+                            let visitsInPeriod = await LocationVisitAnalytics.shared.getVisitsInDateRange(for: place.id, startDate: timePeriod.startDate, endDate: timePeriod.endDate)
+                            if !visitsInPeriod.isEmpty {
+                                let dateFormatter = DateFormatter()
+                                dateFormatter.dateStyle = .medium
+                                dateFormatter.timeStyle = .short
+                                context += "    🎯 Visits during requested period:\n"
+                                for visit in visitsInPeriod.sorted(by: { $0.entryTime > $1.entryTime }) {
+                                    let entryStr = dateFormatter.string(from: visit.entryTime)
+                                    let durationStr = visit.durationMinutes.map { "\($0) min" } ?? "ongoing"
+                                    context += "      • \(entryStr) (\(durationStr))\n"
+                                }
+                            }
+                        }
+
                         // User notes
                         if let notes = place.userNotes, !notes.isEmpty {
                             context += "    Notes: \(notes)\n"
@@ -1054,6 +1070,22 @@ class SelineAppContext {
                                 }
                                 if let peakDay = stats.mostCommonDayOfWeek {
                                     context += "      Most visited day: \(peakDay)\n"
+                                }
+                            }
+
+                            // SPECIFIC DATE VISITS - Include if user asked about a specific time period
+                            if let timePeriod = timePeriodFilter {
+                                let visitsInPeriod = await LocationVisitAnalytics.shared.getVisitsInDateRange(for: place.id, startDate: timePeriod.startDate, endDate: timePeriod.endDate)
+                                if !visitsInPeriod.isEmpty {
+                                    let dateFormatter = DateFormatter()
+                                    dateFormatter.dateStyle = .medium
+                                    dateFormatter.timeStyle = .short
+                                    context += "    🎯 Visits during requested period:\n"
+                                    for visit in visitsInPeriod.sorted(by: { $0.entryTime > $1.entryTime }) {
+                                        let entryStr = dateFormatter.string(from: visit.entryTime)
+                                        let durationStr = visit.durationMinutes.map { "\($0) min" } ?? "ongoing"
+                                        context += "      • \(entryStr) (\(durationStr))\n"
+                                    }
                                 }
                             }
 

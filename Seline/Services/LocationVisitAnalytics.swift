@@ -164,6 +164,52 @@ class LocationVisitAnalytics: ObservableObject {
         return dayOfWeek
     }
 
+    /// Fetch visits for a specific place within a date range
+    func getVisitsInDateRange(for placeId: UUID, startDate: Date, endDate: Date) async -> [LocationVisitRecord] {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return []
+        }
+
+        do {
+            let visits = try await fetchVisits(for: placeId, userId: userId)
+
+            // Filter visits within the specified date range
+            let filteredVisits = visits.filter { visit in
+                return visit.entryTime >= startDate && visit.entryTime <= endDate
+            }
+
+            return filteredVisits
+        } catch {
+            print("❌ Error fetching visits in date range: \(error)")
+            return []
+        }
+    }
+
+    /// Get all locations visited on a specific date
+    func getLocationsVisitedOnDate(_ date: Date) async -> [UUID: [LocationVisitRecord]] {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return [:]
+        }
+
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .second, value: -1, to: calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: date)!))!
+
+        var locationVisits: [UUID: [LocationVisitRecord]] = [:]
+
+        // Get all saved places
+        let allPlaces = LocationsManager.shared.savedPlaces
+
+        for place in allPlaces {
+            let visits = await getVisitsInDateRange(for: place.id, startDate: startOfDay, endDate: endOfDay)
+            if !visits.isEmpty {
+                locationVisits[place.id] = visits
+            }
+        }
+
+        return locationVisits
+    }
+
     // MARK: - Cache Management
 
     /// Invalidate cache for a specific place (call when visit is recorded/updated)
