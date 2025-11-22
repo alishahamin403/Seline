@@ -86,8 +86,31 @@ class RecurringExpenseCalendarService {
             }
 
             print("✅ Auto-sync complete: Created/verified \(totalCreated) total calendar events")
+
+            // Verify events were created
+            await verifyCalendarEvents(for: expenses)
         } catch {
             print("⚠️ Auto-sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Verify that calendar events were created and show which calendars they're in
+    private func verifyCalendarEvents(for expenses: [RecurringExpense]) async {
+        let now = Date()
+        let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) ?? now
+        let calendars = eventStore.calendars(for: .event)
+
+        print("📅 Verifying calendar events...")
+        print("📅 Calendars in iPhone Calendar app:")
+        for calendar in calendars {
+            let predicate = eventStore.predicateForEvents(withStart: now, end: twoYearsLater, calendars: [calendar])
+            let events = eventStore.events(matching: predicate)
+            let recurringExpenseEvents = events.filter { event in
+                expenses.contains(where: { $0.title == event.title })
+            }
+            if !recurringExpenseEvents.isEmpty {
+                print("   - \(calendar.title) (type: \(calendar.type)): \(recurringExpenseEvents.count) recurring expense events")
+            }
         }
     }
 
@@ -229,7 +252,7 @@ class RecurringExpenseCalendarService {
         try eventStore.save(event, span: .thisEvent, commit: true)
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
-        print("✅ Created all-day calendar event: \(expense.title) on \(dateFormatter.string(from: startOfDay))")
+        print("✅ Created all-day calendar event: \(expense.title) on \(dateFormatter.string(from: startOfDay)) in calendar '\(calendar.title)'")
     }
 
     // MARK: - Calendar Selection
@@ -238,12 +261,34 @@ class RecurringExpenseCalendarService {
     private func getDefaultCalendar() -> EKCalendar? {
         // Try to get the default calendar
         if let defaultCalendar = eventStore.defaultCalendarForNewEvents {
+            print("📅 Using default calendar: \(defaultCalendar.title) (type: \(defaultCalendar.type))")
             return defaultCalendar
         }
 
-        // Fallback: get first calendar that supports events
+        // Get all available calendars and log them
         let calendars = eventStore.calendars(for: .event)
-        return calendars.first(where: { $0.type == .local || $0.type == .calDAV })
+        print("📅 Available calendars: \(calendars.map { "\($0.title) (type: \($0.type))" }.joined(separator: ", "))")
+
+        // Fallback: get first local calendar (most visible)
+        if let localCalendar = calendars.first(where: { $0.type == .local }) {
+            print("📅 Using local calendar: \(localCalendar.title)")
+            return localCalendar
+        }
+
+        // Then try CalDAV
+        if let caldavCalendar = calendars.first(where: { $0.type == .calDAV }) {
+            print("📅 Using CalDAV calendar: \(caldavCalendar.title)")
+            return caldavCalendar
+        }
+
+        // Last resort: any writable calendar
+        if let writableCalendar = calendars.first(where: { !$0.isImmutable }) {
+            print("📅 Using writable calendar: \(writableCalendar.title)")
+            return writableCalendar
+        }
+
+        print("❌ No writable calendar found")
+        return nil
     }
 
     /// Delete calendar events for a recurring expense
