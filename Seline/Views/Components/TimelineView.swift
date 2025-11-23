@@ -473,24 +473,21 @@ struct TimelineView: View {
         let cal = Calendar.current
         let day = cal.component(.day, from: date)
         let month = cal.component(.month, from: date)
-        let _ = print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
+        print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
 
         return GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 ForEach(eventLayouts, id: \.task.id) { layout in
                     if let scheduledTime = layout.task.scheduledTime {
-                        let availableWidth = geometry.size.width - 16 // Account for trailing padding
-                        let gapWidth: CGFloat = 4 // Gap between columns
+                        let availableWidth = geometry.size.width - 16
+                        let gapWidth: CGFloat = 4
                         let totalGaps = CGFloat(max(0, layout.totalColumns - 1)) * gapWidth
                         let columnWidth = (availableWidth - totalGaps) / CGFloat(layout.totalColumns)
                         let xOffset = (columnWidth + gapWidth) * CGFloat(layout.column)
                         let yPos = yPosition(for: scheduledTime)
 
-                        let cal = Calendar.current
                         let hour = cal.component(.hour, from: scheduledTime)
                         let minute = cal.component(.minute, from: scheduledTime)
-                        let day = cal.component(.day, from: date)
-                        let month = cal.component(.month, from: date)
                         print("   📌 Rendering '\(layout.task.title)' at \(String(format: "%02d:%02d", hour, minute)) | Y position: \(yPos)")
 
                         TimelineEventBlock(
@@ -510,7 +507,7 @@ struct TimelineView: View {
                             } : nil
                         )
                         .frame(width: columnWidth, height: nil, alignment: .leading)
-                        .fixedSize(horizontal: true, vertical: false) // Prevent horizontal expansion
+                        .fixedSize(horizontal: true, vertical: false)
                         .offset(x: xOffset, y: yPos)
                     }
                 }
