@@ -424,6 +424,17 @@ struct MapsViewNew: View, Searchable {
                 if nearbyLocation != nil {
                     startLocationTimer()
                 }
+
+                // FALLBACK: Check if any visits have gone stale while app was backgrounded
+                // This handles case where geofence exit events didn't fire
+                if let currentLoc = locationService.currentLocation {
+                    Task {
+                        await geofenceManager.autoCompleteVisitsIfOutOfRange(
+                            currentLocation: currentLoc,
+                            savedPlaces: locationsManager.savedPlaces
+                        )
+                    }
+                }
             } else {
                 // App went to background/inactive - pause timer
                 stopLocationTimer()
@@ -480,8 +491,8 @@ struct MapsViewNew: View, Searchable {
             // Get current address/location name
             currentLocationName = locationService.locationName
 
-            // Check if user is in any geofence (within 100m)
-            let geofenceRadius = 100.0
+            // Check if user is in any geofence (within 200m to match GeofenceManager)
+            let geofenceRadius = 200.0
             var foundNearby = false
 
             for place in locationsManager.savedPlaces {

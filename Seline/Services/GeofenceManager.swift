@@ -561,6 +561,7 @@ class GeofenceManager: NSObject, ObservableObject {
                     if self.activeVisits[incompleteVisit.savedPlaceId] == nil {
                         self.activeVisits[incompleteVisit.savedPlaceId] = incompleteVisit
                         print("📝 Restored incomplete visit from Supabase: \(incompleteVisit.savedPlaceId)")
+                        print("   Entry time: \(incompleteVisit.entryTime), Hours since entry: \(String(format: "%.1f", hoursSinceEntry))")
                     } else {
                         print("ℹ️ Incomplete visit already in activeVisits, skipping restore: \(incompleteVisit.savedPlaceId)")
                     }
@@ -571,6 +572,33 @@ class GeofenceManager: NSObject, ObservableObject {
         } catch {
             print("❌ Error loading incomplete visits: \(error)")
         }
+    }
+
+    /// Force cleanup of stale visits - useful for manual debugging
+    /// Call this if you suspect visits are stuck
+    func forceCleanupStaleVisits(olderThanMinutes: Int = 240) async {
+        print("\n🧹 ===== FORCE CLEANUP STALE VISITS =====")
+        print("🧹 Threshold: \(olderThanMinutes) minutes")
+        print("🧹 Current active visits: \(activeVisits.count)")
+
+        let staleThreshold: TimeInterval = Double(olderThanMinutes) * 60
+        let now = Date()
+        var cleanedCount = 0
+
+        for (placeId, var visit) in activeVisits {
+            let visitDuration = now.timeIntervalSince(visit.entryTime)
+            if visitDuration > staleThreshold {
+                print("🧹 Cleaning up: \(visit.savedPlaceId) (open for \(Int(visitDuration / 60)) minutes)")
+                visit.recordExit(exitTime: now)
+                activeVisits.removeValue(forKey: placeId)
+                await updateVisitInSupabase(visit)
+                cleanedCount += 1
+            }
+        }
+
+        print("🧹 Cleaned up: \(cleanedCount) visits")
+        print("🧹 Remaining active visits: \(activeVisits.count)")
+        print("🧹 ========================================\n")
     }
 
     func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
@@ -698,17 +726,39 @@ class GeofenceManager: NSObject, ObservableObject {
 
                 // If user has moved beyond geofence radius, auto-complete the visit
                 if distance > geofenceRadius {
-                    print("\n🚀 ===== AUTO-COMPLETING VISIT =====")
+                    print("\n🚀 ===== AUTO-COMPLETING VISIT (OUT OF RANGE) =====")
                     print("🚀 Location: \(place.displayName)")
                     print("🚀 Distance from location: \(String(format: "%.1f", distance))m (beyond \(geofenceRadius)m geofence)")
                     print("🚀 Active visit duration: \(Int(Date().timeIntervalSince(visit.entryTime) / 60)) minutes")
-                    print("🚀 ====================================\n")
+                    print("🚀 ===================================================\n")
 
                     // Record the exit and remove from active visits
                     visit.recordExit(exitTime: Date())
                     activeVisits.removeValue(forKey: placeId)
 
                     // Update in Supabase
+                    await updateVisitInSupabase(visit)
+                }
+            }
+        }
+
+        // FALLBACK: Clean up stale visits that have been open for > 4 hours (unlikely to be real)
+        // This handles cases where geofence exit events didn't fire
+        let staleThreshold: TimeInterval = 4 * 3600 // 4 hours
+        let now = Date()
+
+        for (placeId, var visit) in activeVisits {
+            let visitDuration = now.timeIntervalSince(visit.entryTime)
+            if visitDuration > staleThreshold {
+                if let place = savedPlaces.first(where: { $0.id == placeId }) {
+                    print("\n⚠️ ===== AUTO-COMPLETING STALE VISIT =====")
+                    print("⚠️ Location: \(place.displayName)")
+                    print("⚠️ Visit was open for: \(Int(visitDuration / 3600)) hours \(Int((visitDuration.truncatingRemainder(dividingBy: 3600)) / 60)) minutes")
+                    print("⚠️ Reason: Geofence exit event likely didn't fire")
+                    print("⚠️ ========================================\n")
+
+                    visit.recordExit(exitTime: now)
+                    activeVisits.removeValue(forKey: placeId)
                     await updateVisitInSupabase(visit)
                 }
             }
