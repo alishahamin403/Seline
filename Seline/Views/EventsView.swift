@@ -269,9 +269,18 @@ struct EventsView: View {
     private func filteredTasks(from tasks: [TaskItem]) -> [TaskItem] {
         var result: [TaskItem] = []
 
+        // DEBUG: Log selectedDate to verify what date is being viewed
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+        let calendar = Calendar.current
+        print("🎯 [EventsView] SELECTED DATE: \(dateFormatter.string(from: selectedDate)) | weekday: \(calendar.component(.weekday, from: selectedDate)) | day: \(calendar.component(.day, from: selectedDate))")
+        print("🎯 [EventsView.filteredTasks] Input tasks count: \(tasks.count), selectedTagId: \(selectedTagId ?? "nil")")
+
         if selectedTagId == "" {
             // Personal filter - show events with nil tagId (default/personal events)
             result = tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+            print("   Personal filter: keeping \(result.count) tasks")
         } else if selectedTagId == "cal_sync" {
             // Personal - Sync filter - show only synced calendar events
             result = tasks.filter { $0.id.hasPrefix("cal_") }
@@ -289,9 +298,11 @@ struct EventsView: View {
         } else if let tagId = selectedTagId, !tagId.isEmpty {
             // Filter by specific tag
             result = tasks.filter { $0.tagId == tagId }
+            print("   Tag filter (\(tagId)): keeping \(result.count) tasks")
         } else {
             // Show all tasks (selectedTagId == nil means "All")
             result = tasks
+            print("   All tasks filter: keeping \(result.count) tasks")
         }
 
         return result

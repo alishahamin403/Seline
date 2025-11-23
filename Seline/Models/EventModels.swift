@@ -1267,7 +1267,16 @@ class TaskManager: ObservableObject {
         let calendar = Calendar.current
         let allTasks = tasks.values.flatMap { $0 }
 
-        return allTasks.filter { task in
+        // DEBUG: Log the input date with detailed info
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+        let isoFormatter = ISO8601DateFormatter()
+        print("🔍 [getAllTasks] Filtering tasks for date: \(dateFormatter.string(from: date))")
+        print("   ISO8601: \(isoFormatter.string(from: date))")
+        print("   Date components: weekday=\(calendar.component(.weekday, from: date)), day=\(calendar.component(.day, from: date)), month=\(calendar.component(.month, from: date)), year=\(calendar.component(.year, from: date))")
+
+        let filtered = allTasks.filter { task in
             guard !task.isDeleted else { return false }
 
             // Check if task should appear on this date
@@ -1278,6 +1287,12 @@ class TaskManager: ObservableObject {
                 // For regular tasks, check target date if available, otherwise use weekday matching
                 if let targetDate = task.targetDate {
                     shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
+                    // DEBUG: Log ALL targetDate comparisons for scheduled tasks
+                    if task.scheduledTime != nil {
+                        let taskDayComponent = calendar.component(.day, from: targetDate)
+                        let taskMonthComponent = calendar.component(.month, from: targetDate)
+                        print("   📅 Task: '\(task.title.prefix(25))' | targetDate day/month: \(taskDayComponent)/\(taskMonthComponent) | match: \(shouldAppear)")
+                    }
                 } else {
                     // For tasks without target dates (legacy tasks), check if the weekday matches
                     let weekdayComponent = calendar.component(.weekday, from: date)
@@ -1304,6 +1319,9 @@ class TaskManager: ObservableObject {
             // Then by creation date
             return task1.createdAt > task2.createdAt
         }
+
+        print("   ✅ Total matching tasks: \(filtered.count)")
+        return filtered
     }
 
     private func shouldRecurringTaskAppearOn(task: TaskItem, date: Date) -> Bool {
