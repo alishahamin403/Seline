@@ -77,7 +77,20 @@ class RecurringExpenseService {
             .eq("is_active", value: true)
             .execute()
 
-        let expenses = try decoder.decode([RecurringExpense].self, from: response.data)
+        var expenses = try decoder.decode([RecurringExpense].self, from: response.data)
+
+        // Update nextOccurrence to be the next future occurrence if it's in the past
+        expenses = expenses.map { expense in
+            var updatedExpense = expense
+            if updatedExpense.nextOccurrence < Date() {
+                updatedExpense.nextOccurrence = calculateNextFutureOccurrence(
+                    from: updatedExpense.nextOccurrence,
+                    frequency: updatedExpense.frequency
+                )
+            }
+            return updatedExpense
+        }
+
         print("✅ Fetched \(expenses.count) active recurring expenses")
         return expenses
     }
@@ -100,7 +113,20 @@ class RecurringExpenseService {
             .eq("user_id", value: userId.uuidString)
             .execute()
 
-        let expenses = try decoder.decode([RecurringExpense].self, from: response.data)
+        var expenses = try decoder.decode([RecurringExpense].self, from: response.data)
+
+        // Update nextOccurrence to be the next future occurrence if it's in the past
+        expenses = expenses.map { expense in
+            var updatedExpense = expense
+            if updatedExpense.nextOccurrence < Date() {
+                updatedExpense.nextOccurrence = calculateNextFutureOccurrence(
+                    from: updatedExpense.nextOccurrence,
+                    frequency: updatedExpense.frequency
+                )
+            }
+            return updatedExpense
+        }
+
         print("✅ Fetched \(expenses.count) recurring expenses")
         return expenses
     }
@@ -118,7 +144,16 @@ class RecurringExpenseService {
             .single()
             .execute()
 
-        let expense = try decoder.decode(RecurringExpense.self, from: response.data)
+        var expense = try decoder.decode(RecurringExpense.self, from: response.data)
+
+        // Update nextOccurrence if it's in the past
+        if expense.nextOccurrence < Date() {
+            expense.nextOccurrence = calculateNextFutureOccurrence(
+                from: expense.nextOccurrence,
+                frequency: expense.frequency
+            )
+        }
+
         return expense
     }
 
@@ -338,5 +373,36 @@ class RecurringExpenseService {
         } catch {
             print("⚠️ Could not delete calendar events (they may not exist): \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Helper Methods
+
+    /// Calculate the next future occurrence date based on current date and frequency
+    /// Keeps advancing the date until it reaches a future date
+    private func calculateNextFutureOccurrence(from pastDate: Date, frequency: RecurrenceFrequency) -> Date {
+        var nextDate = pastDate
+        let calendar = Calendar.current
+        let now = Date()
+
+        var components = DateComponents()
+        switch frequency {
+        case .daily:
+            components.day = 1
+        case .weekly:
+            components.day = 7
+        case .biweekly:
+            components.day = 14
+        case .monthly:
+            components.month = 1
+        case .yearly:
+            components.year = 1
+        }
+
+        // Keep advancing until we reach a future date
+        while nextDate < now {
+            nextDate = calendar.date(byAdding: components, to: nextDate) ?? nextDate
+        }
+
+        return nextDate
     }
 }

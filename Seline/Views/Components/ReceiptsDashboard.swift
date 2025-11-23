@@ -275,6 +275,14 @@ struct RecurringExpenseRow: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     HStack(spacing: 8) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(formatDate(expense.nextOccurrence))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("•")
+                            .foregroundColor(.secondary)
                         Text(expense.frequency.displayName)
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -346,6 +354,13 @@ struct RecurringExpenseRow: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
         )
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 }
 
