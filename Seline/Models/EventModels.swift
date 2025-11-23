@@ -1807,6 +1807,13 @@ class TaskManager: ObservableObject {
         // Load fresh data from Supabase
         await loadTasksFromSupabase()
 
+        // Also sync iPhone calendar events to ensure they're displayed
+        await MainActor.run {
+            Task {
+                await syncCalendarEvents()
+            }
+        }
+
         print("✅ Tasks refreshed from Supabase")
     }
 
@@ -2295,6 +2302,13 @@ class TaskManager: ObservableObject {
     private func backgroundSyncWithSupabase() async {
         await loadTasksFromSupabase()
         await retryFailedDeletions()
+
+        // Also sync iPhone calendar events in the background
+        await MainActor.run {
+            Task {
+                await syncCalendarEvents()
+            }
+        }
     }
 
     // Retry any failed deletions that were marked as deleted locally
