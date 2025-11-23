@@ -312,35 +312,21 @@ class RecurringExpenseService {
         let client = await supabaseManager.getPostgrestClient()
         let taskIdPattern = "recurring_\(expenseId)_%"
 
-        print("📋 Deleting tasks with pattern: \(taskIdPattern) for user: \(userId.uuidString)")
+        print("📋 Deleting calendar events for recurring expense: \(expenseId)")
 
         do {
-            // First, fetch to see how many tasks match
-            let matchingTasks: [TaskItem] = try await client
+            // Delete all tasks that match this recurring expense pattern
+            // This operation is safe even if no tasks exist - it will just succeed with no rows affected
+            _ = try await client
                 .from("tasks")
-                .select()
+                .delete()
                 .eq("user_id", value: userId.uuidString)
                 .like("id", pattern: taskIdPattern)
                 .execute()
-                .value
 
-            print("📊 Found \(matchingTasks.count) tasks to delete for recurring expense \(expenseId)")
-
-            if matchingTasks.count > 0 {
-                // Delete all tasks that match this recurring expense pattern
-                _ = try await client
-                    .from("tasks")
-                    .delete()
-                    .eq("user_id", value: userId.uuidString)
-                    .like("id", pattern: taskIdPattern)
-                    .execute()
-
-                print("✅ Successfully deleted \(matchingTasks.count) calendar events for recurring expense")
-            } else {
-                print("ℹ️ No calendar events found to delete for this recurring expense")
-            }
+            print("✅ Successfully deleted calendar events for recurring expense \(expenseId)")
         } catch {
-            print("❌ Error deleting calendar events for recurring expense: \(error.localizedDescription)")
+            print("⚠️ Could not delete calendar events (they may not exist): \(error.localizedDescription)")
         }
     }
 }
