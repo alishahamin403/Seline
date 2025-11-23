@@ -574,10 +574,10 @@ class GeofenceManager: NSObject, ObservableObject {
         }
     }
 
-    /// Force cleanup of stale visits - useful for manual debugging
+    /// Force cleanup of stale visits in memory
     /// Call this if you suspect visits are stuck
     func forceCleanupStaleVisits(olderThanMinutes: Int = 240) async {
-        print("\n🧹 ===== FORCE CLEANUP STALE VISITS =====")
+        print("\n🧹 ===== FORCE CLEANUP STALE VISITS (IN MEMORY) =====")
         print("🧹 Threshold: \(olderThanMinutes) minutes")
         print("🧹 Current active visits: \(activeVisits.count)")
 
@@ -598,7 +598,79 @@ class GeofenceManager: NSObject, ObservableObject {
 
         print("🧹 Cleaned up: \(cleanedCount) visits")
         print("🧹 Remaining active visits: \(activeVisits.count)")
-        print("🧹 ========================================\n")
+        print("🧹 ====================================================\n")
+    }
+
+    /// Cleanup incomplete visits directly in Supabase database
+    /// This finds ALL incomplete visits older than threshold and closes them
+    /// Use this to fix visits that got stuck before the auto-cleanup code was added
+    func cleanupIncompleteVisitsInSupabase(olderThanMinutes: Int = 180) async {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("⚠️ No user ID, cannot cleanup incomplete visits in Supabase")
+            return
+        }
+
+        print("\n🗑️ ===== CLEANUP INCOMPLETE VISITS IN SUPABASE =====")
+        print("🗑️ Threshold: \(olderThanMinutes) minutes")
+        print("🗑️ User: \(userId.uuidString)")
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            // Calculate threshold time (now - olderThanMinutes)
+            let thresholdDate = Date(timeIntervalSinceNow: -Double(olderThanMinutes) * 60)
+            let thresholdString = formatter.string(from: thresholdDate)
+
+            print("🗑️ Looking for incomplete visits before: \(thresholdString)")
+
+            // First, fetch incomplete visits that are older than threshold
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .is("exit_time", value: "null")
+                .lt("entry_time", value: thresholdString)
+                .execute()
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+
+            let staleVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            print("🗑️ Found \(staleVisits.count) incomplete visits to close")
+
+            var closedCount = 0
+            // Close each stale visit by setting exit_time = now and duration
+            for var visit in staleVisits {
+                visit.recordExit(exitTime: Date())
+
+                let updateData: [String: PostgREST.AnyJSON] = [
+                    "exit_time": .string(formatter.string(from: visit.exitTime!)),
+                    "duration_minutes": .double(Double(visit.durationMinutes ?? 0)),
+                    "updated_at": .string(formatter.string(from: Date()))
+                ]
+
+                do {
+                    try await client
+                        .from("location_visits")
+                        .update(updateData)
+                        .eq("id", value: visit.id.uuidString)
+                        .execute()
+
+                    print("🗑️ Closed: \(visit.id.uuidString) (entry: \(visit.entryTime), duration: \(visit.durationMinutes ?? 0)min)")
+                    closedCount += 1
+                } catch {
+                    print("❌ Failed to close visit \(visit.id.uuidString): \(error)")
+                }
+            }
+
+            print("🗑️ Successfully closed: \(closedCount)/\(staleVisits.count) visits")
+            print("🗑️ ==================================================\n")
+        } catch {
+            print("❌ Error cleanup incomplete visits: \(error)")
+        }
     }
 
     func saveVisitToSupabase(_ visit: LocationVisitRecord) async {

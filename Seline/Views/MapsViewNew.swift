@@ -371,6 +371,12 @@ struct MapsViewNew: View, Searchable {
             // Initialize cached categories
             updateCachedCategories()
 
+            // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase
+            // This fixes visits that got stuck before the auto-cleanup code was added
+            Task {
+                await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
+            }
+
             // Load incomplete visits from Supabase to resume tracking BEFORE checking location
             // This prevents race condition where updateCurrentLocation() creates a new visit
             // before the async load completes
