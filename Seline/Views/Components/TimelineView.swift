@@ -470,12 +470,7 @@ struct TimelineView: View {
     // MARK: - Events Layer
 
     private var eventsLayer: some View {
-        let cal = Calendar.current
-        let day = cal.component(.day, from: date)
-        let month = cal.component(.month, from: date)
-        print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
-
-        return GeometryReader { geometry in
+        GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 ForEach(eventLayouts, id: \.task.id) { layout in
                     if let scheduledTime = layout.task.scheduledTime {
@@ -485,10 +480,6 @@ struct TimelineView: View {
                         let columnWidth = (availableWidth - totalGaps) / CGFloat(layout.totalColumns)
                         let xOffset = (columnWidth + gapWidth) * CGFloat(layout.column)
                         let yPos = yPosition(for: scheduledTime)
-
-                        let hour = cal.component(.hour, from: scheduledTime)
-                        let minute = cal.component(.minute, from: scheduledTime)
-                        print("   📌 Rendering '\(layout.task.title)' at \(String(format: "%02d:%02d", hour, minute)) | Y position: \(yPos)")
 
                         TimelineEventBlock(
                             task: layout.task,
