@@ -17,7 +17,6 @@ struct TimelineView: View {
     @State private var newEventTime: Date?
     @State private var showReminderOptions = false
     @State private var selectedReminder: ReminderTime = .none
-    @State private var cachedEventLayouts: [EventLayout] = []
     @FocusState private var isTextFieldFocused: Bool
 
     init(
@@ -165,17 +164,12 @@ struct TimelineView: View {
         let totalColumns: Int
     }
 
-    // Calculate layouts for all events, handling overlaps
+    // Compute layouts for all events, handling overlaps
     private var eventLayouts: [EventLayout] {
-        cachedEventLayouts
-    }
-
-    private func calculateEventLayouts() {
-        let tasksToLayout = scheduledTasks  // Capture once to avoid race condition
+        let tasksToLayout = scheduledTasks
 
         guard !tasksToLayout.isEmpty else {
-            cachedEventLayouts = []
-            return
+            return []
         }
 
         var layouts: [EventLayout] = []
@@ -245,7 +239,7 @@ struct TimelineView: View {
             }
         }
 
-        cachedEventLayouts = layouts
+        return layouts
     }
 
     private func tasksOverlap(_ task1: TaskItem, _ task2: TaskItem) -> Bool {
@@ -353,7 +347,6 @@ struct TimelineView: View {
                     .id("timeline")
                 }
                 .onAppear {
-                    calculateEventLayouts()
                     if isToday, let currentMinutes = currentTimeMinutes {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             withAnimation {
@@ -361,17 +354,6 @@ struct TimelineView: View {
                             }
                         }
                     }
-                }
-                .onChange(of: date) { _ in
-                    // Clear cache and recalculate when date changes
-                    cachedEventLayouts = []
-                    calculateEventLayouts()
-                }
-                .onChange(of: scheduledTasks) { _ in
-                    calculateEventLayouts()
-                }
-                .onChange(of: selectedTagId) { _ in
-                    calculateEventLayouts()
                 }
             }
         }
