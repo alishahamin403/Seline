@@ -291,6 +291,9 @@ struct TimelineView: View {
                     calculateEventLayouts()
                     scrollToCurrentTime(proxy: proxy)
                 }
+                .onChange(of: tasks) { _ in
+                    calculateEventLayouts()
+                }
                 .onChange(of: scheduledTasks) { _ in
                     calculateEventLayouts()
                 }
