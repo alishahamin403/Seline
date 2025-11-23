@@ -274,7 +274,9 @@ struct EventsView: View {
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .short
         let calendar = Calendar.current
-        print("🎯 [EventsView] SELECTED DATE: \(dateFormatter.string(from: selectedDate)) | weekday: \(calendar.component(.weekday, from: selectedDate)) | day: \(calendar.component(.day, from: selectedDate))")
+        let weekdaySymbols = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let weekdayName = weekdaySymbols[calendar.component(.weekday, from: selectedDate) - 1]
+        print("🎯 [EventsView] SELECTED DATE: \(dateFormatter.string(from: selectedDate)) | \(weekdayName) | day: \(calendar.component(.day, from: selectedDate))")
         print("🎯 [EventsView.filteredTasks] Input tasks count: \(tasks.count), selectedTagId: \(selectedTagId ?? "nil")")
 
         if selectedTagId == "" {

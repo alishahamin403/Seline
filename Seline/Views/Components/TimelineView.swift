@@ -69,7 +69,12 @@ struct TimelineView: View {
 
     // Get all tasks for this date from TaskManager
     private var allTasksForDate: [TaskItem] {
-        taskManager.getAllTasks(for: date)
+        let tasks = taskManager.getAllTasks(for: date)
+        let cal = Calendar.current
+        let day = cal.component(.day, from: date)
+        let month = cal.component(.month, from: date)
+        print("   📥 [allTasksForDate] Date \(day)/\(month) | Retrieved \(tasks.count) tasks")
+        return tasks
     }
 
     // Filter tasks based on tag filter (same logic as CalendarPopupView)
@@ -93,7 +98,12 @@ struct TimelineView: View {
 
     // Get filtered tasks for this date
     private var filteredTasksForDate: [TaskItem] {
-        applyFilter(to: allTasksForDate)
+        let filtered = applyFilter(to: allTasksForDate)
+        let cal = Calendar.current
+        let day = cal.component(.day, from: date)
+        let month = cal.component(.month, from: date)
+        print("   🎯 [filteredTasksForDate] Date \(day)/\(month) | After filter: \(filtered.count) tasks")
+        return filtered
     }
 
     // Tasks with scheduled times, sorted by start time for consistent layout
@@ -120,7 +130,7 @@ struct TimelineView: View {
             }
         }
 
-        return deduplicated.sorted { task1, task2 in
+        let sorted = deduplicated.sorted { task1, task2 in
             guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
                 return false
             }
@@ -130,6 +140,22 @@ struct TimelineView: View {
             }
             return time1 < time2
         }
+
+        let cal = Calendar.current
+        let day = cal.component(.day, from: date)
+        let month = cal.component(.month, from: date)
+        print("   ⏱️ [scheduledTasks] Date \(day)/\(month) | Scheduled tasks after dedup: \(sorted.count)")
+        if !sorted.isEmpty {
+            for task in sorted {
+                if let time = task.scheduledTime {
+                    let hour = cal.component(.hour, from: time)
+                    let minute = cal.component(.minute, from: time)
+                    print("      - \(task.title) at \(String(format: "%02d:%02d", hour, minute))")
+                }
+            }
+        }
+
+        return sorted
     }
 
     // Event layout information
@@ -287,7 +313,13 @@ struct TimelineView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        let cal = Calendar.current
+        let day = cal.component(.day, from: date)
+        let month = cal.component(.month, from: date)
+        let weekdaySymbols = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let weekdayName = weekdaySymbols[cal.component(.weekday, from: date) - 1]
+        let _ = print("📋 [TimelineView.body] Received date: \(day)/\(month) (\(weekdayName)) | Scheduled tasks count: \(scheduledTasks.count)")
+        return GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
                     ZStack(alignment: .topLeading) {
@@ -438,7 +470,11 @@ struct TimelineView: View {
 
     private var eventsLayer: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
+            let cal = Calendar.current
+            let day = cal.component(.day, from: date)
+            let month = cal.component(.month, from: date)
+            let _ = print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
+            return ZStack(alignment: .topLeading) {
                 ForEach(eventLayouts, id: \.task.id) { layout in
                     if let scheduledTime = layout.task.scheduledTime {
                         let availableWidth = geometry.size.width - 16 // Account for trailing padding
@@ -446,6 +482,14 @@ struct TimelineView: View {
                         let totalGaps = CGFloat(max(0, layout.totalColumns - 1)) * gapWidth
                         let columnWidth = (availableWidth - totalGaps) / CGFloat(layout.totalColumns)
                         let xOffset = (columnWidth + gapWidth) * CGFloat(layout.column)
+                        let yPos = yPosition(for: scheduledTime)
+
+                        let cal = Calendar.current
+                        let hour = cal.component(.hour, from: scheduledTime)
+                        let minute = cal.component(.minute, from: scheduledTime)
+                        let day = cal.component(.day, from: date)
+                        let month = cal.component(.month, from: date)
+                        print("   📌 Rendering '\(layout.task.title)' at \(String(format: "%02d:%02d", hour, minute)) | Y position: \(yPos)")
 
                         TimelineEventBlock(
                             task: layout.task,
@@ -465,7 +509,7 @@ struct TimelineView: View {
                         )
                         .frame(width: columnWidth, height: nil, alignment: .leading)
                         .fixedSize(horizontal: true, vertical: false) // Prevent horizontal expansion
-                        .offset(x: xOffset, y: yPosition(for: scheduledTime))
+                        .offset(x: xOffset, y: yPos)
                     }
                 }
             }
