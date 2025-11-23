@@ -2931,15 +2931,24 @@ class TagManager: ObservableObject {
         return tags.first { $0.id == id }
     }
 
-    /// Get or create the "Recurring" tag for recurring expenses
+    /// Get or create the "Recurring" tag for recurring expenses with a unique color
     func getOrCreateRecurringTag() -> Tag? {
         // Check if "Recurring" tag already exists
         if let existingTag = tags.first(where: { $0.name == "Recurring" }) {
             return existingTag
         }
 
-        // Create the "Recurring" tag if it doesn't exist
-        return createTag(name: "Recurring")
+        // Create the "Recurring" tag with a distinct teal color (index 10) to avoid conflicts
+        let recurringTag = Tag(name: "Recurring", colorIndex: 10)
+        tags.append(recurringTag)
+        saveTags()
+
+        // Sync to Supabase
+        Task {
+            await saveTagToSupabase(recurringTag)
+        }
+
+        return recurringTag
     }
 
     // MARK: - Supabase Sync
