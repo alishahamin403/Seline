@@ -269,42 +269,18 @@ struct EventsView: View {
     private func filteredTasks(from tasks: [TaskItem]) -> [TaskItem] {
         var result: [TaskItem] = []
 
-        // DEBUG: Log selectedDate to verify what date is being viewed
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        dateFormatter.timeStyle = .short
-        let calendar = Calendar.current
-        let weekdaySymbols = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let weekdayName = weekdaySymbols[calendar.component(.weekday, from: selectedDate) - 1]
-        print("🎯 [EventsView] SELECTED DATE: \(dateFormatter.string(from: selectedDate)) | \(weekdayName) | day: \(calendar.component(.day, from: selectedDate))")
-        print("🎯 [EventsView.filteredTasks] Input tasks count: \(tasks.count), selectedTagId: \(selectedTagId ?? "nil")")
-
         if selectedTagId == "" {
             // Personal filter - show events with nil tagId (default/personal events)
             result = tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
-            print("   Personal filter: keeping \(result.count) tasks")
         } else if selectedTagId == "cal_sync" {
             // Personal - Sync filter - show only synced calendar events
             result = tasks.filter { $0.id.hasPrefix("cal_") }
-            print("🔍 [EventsView] Personal - Sync filter:")
-            print("   Total input tasks: \(tasks.count)")
-            print("   Filtered synced events: \(result.count)")
-            if !result.isEmpty {
-                for (idx, task) in result.prefix(3).enumerated() {
-                    print("   Event \(idx+1): \(task.title)")
-                    print("      ID: \(task.id)")
-                    print("      Has scheduledTime: \(task.scheduledTime != nil)")
-                    print("      ScheduledTime: \(task.scheduledTime?.description ?? "nil")")
-                }
-            }
         } else if let tagId = selectedTagId, !tagId.isEmpty {
             // Filter by specific tag
             result = tasks.filter { $0.tagId == tagId }
-            print("   Tag filter (\(tagId)): keeping \(result.count) tasks")
         } else {
             // Show all tasks (selectedTagId == nil means "All")
             result = tasks
-            print("   All tasks filter: keeping \(result.count) tasks")
         }
 
         return result

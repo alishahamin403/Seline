@@ -68,12 +68,7 @@ struct TimelineView: View {
 
     // Get all tasks for this date from TaskManager
     private var allTasksForDate: [TaskItem] {
-        let tasks = taskManager.getAllTasks(for: date)
-        let cal = Calendar.current
-        let day = cal.component(.day, from: date)
-        let month = cal.component(.month, from: date)
-        print("   📥 [allTasksForDate] Date \(day)/\(month) | Retrieved \(tasks.count) tasks")
-        return tasks
+        taskManager.getAllTasks(for: date)
     }
 
     // Filter tasks based on tag filter (same logic as CalendarPopupView)
@@ -97,12 +92,7 @@ struct TimelineView: View {
 
     // Get filtered tasks for this date
     private var filteredTasksForDate: [TaskItem] {
-        let filtered = applyFilter(to: allTasksForDate)
-        let cal = Calendar.current
-        let day = cal.component(.day, from: date)
-        let month = cal.component(.month, from: date)
-        print("   🎯 [filteredTasksForDate] Date \(day)/\(month) | After filter: \(filtered.count) tasks")
-        return filtered
+        applyFilter(to: allTasksForDate)
     }
 
     // Tasks with scheduled times, sorted by start time for consistent layout
@@ -138,20 +128,6 @@ struct TimelineView: View {
                 return task1.id < task2.id
             }
             return time1 < time2
-        }
-
-        let cal = Calendar.current
-        let day = cal.component(.day, from: date)
-        let month = cal.component(.month, from: date)
-        print("   ⏱️ [scheduledTasks] Date \(day)/\(month) | Scheduled tasks after dedup: \(sorted.count)")
-        if !sorted.isEmpty {
-            for task in sorted {
-                if let time = task.scheduledTime {
-                    let hour = cal.component(.hour, from: time)
-                    let minute = cal.component(.minute, from: time)
-                    print("      - \(task.title) at \(String(format: "%02d:%02d", hour, minute))")
-                }
-            }
         }
 
         return sorted
@@ -307,14 +283,7 @@ struct TimelineView: View {
     }
 
     var body: some View {
-        let cal = Calendar.current
-        let day = cal.component(.day, from: date)
-        let month = cal.component(.month, from: date)
-        let weekdaySymbols = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let weekdayName = weekdaySymbols[cal.component(.weekday, from: date) - 1]
-        let _ = print("📋 [TimelineView.body] Received date: \(day)/\(month) (\(weekdayName)) | Scheduled tasks count: \(scheduledTasks.count)")
-
-        return GeometryReader { geometry in
+        GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
                     ZStack(alignment: .topLeading) {
