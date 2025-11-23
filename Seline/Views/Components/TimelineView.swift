@@ -1,17 +1,17 @@
 import SwiftUI
 
 struct TimelineView: View {
-    let tasks: [TaskItem]
     let date: Date
+    let selectedTagId: String?
     let onTapTask: (TaskItem) -> Void
     let onToggleCompletion: (TaskItem) -> Void
     let onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)?
     let onEditEvent: ((TaskItem) -> Void)?
     let onDeleteEvent: ((TaskItem) -> Void)?
 
+    @StateObject private var taskManager = TaskManager.shared
     @Environment(\.colorScheme) var colorScheme
-    @State private var scrollOffset: CGFloat = 0
-    @State private var selectedTimeSlot: Date? // For showing + sign
+    @State private var selectedTimeSlot: Date?
     @State private var isCreatingEvent = false
     @State private var newEventTitle = ""
     @State private var newEventTime: Date?
@@ -21,6 +21,25 @@ struct TimelineView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     init(
+        date: Date,
+        selectedTagId: String? = nil,
+        onTapTask: @escaping (TaskItem) -> Void,
+        onToggleCompletion: @escaping (TaskItem) -> Void,
+        onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)? = nil,
+        onEditEvent: ((TaskItem) -> Void)? = nil,
+        onDeleteEvent: ((TaskItem) -> Void)? = nil
+    ) {
+        self.date = date
+        self.selectedTagId = selectedTagId
+        self.onTapTask = onTapTask
+        self.onToggleCompletion = onToggleCompletion
+        self.onAddEvent = onAddEvent
+        self.onEditEvent = onEditEvent
+        self.onDeleteEvent = onDeleteEvent
+    }
+
+    // MARK: - Compatibility Init (for backward compatibility)
+    init(
         tasks: [TaskItem],
         date: Date,
         onTapTask: @escaping (TaskItem) -> Void,
@@ -29,13 +48,15 @@ struct TimelineView: View {
         onEditEvent: ((TaskItem) -> Void)? = nil,
         onDeleteEvent: ((TaskItem) -> Void)? = nil
     ) {
-        self.tasks = tasks
-        self.date = date
-        self.onTapTask = onTapTask
-        self.onToggleCompletion = onToggleCompletion
-        self.onAddEvent = onAddEvent
-        self.onEditEvent = onEditEvent
-        self.onDeleteEvent = onDeleteEvent
+        self.init(
+            date: date,
+            selectedTagId: nil,
+            onTapTask: onTapTask,
+            onToggleCompletion: onToggleCompletion,
+            onAddEvent: onAddEvent,
+            onEditEvent: onEditEvent,
+            onDeleteEvent: onDeleteEvent
+        )
     }
 
     // Hour height in points (60 points per hour)
@@ -46,9 +67,38 @@ struct TimelineView: View {
         hourHeight * 24
     }
 
+    // Get all tasks for this date from TaskManager
+    private var allTasksForDate: [TaskItem] {
+        taskManager.getAllTasks(for: date)
+    }
+
+    // Filter tasks based on tag filter (same logic as CalendarPopupView)
+    private func applyFilter(to tasks: [TaskItem]) -> [TaskItem] {
+        if let tagId = selectedTagId {
+            if tagId == "" {
+                // Personal filter - show events with nil tagId (default/personal events)
+                return tasks.filter { $0.tagId == nil && !$0.id.hasPrefix("cal_") }
+            } else if tagId == "cal_sync" {
+                // Personal - Sync filter - show only synced calendar events
+                return tasks.filter { $0.id.hasPrefix("cal_") }
+            } else {
+                // Specific tag filter
+                return tasks.filter { $0.tagId == tagId }
+            }
+        } else {
+            // No filter - show all tasks
+            return tasks
+        }
+    }
+
+    // Get filtered tasks for this date
+    private var filteredTasksForDate: [TaskItem] {
+        applyFilter(to: allTasksForDate)
+    }
+
     // Tasks with scheduled times, sorted by start time for consistent layout
     private var scheduledTasks: [TaskItem] {
-        let filtered = tasks.filter { $0.scheduledTime != nil }
+        let filtered = filteredTasksForDate.filter { $0.scheduledTime != nil }
 
         // Deduplicate tasks with the same title and time (prevent duplicate recurring events)
         // Keep only the first occurrence
@@ -95,7 +145,9 @@ struct TimelineView: View {
     }
 
     private func calculateEventLayouts() {
-        guard !scheduledTasks.isEmpty else {
+        let tasksToLayout = scheduledTasks  // Capture once to avoid race condition
+
+        guard !tasksToLayout.isEmpty else {
             cachedEventLayouts = []
             return
         }
@@ -106,7 +158,7 @@ struct TimelineView: View {
         var groups: [[TaskItem]] = []
         var assigned: Set<String> = []
 
-        for task in scheduledTasks {
+        for task in tasksToLayout {
             if assigned.contains(task.id) {
                 continue
             }
@@ -121,7 +173,7 @@ struct TimelineView: View {
                 let currentTask = group[i]
 
                 // Find all unassigned tasks that overlap with current task
-                for otherTask in scheduledTasks {
+                for otherTask in tasksToLayout {
                     if !assigned.contains(otherTask.id) && tasksOverlap(currentTask, otherTask) {
                         group.append(otherTask)
                         assigned.insert(otherTask.id)
@@ -151,39 +203,19 @@ struct TimelineView: View {
                 return time1 < time2
             }
 
-            // Assign columns using interval partitioning
-            var columns: [[TaskItem]] = []
-
+            // Assign each task in the group to a column
             for task in sortedGroup {
-                var placed = false
+                let column = layouts.filter { layout in
+                    let layoutTask = layout.task
+                    return layout.column < layout.totalColumns && tasksOverlap(task, layoutTask)
+                }.count
 
-                // Try to place in existing column
-                for colIndex in 0..<columns.count {
-                    let canFit = columns[colIndex].allSatisfy { !tasksOverlap(task, $0) }
-                    if canFit {
-                        columns[colIndex].append(task)
-                        placed = true
-                        break
-                    }
-                }
-
-                // Create new column if needed
-                if !placed {
-                    columns.append([task])
-                }
-            }
-
-            // Create layouts for this group
-            let totalColumns = columns.count
-
-            for (colIndex, column) in columns.enumerated() {
-                for task in column {
-                    layouts.append(EventLayout(
-                        task: task,
-                        column: colIndex,
-                        totalColumns: totalColumns
-                    ))
-                }
+                let totalColumns = max(1, column + 1)
+                layouts.append(EventLayout(
+                    task: task,
+                    column: column,
+                    totalColumns: totalColumns
+                ))
             }
         }
 
@@ -289,12 +321,18 @@ struct TimelineView: View {
                 }
                 .onAppear {
                     calculateEventLayouts()
-                    scrollToCurrentTime(proxy: proxy)
-                }
-                .onChange(of: tasks) { _ in
-                    calculateEventLayouts()
+                    if isToday, let currentMinutes = currentTimeMinutes {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation {
+                                proxy.scrollTo("timeline")
+                            }
+                        }
+                    }
                 }
                 .onChange(of: scheduledTasks) { _ in
+                    calculateEventLayouts()
+                }
+                .onChange(of: selectedTagId) { _ in
                     calculateEventLayouts()
                 }
             }
@@ -305,7 +343,6 @@ struct TimelineView: View {
         // If creating event, cancel and optionally select new slot
         if isCreatingEvent {
             cancelEventCreation()
-            return
         }
 
         // If already selected, show inline creator
@@ -385,157 +422,16 @@ struct TimelineView: View {
     }
 
     private func timeSlotButton(hour: Int, half: Int) -> some View {
-        let minutes = half * 30
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        components.hour = hour
-        components.minute = minutes
-
-        return Group {
-            if let timeSlot = Calendar.current.date(from: components) {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(height: hourHeight / 2)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        handleTimelineTap(at: timeSlot)
-                    }
-            } else {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(height: hourHeight / 2)
+        Button(action: {
+            let minutes = (half == 0 ? 0 : 30)
+            if let timeSlot = Calendar.current.date(bySettingHour: hour, minute: minutes, second: 0, of: date) {
+                handleTimelineTap(at: timeSlot)
             }
+        }) {
+            Rectangle()
+                .fill(Color.clear)
         }
-    }
-
-    // MARK: - Plus Indicator
-
-    private func plusIndicator(at timeSlot: Date) -> some View {
-        Image(systemName: "plus")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundColor(colorScheme == .dark ? .white : .black)
-            .frame(height: hourHeight / 2)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .offset(y: yPosition(for: timeSlot))
-    }
-
-    // MARK: - Inline Event Creator
-
-    private func inlineEventCreator(at timeSlot: Date) -> some View {
-        HStack(spacing: 8) {
-            // Text field for event title
-            ZStack(alignment: .leading) {
-                if newEventTitle.isEmpty {
-                    Text("Event title")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-                TextField("", text: $newEventTitle)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                    .accentColor(colorScheme == .dark ?
-                        Color.white :
-                        Color.black)
-                    .focused($isTextFieldFocused)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        createEvent()
-                    }
-            }
-
-            // Reminder button
-            Button(action: {
-                showReminderOptions = true
-            }) {
-                Image(systemName: selectedReminder != .none ? "bell.fill" : "bell.slash.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(colorScheme == .dark ?
-                                Color.white.opacity(0.15) :
-                                Color.black.opacity(0.1))
-                    )
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .frame(height: hourHeight / 2)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(red: 0.15, green: 0.15, blue: 0.15))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(colorScheme == .dark ?
-                    Color.white :
-                    Color.black, lineWidth: 1.5)
-        )
-        .offset(y: yPosition(for: timeSlot))
-        .confirmationDialog("Set Reminder", isPresented: $showReminderOptions, titleVisibility: .visible) {
-            Button("None") {
-                selectedReminder = .none
-                createEvent()
-            }
-
-            Button("15 minutes before") {
-                selectedReminder = .fifteenMinutes
-                createEvent()
-            }
-
-            Button("1 hour before") {
-                selectedReminder = .oneHour
-                createEvent()
-            }
-
-            Button("3 hours before") {
-                selectedReminder = .threeHours
-                createEvent()
-            }
-
-            Button("1 day before") {
-                selectedReminder = .oneDay
-                createEvent()
-            }
-
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Choose when to be reminded about this event")
-        }
-    }
-
-    private func createEvent() {
-        guard !newEventTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let eventTime = newEventTime else {
-            cancelEventCreation()
-            return
-        }
-
-        let endTime = Calendar.current.date(byAdding: .minute, value: 30, to: eventTime)
-
-        onAddEvent?(
-            newEventTitle.trimmingCharacters(in: .whitespacesAndNewlines),
-            nil,
-            date,
-            eventTime,
-            endTime,
-            selectedReminder != .none ? selectedReminder : nil,
-            false,
-            nil,
-            nil // Personal (default) tag
-        )
-
-        // Reset state
-        cancelEventCreation()
-        HapticManager.shared.cardTap()
-    }
-
-    private func cancelEventCreation() {
-        isCreatingEvent = false
-        newEventTitle = ""
-        newEventTime = nil
-        selectedReminder = .none
-        isTextFieldFocused = false
     }
 
     // MARK: - Events Layer
@@ -628,61 +524,83 @@ struct TimelineView: View {
         }
     }
 
-    private func scrollToCurrentTime(proxy: ScrollViewProxy) {
-        if let currentMinutes = currentTimeMinutes {
-            // Scroll to current time without animation for snappy feel
-            let _ = max(0, currentMinutes - 60) // 1 hour before
-            proxy.scrollTo("timeline", anchor: .top)
-        } else if let firstTask = scheduledTasks.first,
-                  firstTask.scheduledTime != nil {
-            // If not today, scroll to first event without animation
-            proxy.scrollTo("timeline", anchor: .top)
+    private func cancelEventCreation() {
+        isCreatingEvent = false
+        newEventTitle = ""
+        newEventTime = nil
+        selectedTimeSlot = nil
+        isTextFieldFocused = false
+    }
+
+    // MARK: - Inline Event Creator
+
+    private func inlineEventCreator(at time: Date) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("Event name", text: $newEventTitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .focused($isTextFieldFocused)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+
+                Button(action: {
+                    if !newEventTitle.isEmpty {
+                        onAddEvent?(
+                            newEventTitle,
+                            nil,
+                            date,
+                            time,
+                            nil,
+                            .none,
+                            false,
+                            nil,
+                            selectedTagId
+                        )
+                        cancelEventCreation()
+                    }
+                }) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.green)
+                }
+
+                Button(action: {
+                    cancelEventCreation()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                    .shadow(radius: 4)
+            )
+            .padding(.horizontal, 16)
+            .offset(y: -20)
         }
+    }
+
+    private func plusIndicator(at time: Date) -> some View {
+        VStack(spacing: 0) {
+            Text("+")
+                .font(.system(size: 24, weight: .light))
+                .foregroundColor(accentColor)
+        }
+        .offset(y: yPosition(for: time) - 12)
     }
 }
 
 #Preview {
-    let calendar = Calendar.current
-    let now = Date()
-
-    let sampleTasks: [TaskItem] = [
-        TaskItem(
-            title: "Morning Standup",
-            weekday: .monday,
-            scheduledTime: calendar.date(bySettingHour: 9, minute: 0, second: 0, of: now),
-            endTime: calendar.date(bySettingHour: 9, minute: 30, second: 0, of: now)
-        ),
-        TaskItem(
-            title: "Design Review Meeting",
-            weekday: .monday,
-            scheduledTime: calendar.date(bySettingHour: 10, minute: 0, second: 0, of: now),
-            endTime: calendar.date(bySettingHour: 11, minute: 30, second: 0, of: now)
-        ),
-        TaskItem(
-            title: "Lunch Break",
-            weekday: .monday,
-            scheduledTime: calendar.date(bySettingHour: 12, minute: 0, second: 0, of: now),
-            endTime: calendar.date(bySettingHour: 13, minute: 0, second: 0, of: now)
-        ),
-        TaskItem(
-            title: "Client Call",
-            weekday: .monday,
-            scheduledTime: calendar.date(bySettingHour: 14, minute: 0, second: 0, of: now),
-            endTime: calendar.date(bySettingHour: 15, minute: 0, second: 0, of: now)
-        ),
-        TaskItem(
-            title: "Code Review",
-            weekday: .monday,
-            scheduledTime: calendar.date(bySettingHour: 15, minute: 30, second: 0, of: now),
-            endTime: calendar.date(bySettingHour: 16, minute: 0, second: 0, of: now)
-        )
-    ]
-
     TimelineView(
-        tasks: sampleTasks,
-        date: now,
+        date: Date(),
         onTapTask: { _ in },
         onToggleCompletion: { _ in }
     )
-    .background(Color.shadcnBackground(.light))
 }

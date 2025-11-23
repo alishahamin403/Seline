@@ -1267,15 +1267,6 @@ class TaskManager: ObservableObject {
         let calendar = Calendar.current
         let allTasks = tasks.values.flatMap { $0 }
 
-        // DEBUG: Log the input date with detailed info
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        dateFormatter.timeStyle = .short
-        let isoFormatter = ISO8601DateFormatter()
-        print("🔍 [getAllTasks] Filtering tasks for date: \(dateFormatter.string(from: date))")
-        print("   ISO8601: \(isoFormatter.string(from: date))")
-        print("   Date components: weekday=\(calendar.component(.weekday, from: date)), day=\(calendar.component(.day, from: date)), month=\(calendar.component(.month, from: date)), year=\(calendar.component(.year, from: date))")
-
         let filtered = allTasks.filter { task in
             guard !task.isDeleted else { return false }
 
@@ -1287,21 +1278,10 @@ class TaskManager: ObservableObject {
                 // For regular tasks, check target date if available, otherwise use weekday matching
                 if let targetDate = task.targetDate {
                     shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
-                    // DEBUG: Log ALL targetDate comparisons for scheduled tasks
-                    if task.scheduledTime != nil {
-                        let taskDayComponent = calendar.component(.day, from: targetDate)
-                        let taskMonthComponent = calendar.component(.month, from: targetDate)
-                        print("   📅 Task: '\(task.title.prefix(25))' | targetDate day/month: \(taskDayComponent)/\(taskMonthComponent) | match: \(shouldAppear)")
-                    }
                 } else {
-                    // For tasks without target dates (legacy tasks), check if the weekday matches
-                    let weekdayComponent = calendar.component(.weekday, from: date)
-                    if let targetWeekday = weekdayFromCalendarComponent(weekdayComponent) {
-                        // Task appears if its weekday matches the target date's weekday
-                        shouldAppear = task.weekday == targetWeekday
-                    } else {
-                        shouldAppear = false
-                    }
+                    // For tasks without target dates, don't show them in timeline view
+                    // They need an explicit targetDate to appear on specific dates
+                    shouldAppear = false
                 }
             }
 
@@ -1320,7 +1300,6 @@ class TaskManager: ObservableObject {
             return task1.createdAt > task2.createdAt
         }
 
-        print("   ✅ Total matching tasks: \(filtered.count)")
         return filtered
     }
 
@@ -1387,6 +1366,7 @@ class TaskManager: ObservableObject {
             return daysDifference >= 0 && startMonth == targetMonth && startDay == targetDay
         }
     }
+
 
 
     func getCompletedTasks(between startDate: Date, endDate: Date) -> [TaskItem] {

@@ -451,8 +451,8 @@ struct EventsView: View {
 
             // Timeline view
             TimelineView(
-                tasks: filteredTasks(from: taskManager.getAllTasks(for: selectedDate)),
                 date: selectedDate,
+                selectedTagId: selectedTagId,
                 onTapTask: { task in
                     selectedTaskForViewing = task
                     activeSheet = .viewTask
