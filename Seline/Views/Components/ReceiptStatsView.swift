@@ -454,8 +454,11 @@ struct RecurringExpenseStatsContent: View {
                                         Text(expense.formattedAmount)
                                             .font(.subheadline)
                                             .fontWeight(.regular)
-                                        if let category = expense.category {
-                                            Text(category)
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            Text(expense.formattedYearlyAmount)
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                            Text("yearly")
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                         }
