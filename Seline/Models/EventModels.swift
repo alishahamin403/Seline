@@ -1274,10 +1274,16 @@ class TaskManager: ObservableObject {
                 if let targetDate = task.targetDate {
                     shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
                 } else {
-                    // Fallback to weekday matching for tasks without target dates
+                    // For tasks without target dates (legacy tasks), check if they belong to the current week
                     let weekdayComponent = calendar.component(.weekday, from: date)
                     if let targetWeekday = weekdayFromCalendarComponent(weekdayComponent) {
-                        shouldAppear = task.weekday == targetWeekday
+                        if task.weekday == targetWeekday {
+                            // Check if this is the matching weekday in the current week
+                            let currentWeekDate = targetWeekday.dateForCurrentWeek()
+                            shouldAppear = calendar.isDate(currentWeekDate, inSameDayAs: date)
+                        } else {
+                            shouldAppear = false
+                        }
                     } else {
                         shouldAppear = false
                     }
