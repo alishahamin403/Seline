@@ -127,7 +127,7 @@ struct RecurringExpense: Identifiable, Codable, Hashable {
     }
 
     var formattedYearlyAmount: String {
-        CurrencyParser.formatAmount(Double(truncating: yearlyAmount as NSDecimalNumber))
+        CurrencyParser.formatAmountNoDecimals(Double(truncating: yearlyAmount as NSDecimalNumber))
     }
 }
 
