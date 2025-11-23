@@ -1112,9 +1112,14 @@ class TaskManager: ObservableObject {
                         // For tasks with specific target dates, check if they match the requested date
                         return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
                     } else {
-                        // For tasks without target dates (legacy tasks), check if they belong to the current week
-                        let currentWeekDate = weekday.dateForCurrentWeek()
-                        return calendar.isDate(currentWeekDate, inSameDayAs: targetDate)
+                        // For tasks without target dates (legacy tasks), check if the weekday matches
+                        // Get the weekday of the target date
+                        let targetWeekdayComponent = calendar.component(.weekday, from: targetDate)
+                        guard let targetWeekday = weekdayFromCalendarComponent(targetWeekdayComponent) else {
+                            return false
+                        }
+                        // Task appears if its weekday matches the target date's weekday
+                        return task.weekday == targetWeekday
                     }
                 }
                 return false
@@ -1274,16 +1279,11 @@ class TaskManager: ObservableObject {
                 if let targetDate = task.targetDate {
                     shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
                 } else {
-                    // For tasks without target dates (legacy tasks), check if they belong to the current week
+                    // For tasks without target dates (legacy tasks), check if the weekday matches
                     let weekdayComponent = calendar.component(.weekday, from: date)
                     if let targetWeekday = weekdayFromCalendarComponent(weekdayComponent) {
-                        if task.weekday == targetWeekday {
-                            // Check if this is the matching weekday in the current week
-                            let currentWeekDate = targetWeekday.dateForCurrentWeek()
-                            shouldAppear = calendar.isDate(currentWeekDate, inSameDayAs: date)
-                        } else {
-                            shouldAppear = false
-                        }
+                        // Task appears if its weekday matches the target date's weekday
+                        shouldAppear = task.weekday == targetWeekday
                     } else {
                         shouldAppear = false
                     }
