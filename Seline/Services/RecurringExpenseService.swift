@@ -291,12 +291,11 @@ class RecurringExpenseService {
             do {
                 try await client
                     .from("tasks")
-                    .insert(taskData)
+                    .upsert(taskData)
                     .execute()
                 tasksCreated += 1
             } catch {
-                // Silently skip if task already exists
-                print("⚠️ Task already exists or error creating task for instance: \(error.localizedDescription)")
+                print("⚠️ Error creating/updating task for instance: \(error.localizedDescription)")
             }
         }
 
