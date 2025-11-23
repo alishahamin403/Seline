@@ -108,6 +108,27 @@ struct RecurringExpense: Identifiable, Codable, Hashable {
             return "Active"
         }
     }
+
+    var yearlyAmount: Decimal {
+        let multiplier: Decimal
+        switch frequency {
+        case .daily:
+            multiplier = 365
+        case .weekly:
+            multiplier = 52
+        case .biweekly:
+            multiplier = 26
+        case .monthly:
+            multiplier = 12
+        case .yearly:
+            multiplier = 1
+        }
+        return amount * multiplier
+    }
+
+    var formattedYearlyAmount: String {
+        CurrencyParser.formatAmount(Double(truncating: yearlyAmount as NSDecimalNumber))
+    }
 }
 
 /// Represents a single instance of a recurring expense
