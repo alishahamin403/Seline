@@ -1796,6 +1796,20 @@ class TaskManager: ObservableObject {
         }
     }
 
+    /// Refresh tasks from Supabase - call this when external changes are made (e.g., recurring expenses creating events)
+    func refreshTasksFromSupabase() async {
+        print("🔄 Refreshing tasks from Supabase...")
+
+        // Invalidate caches so fresh data is loaded
+        cachedFlattenedTasks = nil
+        dateTaskCache.removeAll()
+
+        // Load fresh data from Supabase
+        await loadTasksFromSupabase()
+
+        print("✅ Tasks refreshed from Supabase")
+    }
+
     private func parseTaskFromSupabase(_ taskDict: [String: Any]) async -> TaskItem? {
         guard let id = taskDict["id"] as? String,
               let title = taskDict["title"] as? String,

@@ -5,6 +5,7 @@ class RecurringExpenseService {
     static let shared = RecurringExpenseService()
 
     private let supabaseManager = SupabaseManager.shared
+    private let taskManager = TaskManager.shared
 
     // MARK: - Create
 
@@ -48,6 +49,9 @@ class RecurringExpenseService {
 
         // Create corresponding tasks for each instance so they appear in calendar
         await createTasksForInstances(instances, expense: mutableExpense)
+
+        // Refresh calendar view with new events
+        await taskManager.refreshTasksFromSupabase()
 
         return mutableExpense
     }
@@ -164,6 +168,9 @@ class RecurringExpenseService {
                 }
             }
         }
+
+        // Refresh calendar view to reflect pause/resume changes
+        await taskManager.refreshTasksFromSupabase()
     }
 
     // MARK: - Delete
@@ -197,6 +204,9 @@ class RecurringExpenseService {
 
         // Delete corresponding tasks
         await deleteTasksForRecurringExpense(id)
+
+        // Refresh calendar view to remove deleted events
+        await taskManager.refreshTasksFromSupabase()
     }
 
     // MARK: - Instances
