@@ -310,19 +310,37 @@ class RecurringExpenseService {
         }
 
         let client = await supabaseManager.getPostgrestClient()
+        let taskIdPattern = "recurring_\(expenseId)_%"
+
+        print("📋 Deleting tasks with pattern: \(taskIdPattern) for user: \(userId.uuidString)")
 
         do {
-            // Delete all tasks that match this recurring expense pattern
-            try await client
+            // First, fetch to see how many tasks match
+            let matchingTasks: [TaskItem] = try await client
                 .from("tasks")
-                .delete()
+                .select()
                 .eq("user_id", value: userId.uuidString)
-                .like("id", pattern: "recurring_\(expenseId)_%")
+                .like("id", pattern: taskIdPattern)
                 .execute()
+                .value
 
-            print("🗑️ Deleted tasks for recurring expense")
+            print("📊 Found \(matchingTasks.count) tasks to delete for recurring expense \(expenseId)")
+
+            if matchingTasks.count > 0 {
+                // Delete all tasks that match this recurring expense pattern
+                _ = try await client
+                    .from("tasks")
+                    .delete()
+                    .eq("user_id", value: userId.uuidString)
+                    .like("id", pattern: taskIdPattern)
+                    .execute()
+
+                print("✅ Successfully deleted \(matchingTasks.count) calendar events for recurring expense")
+            } else {
+                print("ℹ️ No calendar events found to delete for this recurring expense")
+            }
         } catch {
-            print("⚠️ Error deleting tasks: \(error.localizedDescription)")
+            print("❌ Error deleting calendar events for recurring expense: \(error.localizedDescription)")
         }
     }
 }
