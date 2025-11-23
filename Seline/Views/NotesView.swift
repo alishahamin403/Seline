@@ -15,6 +15,7 @@ struct NotesView: View, Searchable {
     @State private var showingFolderSidebar = false
     @State private var selectedFolderId: UUID? = nil
     @State private var showReceiptStats = false
+    @State private var showingRecurringExpenseForm = false
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -401,15 +402,26 @@ struct NotesView: View, Searchable {
                     .ignoresSafeArea()
             )
             .overlay(
-                // Floating add button
+                // Floating add button with menu
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button(action: {
-                            HapticManager.shared.buttonTap()
-                            showingNewNoteSheet = true
-                        }) {
+                        Menu {
+                            Button(action: {
+                                HapticManager.shared.buttonTap()
+                                showingNewNoteSheet = true
+                            }) {
+                                Label("New Note", systemImage: "note.text")
+                            }
+
+                            Button(action: {
+                                HapticManager.shared.buttonTap()
+                                showingRecurringExpenseForm = true
+                            }) {
+                                Label("Add Recurring", systemImage: "repeat.circle.fill")
+                            }
+                        } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
@@ -471,6 +483,13 @@ struct NotesView: View, Searchable {
         }
         .fullScreenCover(isPresented: $showingNewNoteSheet) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+        }
+        .sheet(isPresented: $showingRecurringExpenseForm) {
+            RecurringExpenseForm { expense in
+                HapticManager.shared.buttonTap()
+                print("Created recurring expense: \(expense.title)")
+            }
+            .presentationBg()
         }
         .onAppear {
             // Register with search service
@@ -582,6 +601,7 @@ struct NotesView: View, Searchable {
 
         return relatedIds
     }
+
 }
 
 // MARK: - Note Edit View
@@ -800,7 +820,10 @@ struct NoteEditView: View {
             VStack(spacing: 0) {
                 // Custom toolbar - fixed at top
                 customToolbar
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .background(colorScheme == .dark ? Color.black : Color.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .zIndex(2)
 
                 // Scrollable content area
@@ -814,6 +837,7 @@ struct NoteEditView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 4)
                 }
                 .simultaneousGesture(
                     DragGesture()
@@ -839,14 +863,17 @@ struct NoteEditView: View {
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                         }
                     }
-                    .padding(.bottom, 4)
                     .background(colorScheme == .dark ? Color.black : Color.white)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
                     .zIndex(1)
                 }
 
                 // Bottom buttons - fixed at bottom
                 bottomActionButtons
                     .background(colorScheme == .dark ? Color.black : Color.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
                     .zIndex(2)
             }
         }
@@ -1228,20 +1255,6 @@ struct NoteEditView: View {
                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
             )
 
-            // Recurring expense icon button
-            Button(action: {
-                showingRecurringExpenseForm = true
-            }) {
-                Image(systemName: "repeat.circle.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-
             // View attachments button - only shows if there are images or files
             if !imageAttachments.isEmpty || attachment != nil {
                 Button(action: {
@@ -1377,6 +1390,7 @@ struct NoteEditView: View {
             // Set initial folder for new note
             selectedFolderId = folderId
         }
+
         // Initialize undo history
         saveToUndoHistory()
     }
@@ -1671,6 +1685,13 @@ struct NoteEditView: View {
             do {
                 let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
 
+                // Clean up the extracted content - remove extra whitespace and format nicely
+                let cleanedContent = receiptContent
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+
                 // Extract month and year from receipt title for automatic folder organization
                 var folderIdForReceipt: UUID?
                 if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
@@ -1702,8 +1723,8 @@ struct NoteEditView: View {
                         selectedFolderId = folderId
                     }
 
-                    // Append receipt content to existing content
-                    let newContent = content.isEmpty ? receiptContent : content + "\n\n" + receiptContent
+                    // Append cleaned receipt content to existing content
+                    let newContent = content.isEmpty ? cleanedContent : content + "\n\n" + cleanedContent
                     content = newContent
 
                     // Convert markdown to attributed string
@@ -1712,10 +1733,12 @@ struct NoteEditView: View {
                     isProcessingReceipt = false
                     saveToUndoHistory()
 
-                    // Auto-save the note with the receipt image ONLY if it's an existing note
-                    // For new notes, just update the state and let user click save
-                    if self.note != nil {
-                        saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
+                    // Auto-save the note with the receipt image and cleaned content
+                    saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
+
+                    // Auto-dismiss after saving
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.isPresented = false
                     }
                 }
             } catch {
