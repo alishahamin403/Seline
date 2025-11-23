@@ -625,19 +625,21 @@ class GeofenceManager: NSObject, ObservableObject {
 
             print("🗑️ Looking for incomplete visits before: \(thresholdString)")
 
-            // First, fetch incomplete visits that are older than threshold
+            // First, fetch all visits older than threshold, then filter for incomplete ones in Swift
             let response = try await client
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .is("exit_time", value: "null")
                 .lt("entry_time", value: thresholdString)
                 .execute()
 
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
 
-            let staleVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let allOldVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Filter for incomplete visits (exit_time = nil)
+            let staleVisits = allOldVisits.filter { $0.exitTime == nil }
 
             print("🗑️ Found \(staleVisits.count) incomplete visits to close")
 
