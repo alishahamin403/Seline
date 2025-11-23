@@ -3016,7 +3016,7 @@ class TagManager: ObservableObject {
 
             _ = try await postgrestClient
                 .from("tags")
-                .insert(tagModel)
+                .upsert(tagModel)
                 .execute()
 
         } catch {
