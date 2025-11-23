@@ -319,7 +319,8 @@ struct TimelineView: View {
         let weekdaySymbols = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         let weekdayName = weekdaySymbols[cal.component(.weekday, from: date) - 1]
         let _ = print("📋 [TimelineView.body] Received date: \(day)/\(month) (\(weekdayName)) | Scheduled tasks count: \(scheduledTasks.count)")
-        return GeometryReader { geometry in
+
+        GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
                     ZStack(alignment: .topLeading) {
@@ -474,7 +475,8 @@ struct TimelineView: View {
             let day = cal.component(.day, from: date)
             let month = cal.component(.month, from: date)
             let _ = print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
-            return ZStack(alignment: .topLeading) {
+
+            ZStack(alignment: .topLeading) {
                 ForEach(eventLayouts, id: \.task.id) { layout in
                     if let scheduledTime = layout.task.scheduledTime {
                         let availableWidth = geometry.size.width - 16 // Account for trailing padding
