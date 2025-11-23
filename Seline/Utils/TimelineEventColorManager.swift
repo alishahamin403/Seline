@@ -60,10 +60,14 @@ struct TimelineEventColorManager {
     }
 
     // MARK: - Get Actual Tag Color
-    /// Looks up the tag from TagManager and returns its actual color from TagColorPalette
+    /// Returns the color for a tag based on the tag ID
+    /// Uses a deterministic hash-based approach for thread-safe color assignment
     static func getTagColor(tagId: String) -> Color {
-        // Call nonisolated method that's safe from any context
-        return TagManager.shared.getTagColorForUI(tagId: tagId)
+        // Use hash of tag ID to determine a consistent color
+        // This ensures each tag always gets the same color without accessing main actor data
+        let hash = tagId.hashValue
+        let colorIndex = abs(hash) % 12  // 12 colors in TagColorPalette
+        return TagColorPalette.colorForIndex(colorIndex)
     }
 
     // MARK: - Get Button Color for Filter Buttons

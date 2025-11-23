@@ -2931,20 +2931,6 @@ class TagManager: ObservableObject {
         return tags.first { $0.id == id }
     }
 
-    /// Nonisolated method to get tag color - safe to call from any context
-    nonisolated func getTagColorForUI(tagId: String) -> Color {
-        // This is nonisolated so it can be called from non-main-actor contexts
-        // We check on main thread if needed
-        DispatchQueue.main.sync {
-            if let tag = MainActor.assumeIsolated({
-                self.tags.first { $0.id == tagId }
-            }) {
-                return tag.color
-            }
-            return Color.gray
-        }
-    }
-
     /// Get or create the "Recurring" tag for recurring expenses with a unique teal color
     func getOrCreateRecurringTag() -> Tag? {
         let recurringColorIndex = 10 // Muted teal color
