@@ -2931,15 +2931,33 @@ class TagManager: ObservableObject {
         return tags.first { $0.id == id }
     }
 
-    /// Get or create the "Recurring" tag for recurring expenses with a unique color
+    /// Get or create the "Recurring" tag for recurring expenses with a unique teal color
     func getOrCreateRecurringTag() -> Tag? {
+        let recurringColorIndex = 10 // Muted teal color
+
         // Check if "Recurring" tag already exists
-        if let existingTag = tags.first(where: { $0.name == "Recurring" }) {
+        if let existingIndex = tags.firstIndex(where: { $0.name == "Recurring" }) {
+            let existingTag = tags[existingIndex]
+
+            // If color is wrong, update it to teal
+            if existingTag.colorIndex != recurringColorIndex {
+                let updatedTag = Tag(id: existingTag.id, name: existingTag.name, colorIndex: recurringColorIndex)
+                tags[existingIndex] = updatedTag
+                saveTags()
+
+                // Sync the update to Supabase
+                Task {
+                    await saveTagToSupabase(updatedTag)
+                }
+
+                return updatedTag
+            }
+
             return existingTag
         }
 
-        // Create the "Recurring" tag with a distinct teal color (index 10) to avoid conflicts
-        let recurringTag = Tag(name: "Recurring", colorIndex: 10)
+        // Create the "Recurring" tag with distinct teal color
+        let recurringTag = Tag(name: "Recurring", colorIndex: recurringColorIndex)
         tags.append(recurringTag)
         saveTags()
 
