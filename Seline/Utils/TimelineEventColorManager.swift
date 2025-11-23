@@ -34,7 +34,7 @@ struct TimelineEventColorManager {
     }
 
     // MARK: - Get Accent Color for Timeline Event
-    /// Returns the appropriate Google brand color for the timeline event based on task type and color scheme
+    /// Returns the appropriate color for the timeline event based on task type and color scheme
     /// Event colors are based on the task's actual type, not the selected filter view
     static func timelineEventAccentColor(
         filterType: FilterType,
@@ -53,17 +53,22 @@ struct TimelineEventColorManager {
                 Color(red: 0.9804, green: 0.7451, blue: 0.7216) : // #ffb3a6 (light red for dark mode)
                 Color(red: 0.9176, green: 0.2627, blue: 0.2078)   // #EA4335 (Google Red for light mode)
 
-        case .tag(_):
-            // Tag-based events use Google Yellow #FBBC04
-            return colorScheme == .dark ?
-                Color(red: 1.0, green: 0.8706, blue: 0.5373)     // #ffde88 (light yellow for dark mode)
-                : Color(red: 0.9843, green: 0.7373, blue: 0.0157) // #FBBC04 (Google Yellow for light mode)
+        case .tag(let tagId):
+            // Tag-based events use the tag's actual color from TagColorPalette
+            return getTagColor(tagId: tagId)
         }
+    }
+
+    // MARK: - Get Actual Tag Color
+    /// Looks up the tag from TagManager and returns its actual color from TagColorPalette
+    static func getTagColor(tagId: String) -> Color {
+        // Call nonisolated method that's safe from any context
+        return TagManager.shared.getTagColorForUI(tagId: tagId)
     }
 
     // MARK: - Get Button Color for Filter Buttons
     /// Returns the color for filter buttons based on button style
-    /// "All" is a neutral black/white, others use Google brand colors
+    /// Uses actual tag colors from TagColorPalette for tagged filters
     static func filterButtonAccentColor(
         buttonStyle: ButtonStyle,
         colorScheme: ColorScheme
@@ -87,11 +92,9 @@ struct TimelineEventColorManager {
                 Color(red: 0.9804, green: 0.7451, blue: 0.7216) : // #ffb3a6 (light red for dark mode)
                 Color(red: 0.9176, green: 0.2627, blue: 0.2078)   // #EA4335 (Google Red for light mode)
 
-        case .tag(_):
-            // Tags use Google Yellow #FBBC04
-            return colorScheme == .dark ?
-                Color(red: 1.0, green: 0.8706, blue: 0.5373)     // #ffde88 (light yellow for dark mode)
-                : Color(red: 0.9843, green: 0.7373, blue: 0.0157) // #FBBC04 (Google Yellow for light mode)
+        case .tag(let tagId):
+            // Tags use the tag's actual color from TagColorPalette
+            return getTagColor(tagId: tagId)
         }
     }
 
