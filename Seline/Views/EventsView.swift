@@ -427,7 +427,7 @@ struct EventsView: View {
 
             // All day events section
             AllDayEventsSection(
-                tasks: filteredTasks(from: taskManager.getTasksForDate(selectedDate)),
+                tasks: filteredTasks(from: taskManager.getAllTasks(for: selectedDate)),
                 date: selectedDate,
                 onTapTask: { task in
                     selectedTaskForViewing = task
@@ -440,7 +440,7 @@ struct EventsView: View {
 
             // Timeline view
             TimelineView(
-                tasks: filteredTasks(from: taskManager.getTasksForDate(selectedDate)),
+                tasks: filteredTasks(from: taskManager.getAllTasks(for: selectedDate)),
                 date: selectedDate,
                 onTapTask: { task in
                     selectedTaskForViewing = task
