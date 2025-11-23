@@ -470,12 +470,12 @@ struct TimelineView: View {
     // MARK: - Events Layer
 
     private var eventsLayer: some View {
-        GeometryReader { geometry in
-            let cal = Calendar.current
-            let day = cal.component(.day, from: date)
-            let month = cal.component(.month, from: date)
-            let _ = print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
+        let cal = Calendar.current
+        let day = cal.component(.day, from: date)
+        let month = cal.component(.month, from: date)
+        let _ = print("🖼️ [eventsLayer] Rendering date \(day)/\(month) | Event layouts: \(eventLayouts.count)")
 
+        return GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 ForEach(eventLayouts, id: \.task.id) { layout in
                     if let scheduledTime = layout.task.scheduledTime {
