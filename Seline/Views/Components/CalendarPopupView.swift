@@ -6,11 +6,12 @@ struct CalendarPopupView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 
+    // Binding to parent's selected date - syncs calendar selection back to EventsView
+    @Binding var selectedDate: Date
+
     // Filter support - passed from parent, but we use local state to allow changes within calendar
     var selectedTagId: String?
     @State private var localSelectedTagId: String? = nil
-
-    @State private var selectedDate = Date()
     @State private var tasksForDate: [TaskItem] = []
     @State private var selectedTaskForEditing: TaskItem?
     @State private var showingViewTaskSheet = false
@@ -768,5 +769,13 @@ struct ShadcnDayCell: View {
 }
 
 #Preview {
-    CalendarPopupView()
+    struct PreviewContainer: View {
+        @State var selectedDate = Date()
+
+        var body: some View {
+            CalendarPopupView(selectedDate: $selectedDate, selectedTagId: nil)
+        }
+    }
+
+    return PreviewContainer()
 }

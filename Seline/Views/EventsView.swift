@@ -134,7 +134,7 @@ struct EventsView: View {
             Group {
                 switch sheet {
                 case .calendar:
-                    CalendarPopupView(selectedTagId: selectedTagId)
+                    CalendarPopupView(selectedDate: $selectedDate, selectedTagId: selectedTagId)
                 case .recurring:
                 if let task = selectedTaskForRecurring {
                     NavigationView {
