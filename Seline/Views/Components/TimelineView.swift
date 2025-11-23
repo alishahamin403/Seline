@@ -320,7 +320,16 @@ struct TimelineView: View {
         let weekdayName = weekdaySymbols[cal.component(.weekday, from: date) - 1]
         let _ = print("📋 [TimelineView.body] Received date: \(day)/\(month) (\(weekdayName)) | Scheduled tasks count: \(scheduledTasks.count)")
 
-        GeometryReader { geometry in
+        // Clear cached layouts when date changes to prevent showing stale events
+        if !scheduledTasks.isEmpty && cachedEventLayouts.isEmpty {
+            DispatchQueue.main.async {
+                self.calculateEventLayouts()
+            }
+        } else if scheduledTasks.isEmpty && !cachedEventLayouts.isEmpty {
+            cachedEventLayouts = []
+        }
+
+        return GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
                     ZStack(alignment: .topLeading) {
