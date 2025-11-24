@@ -318,8 +318,20 @@ struct MainAppView: View {
             // Update last check coordinate
             lastLocationCheckCoordinate = currentLoc.coordinate
 
-            // Get current address/location name
-            currentLocationName = locationService.locationName
+            // Get current address/location name - with fallback to reverse geocoding
+            if !locationService.locationName.isEmpty && locationService.locationName != "Unknown Location" {
+                currentLocationName = locationService.locationName
+            } else {
+                // Fallback to reverse geocoding if location name not available
+                let geocoder = CLGeocoder()
+                geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
+                    if let placemark = placemarks?.first {
+                        DispatchQueue.main.async {
+                            currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
+                        }
+                    }
+                }
+            }
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
@@ -616,6 +628,18 @@ struct MainAppView: View {
                     await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
                 }
 
+                // Get initial location name via reverse geocoding
+                if let currentLoc = locationService.currentLocation {
+                    let geocoder = CLGeocoder()
+                    geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
+                        if let placemark = placemarks?.first {
+                            DispatchQueue.main.async {
+                                currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
+                            }
+                        }
+                    }
+                }
+
                 // Load incomplete visits from Supabase to resume tracking BEFORE checking location
                 // This prevents race condition where updateCurrentLocation() creates a new visit
                 // before the async load completes
@@ -829,6 +853,26 @@ struct MainAppView: View {
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                     .presentationBg()
+            }
+            .sheet(isPresented: $showAllLocationsSheet) {
+                AllVisitsSheet(
+                    allLocations: $allLocations,
+                    isPresented: $showAllLocationsSheet,
+                    onLocationTap: { locationId in
+                        // Find the SavedPlace with this UUID
+                        if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
+                            selectedLocationPlace = place
+                            showingLocationPlaceDetail = true
+                        }
+                    }
+                )
+                .presentationBg()
+            }
+            .sheet(isPresented: $showingLocationPlaceDetail) {
+                if let place = selectedLocationPlace {
+                    PlaceDetailSheet(place: place, onDismiss: { showingLocationPlaceDetail = false }, isFromRanking: false)
+                        .presentationBg()
+                }
             }
     }
 
@@ -1470,9 +1514,10 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
+                .padding(.horizontal, 12)
 
             // Current Location card
             CurrentLocationCardWidget(
