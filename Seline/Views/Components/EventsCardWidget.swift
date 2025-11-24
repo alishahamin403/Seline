@@ -117,11 +117,17 @@ struct EventsCardWidget: View {
         TimelineEventColorManager.filterType(from: task)
     }
 
-    private var filterAccentColor: (TimelineEventColorManager.FilterType) -> Color {
-        { filterType in
+    private func getTagColorIndex(for task: TaskItem) -> Int? {
+        guard case .tag(let tagId) = filterType(from: task) else { return nil }
+        return tagManager.getTag(by: tagId)?.colorIndex
+    }
+
+    private var filterAccentColor: (TimelineEventColorManager.FilterType, Int?) -> Color {
+        { filterType, colorIndex in
             TimelineEventColorManager.timelineEventAccentColor(
                 filterType: filterType,
-                colorScheme: colorScheme
+                colorScheme: colorScheme,
+                tagColorIndex: colorIndex
             )
         }
     }
@@ -139,7 +145,8 @@ struct EventsCardWidget: View {
                 }) {
                     let isTaskCompleted = task.isCompletedOn(date: selectedDate)
                     let badgeFilterType = filterType(from: task)
-                    let circleColor = filterAccentColor(badgeFilterType)
+                    let colorIndex = getTagColorIndex(for: task)
+                    let circleColor = filterAccentColor(badgeFilterType, colorIndex)
 
                     Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 12))
@@ -160,7 +167,8 @@ struct EventsCardWidget: View {
                     // Filter badge
                     let badge = filterDisplayName(for: task)
                     let badgeFilterType = filterType(from: task)
-                    let badgeColor = filterAccentColor(badgeFilterType)
+                    let colorIndex = getTagColorIndex(for: task)
+                    let badgeColor = filterAccentColor(badgeFilterType, colorIndex)
 
                     HStack(spacing: 2) {
                         Image(systemName: "tag.fill")

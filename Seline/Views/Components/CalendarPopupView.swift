@@ -328,6 +328,7 @@ struct TaskRowCalendar: View {
 
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var taskManager = TaskManager.shared
+    @StateObject private var tagManager = TagManager.shared
     @State private var showingDeleteAlert = false
 
     // Check if task is completed on this specific date
@@ -345,11 +346,18 @@ struct TaskRowCalendar: View {
         TimelineEventColorManager.filterType(from: task)
     }
 
+    // Get the actual colorIndex from the tag for consistent colors
+    private var tagColorIndex: Int? {
+        guard case .tag(let tagId) = filterType else { return nil }
+        return tagManager.getTag(by: tagId)?.colorIndex
+    }
+
     // Get accent color for the filter
     private var accentColor: Color {
         TimelineEventColorManager.timelineEventAccentColor(
             filterType: filterType,
-            colorScheme: colorScheme
+            colorScheme: colorScheme,
+            tagColorIndex: tagColorIndex
         )
     }
 

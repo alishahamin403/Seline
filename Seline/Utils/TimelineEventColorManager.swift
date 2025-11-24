@@ -38,7 +38,8 @@ struct TimelineEventColorManager {
     /// Event colors are based on the task's actual type, not the selected filter view
     static func timelineEventAccentColor(
         filterType: FilterType,
-        colorScheme: ColorScheme
+        colorScheme: ColorScheme,
+        tagColorIndex: Int? = nil
     ) -> Color {
         switch filterType {
         case .personal:
@@ -55,19 +56,26 @@ struct TimelineEventColorManager {
 
         case .tag(let tagId):
             // Tag-based events use the tag's actual color from TagColorPalette
-            return getTagColor(tagId: tagId)
+            // Pass the actual colorIndex when available for consistent colors
+            return getTagColor(tagId: tagId, colorIndex: tagColorIndex)
         }
     }
 
     // MARK: - Get Actual Tag Color
-    /// Returns the color for a tag based on the tag ID
-    /// Uses a deterministic hash-based approach for thread-safe color assignment
-    static func getTagColor(tagId: String) -> Color {
-        // Use hash of tag ID to determine a consistent color
-        // This ensures each tag always gets the same color without accessing main actor data
+    /// Returns the color for a tag based on the actual stored colorIndex
+    /// When colorIndex is not available, uses a deterministic hash-based approach
+    static func getTagColor(tagId: String, colorIndex: Int? = nil) -> Color {
+        if let colorIndex = colorIndex {
+            // Use the actual stored color index from the tag
+            return TagColorPalette.colorForIndex(colorIndex)
+        }
+
+        // Fallback: Use hash of tag ID for deterministic color (same hash across rebuilds)
+        // NOTE: This should only be used when we can't access the Tag object
+        // For best results, always pass the actual colorIndex from the Tag
         let hash = tagId.hashValue
-        let colorIndex = abs(hash) % 12  // 12 colors in TagColorPalette
-        return TagColorPalette.colorForIndex(colorIndex)
+        let calculatedIndex = abs(hash) % 12  // 12 colors in TagColorPalette
+        return TagColorPalette.colorForIndex(calculatedIndex)
     }
 
     // MARK: - Get Button Color for Filter Buttons
@@ -75,7 +83,8 @@ struct TimelineEventColorManager {
     /// Uses actual tag colors from TagColorPalette for tagged filters
     static func filterButtonAccentColor(
         buttonStyle: ButtonStyle,
-        colorScheme: ColorScheme
+        colorScheme: ColorScheme,
+        tagColorIndex: Int? = nil
     ) -> Color {
         switch buttonStyle {
         case .all:
@@ -98,7 +107,8 @@ struct TimelineEventColorManager {
 
         case .tag(let tagId):
             // Tags use the tag's actual color from TagColorPalette
-            return getTagColor(tagId: tagId)
+            // Pass the actual colorIndex when available for consistent colors
+            return getTagColor(tagId: tagId, colorIndex: tagColorIndex)
         }
     }
 

@@ -30,9 +30,19 @@ struct AllDayEventsSection: View {
 
     private func getTaskColor(_ task: TaskItem) -> Color {
         let filterType = TimelineEventColorManager.filterType(from: task)
+
+        // Get the actual colorIndex from the tag for consistent colors
+        let tagColorIndex: Int?
+        if case .tag(let tagId) = filterType {
+            tagColorIndex = tagManager.getTag(by: tagId)?.colorIndex
+        } else {
+            tagColorIndex = nil
+        }
+
         return TimelineEventColorManager.timelineEventAccentColor(
             filterType: filterType,
-            colorScheme: colorScheme
+            colorScheme: colorScheme,
+            tagColorIndex: tagColorIndex
         )
     }
 

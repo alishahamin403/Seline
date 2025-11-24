@@ -54,10 +54,17 @@ struct TimelineEventBlock: View {
         TimelineEventColorManager.filterType(from: task)
     }
 
+    private var tagColorIndex: Int? {
+        // Get the actual colorIndex from the tag for consistent colors
+        guard case .tag(let tagId) = filterType else { return nil }
+        return tagManager.getTag(by: tagId)?.colorIndex
+    }
+
     private var accentColor: Color {
         TimelineEventColorManager.timelineEventAccentColor(
             filterType: filterType,
-            colorScheme: colorScheme
+            colorScheme: colorScheme,
+            tagColorIndex: tagColorIndex
         )
     }
 

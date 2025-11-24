@@ -400,7 +400,7 @@ struct EventsView: View {
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(selectedTagId == tag.id ?
-                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme).opacity(0.2) :
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex).opacity(0.2) :
                                             (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                                         )
                                 )
