@@ -225,7 +225,7 @@ struct VisitHistoryRow: View {
         .confirmationDialog("Delete Visit", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 Task {
-                    let success = await LocationVisitAnalytics.shared.deleteVisit(id: visit.id)
+                    let success = await LocationVisitAnalytics.shared.deleteVisit(id: visit.id.uuidString)
                     if success {
                         onDelete()
                     }
