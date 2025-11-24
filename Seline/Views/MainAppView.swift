@@ -319,19 +319,7 @@ struct MainAppView: View {
             lastLocationCheckCoordinate = currentLoc.coordinate
 
             // Get current address/location name
-            if locationService.locationName == "Unknown Location" {
-                // Use reverse geocoding to get the actual city/location name
-                let geocoder = CLGeocoder()
-                geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
-                    if let placemark = placemarks?.first {
-                        DispatchQueue.main.async {
-                            currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
-                        }
-                    }
-                }
-            } else {
-                currentLocationName = locationService.locationName
-            }
+            currentLocationName = locationService.locationName
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
