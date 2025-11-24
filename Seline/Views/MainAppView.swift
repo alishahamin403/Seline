@@ -15,6 +15,7 @@ struct MainAppView: View {
     @StateObject private var navigationService = NavigationService.shared
     @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.scenePhase) var scenePhase
     @State private var selectedTab: TabSelection = .home
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectedNoteToOpen: Note? = nil
@@ -44,6 +45,9 @@ struct MainAppView: View {
     @State private var showingLocationPlaceDetail = false
     @State private var selectedLocationPlace: SavedPlace? = nil
     @State private var showAllLocationsSheet = false
+    @State private var updateTimer: Timer?
+    @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
+    @State private var lastLocationUpdateTime: Date = Date.distantPast
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -293,50 +297,200 @@ struct MainAppView: View {
         searchResults = performSearchComputation()
     }
 
-    private func updateLocationCardData() {
-        // Update current location name
-        if let currentLocation = locationService.currentLocation {
-            let geocoder = CLGeocoder()
-            geocoder.reverseGeocodeLocation(currentLocation) { placemarks, _ in
-                if let placemark = placemarks?.first {
-                    DispatchQueue.main.async {
-                        currentLocationName = placemark.locality ?? placemark.administrativeArea ?? "Current Location"
+    private func updateCurrentLocation() {
+        // Get current location from LocationService
+        if let currentLoc = locationService.currentLocation {
+            // OPTIMIZATION: Debounce location updates - only process if moved 50m+
+            let debounceThreshold: CLLocationDistance = 50.0 // 50 meters
+            if let lastCheck = lastLocationCheckCoordinate {
+                let lastLocation = CLLocation(latitude: lastCheck.latitude, longitude: lastCheck.longitude)
+                let currentLocObj = CLLocation(latitude: currentLoc.coordinate.latitude, longitude: currentLoc.coordinate.longitude)
+                let distanceMoved = currentLocObj.distance(from: lastLocation)
+
+                // If moved less than 50m, skip expensive calculations
+                if distanceMoved < debounceThreshold {
+                    return
+                }
+            }
+
+            // Update last check coordinate
+            lastLocationCheckCoordinate = currentLoc.coordinate
+
+            // Get current address/location name
+            currentLocationName = locationService.locationName
+
+            // Check if user is in any geofence (within 200m to match GeofenceManager)
+            let geofenceRadius = 200.0
+            var foundNearby = false
+
+            for place in locationsManager.savedPlaces {
+                let placeLocation = CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
+                let distance = currentLoc.distance(from: CLLocation(latitude: placeLocation.latitude, longitude: placeLocation.longitude))
+
+                if distance <= geofenceRadius {
+                    // Check if we just entered a new location
+                    if nearbyLocation != place.displayName {
+                        nearbyLocation = place.displayName
+                        nearbyLocationFolder = place.category
+                        nearbyLocationPlace = place
+                        startLocationTimer()
+                        print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
+                    }
+
+                    // If already in geofence but no active visit record, create one
+                    // (handles case where user was already at location when app launched)
+                    if geofenceManager.activeVisits[place.id] == nil {
+                        // IMPORTANT: Only create if we have a valid user ID
+                        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+                            print("⚠️ Cannot auto-create visit - user not authenticated")
+                            return
+                        }
+
+                        var visit = LocationVisitRecord.create(
+                            userId: userId,
+                            savedPlaceId: place.id,
+                            entryTime: Date()
+                        )
+                        geofenceManager.activeVisits[place.id] = visit
+                        print("📝 Auto-created visit for already-present location: \(place.displayName)")
+                        print("📍 Visit details - ID: \(visit.id.uuidString), UserID: \(visit.userId.uuidString), PlaceID: \(visit.savedPlaceId.uuidString)")
+
+                        // Save to Supabase immediately
+                        Task {
+                            print("🔄 Starting Supabase save task for \(place.displayName)")
+                            await geofenceManager.saveVisitToSupabase(visit)
+                            print("✅ Completed Supabase save task")
+                        }
+                    }
+
+                    distanceToNearest = nil
+                    foundNearby = true
+                    break
+                }
+            }
+
+            // If not in any geofence, find nearest location
+            if !foundNearby {
+                var nearestDistance: Double = Double.infinity
+                for place in locationsManager.savedPlaces {
+                    let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                    let distance = currentLoc.distance(from: placeLocation)
+                    if distance < nearestDistance {
+                        nearestDistance = distance
                     }
                 }
-            }
-        }
 
-        // Find nearby locations and set top locations
-        var nearestLocation: SavedPlace? = nil
-        var minDistance: Double = Double.infinity
-        var topLocationsArray: [(id: UUID, displayName: String, visitCount: Int)] = []
-
-        for place in locationsManager.savedPlaces {
-            if let coordinate = locationService.currentLocation?.coordinate {
-                let placeCoordinate = CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
-                let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                    .distance(from: CLLocation(latitude: placeCoordinate.latitude, longitude: placeCoordinate.longitude))
-
-                if distance < minDistance {
-                    minDistance = distance
-                    nearestLocation = place
+                nearbyLocation = nil
+                nearbyLocationFolder = nil
+                nearbyLocationPlace = nil
+                if nearestDistance < Double.infinity {
+                    distanceToNearest = nearestDistance
+                } else {
+                    distanceToNearest = nil
                 }
 
-                topLocationsArray.append((id: place.id, displayName: place.displayName, visitCount: place.visitCount))
+                // Clear elapsed time when not in any geofence
+                elapsedTimeString = ""
+                stopLocationTimer()
+
+                // Auto-complete any active visits if user has moved outside geofences
+                Task {
+                    await geofenceManager.autoCompleteVisitsIfOutOfRange(
+                        currentLocation: currentLoc,
+                        savedPlaces: locationsManager.savedPlaces
+                    )
+                }
+            }
+        } else {
+            currentLocationName = "Location not available"
+            nearbyLocation = nil
+            nearbyLocationFolder = nil
+            nearbyLocationPlace = nil
+            distanceToNearest = nil
+            elapsedTimeString = ""
+            stopLocationTimer()
+        }
+    }
+
+    private func loadTopLocations() {
+        Task {
+            // Get all places with their visit counts sorted by most visited
+            var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
+
+            for place in locationsManager.savedPlaces {
+                // Fetch stats for this place
+                await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+
+                if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
+                    placesWithCounts.append((
+                        id: place.id,
+                        displayName: place.displayName,
+                        visitCount: stats.totalVisits
+                    ))
+                }
+            }
+
+            // Sort by visit count (descending)
+            let allSorted = placesWithCounts.sorted { $0.visitCount > $1.visitCount }
+
+            // Top 3 for the card
+            let top3 = allSorted.prefix(3).map { $0 }
+
+            await MainActor.run {
+                topLocations = top3
             }
         }
+    }
 
-        // Sort by visit count and get top 3
-        topLocationsArray.sort { $0.visitCount > $1.visitCount }
-        topLocations = topLocationsArray
-
-        // Update distance to nearest
-        if minDistance != Double.infinity {
-            distanceToNearest = minDistance
-            nearbyLocationPlace = nearestLocation
-            if let folder = nearestLocation?.category {
-                nearbyLocationFolder = folder
+    private func updateElapsedTime() {
+        // Get the active visit entry time for the current location from GeofenceManager
+        // This uses REAL geofence entry time, not artificial tracking
+        if let nearbyLoc = nearbyLocation {
+            // Find the place by display name
+            if let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }) {
+                // Only show elapsed time if geofence manager has recorded an entry
+                if let activeVisit = geofenceManager.activeVisits[place.id] {
+                    let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
+                    elapsedTimeString = formatElapsedTime(elapsed)
+                } else {
+                    // No active visit record from geofence - don't show time
+                    elapsedTimeString = ""
+                }
+            } else {
+                print("⚠️ Location '\(nearbyLoc)' not found in saved places")
+                elapsedTimeString = ""
             }
+        } else {
+            elapsedTimeString = ""
+        }
+    }
+
+    private func startLocationTimer() {
+        stopLocationTimer()
+        // Timer only runs when app is in foreground (scenePhase .active)
+        // This shows real-time elapsed seconds only when user is looking at the screen
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            updateElapsedTime()
+        }
+    }
+
+    private func stopLocationTimer() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+
+    private func formatElapsedTime(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%dh %dm", hours, minutes)
+        } else if minutes > 0 {
+            return String(format: "%dm %ds", minutes, secs)
+        } else {
+            return String(format: "%ds", secs)
         }
     }
 
@@ -449,8 +603,9 @@ struct MainAppView: View {
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
 
-                // Update location card data
-                updateLocationCardData()
+                // Load top locations and update current location
+                loadTopLocations()
+                updateCurrentLocation()
 
                 // Request location permissions with a slight delay to ensure system is ready
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -469,12 +624,24 @@ struct MainAppView: View {
             .onChange(of: locationsManager.savedPlaces) { _ in
                 // Update geofences whenever saved places change
                 geofenceManager.setupGeofences(for: locationsManager.savedPlaces)
-                // Update location card data
-                updateLocationCardData()
+                // Reload top locations and update location when places change
+                loadTopLocations()
+                updateCurrentLocation()
             }
             .onChange(of: locationService.currentLocation) { _ in
-                // Update location card data when user moves
-                updateLocationCardData()
+                // Update location card when user moves
+                updateCurrentLocation()
+            }
+            .onChange(of: scenePhase) { newPhase in
+                if newPhase == .active {
+                    // Resume timer when app comes to foreground
+                    if nearbyLocation != nil {
+                        startLocationTimer()
+                    }
+                } else {
+                    // Pause timer when app goes to background
+                    stopLocationTimer()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
