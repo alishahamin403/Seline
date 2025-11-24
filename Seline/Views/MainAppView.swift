@@ -320,6 +320,7 @@ struct MainAppView: View {
 
             // Get current address/location name
             currentLocationName = locationService.locationName
+            print("🏠 HOME PAGE updateCurrentLocation - locationName: \(locationService.locationName)")
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
@@ -650,16 +651,13 @@ struct MainAppView: View {
                 // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
             }
             .onReceive(locationService.$currentLocation) { _ in
-                // Only update location if we've finished loading incomplete visits
-                // This prevents creating duplicate sessions on app startup
-                if hasLoadedIncompleteVisits {
-                    // TIME DEBOUNCE: Skip updates that occur within 2 seconds of last update
-                    // This prevents excessive location processing and improves performance
-                    let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
-                    if timeSinceLastUpdate >= 2.0 {
-                        lastLocationUpdateTime = Date()
-                        updateCurrentLocation()
-                    }
+                print("🏠 HOME PAGE onReceive fired - hasLoadedIncompleteVisits: \(hasLoadedIncompleteVisits), locationName: \(locationService.locationName)")
+                // TIME DEBOUNCE: Skip updates that occur within 2 seconds of last update
+                // This prevents excessive location processing and improves performance
+                let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
+                if timeSinceLastUpdate >= 2.0 {
+                    lastLocationUpdateTime = Date()
+                    updateCurrentLocation()
                 }
             }
             // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
