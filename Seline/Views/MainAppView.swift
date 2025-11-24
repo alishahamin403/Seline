@@ -404,7 +404,11 @@ struct MainAppView: View {
                 }
             }
         } else {
-            currentLocationName = "Location not available"
+            // Only clear nearby location data if location is nil
+            // But don't immediately set "Location not available" - keep "Finding location..."
+            if currentLocationName != "Finding location..." {
+                currentLocationName = "Location not available"
+            }
             nearbyLocation = nil
             nearbyLocationFolder = nil
             nearbyLocationPlace = nil
@@ -1515,7 +1519,6 @@ struct MainAppView: View {
                 .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
-        .padding(.top, 6)
     }
 
 
