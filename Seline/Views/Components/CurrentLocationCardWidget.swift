@@ -119,7 +119,7 @@ struct CurrentLocationCardWidget: View {
 
                                     Spacer()
 
-                                    Text("(\(location.visitCount))")
+                                    Text("\(location.visitCount)")
                                         .font(.system(size: 10, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                                 }
