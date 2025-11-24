@@ -416,7 +416,11 @@ struct MainAppView: View {
                 }
             }
         } else {
-            currentLocationName = "Location not available"
+            // Only set to "Location not available" if we've been waiting and location still hasn't loaded
+            // Keep "Finding location..." if this is the initial state
+            if currentLocationName != "Finding location..." {
+                currentLocationName = "Location not available"
+            }
             nearbyLocation = nil
             nearbyLocationFolder = nil
             nearbyLocationPlace = nil
@@ -1514,7 +1518,7 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
                 .padding(.horizontal, 12)
@@ -1539,6 +1543,7 @@ struct MainAppView: View {
                 .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
+        .padding(.top, 12)
     }
 
 
