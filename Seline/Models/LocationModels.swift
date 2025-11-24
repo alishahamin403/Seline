@@ -77,17 +77,17 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         } else if lowerName.contains("gym") || lowerName.contains("fitness") {
             return "dumbbell.fill"
         } else if lowerName.contains("pizza") {
-            return "circle.fill"
+            return "pizza"
         } else if lowerName.contains("burger") || lowerName.contains("hamburger") {
             return "hamburger"
         } else if lowerName.contains("pasta") {
-            return "fork"
+            return "fork.knife.circle.fill"
         } else if lowerName.contains("shawarma") || lowerName.contains("kebab") {
             return "burrito"
         } else if lowerName.contains("jamaican") || lowerName.contains("reggae") {
-            return "guitars"
+            return "chef.hat"
         } else if lowerName.contains("steak") || lowerName.contains("barbecue") || lowerName.contains("bbq") {
-            return "meat.fill"
+            return "steak"
         } else if lowerName.contains("mexican") || lowerName.contains("taco") {
             return "sun.max.fill"
         } else if lowerName.contains("chinese") {
@@ -101,7 +101,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         } else if lowerName.contains("mosque") {
             return "building.2.fill"
         } else if lowerName.contains("smoke") || lowerName.contains("hookah") || lowerName.contains("shisha") {
-            return "flame"
+            return "flame.fill"
         } else if lowerName.contains("restaurant") || lowerName.contains("diner") || lowerName.contains("cafe") || lowerName.contains("food") {
             return "fork.knife"
         } else if lowerName.contains("park") || lowerName.contains("outdoor") {
