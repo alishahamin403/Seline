@@ -29,6 +29,8 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
     @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
@@ -146,9 +148,23 @@ struct MapsViewNew: View, Searchable {
 
                                     // RIGHT HALF - Top 3 Locations
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text("Top 3")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                        HStack {
+                                            Text("Top 3")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+
+                                            Spacer()
+
+                                            if !topLocations.isEmpty {
+                                                Button(action: {
+                                                    showAllLocationsSheet = true
+                                                }) {
+                                                    Text("See All")
+                                                        .font(.system(size: 10, weight: .semibold))
+                                                        .foregroundColor(Color(red: 0.2039, green: 0.6588, blue: 0.3255))
+                                                }
+                                            }
+                                        }
 
                                         VStack(alignment: .leading, spacing: 4) {
                                             if topLocations.isEmpty {
@@ -364,6 +380,10 @@ struct MapsViewNew: View, Searchable {
                 PlaceDetailSheet(place: place, onDismiss: { showingPlaceDetail = false }, isFromRanking: selectedTab == "ranking")
                     .presentationBg()
             }
+        }
+        .sheet(isPresented: $showAllLocationsSheet) {
+            AllVisitsSheet(allLocations: $allLocations, isPresented: $showAllLocationsSheet)
+                .presentationBg()
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
@@ -608,14 +628,15 @@ struct MapsViewNew: View, Searchable {
                 }
             }
 
-            // Sort by visit count (descending) and take top 3
-            let sorted = placesWithCounts
-                .sorted { $0.visitCount > $1.visitCount }
-                .prefix(3)
-                .map { $0 }
+            // Sort by visit count (descending)
+            let allSorted = placesWithCounts.sorted { $0.visitCount > $1.visitCount }
+
+            // Top 3 for the card
+            let top3 = allSorted.prefix(3).map { $0 }
 
             await MainActor.run {
-                topLocations = sorted
+                topLocations = top3
+                allLocations = allSorted  // Store all locations for "See All" feature
             }
         }
     }
