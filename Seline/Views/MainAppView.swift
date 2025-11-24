@@ -620,22 +620,6 @@ struct MainAppView: View {
                     await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
                 }
 
-                // Load incomplete visits from Supabase to resume tracking BEFORE checking location
-                // This prevents race condition where updateCurrentLocation() creates a new visit
-                // before the async load completes
-                Task {
-                    await geofenceManager.loadIncompleteVisitsFromSupabase()
-                    // Now that previous sessions are restored, check current location
-                    await MainActor.run {
-                        updateCurrentLocation()
-                        // Signal that we've loaded incomplete visits and can now respond to location changes
-                        hasLoadedIncompleteVisits = true
-                    }
-                }
-
-                // Load top 3 locations by visit count
-                loadTopLocations()
-
                 // Request location permissions with a slight delay to ensure system is ready
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     do {
@@ -648,6 +632,21 @@ struct MainAppView: View {
                         print("⚠️ Error requesting location permissions: \(error)")
                     }
                 }
+
+                // Load incomplete visits from Supabase to resume tracking BEFORE checking location
+                // This prevents race condition where updateCurrentLocation() creates a new visit
+                // before the async load completes
+                Task {
+                    await geofenceManager.loadIncompleteVisitsFromSupabase()
+                    // Now that previous sessions are restored, signal we're ready for location updates
+                    await MainActor.run {
+                        // Signal that we've loaded incomplete visits and can now respond to location changes
+                        hasLoadedIncompleteVisits = true
+                    }
+                }
+
+                // Load top 3 locations by visit count
+                loadTopLocations()
                 // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
             }
             .onReceive(locationService.$currentLocation) { _ in
