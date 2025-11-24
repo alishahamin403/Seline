@@ -77,21 +77,21 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         } else if lowerName.contains("gym") || lowerName.contains("fitness") {
             return "dumbbell.fill"
         } else if lowerName.contains("pizza") {
-            return "pizza"
+            return "square.fill"
         } else if lowerName.contains("burger") || lowerName.contains("hamburger") {
-            return "hamburger"
+            return "circle.fill"
         } else if lowerName.contains("pasta") {
-            return "fork.knife.circle.fill"
+            return "triangle.fill"
         } else if lowerName.contains("shawarma") || lowerName.contains("kebab") {
-            return "burrito"
+            return "diamond.fill"
         } else if lowerName.contains("jamaican") || lowerName.contains("reggae") {
-            return "chef.hat"
+            return "pentagon.fill"
         } else if lowerName.contains("steak") || lowerName.contains("barbecue") || lowerName.contains("bbq") {
-            return "steak"
+            return "hexagon.fill"
         } else if lowerName.contains("mexican") || lowerName.contains("taco") {
             return "sun.max.fill"
         } else if lowerName.contains("chinese") {
-            return "chopsticks"
+            return "cloud.fill"
         } else if lowerName.contains("haircut") || lowerName.contains("barber") || lowerName.contains("salon") {
             return "scissors"
         } else if lowerName.contains("dental") || lowerName.contains("dentist") {
