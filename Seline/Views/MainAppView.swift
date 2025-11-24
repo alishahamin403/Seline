@@ -319,8 +319,20 @@ struct MainAppView: View {
             lastLocationCheckCoordinate = currentLoc.coordinate
 
             // Get current address/location name
-            currentLocationName = locationService.locationName
-            print("🏠 HOME PAGE updateCurrentLocation - locationName: \(locationService.locationName)")
+            if locationService.locationName == "Unknown Location" || locationService.locationName.isEmpty {
+                // Fallback to reverse geocoding if location service hasn't resolved the name yet
+                let geocoder = CLGeocoder()
+                geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
+                    if let placemark = placemarks?.first {
+                        DispatchQueue.main.async {
+                            currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
+                        }
+                    }
+                }
+            } else {
+                currentLocationName = locationService.locationName
+            }
+            print("🏠 HOME PAGE updateCurrentLocation - locationName: \(locationService.locationName), assigned: \(currentLocationName)")
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
@@ -621,17 +633,15 @@ struct MainAppView: View {
                     await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
                 }
 
-                // Request location permissions with a slight delay to ensure system is ready
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    do {
-                        locationService.requestLocationPermission()
+                // Request location permissions immediately
+                do {
+                    locationService.requestLocationPermission()
 
-                        // Request background location permission for visit tracking
-                        // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
-                        geofenceManager.requestLocationPermission()
-                    } catch {
-                        print("⚠️ Error requesting location permissions: \(error)")
-                    }
+                    // Request background location permission for visit tracking
+                    // setupGeofences will be called after authorization is granted in GeofenceManager.locationManagerDidChangeAuthorization
+                    geofenceManager.requestLocationPermission()
+                } catch {
+                    print("⚠️ Error requesting location permissions: \(error)")
                 }
 
                 // Load incomplete visits from Supabase to resume tracking BEFORE checking location
