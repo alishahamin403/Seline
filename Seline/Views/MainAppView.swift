@@ -689,6 +689,12 @@ struct MainAppView: View {
                 // Reload top 3 locations when places are added/removed/updated
                 loadTopLocations()
             }
+            .onChange(of: locationService.locationName) { _ in
+                // Update location card when location service resolves the location name
+                if locationService.locationName != "Unknown Location" {
+                    updateCurrentLocation()
+                }
+            }
             .onDisappear {
                 stopLocationTimer()
             }
