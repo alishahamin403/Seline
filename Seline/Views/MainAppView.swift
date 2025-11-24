@@ -41,13 +41,15 @@ struct MainAppView: View {
     @State private var nearbyLocationPlace: SavedPlace? = nil
     @State private var distanceToNearest: Double? = nil
     @State private var elapsedTimeString: String = ""
-    @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
-    @State private var showingLocationPlaceDetail = false
-    @State private var selectedLocationPlace: SavedPlace? = nil
-    @State private var showAllLocationsSheet = false
     @State private var updateTimer: Timer?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
+    @State private var hasLoadedIncompleteVisits = false
+    @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast
+    @State private var showingLocationPlaceDetail = false
+    @State private var selectedLocationPlace: SavedPlace? = nil
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -438,6 +440,7 @@ struct MainAppView: View {
 
             await MainActor.run {
                 topLocations = top3
+                allLocations = allSorted  // Store all locations for "See All" feature
             }
         }
     }
@@ -452,8 +455,12 @@ struct MainAppView: View {
                 if let activeVisit = geofenceManager.activeVisits[place.id] {
                     let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
                     elapsedTimeString = formatElapsedTime(elapsed)
+                    // Debug: Verify we're using real geofence data
+                    // print("⏱️ Timer using REAL geofence data: \(place.displayName) - Entry: \(activeVisit.entryTime)")
                 } else {
                     // No active visit record from geofence - don't show time
+                    // Debug: Track when timer can't show because geofence event hasn't fired
+                    // print("⚠️ No geofence entry recorded yet for: \(nearbyLoc) (proximity detected but geofence event pending)")
                     elapsedTimeString = ""
                 }
             } else {
@@ -603,9 +610,27 @@ struct MainAppView: View {
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
 
-                // Load top locations and update current location
+                // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase
+                // This fixes visits that got stuck before the auto-cleanup code was added
+                Task {
+                    await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
+                }
+
+                // Load incomplete visits from Supabase to resume tracking BEFORE checking location
+                // This prevents race condition where updateCurrentLocation() creates a new visit
+                // before the async load completes
+                Task {
+                    await geofenceManager.loadIncompleteVisitsFromSupabase()
+                    // Now that previous sessions are restored, check current location
+                    await MainActor.run {
+                        updateCurrentLocation()
+                        // Signal that we've loaded incomplete visits and can now respond to location changes
+                        hasLoadedIncompleteVisits = true
+                    }
+                }
+
+                // Load top 3 locations by visit count
                 loadTopLocations()
-                updateCurrentLocation()
 
                 // Request location permissions with a slight delay to ensure system is ready
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -621,27 +646,49 @@ struct MainAppView: View {
                 }
                 // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
             }
-            .onChange(of: locationsManager.savedPlaces) { _ in
-                // Update geofences whenever saved places change
-                geofenceManager.setupGeofences(for: locationsManager.savedPlaces)
-                // Reload top locations and update location when places change
-                loadTopLocations()
-                updateCurrentLocation()
+            .onReceive(locationService.$currentLocation) { _ in
+                // Only update location if we've finished loading incomplete visits
+                // This prevents creating duplicate sessions on app startup
+                if hasLoadedIncompleteVisits {
+                    // TIME DEBOUNCE: Skip updates that occur within 2 seconds of last update
+                    // This prevents excessive location processing and improves performance
+                    let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
+                    if timeSinceLastUpdate >= 2.0 {
+                        lastLocationUpdateTime = Date()
+                        updateCurrentLocation()
+                    }
+                }
             }
-            .onChange(of: locationService.currentLocation) { _ in
-                // Update location card when user moves
-                updateCurrentLocation()
-            }
+            // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
+            // The timer only runs when user is actively looking at the screen
             .onChange(of: scenePhase) { newPhase in
                 if newPhase == .active {
-                    // Resume timer when app comes to foreground
+                    // App came to foreground - restart timer if tracking a location
                     if nearbyLocation != nil {
                         startLocationTimer()
                     }
+
+                    // FALLBACK: Check if any visits have gone stale while app was backgrounded
+                    // This handles case where geofence exit events didn't fire
+                    if let currentLoc = locationService.currentLocation {
+                        Task {
+                            await geofenceManager.autoCompleteVisitsIfOutOfRange(
+                                currentLocation: currentLoc,
+                                savedPlaces: locationsManager.savedPlaces
+                            )
+                        }
+                    }
                 } else {
-                    // Pause timer when app goes to background
+                    // App went to background/inactive - pause timer
                     stopLocationTimer()
                 }
+            }
+            .onChange(of: locationsManager.savedPlaces) { _ in
+                // Reload top 3 locations when places are added/removed/updated
+                loadTopLocations()
+            }
+            .onDisappear {
+                stopLocationTimer()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
@@ -1424,6 +1471,9 @@ struct MainAppView: View {
 
     private var mainContentWidgets: some View {
         VStack(spacing: 12) {
+            // Spending + ETA widget - replaces weather widget
+            SpendingAndETAWidget(isVisible: selectedTab == .home)
+
             // Current Location card
             CurrentLocationCardWidget(
                 currentLocationName: currentLocationName,
@@ -1438,9 +1488,6 @@ struct MainAppView: View {
                 showAllLocationsSheet: $showAllLocationsSheet
             )
             .padding(.horizontal, 12)
-
-            // Spending + ETA widget - replaces weather widget
-            SpendingAndETAWidget(isVisible: selectedTab == .home)
 
             // Events card - expands to fill available space
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
