@@ -120,13 +120,21 @@ struct AllVisitsSheet: View {
                                             // Location icon badge
                                             ZStack {
                                                 Circle()
-                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.white)
 
                                                 Image(systemName: iconForLocation(location.id, location.displayName))
                                                     .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+                                                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.4))
                                             }
                                             .frame(width: 40, height: 40)
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(
+                                                        colorScheme == .dark ? Color.clear : Color.gray.opacity(0.15),
+                                                        lineWidth: 1
+                                                    )
+                                                    .frame(width: 40, height: 40)
+                                            )
 
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(location.displayName)

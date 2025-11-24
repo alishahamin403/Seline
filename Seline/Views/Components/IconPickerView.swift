@@ -62,7 +62,7 @@ struct IconPickerView: View {
                         VStack(spacing: 6) {
                             Image(systemName: icon.name)
                                 .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+                                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.4))
                                 .frame(height: 32)
 
                             Text(icon.label)
@@ -76,15 +76,15 @@ struct IconPickerView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(
                                     selectedIcon == icon.name ?
-                                    (colorScheme == .dark ? Color.blue.opacity(0.3) : Color.blue.opacity(0.1)) :
-                                    (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                                    (colorScheme == .dark ? Color.blue.opacity(0.3) : Color.blue.opacity(0.15)) :
+                                    (colorScheme == .dark ? Color.white.opacity(0.08) : Color.white)
                                 )
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
                                 .stroke(
-                                    selectedIcon == icon.name ? Color.blue : Color.clear,
-                                    lineWidth: 2
+                                    selectedIcon == icon.name ? Color.blue : (colorScheme == .dark ? Color.clear : Color.gray.opacity(0.2)),
+                                    lineWidth: selectedIcon == icon.name ? 2 : 1
                                 )
                         )
                     }

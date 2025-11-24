@@ -82,13 +82,20 @@ struct IconDisplayView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.white)
 
             Image(systemName: icon)
                 .font(.system(size: iconSize, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.4))
         }
         .frame(width: size, height: size)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(
+                    colorScheme == .dark ? Color.clear : Color.gray.opacity(0.15),
+                    lineWidth: 1
+                )
+        )
     }
 }
 
