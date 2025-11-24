@@ -302,6 +302,9 @@ struct MainAppView: View {
     private func updateCurrentLocation() {
         // Get current location from LocationService
         if let currentLoc = locationService.currentLocation {
+            // Always update the location name first
+            currentLocationName = locationService.locationName
+
             // OPTIMIZATION: Debounce location updates - only process if moved 50m+
             let debounceThreshold: CLLocationDistance = 50.0 // 50 meters
             if let lastCheck = lastLocationCheckCoordinate {
@@ -317,9 +320,6 @@ struct MainAppView: View {
 
             // Update last check coordinate
             lastLocationCheckCoordinate = currentLoc.coordinate
-
-            // Get current address/location name
-            currentLocationName = locationService.locationName
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
