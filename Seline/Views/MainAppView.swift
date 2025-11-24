@@ -1196,29 +1196,10 @@ struct MainAppView: View {
             // Events card - expands to fill available space
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
                 .frame(maxHeight: .infinity)
-
-            // 50/50 split: Unread Emails and Pinned Notes
-            emailAndNotesCards
-                .padding(.top, 0)
         }
         .frame(maxHeight: .infinity)
     }
 
-    private var emailAndNotesCards: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 8) {
-                // Unread Emails card (50%)
-                EmailCardWidget(selectedTab: $selectedTab, selectedEmail: $searchSelectedEmail)
-                    .frame(width: (geometry.size.width - 8) * 0.5)
-
-                // Pinned Notes card (50%)
-                NotesCardWidget(selectedNoteToOpen: $selectedNoteToOpen, showingNewNoteSheet: $showingNewNoteSheet)
-                    .frame(width: (geometry.size.width - 8) * 0.5)
-            }
-        }
-        .frame(height: 170)
-        .padding(.horizontal, 12)
-    }
 
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
