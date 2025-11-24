@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct MainAppView: View {
     @EnvironmentObject var authManager: AuthenticationManager
@@ -292,6 +293,53 @@ struct MainAppView: View {
         searchResults = performSearchComputation()
     }
 
+    private func updateLocationCardData() {
+        // Update current location name
+        if let currentLocation = locationService.currentLocation {
+            let geocoder = CLGeocoder()
+            geocoder.reverseGeocodeLocation(currentLocation) { placemarks, _ in
+                if let placemark = placemarks?.first {
+                    DispatchQueue.main.async {
+                        currentLocationName = placemark.locality ?? placemark.administrativeArea ?? "Current Location"
+                    }
+                }
+            }
+        }
+
+        // Find nearby locations and set top locations
+        var nearestLocation: SavedPlace? = nil
+        var minDistance: Double = Double.infinity
+        var topLocationsArray: [(id: UUID, displayName: String, visitCount: Int)] = []
+
+        for place in locationsManager.savedPlaces {
+            if let coordinate = locationService.currentLocation?.coordinate {
+                let placeCoordinate = CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
+                let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                    .distance(from: CLLocation(latitude: placeCoordinate.latitude, longitude: placeCoordinate.longitude))
+
+                if distance < minDistance {
+                    minDistance = distance
+                    nearestLocation = place
+                }
+
+                topLocationsArray.append((id: place.id, displayName: place.displayName, visitCount: place.visitCount))
+            }
+        }
+
+        // Sort by visit count and get top 3
+        topLocationsArray.sort { $0.visitCount > $1.visitCount }
+        topLocations = topLocationsArray
+
+        // Update distance to nearest
+        if minDistance != Double.infinity {
+            distanceToNearest = minDistance
+            nearbyLocationPlace = nearestLocation
+            if let folder = nearestLocation?.category {
+                nearbyLocationFolder = folder
+            }
+        }
+    }
+
     private func handleSearchResultTap(_ result: OverlaySearchResult) {
         HapticManager.shared.selection()
 
@@ -401,6 +449,9 @@ struct MainAppView: View {
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
 
+                // Update location card data
+                updateLocationCardData()
+
                 // Request location permissions with a slight delay to ensure system is ready
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     do {
@@ -418,6 +469,12 @@ struct MainAppView: View {
             .onChange(of: locationsManager.savedPlaces) { _ in
                 // Update geofences whenever saved places change
                 geofenceManager.setupGeofences(for: locationsManager.savedPlaces)
+                // Update location card data
+                updateLocationCardData()
+            }
+            .onChange(of: locationService.currentLocation) { _ in
+                // Update location card data when user moves
+                updateLocationCardData()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
                 if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
