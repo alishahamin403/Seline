@@ -3,7 +3,12 @@ import SwiftUI
 struct AllVisitsSheet: View {
     @Binding var allLocations: [(id: UUID, displayName: String, visitCount: Int)]
     @Binding var isPresented: Bool
+    let onLocationTap: ((UUID) -> Void)?
     @Environment(\.colorScheme) var colorScheme
+
+    private var visitedLocations: [(id: UUID, displayName: String, visitCount: Int)] {
+        allLocations.filter { $0.visitCount > 0 }
+    }
 
     var body: some View {
         NavigationView {
@@ -29,7 +34,7 @@ struct AllVisitsSheet: View {
                 Divider()
 
                 // List of all locations
-                if allLocations.isEmpty {
+                if visitedLocations.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "map.circle")
                             .font(.system(size: 48))
@@ -50,50 +55,56 @@ struct AllVisitsSheet: View {
                 } else {
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(Array(allLocations.enumerated()), id: \.element.id) { index, location in
-                                VStack(spacing: 0) {
-                                    HStack(spacing: 12) {
-                                        // Rank badge
-                                        ZStack {
-                                            Circle()
-                                                .fill(
-                                                    index == 0 ? Color(red: 1.0, green: 0.84, blue: 0) :
-                                                    index == 1 ? Color(red: 0.7, green: 0.7, blue: 0.7) :
-                                                    index == 2 ? Color(red: 0.8, green: 0.5, blue: 0.2) :
-                                                    Color(red: 0.2039, green: 0.6588, blue: 0.3255)
-                                                )
+                            ForEach(Array(visitedLocations.enumerated()), id: \.element.id) { index, location in
+                                Button(action: {
+                                    onLocationTap?(location.id)
+                                    isPresented = false
+                                }) {
+                                    VStack(spacing: 0) {
+                                        HStack(spacing: 12) {
+                                            // Rank badge
+                                            ZStack {
+                                                Circle()
+                                                    .fill(
+                                                        index == 0 ? Color(red: 1.0, green: 0.84, blue: 0) :
+                                                        index == 1 ? Color(red: 0.7, green: 0.7, blue: 0.7) :
+                                                        index == 2 ? Color(red: 0.8, green: 0.5, blue: 0.2) :
+                                                        Color(red: 0.2039, green: 0.6588, blue: 0.3255)
+                                                    )
 
-                                            Text("\(index + 1)")
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundColor(.white)
+                                                Text("\(index + 1)")
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundColor(.white)
+                                            }
+                                            .frame(width: 32, height: 32)
+
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(location.displayName)
+                                                    .font(.system(size: 14, weight: .medium))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                    .lineLimit(2)
+
+                                                Text("\(location.visitCount) visit\(location.visitCount == 1 ? "" : "s")")
+                                                    .font(.system(size: 12, weight: .regular))
+                                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                            }
+
+                                            Spacer()
+
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                                         }
-                                        .frame(width: 32, height: 32)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
 
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(location.displayName)
-                                                .font(.system(size: 14, weight: .medium))
-                                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                .lineLimit(2)
-
-                                            Text("\(location.visitCount) visit\(location.visitCount == 1 ? "" : "s")")
-                                                .font(.system(size: 12, weight: .regular))
-                                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                        if index < visitedLocations.count - 1 {
+                                            Divider()
+                                                .padding(.horizontal, 16)
                                         }
-
-                                        Spacer()
-
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-
-                                    if index < allLocations.count - 1 {
-                                        Divider()
-                                            .padding(.horizontal, 16)
                                     }
                                 }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
                     }
@@ -116,6 +127,7 @@ struct AllVisitsSheet: View {
             (id: UUID(), displayName: "Park Near Home", visitCount: 12),
             (id: UUID(), displayName: "Restaurant District", visitCount: 8)
         ]),
-        isPresented: .constant(true)
+        isPresented: .constant(true),
+        onLocationTap: nil
     )
 }

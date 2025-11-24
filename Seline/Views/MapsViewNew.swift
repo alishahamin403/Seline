@@ -382,8 +382,18 @@ struct MapsViewNew: View, Searchable {
             }
         }
         .sheet(isPresented: $showAllLocationsSheet) {
-            AllVisitsSheet(allLocations: $allLocations, isPresented: $showAllLocationsSheet)
-                .presentationBg()
+            AllVisitsSheet(
+                allLocations: $allLocations,
+                isPresented: $showAllLocationsSheet,
+                onLocationTap: { locationId in
+                    // Find the SavedPlace with this UUID
+                    if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
+                        selectedPlace = place
+                        showingPlaceDetail = true
+                    }
+                }
+            )
+            .presentationBg()
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
