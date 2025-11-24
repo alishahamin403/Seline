@@ -33,6 +33,16 @@ struct MainAppView: View {
     @State private var showConversationModal = false
     @State private var showReceiptStats = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil  // Track debounce task
+    @State private var currentLocationName: String = "Finding location..."
+    @State private var nearbyLocation: String? = nil
+    @State private var nearbyLocationFolder: String? = nil
+    @State private var nearbyLocationPlace: SavedPlace? = nil
+    @State private var distanceToNearest: Double? = nil
+    @State private var elapsedTimeString: String = ""
+    @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var showingLocationPlaceDetail = false
+    @State private var selectedLocationPlace: SavedPlace? = nil
+    @State private var showAllLocationsSheet = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -1190,6 +1200,21 @@ struct MainAppView: View {
 
     private var mainContentWidgets: some View {
         VStack(spacing: 12) {
+            // Current Location card
+            CurrentLocationCardWidget(
+                currentLocationName: currentLocationName,
+                nearbyLocation: nearbyLocation,
+                nearbyLocationFolder: nearbyLocationFolder,
+                nearbyLocationPlace: nearbyLocationPlace,
+                distanceToNearest: distanceToNearest,
+                elapsedTimeString: elapsedTimeString,
+                topLocations: topLocations,
+                selectedPlace: $selectedLocationPlace,
+                showingPlaceDetail: $showingLocationPlaceDetail,
+                showAllLocationsSheet: $showAllLocationsSheet
+            )
+            .padding(.horizontal, 12)
+
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
 
