@@ -318,20 +318,8 @@ struct MainAppView: View {
             // Update last check coordinate
             lastLocationCheckCoordinate = currentLoc.coordinate
 
-            // Get current address/location name - with fallback to reverse geocoding
-            if !locationService.locationName.isEmpty && locationService.locationName != "Unknown Location" {
-                currentLocationName = locationService.locationName
-            } else {
-                // Fallback to reverse geocoding if location name not available
-                let geocoder = CLGeocoder()
-                geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
-                    if let placemark = placemarks?.first {
-                        DispatchQueue.main.async {
-                            currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
-                        }
-                    }
-                }
-            }
+            // Get current address/location name
+            currentLocationName = locationService.locationName
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
@@ -416,11 +404,7 @@ struct MainAppView: View {
                 }
             }
         } else {
-            // Only set to "Location not available" if we've been waiting and location still hasn't loaded
-            // Keep "Finding location..." if this is the initial state
-            if currentLocationName != "Finding location..." {
-                currentLocationName = "Location not available"
-            }
+            currentLocationName = "Location not available"
             nearbyLocation = nil
             nearbyLocationFolder = nil
             nearbyLocationPlace = nil
@@ -630,18 +614,6 @@ struct MainAppView: View {
                 // This fixes visits that got stuck before the auto-cleanup code was added
                 Task {
                     await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
-                }
-
-                // Get initial location name via reverse geocoding
-                if let currentLoc = locationService.currentLocation {
-                    let geocoder = CLGeocoder()
-                    geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
-                        if let placemark = placemarks?.first {
-                            DispatchQueue.main.async {
-                                currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
-                            }
-                        }
-                    }
                 }
 
                 // Load incomplete visits from Supabase to resume tracking BEFORE checking location
