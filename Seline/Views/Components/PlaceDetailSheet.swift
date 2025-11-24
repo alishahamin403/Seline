@@ -173,7 +173,7 @@ struct PlaceDetailSheet: View {
                                 Text("Open in Maps")
                                     .font(.system(size: 16, weight: .semibold))
                             }
-                            .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
