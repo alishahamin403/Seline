@@ -319,19 +319,7 @@ struct MainAppView: View {
             lastLocationCheckCoordinate = currentLoc.coordinate
 
             // Get current address/location name
-            if locationService.locationName == "Unknown Location" || locationService.locationName.isEmpty {
-                // Fallback to reverse geocoding if location service hasn't resolved the name yet
-                let geocoder = CLGeocoder()
-                geocoder.reverseGeocodeLocation(currentLoc) { placemarks, _ in
-                    if let placemark = placemarks?.first {
-                        DispatchQueue.main.async {
-                            currentLocationName = placemark.locality ?? placemark.administrativeArea ?? placemark.country ?? "Current Location"
-                        }
-                    }
-                }
-            } else {
-                currentLocationName = locationService.locationName
-            }
+            currentLocationName = locationService.locationName
 
             // Check if user is in any geofence (within 200m to match GeofenceManager)
             let geofenceRadius = 200.0
@@ -647,12 +635,15 @@ struct MainAppView: View {
                 // This prevents race condition where updateCurrentLocation() creates a new visit
                 // before the async load completes
                 Task {
+                    // Give location service a moment to resolve the location name
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
                     await geofenceManager.loadIncompleteVisitsFromSupabase()
                     // Now that previous sessions are restored, signal we're ready for location updates
                     await MainActor.run {
                         // Signal that we've loaded incomplete visits and can now respond to location changes
                         hasLoadedIncompleteVisits = true
-                        // Also try updating location in case it's already loaded
+                        // Try updating location after location service has had time to resolve
                         updateCurrentLocation()
                     }
                 }
