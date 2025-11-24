@@ -823,7 +823,8 @@ struct NoteEditView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(colorScheme == .dark ? Color.black : Color.white)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.top, 4)
+                    .padding(.bottom, 4)
                     .zIndex(2)
 
                 // Scrollable content area
@@ -849,6 +850,8 @@ struct NoteEditView: View {
                         }
                 )
 
+                Spacer()
+
                 // Processing indicator - fixed above bottom buttons
                 if isProcessingReceipt || isProcessingFile {
                     HStack {
@@ -865,7 +868,8 @@ struct NoteEditView: View {
                     }
                     .background(colorScheme == .dark ? Color.black : Color.white)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
+                    .padding(.top, 2)
+                    .padding(.bottom, 0)
                     .zIndex(1)
                 }
 
@@ -873,7 +877,7 @@ struct NoteEditView: View {
                 bottomActionButtons
                     .background(colorScheme == .dark ? Color.black : Color.white)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
                     .zIndex(2)
             }
         }
@@ -985,8 +989,8 @@ struct NoteEditView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.top, 2)
+        .padding(.bottom, 2)
     }
 
     private var noteContentView: some View {
@@ -1320,7 +1324,7 @@ struct NoteEditView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .background(colorScheme == .dark ? Color.black : Color.white)
     }
 
