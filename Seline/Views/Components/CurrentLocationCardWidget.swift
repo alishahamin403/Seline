@@ -132,7 +132,7 @@ struct CurrentLocationCardWidget: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color(red: 0.12, green: 0.12, blue: 0.12) : Color.black.opacity(0.03))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
             )
         }
         .buttonStyle(PlainButtonStyle())
