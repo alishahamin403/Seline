@@ -27,7 +27,15 @@ struct PlaceImageView: View {
 
     var body: some View {
         ZStack {
-            if let photoURLString = photoURL {
+            // Prefer showing icon if user has selected one
+            if let userIcon = place.userIcon {
+                IconDisplayView(
+                    icon: userIcon,
+                    size: size,
+                    cornerRadius: cornerRadius,
+                    colorScheme: colorScheme
+                )
+            } else if let photoURLString = photoURL {
                 // Show cached or downloaded photo using existing CachedAsyncImage
                 CachedAsyncImage(url: photoURLString) { image in
                     // Successfully loaded image
@@ -55,6 +63,30 @@ struct PlaceImageView: View {
                     colorScheme: colorScheme
                 )
             }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// A view that displays an icon with a subtle background
+struct IconDisplayView: View {
+    let icon: String
+    let size: CGFloat
+    let cornerRadius: CGFloat
+    let colorScheme: ColorScheme
+
+    var iconSize: CGFloat {
+        size * 0.5 // Icon size is 50% of the container size
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+
+            Image(systemName: icon)
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
         }
         .frame(width: size, height: size)
     }

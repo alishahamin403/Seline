@@ -27,6 +27,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var userNotes: String? // User's personal notes
     var userCuisine: String? // User's manual cuisine assignment
     var isFavourite: Bool // Whether this location is marked as favourite
+    var userIcon: String? // User's selected SF Symbol icon name
     var dateCreated: Date
     var dateModified: Date
 
@@ -51,11 +52,69 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.userNotes = nil
         self.userCuisine = nil
         self.isFavourite = false
+        self.userIcon = nil
         self.dateCreated = Date()
         self.dateModified = Date()
 
         // Extract country, province, and city from address
         (self.city, self.province, self.country) = Self.parseLocationFromAddress(address)
+    }
+
+    // Get the icon to display - either user's selected icon or auto-detected based on location name
+    func getDisplayIcon() -> String {
+        // If user has selected a custom icon, use that
+        if let userIcon = userIcon {
+            return userIcon
+        }
+
+        // Otherwise, auto-detect based on location name
+        let lowerName = displayName.lowercased()
+
+        if lowerName.contains("home") {
+            return "house.fill"
+        } else if lowerName.contains("work") || lowerName.contains("office") || lowerName.contains("briefcase") {
+            return "briefcase.fill"
+        } else if lowerName.contains("gym") || lowerName.contains("fitness") {
+            return "dumbbell.fill"
+        } else if lowerName.contains("pizza") {
+            return "circle.fill"
+        } else if lowerName.contains("burger") || lowerName.contains("hamburger") {
+            return "takeoutbag.and.cup.and.straw.fill"
+        } else if lowerName.contains("pasta") {
+            return "fork"
+        } else if lowerName.contains("shawarma") || lowerName.contains("kebab") {
+            return "flame.fill"
+        } else if lowerName.contains("jamaican") || lowerName.contains("reggae") {
+            return "music.note.list"
+        } else if lowerName.contains("steak") || lowerName.contains("barbecue") || lowerName.contains("bbq") {
+            return "flame"
+        } else if lowerName.contains("mexican") || lowerName.contains("taco") {
+            return "sun.max.fill"
+        } else if lowerName.contains("chinese") {
+            return "bowl.and.spoon"
+        } else if lowerName.contains("haircut") || lowerName.contains("barber") || lowerName.contains("salon") {
+            return "scissors"
+        } else if lowerName.contains("dental") || lowerName.contains("dentist") {
+            return "tooth.fill"
+        } else if lowerName.contains("hotel") || lowerName.contains("motel") {
+            return "building.fill"
+        } else if lowerName.contains("mosque") {
+            return "building.2.fill"
+        } else if lowerName.contains("smoke") || lowerName.contains("hookah") || lowerName.contains("shisha") {
+            return "smoke.fill"
+        } else if lowerName.contains("restaurant") || lowerName.contains("diner") || lowerName.contains("cafe") || lowerName.contains("food") {
+            return "fork.knife"
+        } else if lowerName.contains("park") || lowerName.contains("outdoor") {
+            return "tree.fill"
+        } else if lowerName.contains("hospital") || lowerName.contains("clinic") || lowerName.contains("medical") {
+            return "heart.fill"
+        } else if lowerName.contains("shop") || lowerName.contains("store") || lowerName.contains("mall") {
+            return "bag.fill"
+        } else if lowerName.contains("school") || lowerName.contains("university") {
+            return "book.fill"
+        } else {
+            return "mappin.circle.fill"
+        }
     }
 
     // Display name - shows custom name if set, otherwise original name

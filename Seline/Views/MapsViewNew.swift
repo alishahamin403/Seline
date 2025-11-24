@@ -265,7 +265,8 @@ struct MapsViewNew: View, Searchable {
                         selectedPlace = place
                         showingPlaceDetail = true
                     }
-                }
+                },
+                savedPlaces: locationsManager.savedPlaces
             )
             .presentationBg()
         }
@@ -809,6 +810,8 @@ struct FolderOverlayView: View {
     @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
     @State private var newPlaceName = ""
+    @State private var showingIconPicker = false
+    @State private var selectedIcon: String? = nil
 
     // Get icon for a specific place based on its name
     func iconForPlace(_ place: SavedPlace) -> String {
@@ -983,6 +986,14 @@ struct FolderOverlayView: View {
                                     .contextMenu {
                                         Button(action: {
                                             selectedPlace = place
+                                            selectedIcon = place.userIcon
+                                            showingIconPicker = true
+                                        }) {
+                                            Label("Edit Icon", systemImage: "square.and.pencil")
+                                        }
+
+                                        Button(action: {
+                                            selectedPlace = place
                                             newPlaceName = place.customName ?? place.name
                                             showingRenameAlert = true
                                         }) {
@@ -1060,6 +1071,64 @@ struct FolderOverlayView: View {
                 PlaceDetailSheet(place: place, onDismiss: { showingPlaceDetail = false })
                     .presentationBg()
             }
+        }
+        .sheet(isPresented: $showingIconPicker) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Edit Icon")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    Spacer()
+
+                    Button(action: { showingIconPicker = false }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(colorScheme == .dark ? Color.black : Color.white)
+
+                ScrollView {
+                    IconPickerView(selectedIcon: $selectedIcon)
+                        .padding(.bottom, 20)
+                }
+
+                HStack(spacing: 12) {
+                    Button(action: { showingIconPicker = false }) {
+                        Text("Cancel")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+
+                    Button(action: {
+                        if let place = selectedPlace {
+                            var updatedPlace = place
+                            updatedPlace.userIcon = selectedIcon
+                            locationsManager.updatePlace(updatedPlace)
+                            showingIconPicker = false
+                            selectedPlace = nil
+                            selectedIcon = nil
+                        }
+                    }) {
+                        Text("Save")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.blue)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(colorScheme == .dark ? Color.black : Color.white)
+            }
+            .background(colorScheme == .dark ? Color.black : Color.white)
         }
     }
 }

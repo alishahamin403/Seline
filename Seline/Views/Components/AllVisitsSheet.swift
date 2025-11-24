@@ -4,10 +4,67 @@ struct AllVisitsSheet: View {
     @Binding var allLocations: [(id: UUID, displayName: String, visitCount: Int)]
     @Binding var isPresented: Bool
     let onLocationTap: ((UUID) -> Void)?
+    var savedPlaces: [SavedPlace] = []
     @Environment(\.colorScheme) var colorScheme
 
     private var visitedLocations: [(id: UUID, displayName: String, visitCount: Int)] {
         allLocations.filter { $0.visitCount > 0 }
+    }
+
+    private func iconForLocation(_ locationId: UUID, _ displayName: String) -> String {
+        // First check if this location is saved and has a user-selected icon
+        if let savedPlace = savedPlaces.first(where: { $0.id == locationId }) {
+            return savedPlace.getDisplayIcon()
+        }
+
+        // Otherwise, auto-detect based on location name (matching SavedPlace.getDisplayIcon logic)
+        let lowerName = displayName.lowercased()
+
+        if lowerName.contains("home") {
+            return "house.fill"
+        } else if lowerName.contains("work") || lowerName.contains("office") || lowerName.contains("briefcase") {
+            return "briefcase.fill"
+        } else if lowerName.contains("gym") || lowerName.contains("fitness") {
+            return "dumbbell.fill"
+        } else if lowerName.contains("pizza") {
+            return "circle.fill"
+        } else if lowerName.contains("burger") || lowerName.contains("hamburger") {
+            return "takeoutbag.and.cup.and.straw.fill"
+        } else if lowerName.contains("pasta") {
+            return "fork"
+        } else if lowerName.contains("shawarma") || lowerName.contains("kebab") {
+            return "flame.fill"
+        } else if lowerName.contains("jamaican") || lowerName.contains("reggae") {
+            return "music.note.list"
+        } else if lowerName.contains("steak") || lowerName.contains("barbecue") || lowerName.contains("bbq") {
+            return "flame"
+        } else if lowerName.contains("mexican") || lowerName.contains("taco") {
+            return "sun.max.fill"
+        } else if lowerName.contains("chinese") {
+            return "bowl.and.spoon"
+        } else if lowerName.contains("haircut") || lowerName.contains("barber") || lowerName.contains("salon") {
+            return "scissors"
+        } else if lowerName.contains("dental") || lowerName.contains("dentist") {
+            return "tooth.fill"
+        } else if lowerName.contains("hotel") || lowerName.contains("motel") {
+            return "building.fill"
+        } else if lowerName.contains("mosque") {
+            return "building.2.fill"
+        } else if lowerName.contains("smoke") || lowerName.contains("hookah") || lowerName.contains("shisha") {
+            return "smoke.fill"
+        } else if lowerName.contains("restaurant") || lowerName.contains("diner") || lowerName.contains("cafe") || lowerName.contains("food") {
+            return "fork.knife"
+        } else if lowerName.contains("park") || lowerName.contains("outdoor") {
+            return "tree.fill"
+        } else if lowerName.contains("hospital") || lowerName.contains("clinic") || lowerName.contains("medical") {
+            return "heart.fill"
+        } else if lowerName.contains("shop") || lowerName.contains("store") || lowerName.contains("mall") {
+            return "bag.fill"
+        } else if lowerName.contains("school") || lowerName.contains("university") {
+            return "book.fill"
+        } else {
+            return "mappin.circle.fill"
+        }
     }
 
     var body: some View {
@@ -30,8 +87,6 @@ struct AllVisitsSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
                 .background(colorScheme == .dark ? Color.black : Color.white)
-
-                Divider()
 
                 // List of all locations
                 if visitedLocations.isEmpty {
@@ -62,21 +117,16 @@ struct AllVisitsSheet: View {
                                 }) {
                                     VStack(spacing: 0) {
                                         HStack(spacing: 12) {
-                                            // Rank badge
+                                            // Location icon badge
                                             ZStack {
                                                 Circle()
-                                                    .fill(
-                                                        index == 0 ? Color(red: 1.0, green: 0.84, blue: 0) :
-                                                        index == 1 ? Color(red: 0.7, green: 0.7, blue: 0.7) :
-                                                        index == 2 ? Color(red: 0.8, green: 0.5, blue: 0.2) :
-                                                        Color(red: 0.2039, green: 0.6588, blue: 0.3255)
-                                                    )
+                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
 
-                                                Text("\(index + 1)")
-                                                    .font(.system(size: 12, weight: .bold))
-                                                    .foregroundColor(.white)
+                                                Image(systemName: iconForLocation(location.id, location.displayName))
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
                                             }
-                                            .frame(width: 32, height: 32)
+                                            .frame(width: 40, height: 40)
 
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(location.displayName)
@@ -97,11 +147,6 @@ struct AllVisitsSheet: View {
                                         }
                                         .padding(.horizontal, 16)
                                         .padding(.vertical, 12)
-
-                                        if index < visitedLocations.count - 1 {
-                                            Divider()
-                                                .padding(.horizontal, 16)
-                                        }
                                     }
                                 }
                                 .buttonStyle(PlainButtonStyle())

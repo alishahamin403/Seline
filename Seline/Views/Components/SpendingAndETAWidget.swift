@@ -157,12 +157,11 @@ struct SpendingAndETAWidget: View {
             GeometryReader { geometry in
                 HStack(spacing: 12) {
                     // Spending Card (50%)
-                    spendingCard(width: (geometry.size.width - 36) * 0.5)
+                    spendingCard(width: (geometry.size.width - 12) * 0.5)
 
                     // Navigation Card with 2x2 ETA grid (50%)
-                    navigationCard2x2(width: (geometry.size.width - 36) * 0.5)
+                    navigationCard2x2(width: (geometry.size.width - 12) * 0.5)
                 }
-                .padding(.horizontal, 12)
             }
         }
         .frame(height: 130)
