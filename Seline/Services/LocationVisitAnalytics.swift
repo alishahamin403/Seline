@@ -224,6 +224,35 @@ class LocationVisitAnalytics: ObservableObject {
         print("🔄 Invalidated all stats caches")
     }
 
+    /// Delete a specific visit from history
+    func deleteVisit(id: String) async -> Bool {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            errorMessage = "User not authenticated"
+            print("❌ LocationVisitAnalytics: User not authenticated when deleting visit")
+            return false
+        }
+
+        let client = await SupabaseManager.shared.getPostgrestClient()
+
+        do {
+            try await client
+                .from("location_visits")
+                .delete()
+                .eq("id", value: id)
+                .eq("user_id", value: userId.uuidString)
+                .execute()
+
+            print("✅ LocationVisitAnalytics: Successfully deleted visit \(id)")
+            // Invalidate cache to force refresh on next fetch
+            invalidateAllCache()
+            return true
+        } catch {
+            errorMessage = "Failed to delete visit: \(error.localizedDescription)"
+            print("❌ LocationVisitAnalytics: Failed to delete visit: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     // MARK: - Private Methods
 
     private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {

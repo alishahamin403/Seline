@@ -76,6 +76,7 @@ struct VisitHistoryCard: View {
                 VStack(spacing: 8) {
                     ForEach(visitDays) { visitDay in
                         DayVisitGroup(
+                            placeId: place.id,
                             visitDay: visitDay,
                             colorScheme: colorScheme,
                             isExpanded: expandedDayIds.contains(visitDay.id),
@@ -87,6 +88,10 @@ struct VisitHistoryCard: View {
                                         expandedDayIds.insert(visitDay.id)
                                     }
                                 }
+                            },
+                            onVisitDelete: {
+                                // Reload visit history after deletion
+                                loadVisitHistory()
                             }
                         )
                     }
@@ -143,6 +148,9 @@ struct VisitHistoryCard: View {
 struct VisitHistoryRow: View {
     let visit: LocationVisitRecord
     let colorScheme: ColorScheme
+    let onDelete: () -> Void
+
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -192,7 +200,7 @@ struct VisitHistoryRow: View {
                 }
             }
 
-            // Time Range
+            // Time Range and Delete Button
             HStack(spacing: 8) {
                 Image(systemName: "clock.fill")
                     .font(.system(size: 10))
@@ -203,7 +211,30 @@ struct VisitHistoryRow: View {
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
                 Spacer()
+
+                Button(action: {
+                    showDeleteConfirmation = true
+                }) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
+        }
+        .confirmationDialog("Delete Visit", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    let success = await LocationVisitAnalytics.shared.deleteVisit(id: visit.id)
+                    if success {
+                        onDelete()
+                    }
+                }
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this visit? This action cannot be undone.")
         }
     }
 
@@ -239,10 +270,12 @@ struct VisitHistoryRow: View {
 // MARK: - Day Visit Group
 
 struct DayVisitGroup: View {
+    let placeId: UUID
     let visitDay: VisitDay
     let colorScheme: ColorScheme
     let isExpanded: Bool
     let onToggle: () -> Void
+    let onVisitDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -284,7 +317,10 @@ struct DayVisitGroup: View {
                     ForEach(visitDay.visits, id: \.visit.id) { item in
                         VisitHistoryRow(
                             visit: item.visit,
-                            colorScheme: colorScheme
+                            colorScheme: colorScheme,
+                            onDelete: {
+                                onVisitDelete()
+                            }
                         )
 
                         if item.visit.id != visitDay.visits.last?.visit.id {

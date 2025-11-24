@@ -166,27 +166,23 @@ struct PlaceDetailSheet: View {
                         Button(action: {
                             mapsService.openInGoogleMaps(place: place)
                         }) {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "map.fill")
                                     .font(.system(size: 18, weight: .semibold))
 
                                 Text("Open in Maps")
                                     .font(.system(size: 16, weight: .semibold))
-
-                                Spacer()
-
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 14, weight: .semibold))
                             }
                             .foregroundColor(colorScheme == .dark ? .black : .white)
+                            .frame(maxWidth: .infinity)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(
                                         colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black
+                                            Color.white.opacity(0.05) :
+                                            Color.black.opacity(0.03)
                                     )
                             )
                         }
