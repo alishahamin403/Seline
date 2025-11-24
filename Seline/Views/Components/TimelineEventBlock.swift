@@ -72,7 +72,8 @@ struct TimelineEventBlock: View {
         TimelineEventColorManager.timelineEventBackgroundColor(
             filterType: filterType,
             colorScheme: colorScheme,
-            isCompleted: isCompleted
+            isCompleted: isCompleted,
+            tagColorIndex: tagColorIndex
         )
     }
 

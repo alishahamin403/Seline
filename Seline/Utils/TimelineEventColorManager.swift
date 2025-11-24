@@ -22,9 +22,10 @@ struct TimelineEventColorManager {
     static func timelineEventBackgroundColor(
         filterType: FilterType,
         colorScheme: ColorScheme,
-        isCompleted: Bool
+        isCompleted: Bool,
+        tagColorIndex: Int? = nil
     ) -> Color {
-        let accentColor = timelineEventAccentColor(filterType: filterType, colorScheme: colorScheme)
+        let accentColor = timelineEventAccentColor(filterType: filterType, colorScheme: colorScheme, tagColorIndex: tagColorIndex)
 
         if isCompleted {
             return accentColor.opacity(0.4)
