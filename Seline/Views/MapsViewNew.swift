@@ -76,25 +76,6 @@ struct MapsViewNew: View, Searchable {
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // Current Location Display - Only show in Locations tab
-                        if selectedTab == "folders" {
-                            CurrentLocationCardWidget(
-                                currentLocationName: currentLocationName,
-                                nearbyLocation: nearbyLocation,
-                                nearbyLocationFolder: nearbyLocationFolder,
-                                nearbyLocationPlace: nearbyLocationPlace,
-                                distanceToNearest: distanceToNearest,
-                                elapsedTimeString: elapsedTimeString,
-                                topLocations: topLocations,
-                                selectedPlace: $selectedPlace,
-                                showingPlaceDetail: $showingPlaceDetail,
-                                showAllLocationsSheet: $showAllLocationsSheet
-                            )
-                            .padding(.horizontal, 20)
-                            .padding(.top, 8)
-                            .padding(.bottom, 12)
-                        }
-
                         if selectedTab == "folders" {
                             // LOCATIONS TAB CONTENT
                             // Fixed spacer height to prevent folder movement
