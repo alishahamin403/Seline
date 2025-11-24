@@ -29,19 +29,19 @@ struct AllVisitsSheet: View {
         } else if lowerName.contains("pizza") {
             return "circle.fill"
         } else if lowerName.contains("burger") || lowerName.contains("hamburger") {
-            return "takeoutbag.and.cup.and.straw.fill"
+            return "hamburger"
         } else if lowerName.contains("pasta") {
             return "fork"
         } else if lowerName.contains("shawarma") || lowerName.contains("kebab") {
-            return "flame.fill"
+            return "burrito"
         } else if lowerName.contains("jamaican") || lowerName.contains("reggae") {
-            return "music.note.list"
+            return "guitars"
         } else if lowerName.contains("steak") || lowerName.contains("barbecue") || lowerName.contains("bbq") {
-            return "flame"
+            return "meat.fill"
         } else if lowerName.contains("mexican") || lowerName.contains("taco") {
             return "sun.max.fill"
         } else if lowerName.contains("chinese") {
-            return "bowl.and.spoon"
+            return "chopsticks"
         } else if lowerName.contains("haircut") || lowerName.contains("barber") || lowerName.contains("salon") {
             return "scissors"
         } else if lowerName.contains("dental") || lowerName.contains("dentist") {
@@ -51,7 +51,7 @@ struct AllVisitsSheet: View {
         } else if lowerName.contains("mosque") {
             return "building.2.fill"
         } else if lowerName.contains("smoke") || lowerName.contains("hookah") || lowerName.contains("shisha") {
-            return "smoke.fill"
+            return "flame"
         } else if lowerName.contains("restaurant") || lowerName.contains("diner") || lowerName.contains("cafe") || lowerName.contains("food") {
             return "fork.knife"
         } else if lowerName.contains("park") || lowerName.contains("outdoor") {
