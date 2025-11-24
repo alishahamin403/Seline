@@ -53,12 +53,21 @@ class ThemeManager: ObservableObject {
     }
 
     @Published var effectiveColorScheme: ColorScheme?
+    @Published var systemColorScheme: ColorScheme? = nil {
+        didSet {
+            if selectedTheme == .auto {
+                updateEffectiveColorScheme()
+            }
+        }
+    }
 
     private var timer: Timer?
+    private var systemThemeObserver: NSObjectProtocol?
 
     private init() {
         self.selectedTheme = AppTheme(rawValue: selectedThemeRawValue) ?? .auto
         setupAutoThemeMonitoring()
+        setupSystemThemeObserver()
         updateEffectiveColorScheme()
     }
 
@@ -86,7 +95,12 @@ class ThemeManager: ObservableObject {
     private func updateEffectiveColorScheme() {
         switch selectedTheme {
         case .auto:
-            effectiveColorScheme = isDaytime() ? .light : .dark
+            // Prefer system theme if available (synced with widget), fallback to time-based
+            if let systemTheme = systemColorScheme {
+                effectiveColorScheme = systemTheme
+            } else {
+                effectiveColorScheme = isDaytime() ? .light : .dark
+            }
         case .light:
             effectiveColorScheme = .light
         case .dark:
@@ -141,9 +155,50 @@ class ThemeManager: ObservableObject {
         timer = nil
     }
 
+    // Observe system color scheme changes (from widget or system settings)
+    private func setupSystemThemeObserver() {
+        systemThemeObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.detectSystemTheme()
+        }
+
+        // Detect system theme on app launch
+        detectSystemTheme()
+    }
+
+    // Detect the current system color scheme
+    private func detectSystemTheme() {
+        // Get the system appearance
+        if #available(iOS 13.0, *) {
+            let window = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first
+
+            let currentAppearance = window?.traitCollection.userInterfaceStyle ?? UITraitCollection().userInterfaceStyle
+
+            switch currentAppearance {
+            case .dark:
+                systemColorScheme = .dark
+            case .light:
+                systemColorScheme = .light
+            case .unspecified:
+                systemColorScheme = nil
+            @unknown default:
+                systemColorScheme = nil
+            }
+        }
+    }
+
     nonisolated deinit {
         Task { @MainActor in
             timer?.invalidate()
+            if let observer = systemThemeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 }
