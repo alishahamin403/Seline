@@ -311,8 +311,6 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var locationsTabContent: some View {
-        Rectangle().fill(Color.clear).frame(height: 20)
-
         if locationsManager.categories.isEmpty {
             VStack(spacing: 16) {
                 Image(systemName: "map").font(.system(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
