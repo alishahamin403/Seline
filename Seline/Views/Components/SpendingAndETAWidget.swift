@@ -258,31 +258,38 @@ struct SpendingAndETAWidget: View {
 
     private var topCategoryView: some View {
         Group {
-            if let topCategory = categoryBreakdown.first {
-                HStack(spacing: 6) {
-                    Text(categoryIcon(topCategory.category))
-                        .font(.system(size: 12))
+            if !categoryBreakdown.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(categoryBreakdown.prefix(3), id: \.category) { category in
+                        VStack(alignment: .center, spacing: 4) {
+                            Text(categoryIcon(category.category))
+                                .font(.system(size: 14))
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(topCategory.category)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            VStack(alignment: .center, spacing: 1) {
+                                Text(category.category)
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
 
-                        Text(CurrencyParser.formatAmount(topCategory.amount))
-                            .font(.system(size: 9, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                Text(CurrencyParser.formatAmount(category.amount))
+                                    .font(.system(size: 7, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+
+                                Text(String(format: "%.0f%%", category.percentage))
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
+                        .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.03))
+                        .cornerRadius(6)
                     }
-
-                    Spacer()
-
-                    Text(String(format: "%.0f%%", topCategory.percentage))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.03))
-                .cornerRadius(6)
             }
         }
     }
