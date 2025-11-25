@@ -294,6 +294,20 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
+            // Check location accuracy - reject entry if accuracy is poor (> 30m)
+            if let currentLocation = self.sharedLocationManager.currentLocation {
+                let horizontalAccuracy = currentLocation.horizontalAccuracy
+                if horizontalAccuracy > 30 {
+                    print("⚠️ GEOFENCE ENTRY REJECTED: GPS accuracy too low (\(String(format: "%.1f", horizontalAccuracy))m > 30m threshold)")
+                    return
+                } else {
+                    print("✅ GPS accuracy acceptable: \(String(format: "%.1f", horizontalAccuracy))m")
+                }
+            } else {
+                // If we don't have a recent location, log it but proceed (geofence itself is a signal of proximity)
+                print("⚠️ No recent location data available for accuracy check, proceeding with caution")
+            }
+
             // Check if we already have an active visit for this location
             // This prevents duplicate sessions if geofence is re-triggered while user is still in location
             if self.activeVisits[placeId] != nil {
@@ -301,8 +315,8 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
-            // Check if there's a recent visit within 1 hour that we can merge with
-            if let previousVisit = await self.findRecentVisitWithin1Hour(for: placeId) {
+            // Check if there's a recent visit within 30 minutes that we can merge with
+            if let previousVisit = await self.findRecentVisitWithin30Minutes(for: placeId) {
                 print("\n🔄 ===== MERGING VISITS =====")
                 print("🔄 Found recent visit from \(previousVisit.entryTime) to \(previousVisit.exitTime?.description ?? "unknown")")
 
@@ -361,6 +375,13 @@ class GeofenceManager: NSObject, ObservableObject {
             if var visit = self.activeVisits.removeValue(forKey: placeId) {
                 visit.recordExit(exitTime: Date())
 
+                // Filter out visits shorter than 5 minutes (noise from brief location hiccups)
+                let durationMinutes = visit.durationMinutes ?? 0
+                if durationMinutes < 5 {
+                    print("⏭️ VISIT FILTERED OUT: Duration too short (\(durationMinutes) min < 5 min minimum)")
+                    return
+                }
+
                 // Check if visit spans midnight and split if needed
                 let visitsToSave = visit.splitAtMidnightIfNeeded()
 
@@ -382,9 +403,9 @@ class GeofenceManager: NSObject, ObservableObject {
         }
     }
 
-    /// Checks if there's a recent visit within 1 hour that can be merged
+    /// Checks if there's a recent visit within 30 minutes that can be merged
     /// Returns the visit record if found, nil otherwise
-    private func findRecentVisitWithin1Hour(for placeId: UUID) async -> LocationVisitRecord? {
+    private func findRecentVisitWithin30Minutes(for placeId: UUID) async -> LocationVisitRecord? {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("⚠️ No user ID, cannot check for recent visits")
             return nil
@@ -409,8 +430,8 @@ class GeofenceManager: NSObject, ObservableObject {
             if let visit = visits.first, let exitTime = visit.exitTime {
                 let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
 
-                // If visit was completed within the last 60 minutes, it's a candidate for merging
-                if minutesSinceExit <= 60 && minutesSinceExit >= 0 {
+                // If visit was completed within the last 30 minutes, it's a candidate for merging
+                if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
                     print("✅ Found recent visit that ended \(minutesSinceExit) minutes ago - candidate for merging")
                     return visit
                 } else if minutesSinceExit < 0 {
@@ -418,7 +439,7 @@ class GeofenceManager: NSObject, ObservableObject {
                     print("⚠️ Visit has future exit time, skipping merge")
                     return nil
                 } else {
-                    print("ℹ️ Most recent visit ended \(minutesSinceExit) minutes ago (beyond 1 hour window)")
+                    print("ℹ️ Most recent visit ended \(minutesSinceExit) minutes ago (beyond 30 minute window)")
                     return nil
                 }
             } else {
@@ -462,6 +483,13 @@ class GeofenceManager: NSObject, ObservableObject {
                 // Only close if it doesn't already have an exit time
                 if visit.exitTime == nil {
                     visit.recordExit(exitTime: Date())
+
+                    // Filter out visits shorter than 5 minutes (noise from brief location hiccups)
+                    let durationMinutes = visit.durationMinutes ?? 0
+                    if durationMinutes < 5 {
+                        print("⏭️ VISIT FILTERED OUT: Duration too short (\(durationMinutes) min < 5 min minimum)")
+                        return
+                    }
 
                     // Check if visit spans midnight and split if needed
                     let visitsToSave = visit.splitAtMidnightIfNeeded()
