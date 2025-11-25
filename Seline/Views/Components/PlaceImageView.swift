@@ -86,7 +86,7 @@ struct IconDisplayView: View {
 
             Image(systemName: icon)
                 .font(.system(size: iconSize, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
         }
         .frame(width: size, height: size)
         .overlay(

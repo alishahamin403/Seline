@@ -939,7 +939,7 @@ struct CategoryCard: View {
                         // Empty folder - show single large icon
                         Image(systemName: "mappin.circle.fill")
                             .font(.system(size: 40, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                            .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
                     }
                 }
                 .frame(maxWidth: .infinity)
