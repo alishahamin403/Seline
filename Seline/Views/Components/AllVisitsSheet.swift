@@ -44,8 +44,6 @@ struct AllVisitsSheet: View {
             return "cloud.fill"
         } else if lowerName.contains("haircut") || lowerName.contains("barber") || lowerName.contains("salon") {
             return "scissors"
-        } else if lowerName.contains("dental") || lowerName.contains("dentist") {
-            return "tooth.fill"
         } else if lowerName.contains("hotel") || lowerName.contains("motel") {
             return "building.fill"
         } else if lowerName.contains("mosque") {
