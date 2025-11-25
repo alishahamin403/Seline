@@ -10,30 +10,16 @@ struct CurrentLocationCardWidget: View {
     let distanceToNearest: Double?
     let elapsedTimeString: String
     let topLocations: [(id: UUID, displayName: String, visitCount: Int)]
-    let locationsManager: LocationsManager
 
     @Binding var selectedPlace: SavedPlace?
     @Binding var showingPlaceDetail: Bool
     @Binding var showAllLocationsSheet: Bool
 
-    // Check if we have complete place data to enable the button
-    var isPlaceDataComplete: Bool {
-        guard let place = nearbyLocationPlace else { return false }
-        return !place.name.isEmpty && !place.address.isEmpty && !place.displayName.isEmpty
-    }
-
     var body: some View {
         Button(action: {
-            if let place = nearbyLocationPlace, isPlaceDataComplete {
-                // Fetch fresh copy from LocationsManager to ensure complete data
-                if let freshPlace = locationsManager.savedPlaces.first(where: { $0.id == place.id }) {
-                    selectedPlace = freshPlace
-                    showingPlaceDetail = true
-                } else if !place.name.isEmpty && !place.address.isEmpty {
-                    // Fallback to passed place if not found in manager
-                    selectedPlace = place
-                    showingPlaceDetail = true
-                }
+            if let place = nearbyLocationPlace {
+                selectedPlace = place
+                showingPlaceDetail = true
             }
         }) {
             HStack(spacing: 16) {
@@ -150,24 +136,5 @@ struct CurrentLocationCardWidget: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(!isPlaceDataComplete)
-        .opacity(isPlaceDataComplete ? 1.0 : 0.5)
-        .overlay(
-            Group {
-                if !isPlaceDataComplete && nearbyLocation != nil {
-                    // Show loading indicator when we're in a location but data isn't ready
-                    VStack {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(colorScheme == .dark ?
-                                Color.black.opacity(0.3) : Color.white.opacity(0.5))
-                    )
-                }
-            }
-        )
     }
 }

@@ -334,10 +334,7 @@ struct MainAppView: View {
                     if nearbyLocation != place.displayName {
                         nearbyLocation = place.displayName
                         nearbyLocationFolder = place.category
-                        // Ensure place data is complete before storing reference
-                        if !place.name.isEmpty && !place.address.isEmpty {
-                            nearbyLocationPlace = place
-                        }
+                        nearbyLocationPlace = place
                         startLocationTimer()
                         print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
                     }
@@ -859,13 +856,6 @@ struct MainAppView: View {
                 if let place = selectedLocationPlace {
                     PlaceDetailSheet(place: place, onDismiss: { showingLocationPlaceDetail = false }, isFromRanking: false)
                         .presentationBg()
-                        .onAppear {
-                            print("🔍 MainAppView opening PlaceDetailSheet:")
-                            print("   - Place ID: \(place.id)")
-                            print("   - Place Name: '\(place.name)' (empty: \(place.name.isEmpty))")
-                            print("   - Place Address: '\(place.address)' (empty: \(place.address.isEmpty))")
-                            print("   - Place DisplayName: '\(place.displayName)' (empty: \(place.displayName.isEmpty))")
-                        }
                 }
             }
     }
@@ -1522,7 +1512,6 @@ struct MainAppView: View {
                 distanceToNearest: distanceToNearest,
                 elapsedTimeString: elapsedTimeString,
                 topLocations: topLocations,
-                locationsManager: locationsManager,
                 selectedPlace: $selectedLocationPlace,
                 showingPlaceDetail: $showingLocationPlaceDetail,
                 showAllLocationsSheet: $showAllLocationsSheet
