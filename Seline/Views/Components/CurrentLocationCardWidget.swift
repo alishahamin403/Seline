@@ -10,6 +10,7 @@ struct CurrentLocationCardWidget: View {
     let distanceToNearest: Double?
     let elapsedTimeString: String
     let topLocations: [(id: UUID, displayName: String, visitCount: Int)]
+    let locationsManager: LocationsManager
 
     @Binding var selectedPlace: SavedPlace?
     @Binding var showingPlaceDetail: Bool
@@ -18,12 +19,34 @@ struct CurrentLocationCardWidget: View {
     var body: some View {
         Button(action: {
             if let place = nearbyLocationPlace {
-                // Ensure place data is complete before opening the sheet
-                // If any critical field is missing, don't open the sheet yet
-                if !place.name.isEmpty && !place.address.isEmpty {
-                    selectedPlace = place
-                    showingPlaceDetail = true
+                print("📌 Location card tapped - Place: \(place.displayName)")
+                // Fetch fresh copy from LocationsManager to ensure complete data
+                if let freshPlace = locationsManager.savedPlaces.first(where: { $0.id == place.id }) {
+                    print("   ✅ Found fresh place in manager")
+                    print("   - Name: '\(freshPlace.name)' (empty: \(freshPlace.name.isEmpty))")
+                    print("   - Address: '\(freshPlace.address)' (empty: \(freshPlace.address.isEmpty))")
+                    // Verify we have complete data
+                    if !freshPlace.name.isEmpty && !freshPlace.address.isEmpty {
+                        print("   - Data is complete, opening sheet")
+                        selectedPlace = freshPlace
+                        showingPlaceDetail = true
+                    } else {
+                        print("   ❌ Fresh place has incomplete data, skipping")
+                    }
+                } else {
+                    print("   - Fresh place not found in manager, using original")
+                    print("   - Original Name: '\(place.name)' (empty: \(place.name.isEmpty))")
+                    print("   - Original Address: '\(place.address)' (empty: \(place.address.isEmpty))")
+                    if !place.name.isEmpty && !place.address.isEmpty {
+                        print("   - Data is complete, opening sheet")
+                        selectedPlace = place
+                        showingPlaceDetail = true
+                    } else {
+                        print("   ❌ Original place has incomplete data, skipping")
+                    }
                 }
+            } else {
+                print("⚠️ No nearbyLocationPlace available")
             }
         }) {
             HStack(spacing: 16) {

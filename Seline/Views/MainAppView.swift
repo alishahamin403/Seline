@@ -1515,6 +1515,7 @@ struct MainAppView: View {
                 distanceToNearest: distanceToNearest,
                 elapsedTimeString: elapsedTimeString,
                 topLocations: topLocations,
+                locationsManager: locationsManager,
                 selectedPlace: $selectedLocationPlace,
                 showingPlaceDetail: $showingLocationPlaceDetail,
                 showAllLocationsSheet: $showAllLocationsSheet

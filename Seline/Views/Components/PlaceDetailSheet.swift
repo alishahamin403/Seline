@@ -12,6 +12,19 @@ struct PlaceDetailSheet: View {
         !place.name.isEmpty && !place.address.isEmpty && !place.displayName.isEmpty
     }
 
+    private func debugPlaceData() {
+        print("📍 PlaceDetailSheet opened with:")
+        print("   - Place ID: \(place.id)")
+        print("   - Name: '\(place.name)' (empty: \(place.name.isEmpty))")
+        print("   - Address: '\(place.address)' (empty: \(place.address.isEmpty))")
+        print("   - CustomName: '\(place.customName ?? "nil")' (empty: \(place.customName?.isEmpty ?? true))")
+        print("   - DisplayName: '\(place.displayName)' (empty: \(place.displayName.isEmpty))")
+        print("   - Category: '\(place.category)' (empty: \(place.category.isEmpty))")
+        print("   - Phone: '\(place.phone ?? "nil")'")
+        print("   - Photos count: \(place.photos.count)")
+        print("   - IsDataComplete: \(isPlaceDataComplete)")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if !isPlaceDataComplete {
@@ -247,6 +260,9 @@ struct PlaceDetailSheet: View {
             (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                 .ignoresSafeArea()
         )
+        .onAppear {
+            debugPlaceData()
+        }
     }
 
     private func callPhone(_ phone: String) {
