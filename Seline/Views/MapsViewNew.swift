@@ -17,6 +17,7 @@ struct MapsViewNew: View, Searchable {
     @State private var selectedPlace: SavedPlace? = nil
     @State private var locationPreferences: UserLocationPreferences?
     @State private var showETAEditModal = false
+    @State private var showFavorites = true
     @State private var selectedCountry: String? = nil
     @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
@@ -77,86 +78,81 @@ struct MapsViewNew: View, Searchable {
                     colorScheme == .dark ? Color.black : Color.white
                 )
 
-                // Quick Locations Section
-                if locationPreferences != nil {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            // Location 1
-                            quickLocationCard(
-                                icon: locationPreferences?.location1Icon ?? "house.fill",
-                                name: "Home",
-                                eta: navigationService.location1ETA,
-                                isLocationSet: locationPreferences?.location1Coordinate != nil,
-                                onTap: {
-                                    if locationPreferences?.location1Coordinate != nil {
-                                        openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
-                                    }
-                                },
-                                onLongPress: {
-                                    showETAEditModal = true
-                                }
-                            )
-
-                            // Location 2
-                            quickLocationCard(
-                                icon: locationPreferences?.location2Icon ?? "briefcase.fill",
-                                name: "Work",
-                                eta: navigationService.location2ETA,
-                                isLocationSet: locationPreferences?.location2Coordinate != nil,
-                                onTap: {
-                                    if locationPreferences?.location2Coordinate != nil {
-                                        openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
-                                    }
-                                },
-                                onLongPress: {
-                                    showETAEditModal = true
-                                }
-                            )
-
-                            // Location 3
-                            quickLocationCard(
-                                icon: locationPreferences?.location3Icon ?? "fork.knife",
-                                name: "Lunch",
-                                eta: navigationService.location3ETA,
-                                isLocationSet: locationPreferences?.location3Coordinate != nil,
-                                onTap: {
-                                    if locationPreferences?.location3Coordinate != nil {
-                                        openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
-                                    }
-                                },
-                                onLongPress: {
-                                    showETAEditModal = true
-                                }
-                            )
-
-                            // Location 4
-                            quickLocationCard(
-                                icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
-                                name: "Gym",
-                                eta: navigationService.location4ETA,
-                                isLocationSet: locationPreferences?.location4Coordinate != nil,
-                                onTap: {
-                                    if locationPreferences?.location4Coordinate != nil {
-                                        openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
-                                    }
-                                },
-                                onLongPress: {
-                                    showETAEditModal = true
-                                }
-                            )
-                        }
-                        .padding(.horizontal, 20)
-                    }
-                    .frame(height: 90)
-                    .padding(.vertical, 12)
-                    .background(
-                        colorScheme == .dark ? Color.black : Color.white
-                    )
-                }
-
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
+                        // Quick Locations Section
+                        if locationPreferences != nil {
+                            VStack(spacing: 12) {
+                                HStack(spacing: 12) {
+                                    // Location 1
+                                    quickLocationCard(
+                                        icon: locationPreferences?.location1Icon ?? "house.fill",
+                                        name: "Home",
+                                        eta: navigationService.location1ETA,
+                                        isLocationSet: locationPreferences?.location1Coordinate != nil,
+                                        onTap: {
+                                            if locationPreferences?.location1Coordinate != nil {
+                                                openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
+                                            }
+                                        },
+                                        onLongPress: {
+                                            showETAEditModal = true
+                                        }
+                                    )
+
+                                    // Location 2
+                                    quickLocationCard(
+                                        icon: locationPreferences?.location2Icon ?? "briefcase.fill",
+                                        name: "Work",
+                                        eta: navigationService.location2ETA,
+                                        isLocationSet: locationPreferences?.location2Coordinate != nil,
+                                        onTap: {
+                                            if locationPreferences?.location2Coordinate != nil {
+                                                openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
+                                            }
+                                        },
+                                        onLongPress: {
+                                            showETAEditModal = true
+                                        }
+                                    )
+
+                                    // Location 3
+                                    quickLocationCard(
+                                        icon: locationPreferences?.location3Icon ?? "fork.knife",
+                                        name: "Lunch",
+                                        eta: navigationService.location3ETA,
+                                        isLocationSet: locationPreferences?.location3Coordinate != nil,
+                                        onTap: {
+                                            if locationPreferences?.location3Coordinate != nil {
+                                                openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
+                                            }
+                                        },
+                                        onLongPress: {
+                                            showETAEditModal = true
+                                        }
+                                    )
+
+                                    // Location 4
+                                    quickLocationCard(
+                                        icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
+                                        name: "Gym",
+                                        eta: navigationService.location4ETA,
+                                        isLocationSet: locationPreferences?.location4Coordinate != nil,
+                                        onTap: {
+                                            if locationPreferences?.location4Coordinate != nil {
+                                                openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
+                                            }
+                                        },
+                                        onLongPress: {
+                                            showETAEditModal = true
+                                        }
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                        }
                         if selectedTab == "folders" {
                             // LOCATIONS TAB CONTENT
                             // Fixed spacer height to prevent folder movement
@@ -188,9 +184,33 @@ struct MapsViewNew: View, Searchable {
                                 // Favourites section
                                 let favourites = locationsManager.getFavourites()
                                 if !favourites.isEmpty {
-                                    VStack(alignment: .leading, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        // Favorites header with collapse/expand button
+                                        Button(action: {
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                showFavorites.toggle()
+                                            }
+                                        }) {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: showFavorites ? "chevron.down" : "chevron.right")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
-                                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                                Text("Favorites")
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                                Spacer()
+                                            }
+                                            .padding(.horizontal, 20)
+                                            .padding(.vertical, 12)
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+
+                                        // Favorites grid - collapsible
+                                        if showFavorites {
+                                            VStack(spacing: 12) {
+                                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                             ForEach(favourites, id: \.id) { place in
                                                 Button(action: {
                                                     selectedPlace = place
@@ -247,7 +267,9 @@ struct MapsViewNew: View, Searchable {
                                     }
                                     .padding(.top, 8)
                                     .padding(.bottom, 20)
-                                }
+                                            }
+                                        }
+                                    }
 
 
                                 // Location filters section
