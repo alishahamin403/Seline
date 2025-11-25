@@ -261,23 +261,23 @@ struct SpendingAndETAWidget: View {
             if !categoryBreakdown.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(categoryBreakdown.prefix(2), id: \.category) { category in
-                        VStack(alignment: .center, spacing: 4) {
-                            Text(categoryIcon(category.category))
-                                .font(.system(size: 14))
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 4) {
+                                Text(categoryIcon(category.category))
+                                    .font(.system(size: 14))
 
-                            VStack(alignment: .center, spacing: 2) {
                                 Text(category.category)
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
-
-                                Text(String(format: "%.0f%%", category.percentage))
-                                    .font(.system(size: 9, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
+
+                            Text(String(format: "%.0f%%", category.percentage))
+                                .font(.system(size: 9, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 6)
                         .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.03))
