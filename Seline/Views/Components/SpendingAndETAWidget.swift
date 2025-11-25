@@ -260,7 +260,7 @@ struct SpendingAndETAWidget: View {
         Group {
             if !categoryBreakdown.isEmpty {
                 HStack(spacing: 8) {
-                    ForEach(categoryBreakdown.prefix(3), id: \.category) { category in
+                    ForEach(categoryBreakdown.prefix(2), id: \.category) { category in
                         VStack(alignment: .center, spacing: 4) {
                             Text(categoryIcon(category.category))
                                 .font(.system(size: 14))
