@@ -205,9 +205,6 @@ struct PlaceDetailSheet: View {
             (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                 .ignoresSafeArea()
         )
-        .onAppear {
-            debugPlaceData()
-        }
     }
 
     private func callPhone(_ phone: String) {
