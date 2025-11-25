@@ -240,19 +240,50 @@ struct SpendingAndETAWidget: View {
         .buttonStyle(PlainButtonStyle())
     }
 
-    private var spendingAmountView: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+    private var daysLeftInMonth: Int {
+        let calendar = Calendar.current
+        let now = Date()
+        let range = calendar.range(of: .day, in: .month, for: now)!
+        let numDays = range.count
+        let currentDay = calendar.component(.day, from: now)
+        return numDays - currentDay
+    }
 
-            HStack(spacing: 4) {
-                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                    .font(.system(size: 11, weight: .regular))
+    private var nextMonthName: String {
+        let calendar = Calendar.current
+        let nextMonth = calendar.date(byAdding: .month, value: 1, to: Date())!
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+        return formatter.string(from: nextMonth)
+    }
+
+    private var spendingAmountView: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+
+                HStack(spacing: 4) {
+                    Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
+                        .font(.system(size: 11, weight: .regular))
+                }
+                .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
             }
-            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(daysLeftInMonth) days")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+
+                Text(nextMonthName)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+            }
         }
     }
 
