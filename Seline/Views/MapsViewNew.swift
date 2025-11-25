@@ -698,77 +698,30 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
+    @ViewBuilder
     private var quickLocationsSection: some View {
         if locationPreferences != nil {
             VStack(alignment: .leading, spacing: 12) {
-                // Section header
                 HStack(spacing: 8) {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.orange)
-
                     Text("Quick Locations")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-
                     Spacer()
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
 
-                // ETA cards
                 HStack(spacing: 12) {
-                    quickLocationCard(
-                        icon: locationPreferences?.location1Icon ?? "house.fill",
-                        name: "Home",
-                        eta: navigationService.location1ETA,
-                        isLocationSet: locationPreferences?.location1Coordinate != nil,
-                        onTap: {
-                            if locationPreferences?.location1Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
-                            }
-                        },
-                        onLongPress: { showETAEditModal = true }
-                    )
+                    quickLocationCard(icon: locationPreferences?.location1Icon ?? "house.fill", name: "Home", eta: navigationService.location1ETA, isLocationSet: locationPreferences?.location1Coordinate != nil, onTap: { if locationPreferences?.location1Coordinate != nil { openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address) } }, onLongPress: { showETAEditModal = true })
 
-                    quickLocationCard(
-                        icon: locationPreferences?.location2Icon ?? "briefcase.fill",
-                        name: "Work",
-                        eta: navigationService.location2ETA,
-                        isLocationSet: locationPreferences?.location2Coordinate != nil,
-                        onTap: {
-                            if locationPreferences?.location2Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
-                            }
-                        },
-                        onLongPress: { showETAEditModal = true }
-                    )
+                    quickLocationCard(icon: locationPreferences?.location2Icon ?? "briefcase.fill", name: "Work", eta: navigationService.location2ETA, isLocationSet: locationPreferences?.location2Coordinate != nil, onTap: { if locationPreferences?.location2Coordinate != nil { openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address) } }, onLongPress: { showETAEditModal = true })
 
-                    quickLocationCard(
-                        icon: locationPreferences?.location3Icon ?? "fork.knife",
-                        name: "Lunch",
-                        eta: navigationService.location3ETA,
-                        isLocationSet: locationPreferences?.location3Coordinate != nil,
-                        onTap: {
-                            if locationPreferences?.location3Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
-                            }
-                        },
-                        onLongPress: { showETAEditModal = true }
-                    )
+                    quickLocationCard(icon: locationPreferences?.location3Icon ?? "fork.knife", name: "Lunch", eta: navigationService.location3ETA, isLocationSet: locationPreferences?.location3Coordinate != nil, onTap: { if locationPreferences?.location3Coordinate != nil { openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address) } }, onLongPress: { showETAEditModal = true })
 
-                    quickLocationCard(
-                        icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
-                        name: "Gym",
-                        eta: navigationService.location4ETA,
-                        isLocationSet: locationPreferences?.location4Coordinate != nil,
-                        onTap: {
-                            if locationPreferences?.location4Coordinate != nil {
-                                openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
-                            }
-                        },
-                        onLongPress: { showETAEditModal = true }
-                    )
+                    quickLocationCard(icon: locationPreferences?.location4Icon ?? "dumbbell.fill", name: "Gym", eta: navigationService.location4ETA, isLocationSet: locationPreferences?.location4Coordinate != nil, onTap: { if locationPreferences?.location4Coordinate != nil { openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address) } }, onLongPress: { showETAEditModal = true })
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
@@ -779,8 +732,6 @@ struct MapsViewNew: View, Searchable {
             )
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-        } else {
-            EmptyView()
         }
     }
 
