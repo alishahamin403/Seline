@@ -18,8 +18,12 @@ struct CurrentLocationCardWidget: View {
     var body: some View {
         Button(action: {
             if let place = nearbyLocationPlace {
-                selectedPlace = place
-                showingPlaceDetail = true
+                // Ensure place data is complete before opening the sheet
+                // If any critical field is missing, don't open the sheet yet
+                if !place.name.isEmpty && !place.address.isEmpty {
+                    selectedPlace = place
+                    showingPlaceDetail = true
+                }
             }
         }) {
             HStack(spacing: 16) {

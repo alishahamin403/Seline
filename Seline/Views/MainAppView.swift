@@ -334,7 +334,10 @@ struct MainAppView: View {
                     if nearbyLocation != place.displayName {
                         nearbyLocation = place.displayName
                         nearbyLocationFolder = place.category
-                        nearbyLocationPlace = place
+                        // Ensure place data is complete before storing reference
+                        if !place.name.isEmpty && !place.address.isEmpty {
+                            nearbyLocationPlace = place
+                        }
                         startLocationTimer()
                         print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
                     }

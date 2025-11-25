@@ -15,16 +15,58 @@ struct PlaceDetailSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             if !isPlaceDataComplete {
-                // Show loading state if place data is incomplete
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
+                // Show loading state if place data is incomplete - but only briefly
+                // If data is still missing after initialization, show what we have
+                VStack(spacing: 20) {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
 
-                    Text("Loading location details...")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        VStack(spacing: 4) {
+                            Text("Loading location details...")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            Text("This should take just a moment")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        }
+                    }
+
+                    Spacer()
+
+                    // Show what we have while loading
+                    if !place.displayName.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(place.displayName)
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            if !place.category.isEmpty {
+                                Text(place.category)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(
+                                        colorScheme == .dark ?
+                                            Color.white :
+                                            Color.black
+                                    )
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(
+                                                colorScheme == .dark ?
+                                                    Color.white.opacity(0.2) :
+                                                    Color.black.opacity(0.1)
+                                            )
+                                    )
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.vertical, 40)
                 .background(
                     (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                         .ignoresSafeArea()
