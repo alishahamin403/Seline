@@ -80,186 +80,11 @@ struct MapsViewNew: View, Searchable {
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // Quick Locations Section
                         quickLocationsSection
                         if selectedTab == "folders" {
-                            // LOCATIONS TAB CONTENT
-                            // Fixed spacer height to prevent folder movement
-                            Rectangle()
-                                .fill(Color.clear)
-                                .frame(height: 20)
-
-                            if selectedCategory == nil {
-                            // Categories Grid
-                            Group {
-                            if locationsManager.categories.isEmpty {
-                                // Empty state
-                                VStack(spacing: 16) {
-                                    Image(systemName: "map")
-                                        .font(.system(size: 48, weight: .light))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-
-                                    Text("No saved places yet")
-                                        .font(.system(size: 18, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-
-                                    Text("Search for places and save them to categories")
-                                        .font(.system(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                        .multilineTextAlignment(.center)
-                                }
-                                .padding(.top, 60)
-                            } else {
-                                // Favourites section
-                                let favourites = locationsManager.getFavourites()
-                                if !favourites.isEmpty {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        // Favorites header
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "star.fill")
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundColor(.yellow)
-
-                                            Text("Favorites")
-                                                .font(.system(size: 16, weight: .semibold))
-                                                .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                                            Spacer()
-                                        }
-                                        .padding(.horizontal, 16)
-                                        .padding(.top, 14)
-
-                                        // Favorites grid
-                                        VStack(spacing: 12) {
-                                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                                            ForEach(favourites, id: \.id) { place in
-                                                Button(action: {
-                                                    selectedPlace = place
-                                                    showingPlaceDetail = true
-                                                }) {
-                                                    VStack(spacing: 4) {
-                                                        // Location photo or initials with favourite button
-                                                        ZStack(alignment: .topTrailing) {
-                                                            PlaceImageView(
-                                                                place: place,
-                                                                size: 60,
-                                                                cornerRadius: 12
-                                                            )
-                                                            .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-
-                                                            // Favourite star button - always visible
-                                                            Button(action: {
-                                                                locationsManager.toggleFavourite(for: place.id)
-                                                                HapticManager.shared.selection()
-                                                            }) {
-                                                                Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                                    .font(.system(size: 12, weight: .semibold))
-                                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                                    .padding(6)
-                                                                    .background(
-                                                                        Circle()
-                                                                            .fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9))
-                                                                    )
-                                                            }
-                                                            .offset(x: 6, y: -6)
-                                                        }
-
-                                                        // Place name
-                                                        Text(place.displayName)
-                                                            .font(.system(size: 10, weight: .regular))
-                                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                            .lineLimit(2)
-                                                            .multilineTextAlignment(.center)
-                                                            .minimumScaleFactor(0.8)
-                                                            .frame(height: 20)
-                                                    }
-                                                }
-                                                .buttonStyle(PlainButtonStyle())
-                                                .contextMenu {
-                                                    Button(role: .destructive, action: {
-                                                        locationsManager.deletePlace(place)
-                                                    }) {
-                                                        Label("Delete", systemImage: "trash")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal, 16)
-                                    }
-                                    .padding(.bottom, 14)
-                                    }
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                                    )
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 12)
-                                }
-
-
-                                // Saved Locations section (filters + categories)
-                                VStack(alignment: .leading, spacing: 12) {
-                                    // Section header
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "mappin.circle.fill")
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundColor(.blue)
-
-                                        Text("Saved Locations")
-                                            .font(.system(size: 16, weight: .semibold))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 14)
-
-                                    // Location filters section
-                                    LocationFiltersView(
-                                        locationsManager: locationsManager,
-                                        selectedCountry: $selectedCountry,
-                                        selectedProvince: $selectedProvince,
-                                        selectedCity: $selectedCity,
-                                        colorScheme: colorScheme
-                                    )
-
-                                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                                        // OPTIMIZATION: Use cached sorted categories instead of re-sorting on every render
-                                        ForEach(cachedSortedCategories, id: \.self) { category in
-                                            CategoryCard(
-                                                category: category,
-                                                count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count,
-                                                colorScheme: colorScheme
-                                            ) {
-                                                withAnimation(.spring(response: 0.3)) {
-                                                    selectedCategory = category
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 14)
-                                }
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                                )
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                            }
-                            }
-                            // Removed transition to prevent folder movement when opening overlay
-                        }
-
-                            // Bottom spacing
-                            Spacer()
-                                .frame(height: 100)
+                            locationsTabContent
                         } else {
-                            // RANKING TAB CONTENT
-                            RankingView(
-                                locationsManager: locationsManager,
-                                colorScheme: colorScheme
-                            )
+                            rankingTabContent
                         }
                     }
                 }
@@ -482,6 +307,105 @@ struct MapsViewNew: View, Searchable {
             .zIndex(999)
             .transition(.opacity)
         }
+    }
+
+    @ViewBuilder
+    private var locationsTabContent: some View {
+        Rectangle().fill(Color.clear).frame(height: 20)
+
+        if locationsManager.categories.isEmpty {
+            VStack(spacing: 16) {
+                Image(systemName: "map").font(.system(size: 48, weight: .light)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                Text("No saved places yet").font(.system(size: 18, weight: .medium)).foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                Text("Search for places and save them to categories").font(.system(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
+            }.padding(.top, 60)
+        } else if selectedCategory == nil {
+            favoritesSection
+            savedLocationsSection
+        }
+
+        Spacer().frame(height: 100)
+    }
+
+    @ViewBuilder
+    private var favoritesSection: some View {
+        let favourites = locationsManager.getFavourites()
+        if !favourites.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "star.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.yellow)
+                    Text("Favorites").font(.system(size: 16, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+
+                VStack(spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        ForEach(favourites, id: \.id) { place in
+                            Button(action: { selectedPlace = place; showingPlaceDetail = true }) {
+                                VStack(spacing: 4) {
+                                    ZStack(alignment: .topTrailing) {
+                                        PlaceImageView(place: place, size: 60, cornerRadius: 12).shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                        Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
+                                            Image(systemName: place.isFavourite ? "star.fill" : "star").font(.system(size: 12, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black).padding(6).background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
+                                        }
+                                        .offset(x: 6, y: -6)
+                                    }
+                                    Text(place.displayName).font(.system(size: 10, weight: .regular)).foregroundColor(colorScheme == .dark ? .white : .black).lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.8).frame(height: 20)
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .contextMenu {
+                                Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.bottom, 14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03)))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var savedLocationsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "mappin.circle.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
+                Text("Saved Locations").font(.system(size: 16, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+
+            LocationFiltersView(locationsManager: locationsManager, selectedCountry: $selectedCountry, selectedProvince: $selectedProvince, selectedCity: $selectedCity, colorScheme: colorScheme)
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                ForEach(cachedSortedCategories, id: \.self) { category in
+                    CategoryCard(category: category, count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count, colorScheme: colorScheme) {
+                        withAnimation(.spring(response: 0.3)) {
+                            selectedCategory = category
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+        }
+        .background(RoundedRectangle(cornerRadius: 12).fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03)))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var rankingTabContent: some View {
+        RankingView(locationsManager: locationsManager, colorScheme: colorScheme)
     }
 
     // MARK: - Current Location Tracking
