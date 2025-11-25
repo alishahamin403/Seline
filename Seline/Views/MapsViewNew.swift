@@ -5,6 +5,8 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var mapsService = GoogleMapsService.shared
     @StateObject private var locationService = LocationService.shared
+    @StateObject private var navigationService = NavigationService.shared
+    @StateObject private var supabaseManager = SupabaseManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
 
@@ -13,6 +15,8 @@ struct MapsViewNew: View, Searchable {
     @State private var showSearchModal = false
     @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
+    @State private var locationPreferences: UserLocationPreferences?
+    @State private var showETAEditModal = false
     @State private var selectedCountry: String? = nil
     @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
@@ -72,6 +76,83 @@ struct MapsViewNew: View, Searchable {
                 .background(
                     colorScheme == .dark ? Color.black : Color.white
                 )
+
+                // Quick Locations Section
+                if locationPreferences != nil {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            // Location 1
+                            quickLocationCard(
+                                icon: locationPreferences?.location1Icon ?? "house.fill",
+                                name: "Home",
+                                eta: navigationService.location1ETA,
+                                isLocationSet: locationPreferences?.location1Coordinate != nil,
+                                onTap: {
+                                    if locationPreferences?.location1Coordinate != nil {
+                                        openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
+                                    }
+                                },
+                                onLongPress: {
+                                    showETAEditModal = true
+                                }
+                            )
+
+                            // Location 2
+                            quickLocationCard(
+                                icon: locationPreferences?.location2Icon ?? "briefcase.fill",
+                                name: "Work",
+                                eta: navigationService.location2ETA,
+                                isLocationSet: locationPreferences?.location2Coordinate != nil,
+                                onTap: {
+                                    if locationPreferences?.location2Coordinate != nil {
+                                        openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
+                                    }
+                                },
+                                onLongPress: {
+                                    showETAEditModal = true
+                                }
+                            )
+
+                            // Location 3
+                            quickLocationCard(
+                                icon: locationPreferences?.location3Icon ?? "fork.knife",
+                                name: "Lunch",
+                                eta: navigationService.location3ETA,
+                                isLocationSet: locationPreferences?.location3Coordinate != nil,
+                                onTap: {
+                                    if locationPreferences?.location3Coordinate != nil {
+                                        openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
+                                    }
+                                },
+                                onLongPress: {
+                                    showETAEditModal = true
+                                }
+                            )
+
+                            // Location 4
+                            quickLocationCard(
+                                icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
+                                name: "Gym",
+                                eta: navigationService.location4ETA,
+                                isLocationSet: locationPreferences?.location4Coordinate != nil,
+                                onTap: {
+                                    if locationPreferences?.location4Coordinate != nil {
+                                        openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
+                                    }
+                                },
+                                onLongPress: {
+                                    showETAEditModal = true
+                                }
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                    .frame(height: 90)
+                    .padding(.vertical, 12)
+                    .background(
+                        colorScheme == .dark ? Color.black : Color.white
+                    )
+                }
 
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
@@ -297,6 +378,30 @@ struct MapsViewNew: View, Searchable {
 
             // Load top 3 locations by visit count
             loadTopLocations()
+
+            // Load location preferences for quick locations section
+            locationService.requestLocationPermission()
+            Task {
+                do {
+                    locationPreferences = try await supabaseManager.loadLocationPreferences()
+
+                    // Initial refresh or check if 5km moved since last refresh
+                    if let currentLocation = locationService.currentLocation, let preferences = locationPreferences {
+                        await navigationService.checkAndRefreshIfNeeded(
+                            currentLocation: currentLocation,
+                            location1: preferences.location1Coordinate,
+                            location2: preferences.location2Coordinate,
+                            location3: preferences.location3Coordinate,
+                            location4: preferences.location4Coordinate
+                        )
+                    } else {
+                        // Fallback to direct update if no location yet
+                        updateETAs()
+                    }
+                } catch {
+                    print("Failed to load location preferences: \(error)")
+                }
+            }
         }
         .onReceive(locationService.$currentLocation) { _ in
             // Only update location if we've finished loading incomplete visits
@@ -354,6 +459,36 @@ struct MapsViewNew: View, Searchable {
         .onChange(of: locationsManager.savedPlaces) { _ in
             // Reload top 3 locations when places are added/removed/updated
             loadTopLocations()
+        }
+        .onChange(of: locationService.currentLocation) { location in
+            // Auto-refresh ETAs when user moves 5km+
+            guard let currentLocation = location, let preferences = locationPreferences else { return }
+
+            Task {
+                await navigationService.checkAndRefreshIfNeeded(
+                    currentLocation: currentLocation,
+                    location1: preferences.location1Coordinate,
+                    location2: preferences.location2Coordinate,
+                    location3: preferences.location3Coordinate,
+                    location4: preferences.location4Coordinate
+                )
+            }
+        }
+        .onChange(of: showETAEditModal) { isShowing in
+            if !isShowing {
+                // Reload location preferences when edit sheet closes
+                Task {
+                    do {
+                        locationPreferences = try await supabaseManager.loadLocationPreferences()
+                        updateETAs()
+                    } catch {
+                        print("Failed to reload location preferences: \(error)")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showETAEditModal) {
+            AllLocationsEditView(currentPreferences: locationPreferences)
         }
         .onDisappear {
             stopLocationTimer()
@@ -659,6 +794,88 @@ struct MapsViewNew: View, Searchable {
         }
 
         return items
+    }
+
+    private func openNavigation(to coordinate: CLLocationCoordinate2D?, address: String?) {
+        guard let coordinate = coordinate, let address = address else { return }
+        let url = "comgooglemaps://?q=\(address)&center=\(coordinate.latitude),\(coordinate.longitude)"
+        if let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: encodedUrl) {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func quickLocationCard(
+        icon: String,
+        name: String,
+        eta: String?,
+        isLocationSet: Bool,
+        onTap: @escaping () -> Void,
+        onLongPress: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+
+                VStack(spacing: 2) {
+                    if navigationService.isLoading && isLocationSet {
+                        ProgressView()
+                            .scaleEffect(0.7, anchor: .center)
+                    } else if let eta = eta, isLocationSet {
+                        Text(eta)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
+                            .lineLimit(1)
+                    } else {
+                        Text("--")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    }
+
+                    Text(name)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                }
+            }
+            .frame(width: 70)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.03))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button(action: {
+                HapticManager.shared.selection()
+                onLongPress()
+            }) {
+                Label("Edit Locations", systemImage: "pencil")
+            }
+        }
+    }
+
+    private func updateETAs() {
+        guard let preferences = locationPreferences else { return }
+
+        if locationService.currentLocation == nil {
+            locationService.requestLocationPermission()
+            return
+        }
+
+        guard let currentLocation = locationService.currentLocation else { return }
+
+        Task {
+            await navigationService.updateETAs(
+                currentLocation: currentLocation,
+                location1: preferences.location1Coordinate,
+                location2: preferences.location2Coordinate,
+                location3: preferences.location3Coordinate,
+                location4: preferences.location4Coordinate
+            )
+        }
     }
 }
 

@@ -154,15 +154,7 @@ struct SpendingAndETAWidget: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { geometry in
-                HStack(spacing: 12) {
-                    // Spending Card (50%)
-                    spendingCard(width: (geometry.size.width - 12) * 0.5)
-
-                    // Navigation Card with 2x2 ETA grid (50%)
-                    navigationCard2x2(width: (geometry.size.width - 12) * 0.5)
-                }
-            }
+            spendingCard()
         }
         .frame(height: 130)
         .onAppear {
@@ -232,7 +224,7 @@ struct SpendingAndETAWidget: View {
         }
     }
 
-    private func spendingCard(width: CGFloat) -> some View {
+    private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
             VStack(alignment: .leading, spacing: 6) {
                 Spacer()
@@ -243,7 +235,7 @@ struct SpendingAndETAWidget: View {
                 Spacer()
             }
             .padding(10)
-            .frame(maxWidth: width, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(PlainButtonStyle())
     }
