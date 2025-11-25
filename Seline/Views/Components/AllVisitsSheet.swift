@@ -124,7 +124,7 @@ struct AllVisitsSheet: View {
 
                                                 Image(systemName: iconForLocation(location.id, location.displayName))
                                                     .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.4))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                                             }
                                             .frame(width: 40, height: 40)
                                             .overlay(

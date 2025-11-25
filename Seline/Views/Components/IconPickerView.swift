@@ -57,7 +57,7 @@ struct IconPickerView: View {
                         VStack(spacing: 6) {
                             Image(systemName: icon.name)
                                 .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.4))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .frame(height: 32)
 
                             Text(icon.label)
