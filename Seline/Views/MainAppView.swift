@@ -1518,6 +1518,8 @@ struct MainAppView: View {
             )
             .padding(.horizontal, 12)
 
+            Spacer()
+
             // Events card - expands to fill available space
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
                 .frame(maxHeight: .infinity)
