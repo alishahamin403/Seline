@@ -663,6 +663,7 @@ struct MapsViewNew: View, Searchable {
 
                     quickLocationCard(icon: locationPreferences?.location4Icon ?? "dumbbell.fill", name: "Gym", eta: navigationService.location4ETA, isLocationSet: locationPreferences?.location4Coordinate != nil, onTap: { if locationPreferences?.location4Coordinate != nil { openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address) } }, onLongPress: { showETAEditModal = true })
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
             }
@@ -793,7 +794,7 @@ struct MapsViewNew: View, Searchable {
                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                 }
             }
-            .frame(width: 70)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
