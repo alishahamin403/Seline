@@ -265,21 +265,15 @@ struct SpendingAndETAWidget: View {
                             Text(categoryIcon(category.category))
                                 .font(.system(size: 14))
 
-                            VStack(alignment: .center, spacing: 1) {
+                            VStack(alignment: .center, spacing: 2) {
                                 Text(category.category)
-                                    .font(.system(size: 8, weight: .medium))
+                                    .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
 
-                                Text(CurrencyParser.formatAmount(category.amount))
-                                    .font(.system(size: 7, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-
                                 Text(String(format: "%.0f%%", category.percentage))
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(.system(size: 9, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
                         }

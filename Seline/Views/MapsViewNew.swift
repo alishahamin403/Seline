@@ -80,8 +80,8 @@ struct MapsViewNew: View, Searchable {
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
-                        quickLocationsSection
                         if selectedTab == "folders" {
+                            quickLocationsSection
                             locationsTabContent
                         } else {
                             rankingTabContent
