@@ -104,9 +104,9 @@ struct MarkdownText: View {
                 let text = String(trimmed.dropFirst(3))
                 elements.append(.heading2(text))
             }
-            // Heading 3
-            else if trimmed.hasPrefix("### ") {
-                let text = String(trimmed.dropFirst(4))
+            // Heading 3 (also handles 4+ hashes by treating as heading 3)
+            else if trimmed.hasPrefix("### ") || trimmed.hasPrefix("#### ") || trimmed.hasPrefix("##### ") || trimmed.hasPrefix("###### ") {
+                let text = trimmed.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
                 elements.append(.heading3(text))
             }
             // Numbered list

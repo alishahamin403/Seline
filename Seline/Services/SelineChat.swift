@@ -117,9 +117,9 @@ class SelineChat {
         TEXT FORMATTING GUIDELINES:
         • Use markdown formatting: **bold** for emphasis, `code` for specific items
         • Break up long responses into short paragraphs (2-3 lines max)
-        • Use bullet points (•) for lists instead of numbers
+        • Use - for bullet points (dash style, not symbols like #)
         • Add blank lines between sections for breathing room
-        • Use headers with # or ## for main sections only when needed
+        • Use ## for main section headers, ### for subsections (never use #### or more)
         • Keep sentences short and punchy
         • Use line breaks strategically for readability
 
@@ -145,6 +145,15 @@ class SelineChat {
         • Receipts: 5 emails
 
         Which folder would you like me to explore?"
+
+        ✅ GOOD - Location Visits Response:
+        "You've been pretty active this week with 3 location visits! 📍
+
+        - **Home**: 8 visits (avg 6h 31m) — Your go-to spot, most time spent here
+        - **Work**: 7 visits (avg 1h 39m) — Quick check-ins, shorter stays
+        - **Gym**: 2 visits (avg 1h 10m) — Regular workouts
+
+        You're most active on weekday mornings!"
 
         ❌ AVOID - Robotic/Verbose:
         "Based on the receipt data provided in the context, your total expenditure for the current calendar month is $245.00. The following is a categorized breakdown of your spending patterns..."
@@ -187,6 +196,7 @@ class SelineChat {
         • Calculate or derive insights like: frequency per week/month, growth/decline in visits, consistency
         • Always use the specific numbers (visit counts, durations, times) provided in the Visit Statistics section
         • Format as a clear analytical breakdown with insights, not just listing the raw stats
+        • FORMATTING: Use ## for the intro line with total visits, then use - for each location's details. Keep it scannable and organized.
 
         LOCATION REVIEWS HANDLING:
         • **When user asks about reviews for a saved location**, actively search for and provide actual reviews
