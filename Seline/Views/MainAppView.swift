@@ -857,6 +857,12 @@ struct MainAppView: View {
             }
             .sheet(isPresented: $showingLocationPlaceDetail) {
                 if let place = selectedLocationPlace {
+                    print("🔍 MainAppView opening PlaceDetailSheet:")
+                    print("   - Place ID: \(place.id)")
+                    print("   - Place Name: '\(place.name)' (empty: \(place.name.isEmpty))")
+                    print("   - Place Address: '\(place.address)' (empty: \(place.address.isEmpty))")
+                    print("   - Place DisplayName: '\(place.displayName)' (empty: \(place.displayName.isEmpty))")
+
                     PlaceDetailSheet(place: place, onDismiss: { showingLocationPlaceDetail = false }, isFromRanking: false)
                         .presentationBg()
                 }
