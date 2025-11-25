@@ -117,7 +117,8 @@ struct AllDayEventsSection: View {
                     }
                 }
             }
-            .padding(.horizontal, 11)
+            .padding(.leading, 6)
+            .padding(.trailing, 11)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 7)

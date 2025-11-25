@@ -400,7 +400,8 @@ struct TaskRowCalendar: View {
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, 8)
+        .padding(.trailing, 16)
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: ShadcnRadius.md)

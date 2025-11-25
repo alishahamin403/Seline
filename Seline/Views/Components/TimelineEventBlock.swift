@@ -130,7 +130,8 @@ struct TimelineEventBlock: View {
                     .foregroundColor(circleColor.opacity(0.7))
             }
         }
-        .padding(.horizontal, 11)
+        .padding(.leading, 6)
+        .padding(.trailing, 11)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: displayHeight)
