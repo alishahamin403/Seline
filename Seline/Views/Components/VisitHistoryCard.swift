@@ -73,7 +73,7 @@ struct VisitHistoryCard: View {
 
             // Visit Days List - Day by Day Breakdown
             if isExpanded && !visitHistory.isEmpty {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     ForEach(visitDays) { visitDay in
                         DayVisitGroup(
                             placeId: place.id,
@@ -96,11 +96,6 @@ struct VisitHistoryCard: View {
                         )
                     }
                 }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
             }
         }
         .onAppear {
@@ -303,7 +298,7 @@ struct DayVisitGroup: View {
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
-                .padding(10)
+                .padding(12)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
@@ -311,25 +306,36 @@ struct DayVisitGroup: View {
             }
             .buttonStyle(PlainButtonStyle())
 
-            // Visits for this day
+            // Visits for this day - nested/indented inside
             if isExpanded {
-                VStack(spacing: 8) {
+                VStack(spacing: 0) {
                     ForEach(visitDay.visits, id: \.visit.id) { item in
-                        VisitHistoryRow(
-                            visit: item.visit,
-                            colorScheme: colorScheme,
-                            onDelete: {
-                                onVisitDelete()
-                            }
-                        )
+                        VStack(alignment: .leading, spacing: 0) {
+                            VisitHistoryRow(
+                                visit: item.visit,
+                                colorScheme: colorScheme,
+                                onDelete: {
+                                    onVisitDelete()
+                                }
+                            )
+                            .padding(.vertical, 10)
 
-                        if item.visit.id != visitDay.visits.last?.visit.id {
-                            Divider()
-                                .padding(.vertical, 4)
+                            if item.visit.id != visitDay.visits.last?.visit.id {
+                                Divider()
+                                    .padding(.horizontal, 0)
+                            }
                         }
                     }
                 }
-                .padding(.top, 8)
+                .padding(.leading, 12)
+                .padding(.top, 10)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                )
+                .padding(.top, 6)
             }
         }
     }
