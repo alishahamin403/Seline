@@ -46,16 +46,10 @@ struct CurrentLocationCardWidget: View {
 
                     // Status section
                     if let nearby = nearbyLocation {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.green)
-
-                            Text("In: \(nearby) \(elapsedTimeString)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.green)
-                                .lineLimit(2)
-                        }
+                        Text("\(nearby) | \(elapsedTimeString)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.green)
+                            .lineLimit(2)
                     } else if let distance = distanceToNearest {
                         HStack(spacing: 4) {
                             Image(systemName: "location.circle")
