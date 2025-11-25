@@ -17,7 +17,6 @@ struct MapsViewNew: View, Searchable {
     @State private var selectedPlace: SavedPlace? = nil
     @State private var locationPreferences: UserLocationPreferences?
     @State private var showETAEditModal = false
-    @State private var showFavorites = true
     @State private var selectedCountry: String? = nil
     @State private var selectedProvince: String? = nil
     @State private var selectedCity: String? = nil
@@ -83,7 +82,23 @@ struct MapsViewNew: View, Searchable {
                     VStack(spacing: 0) {
                         // Quick Locations Section
                         if locationPreferences != nil {
-                            VStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                // Section header
+                                HStack(spacing: 8) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.orange)
+
+                                    Text("Quick Locations")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 14)
+
+                                // ETA cards
                                 HStack(spacing: 12) {
                                     // Location 1
                                     quickLocationCard(
@@ -149,7 +164,13 @@ struct MapsViewNew: View, Searchable {
                                         }
                                     )
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 14)
                             }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                            )
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
                         }
@@ -184,33 +205,25 @@ struct MapsViewNew: View, Searchable {
                                 // Favourites section
                                 let favourites = locationsManager.getFavourites()
                                 if !favourites.isEmpty {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        // Favorites header with collapse/expand button
-                                        Button(action: {
-                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                showFavorites.toggle()
-                                            }
-                                        }) {
-                                            HStack(spacing: 12) {
-                                                Image(systemName: showFavorites ? "chevron.down" : "chevron.right")
-                                                    .font(.system(size: 12, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        // Favorites header
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "star.fill")
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundColor(.yellow)
 
-                                                Text("Favorites")
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            Text("Favorites")
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                                                Spacer()
-                                            }
-                                            .padding(.horizontal, 20)
-                                            .padding(.vertical, 12)
+                                            Spacer()
                                         }
-                                        .buttonStyle(PlainButtonStyle())
+                                        .padding(.horizontal, 16)
+                                        .padding(.top, 14)
 
-                                        // Favorites grid - collapsible
-                                        if showFavorites {
-                                            VStack(spacing: 12) {
-                                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                        // Favorites grid
+                                        VStack(spacing: 12) {
+                                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                             ForEach(favourites, id: \.id) { place in
                                                 Button(action: {
                                                     selectedPlace = place
@@ -263,40 +276,68 @@ struct MapsViewNew: View, Searchable {
                                                 }
                                             }
                                         }
-                                        .padding(.horizontal, 20)
+                                        .padding(.horizontal, 16)
                                     }
-                                    .padding(.top, 8)
-                                    .padding(.bottom, 20)
-                                            }
-                                        }
+                                    .padding(.bottom, 14)
                                     }
-
-
-                                // Location filters section
-                                LocationFiltersView(
-                                    locationsManager: locationsManager,
-                                    selectedCountry: $selectedCountry,
-                                    selectedProvince: $selectedProvince,
-                                    selectedCity: $selectedCity,
-                                    colorScheme: colorScheme
-                                )
-
-                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                                    // OPTIMIZATION: Use cached sorted categories instead of re-sorting on every render
-                                    ForEach(cachedSortedCategories, id: \.self) { category in
-                                        CategoryCard(
-                                            category: category,
-                                            count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count,
-                                            colorScheme: colorScheme
-                                        ) {
-                                            withAnimation(.spring(response: 0.3)) {
-                                                selectedCategory = category
-                                            }
-                                        }
-                                    }
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                                    )
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
                                 }
+
+
+                                // Saved Locations section (filters + categories)
+                                VStack(alignment: .leading, spacing: 12) {
+                                    // Section header
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "mappin.circle.fill")
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundColor(.blue)
+
+                                        Text("Saved Locations")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 14)
+
+                                    // Location filters section
+                                    LocationFiltersView(
+                                        locationsManager: locationsManager,
+                                        selectedCountry: $selectedCountry,
+                                        selectedProvince: $selectedProvince,
+                                        selectedCity: $selectedCity,
+                                        colorScheme: colorScheme
+                                    )
+
+                                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                                        // OPTIMIZATION: Use cached sorted categories instead of re-sorting on every render
+                                        ForEach(cachedSortedCategories, id: \.self) { category in
+                                            CategoryCard(
+                                                category: category,
+                                                count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count,
+                                                colorScheme: colorScheme
+                                            ) {
+                                                withAnimation(.spring(response: 0.3)) {
+                                                    selectedCategory = category
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 14)
+                                }
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                                )
                                 .padding(.horizontal, 20)
-                                .padding(.top, 8)
+                                .padding(.vertical, 12)
                             }
                             }
                             // Removed transition to prevent folder movement when opening overlay
