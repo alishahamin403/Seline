@@ -133,7 +133,7 @@ struct TimelineEventBlock: View {
         .padding(.leading, 6)
         .padding(.trailing, 11)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(alignment: .topLeading)
         .frame(height: displayHeight)
         .background(
             RoundedRectangle(cornerRadius: 7)
