@@ -311,7 +311,7 @@ struct SpendingAndETAWidget: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 6)
-                        .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.03))
+                        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
                         .cornerRadius(6)
                     }
                 }
