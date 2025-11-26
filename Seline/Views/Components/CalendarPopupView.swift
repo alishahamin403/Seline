@@ -150,7 +150,7 @@ struct CalendarPopupView: View {
                     } else {
                         // Tasks list
                         ScrollView {
-                            LazyVStack(spacing: 8) {
+                            LazyVStack(spacing: 4) {
                                 ForEach(tasksForDate) { task in
                                     TaskRowCalendar(
                                         task: task,
@@ -606,7 +606,7 @@ struct ShadcnCalendar: View {
             HStack(spacing: 0) {
                 ForEach(weekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .frame(maxWidth: .infinity)
                 }
@@ -717,7 +717,7 @@ struct ShadcnDayCell: View {
         Button(action: onTap) {
             VStack(spacing: 4) {
                 Text(dayNumber)
-                    .font(.system(size: 13, weight: isToday ? .semibold : .regular))
+                    .font(.system(size: 16, weight: isToday ? .semibold : .regular))
                     .foregroundColor(textColor)
 
                 // Show dots if there are events
@@ -736,7 +736,7 @@ struct ShadcnDayCell: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(height: 44)
             .background(backgroundColor)
             .cornerRadius(ShadcnRadius.md)
         }
