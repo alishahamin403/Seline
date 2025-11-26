@@ -18,29 +18,17 @@ struct MarkdownText: View {
     private func renderElement(_ element: MarkdownElement) -> some View {
         switch element {
         case .heading1(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 20, weight: .bold)
         case .heading2(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 18, weight: .semibold)
         case .heading3(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 16, weight: .semibold)
         case .bold(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
         case .italic(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
         case .underline(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
         case .code(let text):
             Text(text)
                 .font(.system(size: 12, weight: .regular, design: .monospaced))
@@ -48,32 +36,109 @@ struct MarkdownText: View {
                 .padding(4)
                 .background(colorScheme == .dark ? Color.black.opacity(0.3) : Color.gray.opacity(0.1))
                 .cornerRadius(4)
+                .textSelection(.enabled)
         case .bulletPoint(let text):
             HStack(alignment: .top, spacing: 8) {
                 Text("•")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                Text(stripMarkdownFormatting(text))
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .textSelection(.enabled)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
             }
         case .numberedPoint(let number, let text):
             HStack(alignment: .top, spacing: 8) {
                 Text("\(number).")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                Text(stripMarkdownFormatting(text))
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .textSelection(.enabled)
+                renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
             }
         case .paragraph(let text):
-            Text(stripMarkdownFormatting(text))
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .lineLimit(nil)
+            renderTextWithPhoneLinks(stripMarkdownFormatting(text), size: 13, weight: .regular)
         case .empty:
             Spacer()
                 .frame(height: 4)
+        }
+    }
+
+    @ViewBuilder
+    private func renderTextWithPhoneLinks(_ text: String, size: CGFloat, weight: Font.Weight) -> some View {
+        let phoneRegex = try! NSRegularExpression(pattern: "\\b(?:\\+?1[-.]?)?\\(?([0-9]{3})\\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\\b", options: [])
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = phoneRegex.matches(in: text, options: [], range: range)
+
+        if matches.isEmpty {
+            // No phone numbers found, render as plain text
+            Text(text)
+                .font(.system(size: size, weight: weight))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(nil)
+                .textSelection(.enabled)
+        } else {
+            // Contains phone numbers, render with interactive links
+            let attributedString = createAttributedStringWithPhoneLinks(text)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(attributedString.enumerated()), id: \.offset) { index, component in
+                    renderPhoneComponent(component, size: size, weight: weight)
+                }
+            }
+        }
+    }
+
+    private struct PhoneComponent {
+        let text: String
+        let isPhone: Bool
+        let phoneNumber: String?
+    }
+
+    private func createAttributedStringWithPhoneLinks(_ text: String) -> [PhoneComponent] {
+        var components: [PhoneComponent] = []
+        let phoneRegex = try! NSRegularExpression(pattern: "\\b(?:\\+?1[-.]?)?\\(?([0-9]{3})\\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\\b", options: [])
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = phoneRegex.matches(in: text, options: [], range: range)
+
+        var lastEnd = 0
+        for match in matches {
+            if match.range.location > lastEnd {
+                let beforeRange = NSRange(location: lastEnd, length: match.range.location - lastEnd)
+                if let beforeString = Range(beforeRange, in: text) {
+                    components.append(PhoneComponent(text: String(text[beforeString]), isPhone: false, phoneNumber: nil))
+                }
+            }
+            if let phoneRange = Range(match.range, in: text) {
+                let phoneText = String(text[phoneRange])
+                let cleanedPhone = phoneText.replacingOccurrences(of: "[^0-9+]", with: "", options: .regularExpression)
+                components.append(PhoneComponent(text: phoneText, isPhone: true, phoneNumber: cleanedPhone))
+            }
+            lastEnd = match.range.location + match.range.length
+        }
+
+        if lastEnd < text.count {
+            let afterRange = NSRange(location: lastEnd, length: text.count - lastEnd)
+            if let afterString = Range(afterRange, in: text) {
+                components.append(PhoneComponent(text: String(text[afterString]), isPhone: false, phoneNumber: nil))
+            }
+        }
+
+        return components
+    }
+
+    @ViewBuilder
+    private func renderPhoneComponent(_ component: PhoneComponent, size: CGFloat, weight: Font.Weight) -> some View {
+        if component.isPhone, let phoneNumber = component.phoneNumber {
+            Link(destination: URL(string: "tel:\(phoneNumber)")!) {
+                Text(component.text)
+                    .font(.system(size: size, weight: weight))
+                    .foregroundColor(.blue)
+                    .underline()
+                    .textSelection(.enabled)
+            }
+        } else {
+            Text(component.text)
+                .font(.system(size: size, weight: weight))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .lineLimit(nil)
+                .textSelection(.enabled)
         }
     }
 

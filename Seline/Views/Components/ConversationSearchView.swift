@@ -258,8 +258,11 @@ struct ConversationMessageView: View {
                 if hasComplexFormatting && !message.isUser {
                     // Use markdown renderer for AI responses with formatting
                     MarkdownText(markdown: message.text, colorScheme: colorScheme)
+                } else if !message.isUser {
+                    // Simple text for unformatted AI responses with phone link support
+                    SimpleTextWithPhoneLinks(text: message.text, colorScheme: colorScheme)
                 } else {
-                    // Simple text for user messages or unformatted AI responses
+                    // User messages (no phone link processing needed)
                     Text(message.text)
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
@@ -418,6 +421,91 @@ struct ReceiptCardView: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
+    }
+}
+
+// MARK: - Simple Text with Phone Links
+
+struct SimpleTextWithPhoneLinks: View {
+    let text: String
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        let phoneRegex = try! NSRegularExpression(pattern: "\\b(?:\\+?1[-.]?)?\\(?([0-9]{3})\\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\\b", options: [])
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = phoneRegex.matches(in: text, options: [], range: range)
+
+        if matches.isEmpty {
+            Text(text)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+                .textSelection(.enabled)
+                .lineLimit(nil)
+        } else {
+            let components = createPhoneComponents(text)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(components.enumerated()), id: \.offset) { _, component in
+                    renderComponent(component)
+                }
+            }
+        }
+    }
+
+    private struct PhoneComponent {
+        let text: String
+        let isPhone: Bool
+        let phoneNumber: String?
+    }
+
+    private func createPhoneComponents(_ text: String) -> [PhoneComponent] {
+        var components: [PhoneComponent] = []
+        let phoneRegex = try! NSRegularExpression(pattern: "\\b(?:\\+?1[-.]?)?\\(?([0-9]{3})\\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\\b", options: [])
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = phoneRegex.matches(in: text, options: [], range: range)
+
+        var lastEnd = 0
+        for match in matches {
+            if match.range.location > lastEnd {
+                let beforeRange = NSRange(location: lastEnd, length: match.range.location - lastEnd)
+                if let beforeString = Range(beforeRange, in: text) {
+                    components.append(PhoneComponent(text: String(text[beforeString]), isPhone: false, phoneNumber: nil))
+                }
+            }
+            if let phoneRange = Range(match.range, in: text) {
+                let phoneText = String(text[phoneRange])
+                let cleanedPhone = phoneText.replacingOccurrences(of: "[^0-9+]", with: "", options: .regularExpression)
+                components.append(PhoneComponent(text: phoneText, isPhone: true, phoneNumber: cleanedPhone))
+            }
+            lastEnd = match.range.location + match.range.length
+        }
+
+        if lastEnd < text.count {
+            let afterRange = NSRange(location: lastEnd, length: text.count - lastEnd)
+            if let afterString = Range(afterRange, in: text) {
+                components.append(PhoneComponent(text: String(text[afterString]), isPhone: false, phoneNumber: nil))
+            }
+        }
+
+        return components
+    }
+
+    @ViewBuilder
+    private func renderComponent(_ component: PhoneComponent) -> some View {
+        if component.isPhone, let phoneNumber = component.phoneNumber {
+            Link(destination: URL(string: "tel:\(phoneNumber)")!) {
+                Text(component.text)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.blue)
+                    .underline()
+                    .textSelection(.enabled)
+            }
+        } else {
+            Text(component.text)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(Color.shadcnForeground(colorScheme))
+                .lineLimit(nil)
+                .textSelection(.enabled)
+        }
     }
 }
 
