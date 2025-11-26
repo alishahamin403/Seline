@@ -343,7 +343,7 @@ struct MapsViewNew: View, Searchable {
                             Button(action: { selectedPlace = place; showingPlaceDetail = true }) {
                                 VStack(spacing: 4) {
                                     ZStack(alignment: .topTrailing) {
-                                        PlaceImageView(place: place, size: 60, cornerRadius: 12).shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                        PlaceImageView(place: place, size: 60, cornerRadius: 12)
                                         Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
                                             Image(systemName: place.isFavourite ? "star.fill" : "star").font(.system(size: 12, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black).padding(6).background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
                                         }
@@ -367,12 +367,6 @@ struct MapsViewNew: View, Searchable {
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-                    .shadow(
-                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                        radius: 8,
-                        x: 0,
-                        y: 2
-                    )
             )
             .padding(.horizontal, 8)
             .padding(.vertical, 12)
