@@ -159,7 +159,6 @@ struct CalendarPopupView: View {
                                     EventCardCompact(
                                         task: task,
                                         selectedDate: selectedDate,
-                                        colorScheme: colorScheme,
                                         onTap: {
                                             selectedTaskForEditing = task
                                             showingViewTaskSheet = true
