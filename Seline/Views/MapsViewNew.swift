@@ -368,6 +368,13 @@ struct MapsViewNew: View, Searchable {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08),
+                        lineWidth: 0.5
+                    )
+            )
             .padding(.horizontal, 8)
             .padding(.vertical, 12)
         }
