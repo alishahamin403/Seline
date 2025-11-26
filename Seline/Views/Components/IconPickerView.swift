@@ -46,6 +46,40 @@ struct IconPickerView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
+            Button(action: {
+                selectedIcon = nil
+            }) {
+                VStack(spacing: 6) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(height: 32)
+
+                    Text("None")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            selectedIcon == nil ?
+                            (colorScheme == .dark ? Color.blue.opacity(0.3) : Color.blue.opacity(0.15)) :
+                            (colorScheme == .dark ? Color.white.opacity(0.08) : Color.white)
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(
+                            selectedIcon == nil ? Color.blue : (colorScheme == .dark ? Color.clear : Color.gray.opacity(0.2)),
+                            lineWidth: selectedIcon == nil ? 2 : 1
+                        )
+                )
+            }
+            .padding(.horizontal, 16)
+
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(icons, id: \.name) { icon in
                     Button(action: {
