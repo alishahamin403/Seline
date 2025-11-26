@@ -155,15 +155,8 @@ struct CalendarPopupView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 2)
 
-                // Events section - Horizontal scrolling cards with animation
+                // Events section - Vertical scrolling cards with animation
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Events")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .padding(.horizontal, 16)
-                        .offset(y: isAnimating ? 0 : 20)
-                        .opacity(isAnimating ? 1 : 0)
-
                     if tasksForDate.isEmpty {
                         // Empty state
                         VStack(spacing: 8) {
