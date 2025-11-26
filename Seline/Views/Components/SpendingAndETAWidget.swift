@@ -270,7 +270,7 @@ struct SpendingAndETAWidget: View {
                     Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
                         .font(.system(size: 11, weight: .regular))
                 }
-                .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.9, green: 0.4, blue: 0.4))
+                .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : Color(red: 0.4, green: 0.9, blue: 0.4))
             }
 
             Spacer()
