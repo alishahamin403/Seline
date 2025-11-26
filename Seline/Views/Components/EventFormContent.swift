@@ -228,12 +228,7 @@ struct EventFormContent: View {
                         // Tag Selector
                         Button(action: { showingTagOptions.toggle() }) {
                             HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Tag")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(secondaryTextColor)
-
-                                    HStack(spacing: 6) {
+                                HStack(spacing: 6) {
                                         if let tagId = selectedTagId, let tag = tagManager.getTag(by: tagId) {
                                             Circle()
                                                 .fill(tag.color)
@@ -250,7 +245,6 @@ struct EventFormContent: View {
                                                 .foregroundColor(textColor)
                                         }
                                     }
-                                }
 
                                 Spacer()
 
