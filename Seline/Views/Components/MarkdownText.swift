@@ -222,6 +222,46 @@ struct MarkdownText: View {
 
         return result
     }
+
+    // Add smart emoji based on content
+    private func getEmojiForContent(_ text: String) -> String? {
+        let lowercased = text.lowercased()
+
+        // Positive/achievement indicators
+        if lowercased.contains("completed") || lowercased.contains("crushed") ||
+           lowercased.contains("nice work") || lowercased.contains("impressive") {
+            return "✅"
+        }
+        if lowercased.contains("total") || lowercased.contains("spending") ||
+           lowercased.contains("spent") || lowercased.contains("$") {
+            return "💰"
+        }
+        if lowercased.contains("event") || lowercased.contains("calendar") ||
+           lowercased.contains("schedule") || lowercased.contains("appointment") {
+            return "📅"
+        }
+        if lowercased.contains("note") || lowercased.contains("reminder") {
+            return "📝"
+        }
+        if lowercased.contains("location") || lowercased.contains("visit") ||
+           lowercased.contains("place") {
+            return "📍"
+        }
+        if lowercased.contains("pattern") || lowercased.contains("trend") ||
+           lowercased.contains("interesting") {
+            return "💡"
+        }
+        if lowercased.contains("warning") || lowercased.contains("heads up") ||
+           lowercased.contains("important") {
+            return "⚠️"
+        }
+        if lowercased.contains("upcoming") || lowercased.contains("tomorrow") ||
+           lowercased.contains("this week") {
+            return "⏰"
+        }
+
+        return nil
+    }
 }
 
 enum MarkdownElement: Hashable {
