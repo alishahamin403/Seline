@@ -199,17 +199,29 @@ struct TimelineView: View {
                 return time1 < time2
             }
 
-            // Assign each task in the group to a column
+            // First pass: assign columns to tasks in this group
+            var groupLayouts: [EventLayout] = []
             for task in sortedGroup {
-                let column = layouts.filter { layout in
-                    let layoutTask = layout.task
-                    return layout.column < layout.totalColumns && tasksOverlap(task, layoutTask)
+                let column = groupLayouts.filter { layout in
+                    return tasksOverlap(task, layout.task)
                 }.count
 
-                let totalColumns = max(1, column + 1)
-                layouts.append(EventLayout(
+                groupLayouts.append(EventLayout(
                     task: task,
                     column: column,
+                    totalColumns: 1 // Temporary, will be updated
+                ))
+            }
+
+            // Second pass: set totalColumns for all tasks in the group
+            let maxColumn = groupLayouts.map { $0.column }.max() ?? 0
+            let totalColumns = maxColumn + 1
+
+            for i in 0..<groupLayouts.count {
+                let layout = groupLayouts[i]
+                layouts.append(EventLayout(
+                    task: layout.task,
+                    column: layout.column,
                     totalColumns: totalColumns
                 ))
             }
