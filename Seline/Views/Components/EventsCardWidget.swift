@@ -19,44 +19,6 @@ struct EventsCardWidget: View {
         Calendar.current.startOfDay(for: Date())
     }
 
-    private var tomorrow: Date {
-        Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
-    }
-
-    private var dayAfterTomorrow: Date {
-        Calendar.current.date(byAdding: .day, value: 2, to: today) ?? today
-    }
-
-    private var tomorrowDayName: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: tomorrow)
-    }
-
-    private var dayAfterTomorrowDayName: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: dayAfterTomorrow)
-    }
-
-    private var todayDateNumber: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: today)
-    }
-
-    private var tomorrowDateNumber: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: tomorrow)
-    }
-
-    private var dayAfterDateNumber: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: dayAfterTomorrow)
-    }
-
     private var selectedDateEvents: [TaskItem] {
         taskManager.getTasksForDate(selectedDate)
     }
@@ -94,10 +56,6 @@ struct EventsCardWidget: View {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)
-    }
-
-    private func isDateSelected(_ date: Date) -> Bool {
-        Calendar.current.isDate(selectedDate, inSameDayAs: date)
     }
 
     private func filterDisplayName(for task: TaskItem) -> String {
@@ -201,119 +159,23 @@ struct EventsCardWidget: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Header with 3-day selector and Add Event button
+            // Header with "Todos" and Add Event button
             HStack(spacing: 8) {
-                // Column 1: Today
-                VStack(spacing: 4) {
-                    Text("Today")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                Text("Todos")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        selectedDate = today
-                    }) {
-                        Text(todayDateNumber)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(today) ? Color.white : (colorScheme == .dark ? Color.white : Color.black))
-                            .frame(width: 36, height: 36)
-                            .background(
-                                Circle()
-                                    .fill(
-                                        isDateSelected(today) ?
-                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
-                                            Color.clear
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                Spacer()
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showingAddEventPopup = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                 }
-                .frame(maxWidth: .infinity)
-
-                // Column 2: Tomorrow
-                VStack(spacing: 4) {
-                    Text("Tomorrow")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        selectedDate = tomorrow
-                    }) {
-                        Text(tomorrowDateNumber)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(tomorrow) ? Color.white : (colorScheme == .dark ? Color.white : Color.black))
-                            .frame(width: 36, height: 36)
-                            .background(
-                                Circle()
-                                    .fill(
-                                        isDateSelected(tomorrow) ?
-                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
-                                            Color.clear
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .frame(maxWidth: .infinity)
-
-                // Column 3: Day after tomorrow's name
-                VStack(spacing: 4) {
-                    Text(dayAfterTomorrowDayName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        selectedDate = dayAfterTomorrow
-                    }) {
-                        Text(dayAfterDateNumber)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(isDateSelected(dayAfterTomorrow) ? Color.white : (colorScheme == .dark ? Color.white : Color.black))
-                            .frame(width: 36, height: 36)
-                            .background(
-                                Circle()
-                                    .fill(
-                                        isDateSelected(dayAfterTomorrow) ?
-                                            Color(red: 0.2, green: 0.2, blue: 0.2) :
-                                            Color.clear
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .frame(maxWidth: .infinity)
-
-                // Add Event button column
-                VStack(spacing: 4) {
-                    // Empty text to match vertical alignment
-                    Text(" ")
-                        .font(.system(size: 11, weight: .semibold))
-                        .opacity(0)
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        showingAddEventPopup = true
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(width: 24, height: 24)
-
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 12)
 
