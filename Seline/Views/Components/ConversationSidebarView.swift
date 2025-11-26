@@ -187,7 +187,7 @@ struct ConversationSidebarView: View {
                     selectedConversationIds.insert(conversation.id)
                 }
             } else {
-                HapticManager.shared.impact(style: .light)
+                HapticManager.shared.light()
                 searchService.loadConversation(withId: conversation.id)
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isPresented = false
@@ -233,32 +233,17 @@ struct ConversationSidebarView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(
-                        selectedConversationIds.contains(conversation.id) ?
-                            Color(red: 0.29, green: 0.29, blue: 0.29) :
-                            (hoveredConversationId == conversation.id ?
-                                (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)) :
-                                Color.clear)
-                    )
+                    .fill(getRowBackgroundColor(for: conversation))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(
-                        selectedConversationIds.contains(conversation.id) ?
-                            Color.white.opacity(0.1) :
-                            (hoveredConversationId == conversation.id ?
-                                (colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)) :
-                                Color.clear),
-                        lineWidth: 0.5
-                    )
+                    .stroke(getRowBorderColor(for: conversation), lineWidth: 0.5)
             )
             .shadow(
-                color: hoveredConversationId == conversation.id ?
-                    (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)) :
-                    Color.clear,
-                radius: hoveredConversationId == conversation.id ? 6 : 0,
+                color: getRowShadowColor(for: conversation),
+                radius: getRowShadowRadius(for: conversation),
                 x: 0,
-                y: hoveredConversationId == conversation.id ? 2 : 0
+                y: getRowShadowY(for: conversation)
             )
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
@@ -282,6 +267,42 @@ struct ConversationSidebarView: View {
                 }
             }
         }
+    }
+
+    private func getRowBackgroundColor(for conversation: SavedConversation) -> Color {
+        if selectedConversationIds.contains(conversation.id) {
+            return Color(red: 0.29, green: 0.29, blue: 0.29)
+        } else if hoveredConversationId == conversation.id {
+            return colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)
+        } else {
+            return Color.clear
+        }
+    }
+
+    private func getRowBorderColor(for conversation: SavedConversation) -> Color {
+        if selectedConversationIds.contains(conversation.id) {
+            return Color.white.opacity(0.1)
+        } else if hoveredConversationId == conversation.id {
+            return colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
+        } else {
+            return Color.clear
+        }
+    }
+
+    private func getRowShadowColor(for conversation: SavedConversation) -> Color {
+        if hoveredConversationId == conversation.id {
+            return colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)
+        } else {
+            return Color.clear
+        }
+    }
+
+    private func getRowShadowRadius(for conversation: SavedConversation) -> CGFloat {
+        hoveredConversationId == conversation.id ? 6 : 0
+    }
+
+    private func getRowShadowY(for conversation: SavedConversation) -> CGFloat {
+        hoveredConversationId == conversation.id ? 2 : 0
     }
 }
 

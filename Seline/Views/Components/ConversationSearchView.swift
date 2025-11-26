@@ -262,7 +262,7 @@ struct ConversationSearchView: View {
     private var sendButton: some View {
         Button(action: {
             if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                HapticManager.shared.impact(style: .medium)
+                HapticManager.shared.medium()
                 let query = messageText
                 messageText = ""
                 updateInputHeight()
@@ -325,7 +325,7 @@ struct ConversationMessageView: View {
                 .animation(.easeInOut(duration: 0.15), value: isLongPressed)
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0.4, perform: {
-                    HapticManager.shared.impact(style: .medium)
+                    HapticManager.shared.medium()
                     showContextMenu = true
                 }, onPressingChanged: { isPressing in
                     isLongPressed = isPressing
@@ -566,7 +566,7 @@ struct ReceiptCardView: View {
             onTap()
         }
         .onLongPressGesture(minimumDuration: 0.01, perform: {
-            HapticManager.shared.impact(style: .light)
+            HapticManager.shared.light()
         })
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
