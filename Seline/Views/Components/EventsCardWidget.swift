@@ -125,29 +125,14 @@ struct EventsCardWidget: View {
                         .truncationMode(.tail)
                 }
 
-                // Filter badge and time row
+                // Time row
                 HStack(spacing: 4) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 6, weight: .medium))
-                        Text(badge)
-                            .font(.system(size: 7, weight: .semibold))
-                    }
-                    .foregroundColor(badgeColor)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(badgeColor.opacity(0.15))
-                    )
-                    .lineLimit(1)
-
                     Spacer()
 
                     // Event time
                     if let scheduledTime = task.scheduledTime {
                         Text(formatTime(scheduledTime))
-                            .font(.system(size: 7, weight: .semibold))
+                            .font(.system(size: 8, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
                 }
@@ -164,6 +149,8 @@ struct EventsCardWidget: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
+                Spacer()
+
                 Button(action: {
                     HapticManager.shared.selection()
                     showingAddEventPopup = true
@@ -171,10 +158,15 @@ struct EventsCardWidget: View {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                        )
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 4)
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
@@ -190,7 +182,7 @@ struct EventsCardWidget: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 4)
             }
             .frame(maxHeight: .infinity)
             .padding(.top, 2)
