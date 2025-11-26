@@ -169,6 +169,7 @@ class GeofenceManager: NSObject, ObservableObject {
 
     private var monitoredRegions: [String: CLCircularRegion] = [:] // [placeId: region]
     var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
+    private var recentlyClosedVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit] - for merge detection before Supabase sync
 
     @Published var isMonitoring = false
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
@@ -263,6 +264,7 @@ class GeofenceManager: NSObject, ObservableObject {
         monitoredRegions.forEach { sharedLocationManager.stopMonitoring(region: $0.value) }
         monitoredRegions.removeAll()
         activeVisits.removeAll()
+        recentlyClosedVisits.removeAll()
         isMonitoring = false
     }
 
@@ -334,6 +336,9 @@ class GeofenceManager: NSObject, ObservableObject {
                 print("🔄 Reopened visit with new entry time: \(mergedVisit.entryTime)")
                 print("🔄 ============================\n")
 
+                // Clear from recently closed visits since it's been reopened
+                self.recentlyClosedVisits.removeValue(forKey: placeId)
+
                 // Update Supabase to clear the exit time and update entry time
                 await self.mergeVisitInSupabase(mergedVisit)
             } else {
@@ -382,6 +387,14 @@ class GeofenceManager: NSObject, ObservableObject {
                     return
                 }
 
+                // Store in recently closed visits for merge detection (before Supabase sync completes)
+                self.recentlyClosedVisits[placeId] = visit
+
+                // Clear after 5 minutes to avoid memory leak
+                DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
+                    self.recentlyClosedVisits.removeValue(forKey: placeId)
+                }
+
                 // Check if visit spans midnight and split if needed
                 let visitsToSave = visit.splitAtMidnightIfNeeded()
 
@@ -411,6 +424,25 @@ class GeofenceManager: NSObject, ObservableObject {
             return nil
         }
 
+        // CRITICAL FIX: Check in-memory closed visits first to avoid race condition
+        // A visit may have just exited but not yet synced to Supabase
+        if let recentVisit = self.recentlyClosedVisits[placeId] {
+            if let exitTime = recentVisit.exitTime {
+                let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
+                let durationMinutes = recentVisit.durationMinutes ?? 0
+
+                if durationMinutes < 5 {
+                    print("⏭️ MERGE CANDIDATE FILTERED: Visit too short (\(durationMinutes) min < 5 min minimum)")
+                    return nil
+                }
+
+                if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
+                    print("✅ Found recent closed visit in memory that ended \(minutesSinceExit) minutes ago - candidate for merging")
+                    return recentVisit
+                }
+            }
+        }
+
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
             let response = try await client
@@ -429,6 +461,13 @@ class GeofenceManager: NSObject, ObservableObject {
 
             if let visit = visits.first, let exitTime = visit.exitTime {
                 let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
+                let durationMinutes = visit.durationMinutes ?? 0
+
+                // Filter out short visits (< 5 minutes) - they're noise
+                if durationMinutes < 5 {
+                    print("⏭️ MERGE CANDIDATE FILTERED: Visit too short (\(durationMinutes) min < 5 min minimum)")
+                    return nil
+                }
 
                 // If visit was completed within the last 30 minutes, it's a candidate for merging
                 if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
@@ -489,6 +528,14 @@ class GeofenceManager: NSObject, ObservableObject {
                     if durationMinutes < 5 {
                         print("⏭️ VISIT FILTERED OUT: Duration too short (\(durationMinutes) min < 5 min minimum)")
                         return
+                    }
+
+                    // Store in recently closed visits for merge detection (for backgrounded app scenario)
+                    self.recentlyClosedVisits[placeId] = visit
+
+                    // Clear after 5 minutes to avoid memory leak
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
+                        self.recentlyClosedVisits.removeValue(forKey: placeId)
                     }
 
                     // Check if visit spans midnight and split if needed
