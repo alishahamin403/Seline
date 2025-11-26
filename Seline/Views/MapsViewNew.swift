@@ -331,7 +331,6 @@ struct MapsViewNew: View, Searchable {
         if !favourites.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Image(systemName: "star.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.yellow)
                     Text("Favorites").font(.system(size: 16, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
                     Spacer()
                 }
@@ -384,7 +383,6 @@ struct MapsViewNew: View, Searchable {
     private var savedLocationsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "mappin.circle.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
                 Text("Saved Locations").font(.system(size: 16, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
             }
@@ -643,9 +641,6 @@ struct MapsViewNew: View, Searchable {
         if locationPreferences != nil {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.orange)
                     Text("Quick Locations")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
