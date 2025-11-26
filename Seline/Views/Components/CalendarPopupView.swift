@@ -19,6 +19,14 @@ struct CalendarPopupView: View {
     @State private var isTransitioningToEdit = false
     @State private var isAnimating = false
 
+    private var sortedTasksByTime: [TaskItem] {
+        tasksForDate.sorted { task1, task2 in
+            let time1 = task1.scheduledTime ?? Date.distantFuture
+            let time2 = task2.scheduledTime ?? Date.distantFuture
+            return time1 < time2
+        }
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -152,10 +160,10 @@ struct CalendarPopupView: View {
                         .offset(y: isAnimating ? 0 : 20)
                         .opacity(isAnimating ? 1 : 0)
                     } else {
-                        // Horizontal scrolling event cards
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(Array(tasksForDate.enumerated()), id: \.element.id) { index, task in
+                        // Vertical scrolling event cards, sorted by time
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 8) {
+                                ForEach(Array(sortedTasksByTime.enumerated()), id: \.element.id) { index, task in
                                     EventCardCompact(
                                         task: task,
                                         selectedDate: selectedDate,
@@ -165,13 +173,12 @@ struct CalendarPopupView: View {
                                         }
                                     )
                                     .transition(.scale.combined(with: .opacity))
-                                    .offset(y: isAnimating ? 0 : 30)
+                                    .offset(y: isAnimating ? 0 : 20)
                                     .opacity(isAnimating ? 1 : 0)
                                 }
                             }
                             .padding(.horizontal, 16)
                         }
-                        .frame(height: 100)
                     }
                 }
                 .padding(.vertical, 12)

@@ -58,30 +58,36 @@ struct EventCardCompact: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 6) {
-                // Title
-                Text(task.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(textColor)
-                    .strikethrough(isCompleted, color: textColor.opacity(0.5))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+            HStack(alignment: .center, spacing: 10) {
+                // Title and time
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(textColor)
+                        .strikethrough(isCompleted, color: textColor.opacity(0.5))
+                        .lineLimit(1)
+                        .multilineTextAlignment(.leading)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(accentColor)
+
+                        Text(timeDisplay)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(textColor.opacity(0.7))
+                    }
+                }
 
                 Spacer()
 
-                // Time
-                HStack(spacing: 4) {
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(accentColor)
-
-                    Text(timeDisplay)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(textColor.opacity(0.7))
-                }
+                // Accent color indicator
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(accentColor)
+                    .frame(width: 3, height: 40)
             }
-            .frame(width: 140, height: 85, alignment: .topLeading)
-            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
