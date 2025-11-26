@@ -175,10 +175,15 @@ struct EventsCardWidget: View {
                         ForEach(Array(sortedEvents.enumerated()), id: \.element.id) { index, task in
                             eventRow(task)
 
+                            // Add divider between different event categories
                             if index < sortedEvents.count - 1 {
-                                Divider()
-                                    .frame(height: 0.5)
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                                let currentFilterType = filterType(from: task)
+                                let nextFilterType = filterType(from: sortedEvents[index + 1])
+                                if currentFilterType != nextFilterType {
+                                    Divider()
+                                        .frame(height: 0.5)
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                                }
                             }
                         }
                     }
