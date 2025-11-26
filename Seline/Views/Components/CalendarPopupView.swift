@@ -21,9 +21,29 @@ struct CalendarPopupView: View {
 
     private var sortedTasksByTime: [TaskItem] {
         tasksForDate.sorted { task1, task2 in
-            let time1 = task1.scheduledTime ?? Date.distantFuture
-            let time2 = task2.scheduledTime ?? Date.distantFuture
-            return time1 < time2
+            let hasTime1 = task1.scheduledTime != nil
+            let hasTime2 = task2.scheduledTime != nil
+
+            // Events with time come before all-day events
+            if hasTime1 != hasTime2 {
+                return hasTime1
+            }
+
+            // Both have time or both don't have time
+            if hasTime1, let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
+                // Extract just the time components (hour and minute) for comparison
+                let calendar = Calendar.current
+                let components1 = calendar.dateComponents([.hour, .minute], from: time1)
+                let components2 = calendar.dateComponents([.hour, .minute], from: time2)
+
+                let minutes1 = (components1.hour ?? 0) * 60 + (components1.minute ?? 0)
+                let minutes2 = (components2.hour ?? 0) * 60 + (components2.minute ?? 0)
+
+                return minutes1 < minutes2
+            }
+
+            // Both are all-day events, maintain order
+            return false
         }
     }
 
@@ -170,6 +190,10 @@ struct CalendarPopupView: View {
                                         onTap: {
                                             selectedTaskForEditing = task
                                             showingViewTaskSheet = true
+                                        },
+                                        onToggleCompletion: {
+                                            taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                                            updateTasksForDate(for: selectedDate)
                                         }
                                     )
                                     .transition(.scale.combined(with: .opacity))

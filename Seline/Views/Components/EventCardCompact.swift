@@ -6,6 +6,7 @@ struct EventCardCompact: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var tagManager = TagManager.shared
     let onTap: () -> Void
+    let onToggleCompletion: (() -> Void)?
 
     private var isCompleted: Bool {
         task.isCompletedOn(date: selectedDate)
@@ -57,48 +58,53 @@ struct EventCardCompact: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(alignment: .center, spacing: 10) {
-                // Title and time
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(textColor)
-                        .strikethrough(isCompleted, color: textColor.opacity(0.5))
-                        .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(accentColor)
-
-                        Text(timeDisplay)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(textColor.opacity(0.7))
-                    }
-                }
-
-                Spacer()
-
-                // Accent color indicator
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(accentColor)
-                    .frame(width: 3, height: 40)
+        HStack(alignment: .center, spacing: 10) {
+            // Completion checkbox
+            Button(action: {
+                onToggleCompletion?()
+            }) {
+                Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(accentColor)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(backgroundColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(accentColor.opacity(0.3), lineWidth: 1)
-            )
+            .buttonStyle(PlainButtonStyle())
+
+            // Title and time
+            VStack(alignment: .leading, spacing: 4) {
+                Text(task.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(textColor)
+                    .strikethrough(isCompleted, color: textColor.opacity(0.5))
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(accentColor)
+
+                    Text(timeDisplay)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(textColor.opacity(0.7))
+                }
+            }
+
+            Spacer()
         }
-        .buttonStyle(PlainButtonStyle())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(accentColor.opacity(0.3), lineWidth: 1)
+        )
+        .onTapGesture {
+            onTap()
+        }
     }
 }
 
@@ -111,7 +117,8 @@ struct EventCardCompact: View {
             endTime: Calendar.current.date(byAdding: .hour, value: 1, to: Date())
         ),
         selectedDate: Date(),
-        onTap: {}
+        onTap: {},
+        onToggleCompletion: {}
     )
     .background(Color.shadcnBackground(.light))
 }
