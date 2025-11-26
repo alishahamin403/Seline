@@ -12,8 +12,9 @@ struct ConversationMessage: Identifiable, Codable {
     let relatedData: [RelatedDataItem]?
     let timeStarted: Date?      // When LLM started thinking
     let timeFinished: Date?     // When LLM finished thinking
+    let followUpSuggestions: [FollowUpSuggestion]?  // Suggested follow-up questions/actions
 
-    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil) {
+    init(id: UUID = UUID(), isUser: Bool, text: String, timestamp: Date = Date(), intent: QueryIntent? = nil, relatedData: [RelatedDataItem]? = nil, timeStarted: Date? = nil, timeFinished: Date? = nil, followUpSuggestions: [FollowUpSuggestion]? = nil) {
         self.id = id
         self.isUser = isUser
         self.text = text
@@ -22,6 +23,7 @@ struct ConversationMessage: Identifiable, Codable {
         self.relatedData = relatedData
         self.timeStarted = timeStarted
         self.timeFinished = timeFinished
+        self.followUpSuggestions = followUpSuggestions
     }
 
     var formattedTime: String {
@@ -142,5 +144,29 @@ struct ConversationTopic {
     let context: String  // Brief context of what was discussed
     let messageCount: Int  // How many messages about this topic
     let lastMentionedIndex: Int  // Index of last mention in conversation
+}
+
+// MARK: - Follow-Up Suggestions
+
+struct FollowUpSuggestion: Identifiable, Codable, Hashable {
+    let id: UUID
+    let text: String  // "Show me the receipt" or "What about last week?"
+    let emoji: String  // 💡, 📊, 🔍, etc.
+    let category: SuggestionCategory  // For grouping/filtering
+
+    enum SuggestionCategory: String, Codable, Hashable {
+        case moreDetails = "more_details"      // "Show me the receipt details"
+        case relatedData = "related_data"      // "What about last week?"
+        case action = "action"                 // "Should we set a budget?"
+        case discovery = "discovery"           // "Want to dig deeper?"
+        case clarification = "clarification"   // "Email folders or note folders?"
+    }
+
+    init(text: String, emoji: String, category: SuggestionCategory, id: UUID = UUID()) {
+        self.id = id
+        self.text = text
+        self.emoji = emoji
+        self.category = category
+    }
 }
 

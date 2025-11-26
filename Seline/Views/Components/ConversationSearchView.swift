@@ -122,17 +122,7 @@ struct ConversationSearchView: View {
                     }
 
                     if searchService.isLoadingQuestionResponse {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                                .tint(colorScheme == .dark ? Color.white : Color.black)
-                            Text("Thinking...")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        TypingIndicatorView(colorScheme: colorScheme)
                     }
                 }
                 .padding(.vertical, 16)
@@ -298,6 +288,39 @@ struct ConversationMessageView: View {
                                         print("Receipt tapped: \(receipt.id)")
                                     }
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Show follow-up suggestions
+                if !message.isUser, let suggestions = message.followUpSuggestions, !suggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(suggestions, id: \.id) { suggestion in
+                                Button(action: {
+                                    // When tapped, send the suggestion as a new message
+                                    Task {
+                                        await sendMessage(suggestion.text)
+                                    }
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Text(suggestion.emoji)
+                                            .font(.system(size: 14))
+                                        Text(suggestion.text)
+                                            .font(.system(size: 12, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                                    .cornerRadius(6)
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
                     }
@@ -505,6 +528,49 @@ struct SimpleTextWithPhoneLinks: View {
                 .foregroundColor(Color.shadcnForeground(colorScheme))
                 .lineLimit(nil)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+// MARK: - Typing Indicator Component
+
+struct TypingIndicatorView: View {
+    let colorScheme: ColorScheme
+    @State private var animationIndex = 0
+
+    var thinkingMessages = ["Thinking...", "Analyzing your data...", "Getting insights..."]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.white : Color.black)
+                        .frame(width: 6, height: 6)
+                        .scaleEffect(index == animationIndex ? 1.2 : 0.8)
+                        .opacity(index == animationIndex ? 1.0 : 0.5)
+                }
+                Spacer()
+            }
+            .frame(width: 40, height: 10)
+
+            Text(thinkingMessages[animationIndex % thinkingMessages.count])
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.6).repeatForever()) {
+                animationIndex = 3
+            }
+
+            // Cycle through thinking messages
+            Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+                withAnimation {
+                    animationIndex = (animationIndex + 1) % thinkingMessages.count
+                }
+            }
         }
     }
 }
