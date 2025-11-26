@@ -191,6 +191,8 @@
 			);
 			name = Seline;
 			packageProductDependencies = (
+				C0A6538E2E5CF43E00B37962 /* GoogleSignIn */,
+				C0A653902E5CF43E00B37962 /* GoogleSignInSwift */,
 				C032D1B92E61491A003191E0 /* Auth */,
 				C032D1BB2E61491A003191E0 /* Functions */,
 				C032D1BD2E61491A003191E0 /* PostgREST */,
