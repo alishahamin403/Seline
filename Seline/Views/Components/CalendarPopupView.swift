@@ -17,6 +17,7 @@ struct CalendarPopupView: View {
     @State private var showingViewTaskSheet = false
     @State private var showingEditTaskSheet = false
     @State private var isTransitioningToEdit = false
+    @State private var isAnimating = false
 
     var body: some View {
         NavigationView {
@@ -126,61 +127,55 @@ struct CalendarPopupView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 2)
 
-                // Completed tasks section
-                VStack(alignment: .leading, spacing: 8) {
+                // Events section - Horizontal scrolling cards with animation
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Events")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .padding(.horizontal, 16)
+                        .offset(y: isAnimating ? 0 : 20)
+                        .opacity(isAnimating ? 1 : 0)
 
                     if tasksForDate.isEmpty {
                         // Empty state
                         VStack(spacing: 8) {
                             Image(systemName: "checkmark.circle")
-                                .font(.system(size: 32))
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                                .font(.system(size: 24))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
 
-                            Text("No tasks")
-                                .font(.shadcnTextSm)
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-
-                            Text("Tasks for this date will appear here")
+                            Text("No events")
                                 .font(.shadcnTextXs)
-                                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                                .multilineTextAlignment(.center)
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
+                        .padding(.vertical, 20)
+                        .offset(y: isAnimating ? 0 : 20)
+                        .opacity(isAnimating ? 1 : 0)
                     } else {
-                        // Tasks list
-                        ScrollView {
-                            LazyVStack(spacing: 4) {
-                                ForEach(tasksForDate) { task in
-                                    TaskRowCalendar(
+                        // Horizontal scrolling event cards
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(Array(tasksForDate.enumerated()), id: \.element.id) { index, task in
+                                    EventCardCompact(
                                         task: task,
                                         selectedDate: selectedDate,
-                                        onView: {
+                                        colorScheme: colorScheme,
+                                        onTap: {
                                             selectedTaskForEditing = task
                                             showingViewTaskSheet = true
-                                        },
-                                        onEdit: {
-                                            selectedTaskForEditing = task
-                                            showingEditTaskSheet = true
-                                        },
-                                        onDelete: {
-                                            taskManager.deleteTask(task)
-                                            updateTasksForDate(for: selectedDate)
-                                        },
-                                        onDeleteRecurringSeries: {
-                                            taskManager.deleteRecurringTask(task)
-                                            updateTasksForDate(for: selectedDate)
-                                        },
-                                        onCompletionToggled: {
-                                            updateTasksForDate(for: selectedDate)
                                         }
                                     )
+                                    .transition(.scale.combined(with: .opacity))
+                                    .offset(y: isAnimating ? 0 : 30)
+                                    .opacity(isAnimating ? 1 : 0)
                                 }
                             }
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, 16)
                         }
+                        .frame(height: 100)
                     }
                 }
+                .padding(.vertical, 12)
 
                 Spacer()
             }
@@ -193,6 +188,11 @@ struct CalendarPopupView: View {
             // Initialize local filter state with passed value (if any)
             localSelectedTagId = selectedTagId
             updateTasksForDate(for: selectedDate)
+
+            // Trigger slide-up animation
+            withAnimation(.easeOut(duration: 0.4)) {
+                isAnimating = true
+            }
         }
         .sheet(isPresented: $showingViewTaskSheet) {
             if let task = selectedTaskForEditing {
