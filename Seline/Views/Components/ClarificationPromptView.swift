@@ -10,60 +10,74 @@ struct ClarificationPromptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Question
-            Text(question)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-
-            // Options as buttons
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(options, id: \.id) { option in
-                    Button(action: {
-                        onSelect(option.action)
-                    }) {
-                        HStack(spacing: 10) {
-                            if let emoji = option.emoji {
-                                Text(emoji)
-                                    .font(.system(size: 14))
-                            }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(option.text)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                                if let subtitle = option.subtitle {
-                                    Text(subtitle)
-                                        .font(.system(size: 11, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                }
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
-                        .cornerRadius(8)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
+            questionView
+            optionsView
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.gray.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1), lineWidth: 0.5)
-        )
+        .background(backgroundView)
+        .overlay(borderView)
+    }
+
+    private var questionView: some View {
+        Text(question)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(colorScheme == .dark ? .white : .black)
+    }
+
+    private var optionsView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(options, id: \.id) { option in
+                optionButton(option)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func optionButton(_ option: ClarificationOption) -> some View {
+        Button(action: { onSelect(option.action) }) {
+            HStack(spacing: 10) {
+                if let emoji = option.emoji {
+                    Text(emoji).font(.system(size: 14))
+                }
+
+                optionText(option)
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+            .cornerRadius(8)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func optionText(_ option: ClarificationOption) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(option.text)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            if let subtitle = option.subtitle {
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            }
+        }
+    }
+
+    private var backgroundView: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.gray.opacity(0.05))
+    }
+
+    private var borderView: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1), lineWidth: 0.5)
     }
 }
 

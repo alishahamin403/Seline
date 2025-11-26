@@ -117,7 +117,12 @@ struct ConversationSearchView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(searchService.conversationHistory) { message in
-                        ConversationMessageView(message: message)
+                        ConversationMessageView(
+                            message: message,
+                            onSendMessage: { text in
+                                await searchService.addConversationMessage(text)
+                            }
+                        )
                             .id(message.id)
                     }
 
@@ -229,6 +234,7 @@ struct ConversationSearchView: View {
 
 struct ConversationMessageView: View {
     let message: ConversationMessage
+    let onSendMessage: (String) async -> Void
     @Environment(\.colorScheme) var colorScheme
 
     // Determine if message has complex formatting
@@ -244,115 +250,131 @@ struct ConversationMessageView: View {
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                if hasComplexFormatting && !message.isUser {
-                    // Use markdown renderer for AI responses with formatting
-                    MarkdownText(markdown: message.text, colorScheme: colorScheme)
-                } else if !message.isUser {
-                    // Simple text for unformatted AI responses with phone link support
-                    SimpleTextWithPhoneLinks(text: message.text, colorScheme: colorScheme)
-                } else {
-                    // User messages (no phone link processing needed)
-                    Text(message.text)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
-                        .textSelection(.enabled)
-                        .lineLimit(nil)
-                }
-
-                // Show related receipts for expense queries
-                if !message.isUser, let relatedData = message.relatedData {
-                    let receipts = relatedData.filter { $0.type == .receipt }
-                    if !receipts.isEmpty {
-                        // Deduplicate receipts by ID to avoid showing duplicates
-                        var seenIds = Set<UUID>()
-                        let uniqueReceipts = receipts.filter { receipt in
-                            let isNew = !seenIds.contains(receipt.id)
-                            seenIds.insert(receipt.id)
-                            return isNew
-                        }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Divider()
-                                .padding(.vertical, 4)
-
-                            ForEach(uniqueReceipts) { receipt in
-                                ReceiptCardView(
-                                    id: receipt.id,
-                                    merchant: receipt.merchant ?? receipt.title,
-                                    date: receipt.date,
-                                    amount: receipt.amount,
-                                    colorScheme: colorScheme,
-                                    onTap: {
-                                        // TODO: Handle receipt tap - navigate to receipt detail or note
-                                        print("Receipt tapped: \(receipt.id)")
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Show follow-up suggestions
-                if !message.isUser, let suggestions = message.followUpSuggestions, !suggestions.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Divider()
-                            .padding(.vertical, 4)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(suggestions, id: \.id) { suggestion in
-                                Button(action: {
-                                    // When tapped, send the suggestion as a new message
-                                    Task {
-                                        await sendMessage(suggestion.text)
-                                    }
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Text(suggestion.emoji)
-                                            .font(.system(size: 14))
-                                        Text(suggestion.text)
-                                            .font(.system(size: 12, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-                                    .cornerRadius(6)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-                    }
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        message.isUser
-                            ? (colorScheme == .dark ? Color.white : Color(white: 0.25))
-                            : .clear
-                    )
-            )
-            .overlay(
-                message.isUser ? AnyView(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(
-                            colorScheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.15),
-                            lineWidth: 0.5
-                        )
-                ) : AnyView(EmptyView())
-            )
+            messageContent
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(messageBackground)
+                .overlay(messageBorder)
 
             if !message.isUser {
                 Spacer()
             }
         }
         .padding(.leading, message.isUser ? 16 : 0)
-        .padding(.trailing, message.isUser ? 16 : 16)
+        .padding(.trailing, 16)
+    }
+
+    private var messageContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            messageText
+            relatedReceiptsView
+            followUpSuggestionsView
+        }
+    }
+
+    private var messageText: some View {
+        Group {
+            if hasComplexFormatting && !message.isUser {
+                MarkdownText(markdown: message.text, colorScheme: colorScheme)
+            } else if !message.isUser {
+                SimpleTextWithPhoneLinks(text: message.text, colorScheme: colorScheme)
+            } else {
+                Text(message.text)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
+                    .textSelection(.enabled)
+                    .lineLimit(nil)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var relatedReceiptsView: some View {
+        if !message.isUser, let relatedData = message.relatedData {
+            let receipts = relatedData.filter { $0.type == .receipt }
+            if !receipts.isEmpty {
+                var seenIds = Set<UUID>()
+                let uniqueReceipts = receipts.filter { receipt in
+                    let isNew = !seenIds.contains(receipt.id)
+                    seenIds.insert(receipt.id)
+                    return isNew
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Divider().padding(.vertical, 4)
+                    ForEach(uniqueReceipts) { receipt in
+                        ReceiptCardView(
+                            id: receipt.id,
+                            merchant: receipt.merchant ?? receipt.title,
+                            date: receipt.date,
+                            amount: receipt.amount,
+                            colorScheme: colorScheme,
+                            onTap: {
+                                print("Receipt tapped: \(receipt.id)")
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var followUpSuggestionsView: some View {
+        if !message.isUser, let suggestions = message.followUpSuggestions, !suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Divider().padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(suggestions, id: \.id) { suggestion in
+                        suggestionButton(suggestion)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func suggestionButton(_ suggestion: FollowUpSuggestion) -> some View {
+        Button(action: {
+            Task {
+                await onSendMessage(suggestion.text)
+            }
+        }) {
+            HStack(spacing: 8) {
+                Text(suggestion.emoji).font(.system(size: 14))
+                Text(suggestion.text)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+            .cornerRadius(6)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var messageBackground: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(
+                message.isUser
+                    ? (colorScheme == .dark ? Color.white : Color(white: 0.25))
+                    : .clear
+            )
+    }
+
+    private var messageBorder: some View {
+        Group {
+            if message.isUser {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        colorScheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.15),
+                        lineWidth: 0.5
+                    )
+            }
+        }
     }
 }
 
