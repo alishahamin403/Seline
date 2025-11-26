@@ -160,8 +160,6 @@ struct EventsCardWidget: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                Spacer()
-
                 Button(action: {
                     HapticManager.shared.selection()
                     showingAddEventPopup = true
@@ -172,7 +170,7 @@ struct EventsCardWidget: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 20)
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
@@ -193,7 +191,7 @@ struct EventsCardWidget: View {
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
         .cornerRadius(12)
