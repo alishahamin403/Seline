@@ -276,7 +276,7 @@ struct SpendingAndETAWidget: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(daysLeftInMonth) days")
+                Text("\(daysLeftInMonth) days Till")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 

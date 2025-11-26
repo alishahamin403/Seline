@@ -93,7 +93,7 @@ struct CurrentLocationCardWidget: View {
                             }) {
                                 Text("See All")
                                     .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(Color(red: 0.2039, green: 0.6588, blue: 0.3255))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                         }
                     }
