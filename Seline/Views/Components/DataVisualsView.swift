@@ -63,7 +63,7 @@ struct SparklineView: View {
     }
 
     var body: some View {
-        Canvas { context in
+        Canvas { context, _ in
             guard !dataPoints.isEmpty else { return }
 
             let width = CGFloat(dataPoints.count - 1)
@@ -145,8 +145,8 @@ struct StatBoxView: View {
     }
 }
 
-/// Category breakdown view (like expense breakdown)
-struct CategoryBreakdownView: View {
+/// Category breakdown bar chart (generic reusable component)
+struct CategoryBreakdownBarView: View {
     struct Category {
         let name: String
         let amount: Double
@@ -244,12 +244,12 @@ struct CategoryBreakdownView: View {
     .padding()
 }
 
-#Preview("Category Breakdown") {
-    CategoryBreakdownView(
+#Preview("Category Breakdown Bar Chart") {
+    CategoryBreakdownBarView(
         categories: [
-            .init(name: "Shopping", amount: 92, emoji: "🛒", color: .blue),
-            .init(name: "Dining", amount: 105, emoji: "☕", color: .orange),
-            .init(name: "Transport", amount: 90, emoji: "🚗", color: .green)
+            CategoryBreakdownBarView.Category(name: "Shopping", amount: 92, emoji: "🛒", color: .blue),
+            CategoryBreakdownBarView.Category(name: "Dining", amount: 105, emoji: "☕", color: .orange),
+            CategoryBreakdownBarView.Category(name: "Transport", amount: 90, emoji: "🚗", color: .green)
         ]
     )
     .padding()
