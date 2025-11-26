@@ -535,7 +535,6 @@ struct TagSelectionSheet: View {
         }
         .buttonStyle(PlainButtonStyle())
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     private var userTagsSection: some View {
@@ -578,13 +577,12 @@ struct TagSelectionSheet: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
     }
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
+            VStack(spacing: 8) {
                 createNewTagSection
 
                 personalTagSection
@@ -593,6 +591,7 @@ struct TagSelectionSheet: View {
 
                 Spacer()
             }
+            .padding(.vertical, 8)
             .background(colorScheme == .dark ? Color.black : Color.white)
             .navigationTitle("Select Tag")
             .navigationBarTitleDisplayMode(.inline)
