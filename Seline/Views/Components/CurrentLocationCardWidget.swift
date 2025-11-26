@@ -46,7 +46,7 @@ struct CurrentLocationCardWidget: View {
 
                     // Status section
                     if let nearby = nearbyLocation {
-                        Text("\(nearby) | \(elapsedTimeString)")
+                        Text("\(nearby) \(elapsedTimeString)")
                             .font(.system(size: 12))
                             .foregroundColor(.green)
                             .lineLimit(2)
