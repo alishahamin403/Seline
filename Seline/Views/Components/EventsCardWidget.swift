@@ -102,39 +102,34 @@ struct EventsCardWidget: View {
             let badge = filterDisplayName(for: task)
             let badgeColor = filterAccentColor(badgeFilterType, colorIndex)
 
-            VStack(alignment: .leading, spacing: 2) {
-                // Title row with checkmark and time
-                HStack(spacing: 4) {
-                    // Completion status icon - tappable
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                    }) {
-                        Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(circleColor)
-                    }
-                    .buttonStyle(PlainButtonStyle())
+            // Title row with checkmark and time
+            HStack(spacing: 4) {
+                // Completion status icon - tappable
+                Button(action: {
+                    HapticManager.shared.selection()
+                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                }) {
+                    Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(circleColor)
+                }
+                .buttonStyle(PlainButtonStyle())
 
-                    // Event title
-                    Text(task.title)
+                // Event title
+                Text(task.title)
+                    .font(.shadcnTextXs)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer()
+
+                // Event time
+                if let scheduledTime = task.scheduledTime {
+                    Text(formatTime(scheduledTime))
                         .font(.shadcnTextXs)
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                        .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                // Time row
-                HStack(spacing: 4) {
-                    Spacer()
-
-                    // Event time
-                    if let scheduledTime = task.scheduledTime {
-                        Text(formatTime(scheduledTime))
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    }
                 }
             }
         }
