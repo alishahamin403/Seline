@@ -1502,6 +1502,7 @@ struct MainAppView: View {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
                 .padding(.horizontal, 12)
+                .padding(.bottom, -6)
 
             // Current Location card
             CurrentLocationCardWidget(
