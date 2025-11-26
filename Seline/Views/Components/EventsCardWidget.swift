@@ -30,6 +30,11 @@ struct EventsCardWidget: View {
                 return hour < 12
             }
             return false
+        }.sorted { task1, task2 in
+            guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
+                return false
+            }
+            return time1 < time2
         }
     }
 
@@ -40,6 +45,11 @@ struct EventsCardWidget: View {
                 return hour >= 12
             }
             return false
+        }.sorted { task1, task2 in
+            guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
+                return false
+            }
+            return time1 < time2
         }
     }
 
