@@ -131,10 +131,7 @@ struct ConversationSearchView: View {
                         )
                             .id(message.id)
                             .transition(.asymmetric(
-                                insertion: .combined(
-                                    .opacity,
-                                    .move(edge: .bottom)
-                                ),
+                                insertion: .opacity.combined(with: .move(edge: .bottom)),
                                 removal: .opacity
                             ))
                     }
@@ -142,10 +139,7 @@ struct ConversationSearchView: View {
                     if searchService.isLoadingQuestionResponse {
                         TypingIndicatorView(colorScheme: colorScheme)
                             .transition(.asymmetric(
-                                insertion: .combined(
-                                    .opacity,
-                                    .move(edge: .bottom)
-                                ),
+                                insertion: .opacity.combined(with: .move(edge: .bottom)),
                                 removal: .opacity
                             ))
                     }
@@ -223,7 +217,7 @@ struct ConversationSearchView: View {
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
-                    .pointerEvents(.none)
+                    .allowsHitTesting(false)
             }
 
             TextEditor(text: $messageText)
@@ -320,7 +314,7 @@ struct ConversationMessageView: View {
                 .padding(.vertical, 10)
                 .background(messageBackground)
                 .overlay(messageBorder)
-                .scaleEffect(isLongPressed ? 0.98 : 1.0, anchor: message.isUser ? .trailingCenter : .leadingCenter)
+                .scaleEffect(isLongPressed ? 0.98 : 1.0, anchor: message.isUser ? .topTrailing : .topLeading)
                 .brightness(isLongPressed ? -0.05 : 0)
                 .animation(.easeInOut(duration: 0.15), value: isLongPressed)
                 .contentShape(Rectangle())
