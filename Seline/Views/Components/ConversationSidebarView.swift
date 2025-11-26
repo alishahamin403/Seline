@@ -6,6 +6,7 @@ struct ConversationSidebarView: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var isEditMode = false
     @State private var selectedConversationIds: Set<UUID> = []
+    @State private var hoveredConversationId: UUID?
 
     var isAnySelected: Bool {
         !selectedConversationIds.isEmpty
@@ -186,7 +187,7 @@ struct ConversationSidebarView: View {
                     selectedConversationIds.insert(conversation.id)
                 }
             } else {
-                HapticManager.shared.selection()
+                HapticManager.shared.impact(style: .light)
                 searchService.loadConversation(withId: conversation.id)
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isPresented = false
@@ -199,6 +200,7 @@ struct ConversationSidebarView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white : .gray)
                         .frame(width: 20)
+                        .animation(.easeInOut(duration: 0.2), value: selectedConversationIds)
                 }
 
                 Image(systemName: "bubble.left")
@@ -226,25 +228,51 @@ struct ConversationSidebarView: View {
                         .foregroundColor(selectedConversationIds.contains(conversation.id) ? .white.opacity(0.8) : (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)))
                 }
             }
-            .padding(.leading, 8)
+            .padding(.leading, 12)
             .padding(.trailing, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(
                         selectedConversationIds.contains(conversation.id) ?
                             Color(red: 0.29, green: 0.29, blue: 0.29) :
-                            Color.clear
+                            (hoveredConversationId == conversation.id ?
+                                (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)) :
+                                Color.clear)
                     )
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(
+                        selectedConversationIds.contains(conversation.id) ?
+                            Color.white.opacity(0.1) :
+                            (hoveredConversationId == conversation.id ?
+                                (colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)) :
+                                Color.clear),
+                        lineWidth: 0.5
+                    )
+            )
+            .shadow(
+                color: hoveredConversationId == conversation.id ?
+                    (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)) :
+                    Color.clear,
+                radius: hoveredConversationId == conversation.id ? 6 : 0,
+                x: 0,
+                y: hoveredConversationId == conversation.id ? 2 : 0
+            )
             .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .animation(.easeInOut(duration: 0.2), value: hoveredConversationId)
             .contentShape(Rectangle())
+            .onHover { isHovering in
+                hoveredConversationId = isHovering ? conversation.id : nil
+            }
         }
         .buttonStyle(PlainButtonStyle())
         .contextMenu {
             if !isEditMode {
                 Button(role: .destructive, action: {
-                    HapticManager.shared.selection()
+                    HapticManager.shared.delete()
                     searchService.deleteConversation(withId: conversation.id)
                 }) {
                     HStack {

@@ -8,6 +8,7 @@ struct ConversationSearchView: View {
     @FocusState private var isInputFocused: Bool
     @State private var scrollToBottom: UUID?
     @State private var showingSidebar = false
+    @State private var inputHeight: CGFloat = 44
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -71,45 +72,50 @@ struct ConversationSearchView: View {
     // MARK: - Subviews
 
     private var headerView: some View {
-        HStack(spacing: 12) {
-            // Sidebar toggle button on the left
-            Button(action: {
-                HapticManager.shared.selection()
-                isInputFocused = false
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showingSidebar.toggle()
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                // Sidebar toggle button on the left
+                Button(action: {
+                    HapticManager.shared.selection()
+                    isInputFocused = false
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingSidebar.toggle()
+                    }
+                }) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
-            }) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .zIndex(10)
+                .buttonStyle(PlainButtonStyle())
+                .zIndex(10)
 
-            // Only show title if this is NOT a new conversation
-            if !searchService.isNewConversation {
-                Text(searchService.conversationTitle)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    .lineLimit(1)
-            }
+                // Only show title if this is NOT a new conversation
+                if !searchService.isNewConversation {
+                    Text(searchService.conversationTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .lineLimit(1)
+                }
 
-            Spacer()
+                Spacer()
 
-            Button(action: {
-                HapticManager.shared.selection()
-                dismiss()
-            }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                Button(action: {
+                    HapticManager.shared.selection()
+                    dismiss()
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+
+            Divider()
+                .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
     }
 
     private var conversationScrollView: some View {
@@ -124,15 +130,29 @@ struct ConversationSearchView: View {
                             }
                         )
                             .id(message.id)
+                            .transition(.asymmetric(
+                                insertion: .combined(
+                                    .opacity,
+                                    .move(edge: .bottom)
+                                ),
+                                removal: .opacity
+                            ))
                     }
 
                     if searchService.isLoadingQuestionResponse {
                         TypingIndicatorView(colorScheme: colorScheme)
+                            .transition(.asymmetric(
+                                insertion: .combined(
+                                    .opacity,
+                                    .move(edge: .bottom)
+                                ),
+                                removal: .opacity
+                            ))
                     }
                 }
                 .padding(.vertical, 16)
                 .onChange(of: searchService.conversationHistory.count) { _ in
-                    withAnimation {
+                    withAnimation(.easeInOut(duration: 0.3)) {
                         if let lastMessage = searchService.conversationHistory.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
@@ -157,13 +177,24 @@ struct ConversationSearchView: View {
             inputBoxContainer
         }
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    // Swipe down to dismiss keyboard
+                    if value.translation.height > 20 && isInputFocused {
+                        isInputFocused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+        )
     }
 
     private var inputBoxContainer: some View {
         HStack(spacing: 10) {
-            inputTextField
+            inputTextEditor
             sendButton
         }
+        .frame(height: inputHeight)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(colorScheme == .dark ? Color.black : Color.white)
@@ -178,32 +209,63 @@ struct ConversationSearchView: View {
             y: isInputFocused ? 8 : 2
         )
         .animation(.easeInOut(duration: 0.2), value: isInputFocused)
+        .animation(.easeInOut(duration: 0.15), value: inputHeight)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
 
-    private var inputTextField: some View {
-        TextField(
-            "Ask a follow-up question...",
-            text: $messageText
-        )
-        .font(.system(size: 14, weight: .regular))
-        .focused($isInputFocused)
-        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-        .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-        .textFieldStyle(PlainTextFieldStyle())
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .multilineTextAlignment(.leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+    private var inputTextEditor: some View {
+        ZStack(alignment: .topLeading) {
+            // Placeholder
+            if messageText.isEmpty {
+                Text("Ask a follow-up question...")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .pointerEvents(.none)
+            }
+
+            TextEditor(text: $messageText)
+                .font(.system(size: 14, weight: .regular))
+                .focused($isInputFocused)
+                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                .textFieldStyle(PlainTextFieldStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .scrollContentBackground(.hidden)
+                .onChange(of: messageText) { _ in
+                    updateInputHeight()
+                }
+                .onAppear {
+                    updateInputHeight()
+                }
+        }
+    }
+
+    private func updateInputHeight() {
+        let size = CGSize(width: UIScreen.main.bounds.width - 80, height: .infinity)
+        let estimatedHeight = messageText.boundingRect(
+            with: size,
+            options: .usesLineFragmentOrigin,
+            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .regular)],
+            context: nil
+        ).height + 20
+
+        let maxHeight: CGFloat = 120
+        let minHeight: CGFloat = 44
+        inputHeight = min(max(estimatedHeight, minHeight), maxHeight)
     }
 
     private var sendButton: some View {
         Button(action: {
             if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                HapticManager.shared.selection()
+                HapticManager.shared.impact(style: .medium)
                 let query = messageText
                 messageText = ""
+                updateInputHeight()
                 Task {
                     await searchService.addConversationMessage(query)
                 }
@@ -236,6 +298,8 @@ struct ConversationMessageView: View {
     let message: ConversationMessage
     let onSendMessage: (String) async -> Void
     @Environment(\.colorScheme) var colorScheme
+    @State private var isLongPressed = false
+    @State private var showContextMenu = false
 
     // Determine if message has complex formatting
     private var hasComplexFormatting: Bool {
@@ -256,6 +320,32 @@ struct ConversationMessageView: View {
                 .padding(.vertical, 10)
                 .background(messageBackground)
                 .overlay(messageBorder)
+                .scaleEffect(isLongPressed ? 0.98 : 1.0, anchor: message.isUser ? .trailingCenter : .leadingCenter)
+                .brightness(isLongPressed ? -0.05 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isLongPressed)
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 0.4, perform: {
+                    HapticManager.shared.impact(style: .medium)
+                    showContextMenu = true
+                }, onPressingChanged: { isPressing in
+                    isLongPressed = isPressing
+                })
+                .contextMenu {
+                    Button(action: {
+                        UIPasteboard.general.string = message.text
+                        HapticManager.shared.selection()
+                    }) {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+
+                    if message.isUser {
+                        Button(role: .destructive, action: {
+                            HapticManager.shared.delete()
+                        }) {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
 
             if !message.isUser {
                 Spacer()
@@ -337,6 +427,7 @@ struct ConversationMessageView: View {
     @ViewBuilder
     private func suggestionButton(_ suggestion: FollowUpSuggestion) -> some View {
         Button(action: {
+            HapticManager.shared.selection()
             Task {
                 await onSendMessage(suggestion.text)
             }
@@ -351,7 +442,14 @@ struct ConversationMessageView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
-            .cornerRadius(6)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08),
+                        lineWidth: 0.5
+                    )
+            )
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -363,6 +461,12 @@ struct ConversationMessageView: View {
                     ? (colorScheme == .dark ? Color.white : Color(white: 0.25))
                     : .clear
             )
+            .shadow(
+                color: message.isUser ? (colorScheme == .dark ? Color.black.opacity(0.1) : Color.black.opacity(0.05)) : Color.clear,
+                radius: message.isUser ? 4 : 0,
+                x: 0,
+                y: message.isUser ? 2 : 0
+            )
     }
 
     private var messageBorder: some View {
@@ -370,7 +474,7 @@ struct ConversationMessageView: View {
             if message.isUser {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        colorScheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.15),
+                        colorScheme == .dark ? Color.black.opacity(0.15) : Color.white.opacity(0.2),
                         lineWidth: 0.5
                     )
             }
@@ -458,9 +562,12 @@ struct ReceiptCardView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            HapticManager.shared.selection()
             onTap()
         }
-        .onLongPressGesture(minimumDuration: 0.01, perform: {})
+        .onLongPressGesture(minimumDuration: 0.01, perform: {
+            HapticManager.shared.impact(style: .light)
+        })
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }
@@ -559,40 +666,55 @@ struct SimpleTextWithPhoneLinks: View {
 struct TypingIndicatorView: View {
     let colorScheme: ColorScheme
     @State private var animationIndex = 0
+    @State private var messageIndex = 0
 
     var thinkingMessages = ["Thinking...", "Analyzing your data...", "Getting insights..."]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
                         .fill(colorScheme == .dark ? Color.white : Color.black)
                         .frame(width: 6, height: 6)
-                        .scaleEffect(index == animationIndex ? 1.2 : 0.8)
-                        .opacity(index == animationIndex ? 1.0 : 0.5)
+                        .offset(y: getWaveOffset(for: index))
+                        .opacity(0.8 + 0.2 * Double(index == animationIndex ? 1 : 0))
                 }
                 Spacer()
             }
-            .frame(width: 40, height: 10)
+            .frame(width: 40, height: 12)
 
-            Text(thinkingMessages[animationIndex % thinkingMessages.count])
+            Text(thinkingMessages[messageIndex % thinkingMessages.count])
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.6).repeatForever()) {
-                animationIndex = 3
+            // Wave animation for dots
+            Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    animationIndex = (animationIndex + 1) % 3
+                }
             }
 
             // Cycle through thinking messages
             Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
                 withAnimation {
-                    animationIndex = (animationIndex + 1) % thinkingMessages.count
+                    messageIndex = (messageIndex + 1) % thinkingMessages.count
                 }
             }
+        }
+    }
+
+    private func getWaveOffset(for index: Int) -> CGFloat {
+        let distance = abs(index - animationIndex)
+        if distance == 0 {
+            return -4
+        } else if distance == 1 {
+            return -2
+        } else {
+            return 0
         }
     }
 }
