@@ -172,8 +172,14 @@ struct EventsCardWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ForEach(sortedEvents) { task in
+                        ForEach(Array(sortedEvents.enumerated()), id: \.element.id) { index, task in
                             eventRow(task)
+
+                            if index < sortedEvents.count - 1 {
+                                Divider()
+                                    .frame(height: 0.5)
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                            }
                         }
                     }
                 }
