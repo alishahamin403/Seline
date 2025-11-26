@@ -95,26 +95,28 @@ struct EventsCardWidget: View {
             HapticManager.shared.cardTap()
             selectedTask = task
         }) {
-            HStack(spacing: 4) {
-                // Completion status icon - tappable
-                Button(action: {
-                    HapticManager.shared.selection()
-                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                }) {
-                    let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                    let badgeFilterType = filterType(from: task)
-                    let colorIndex = getTagColorIndex(for: task)
-                    let circleColor = filterAccentColor(badgeFilterType, colorIndex)
+            let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+            let badgeFilterType = filterType(from: task)
+            let colorIndex = getTagColorIndex(for: task)
+            let circleColor = filterAccentColor(badgeFilterType, colorIndex)
+            let badge = filterDisplayName(for: task)
+            let badgeColor = filterAccentColor(badgeFilterType, colorIndex)
 
-                    Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 12))
-                        .foregroundColor(circleColor)
-                }
-                .buttonStyle(PlainButtonStyle())
+            VStack(alignment: .leading, spacing: 2) {
+                // Title row with checkmark and time
+                HStack(spacing: 4) {
+                    // Completion status icon - tappable
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                    }) {
+                        Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(circleColor)
+                    }
+                    .buttonStyle(PlainButtonStyle())
 
-                // Event title
-                let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-                VStack(alignment: .leading, spacing: 1) {
+                    // Event title
                     Text(task.title)
                         .font(.shadcnTextXs)
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
@@ -122,36 +124,31 @@ struct EventsCardWidget: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    // Filter badge
-                    let badge = filterDisplayName(for: task)
-                    let badgeFilterType = filterType(from: task)
-                    let colorIndex = getTagColorIndex(for: task)
-                    let badgeColor = filterAccentColor(badgeFilterType, colorIndex)
+                    Spacer(minLength: 4)
 
-                    HStack(spacing: 2) {
-                        Image(systemName: "tag.fill")
-                            .font(.system(size: 6, weight: .medium))
-                        Text(badge)
-                            .font(.system(size: 7, weight: .semibold))
+                    // Event time
+                    if let scheduledTime = task.scheduledTime {
+                        Text(formatTime(scheduledTime))
+                            .font(.shadcnTextXs)
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     }
-                    .foregroundColor(badgeColor)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(badgeColor.opacity(0.15))
-                    )
-                    .lineLimit(1)
                 }
 
-                Spacer(minLength: 4)
-
-                // Event time
-                if let scheduledTime = task.scheduledTime {
-                    Text(formatTime(scheduledTime))
-                        .font(.shadcnTextXs)
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                // Filter badge
+                HStack(spacing: 2) {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 6, weight: .medium))
+                    Text(badge)
+                        .font(.system(size: 7, weight: .semibold))
                 }
+                .foregroundColor(badgeColor)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(badgeColor.opacity(0.15))
+                )
+                .lineLimit(1)
             }
         }
         .buttonStyle(PlainButtonStyle())
