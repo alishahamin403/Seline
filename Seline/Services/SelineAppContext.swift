@@ -27,6 +27,16 @@ class SelineAppContext {
     private(set) var currentDate: Date = Date()
     private(set) var weatherData: WeatherData?
 
+    // MARK: - Cache Control
+
+    private var lastRefreshTime: Date = Date.distantPast
+    private let cacheValidityDuration: TimeInterval = 300 // 5 minutes
+    private var folderNameCache: [UUID: String] = [:] // Cache for folder name lookups
+
+    private var isCacheValid: Bool {
+        Date().timeIntervalSince(lastRefreshTime) < cacheValidityDuration
+    }
+
     init(
         taskManager: TaskManager = TaskManager.shared,
         tagManager: TagManager = TagManager.shared,
@@ -50,12 +60,26 @@ class SelineAppContext {
         // to fetch custom email folders and saved emails
     }
 
+    // MARK: - Cache Utilities
+
+    /// Get folder name with caching to avoid repeated lookups
+    private func getCachedFolderName(for folderId: UUID) -> String {
+        if let cached = folderNameCache[folderId] {
+            return cached
+        }
+        let name = getCachedFolderName(for: folderId)
+        folderNameCache[folderId] = name
+        return name
+    }
+
     // MARK: - Data Collection
 
     /// Refresh all app data (call this at start of each conversation)
     func refresh() async {
         print("🔄 SelineAppContext.refresh() called")
         self.currentDate = Date()
+        // Clear folder name cache on refresh
+        self.folderNameCache.removeAll()
 
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
@@ -175,6 +199,9 @@ class SelineAppContext {
         print("   Notes: \(notes.count)")
         print("   Emails: \(emails.count)")
         print("   Locations: \(locations.count)")
+
+        // Update cache timestamp
+        self.lastRefreshTime = Date()
     }
 
     // MARK: - Context Building for LLM
@@ -479,13 +506,21 @@ class SelineAppContext {
         let userAskedAboutExpenses = isExpenseQuery(userQuery)
         let userAskedAboutBankStatement = isBankStatementQuery(userQuery)
 
-        // Refresh all data
-        await refresh()
+        // Only refresh if cache is invalid (OPTIMIZATION: Skip refresh if data is fresh)
+        if !isCacheValid {
+            await refresh()
+        } else {
+            print("✅ Using cached data (valid for \(Int(cacheValidityDuration - Date().timeIntervalSince(lastRefreshTime))) more seconds)")
+        }
 
-        // CRITICAL: Fetch geofence visit stats for all locations before building context
+        // CRITICAL: Fetch geofence visit stats for all locations before building context (PARALLEL)
         print("📊 Fetching geofence visit stats for context building...")
-        for place in locations {
-            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        await withTaskGroup(of: Void.self) { group in
+            for place in locations {
+                group.addTask {
+                    await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                }
+            }
         }
         print("✅ Visit stats loaded for \(LocationVisitAnalytics.shared.visitStats.count) locations")
 
@@ -567,7 +602,7 @@ class SelineAppContext {
 
         context += "\n**NOTE FOLDERS:**\n"
         let noteFolderMap = Dictionary(grouping: notes) { note in
-            notesManager.getFolderName(for: note.folderId)
+            getCachedFolderName(for: note.folderId)
         }
         for folder in noteFolderMap.keys.sorted() {
             if let folderNotes = noteFolderMap[folder] {
@@ -1178,7 +1213,7 @@ class SelineAppContext {
             if !filteredNotes.isEmpty {
                 // Group filtered notes by folder
                 let notesByFolder = Dictionary(grouping: filteredNotes) { note in
-                    notesManager.getFolderName(for: note.folderId)
+                    getCachedFolderName(for: note.folderId)
                 }
 
                 let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
@@ -1219,7 +1254,7 @@ class SelineAppContext {
                 }
 
                 // Show how many notes were filtered out
-                let totalNotes = notes.filter { !notesManager.getFolderName(for: $0.folderId).lowercased().contains("receipt") }.count
+                let totalNotes = notes.filter { !getCachedFolderName(for: $0.folderId).lowercased().contains("receipt") }.count
                 if filteredNotes.count < totalNotes {
                     context += "\n(Showing \(filteredNotes.count) most relevant notes out of \(totalNotes) total)\n"
                 }
@@ -1360,13 +1395,21 @@ class SelineAppContext {
     }
 
     private func buildContextPromptInternal() async -> String {
-        // Refresh all data including custom email folders
-        await refresh()
+        // Only refresh if cache is invalid (OPTIMIZATION: Skip refresh if data is fresh)
+        if !isCacheValid {
+            await refresh()
+        } else {
+            print("✅ Using cached data (valid for \(Int(cacheValidityDuration - Date().timeIntervalSince(lastRefreshTime))) more seconds)")
+        }
 
-        // CRITICAL: Fetch geofence visit stats for all locations before building context
+        // CRITICAL: Fetch geofence visit stats for all locations before building context (PARALLEL)
         print("📊 Fetching geofence visit stats for context building...")
-        for place in locations {
-            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        await withTaskGroup(of: Void.self) { group in
+            for place in locations {
+                group.addTask {
+                    await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                }
+            }
         }
         print("✅ Visit stats loaded for \(LocationVisitAnalytics.shared.visitStats.count) locations")
 
@@ -1947,7 +1990,7 @@ class SelineAppContext {
         if !notes.isEmpty {
             // Group notes by folder
             let notesByFolder = Dictionary(grouping: notes) { note in
-                notesManager.getFolderName(for: note.folderId)
+                getCachedFolderName(for: note.folderId)
             }
 
             // Sort folders with "Receipts" last (since it's for receipts, not general notes)
