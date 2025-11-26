@@ -67,9 +67,29 @@ class SelineAppContext {
         if let cached = folderNameCache[folderId] {
             return cached
         }
-        let name = getCachedFolderName(for: folderId)
+        let name = notesManager.getFolderName(for: folderId)
         folderNameCache[folderId] = name
         return name
+    }
+
+    /// Get a compact summary of events by count per time period
+    private func getEventSummary() -> String {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: currentDate)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: today)!
+
+        let todayEvents = events.filter { event in
+            guard let date = event.targetDate ?? event.scheduledTime else { return false }
+            return date >= today && date < tomorrow
+        }.count
+
+        let thisWeekEvents = events.filter { event in
+            guard let date = event.targetDate ?? event.scheduledTime else { return false }
+            return date >= today && date < weekEnd
+        }.count
+
+        return "Today: \(todayEvents) | This Week: \(thisWeekEvents) | Total: \(events.count)"
     }
 
     // MARK: - Data Collection
@@ -723,10 +743,11 @@ class SelineAppContext {
                 }
             }
 
-            // UPCOMING (future beyond this week)
+            // UPCOMING (future beyond this week) - LIMITED to first 10 for context size
             if !upcoming.isEmpty {
-                context += "\n**UPCOMING** (\(upcoming.count) events):\n"
-                for event in upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                let upcomingToShow = Array(upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }).prefix(10))
+                context += "\n**UPCOMING** (\(upcomingToShow.count) of \(upcoming.count) events):\n"
+                for event in upcomingToShow {
                     let categoryName = getCategoryName(for: event.tagId)
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
@@ -734,6 +755,9 @@ class SelineAppContext {
                     let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
+                }
+                if upcoming.count > 10 {
+                    context += "  ... and \(upcoming.count - 10) more upcoming events\n"
                 }
             }
 
@@ -1559,10 +1583,11 @@ class SelineAppContext {
                 }
             }
 
-            // UPCOMING (future beyond this week)
+            // UPCOMING (future beyond this week) - LIMITED to first 10 for context size
             if !upcoming.isEmpty {
-                context += "\n**UPCOMING** (\(upcoming.count) events):\n"
-                for event in upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }) {
+                let upcomingToShow = Array(upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }).prefix(10))
+                context += "\n**UPCOMING** (\(upcomingToShow.count) of \(upcoming.count) events):\n"
+                for event in upcomingToShow {
                     let categoryName = getCategoryName(for: event.tagId)
                     let isAllDay = event.scheduledTime == nil && event.endTime == nil
                     let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
@@ -1570,6 +1595,9 @@ class SelineAppContext {
                     let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
 
                     context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
+                }
+                if upcoming.count > 10 {
+                    context += "  ... and \(upcoming.count - 10) more upcoming events\n"
                 }
             }
 
