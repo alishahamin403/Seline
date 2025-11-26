@@ -123,18 +123,9 @@ struct EventsCardWidget: View {
                         .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         .lineLimit(1)
                         .truncationMode(.tail)
-
-                    Spacer(minLength: 4)
-
-                    // Event time
-                    if let scheduledTime = task.scheduledTime {
-                        Text(formatTime(scheduledTime))
-                            .font(.shadcnTextXs)
-                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                    }
                 }
 
-                // Filter badge
+                // Filter badge with time
                 HStack(spacing: 2) {
                     Image(systemName: "tag.fill")
                         .font(.system(size: 6, weight: .medium))
@@ -149,6 +140,13 @@ struct EventsCardWidget: View {
                         .fill(badgeColor.opacity(0.15))
                 )
                 .lineLimit(1)
+
+                // Event time
+                if let scheduledTime = task.scheduledTime {
+                    Text(formatTime(scheduledTime))
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
             }
         }
         .buttonStyle(PlainButtonStyle())
