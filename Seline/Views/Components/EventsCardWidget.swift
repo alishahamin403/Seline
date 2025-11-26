@@ -125,27 +125,31 @@ struct EventsCardWidget: View {
                         .truncationMode(.tail)
                 }
 
-                // Filter badge with time
-                HStack(spacing: 2) {
-                    Image(systemName: "tag.fill")
-                        .font(.system(size: 6, weight: .medium))
-                    Text(badge)
-                        .font(.system(size: 7, weight: .semibold))
-                }
-                .foregroundColor(badgeColor)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(badgeColor.opacity(0.15))
-                )
-                .lineLimit(1)
+                // Filter badge and time row
+                HStack(spacing: 4) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "tag.fill")
+                            .font(.system(size: 6, weight: .medium))
+                        Text(badge)
+                            .font(.system(size: 7, weight: .semibold))
+                    }
+                    .foregroundColor(badgeColor)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(badgeColor.opacity(0.15))
+                    )
+                    .lineLimit(1)
 
-                // Event time
-                if let scheduledTime = task.scheduledTime {
-                    Text(formatTime(scheduledTime))
-                        .font(.system(size: 7, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    Spacer()
+
+                    // Event time
+                    if let scheduledTime = task.scheduledTime {
+                        Text(formatTime(scheduledTime))
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    }
                 }
             }
         }
@@ -170,7 +174,7 @@ struct EventsCardWidget: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 12)
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
@@ -186,12 +190,13 @@ struct EventsCardWidget: View {
                         }
                     }
                 }
+                .padding(.horizontal, 12)
             }
             .frame(maxHeight: .infinity)
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
         .cornerRadius(12)
