@@ -63,7 +63,8 @@ class SelineAppContext {
     // MARK: - Cache Utilities
 
     /// Get folder name with caching to avoid repeated lookups
-    private func getCachedFolderName(for folderId: UUID) -> String {
+    private func getCachedFolderName(for folderId: UUID?) -> String {
+        guard let folderId = folderId else { return "Uncategorized" }
         if let cached = folderNameCache[folderId] {
             return cached
         }
@@ -1261,12 +1262,12 @@ class SelineAppContext {
                         context += "  • **\(note.title)** (Updated: \(lastModified))\n"
 
                         // Include FULL note content - important for detailed notes like transaction lists
-                        let noteContent = note.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let noteContent = note.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                         if !noteContent.isEmpty {
                             // Split into lines and add with proper indentation
                             let contentLines = noteContent.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
                             for line in contentLines {
-                                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                                let trimmedLine = line.trimmingCharacters(in: CharacterSet.whitespaces)
                                 if !trimmedLine.isEmpty {
                                     context += "    \(trimmedLine)\n"
                                 }
@@ -2050,7 +2051,7 @@ class SelineAppContext {
                     let lineLimit = 1000  // Show up to 1000 lines per note (covers long statements and detailed notes)
 
                     for line in contentLines.prefix(lineLimit) {
-                        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                        let trimmedLine = line.trimmingCharacters(in: CharacterSet.whitespaces)
                         if !trimmedLine.isEmpty {
                             context += "    \(trimmedLine)\n"
                         }
