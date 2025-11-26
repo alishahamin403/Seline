@@ -497,7 +497,6 @@ struct TagSelectionSheet: View {
             .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     private var personalTagSection: some View {
