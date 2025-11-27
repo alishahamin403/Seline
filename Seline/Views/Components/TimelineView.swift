@@ -710,25 +710,25 @@ struct TimelineView: View {
     private func plusIndicator(at time: Date) -> some View {
         VStack(spacing: 0) {
             Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
-                .frame(width: 40, height: 40)
+                .frame(width: 32, height: 32)
                 .background(
                     Circle()
                         .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    accentColor,
-                                    accentColor.opacity(0.8)
+                                    colorScheme == .dark ? accentColor : accentColor.opacity(0.8),
+                                    colorScheme == .dark ? accentColor.opacity(0.8) : accentColor.opacity(0.6)
                                 ]),
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .shadow(color: accentColor.opacity(0.4), radius: 8, x: 0, y: 4)
+                        .shadow(color: accentColor.opacity(0.3), radius: 6, x: 0, y: 2)
                 )
         }
-        .offset(y: yPosition(for: time) - 20)
+        .offset(y: yPosition(for: time) - 16)
     }
 }
 
