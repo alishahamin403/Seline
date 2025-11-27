@@ -295,47 +295,52 @@ struct TimelineView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: true) {
-                    ZStack(alignment: .topLeading) {
-                        // Timeline background with hour markers
-                        timelineBackground
+        ZStack {
+            GeometryReader { geometry in
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        ZStack(alignment: .topLeading) {
+                            // Timeline background with hour markers
+                            timelineBackground
 
-                        // Clickable overlay for time slots
-                        timeSlotClickableLayer
-                            .padding(.leading, 60) // Leave space for time labels
+                            // Clickable overlay for time slots
+                            timeSlotClickableLayer
+                                .padding(.leading, 60) // Leave space for time labels
 
-                        // Events layer
-                        eventsLayer
-                            .padding(.leading, 60) // Leave space for time labels
+                            // Events layer
+                            eventsLayer
+                                .padding(.leading, 60) // Leave space for time labels
 
-                        // Show + indicator or inline event creator
-                        if isCreatingEvent, let eventTime = newEventTime {
-                            inlineEventCreator(at: eventTime)
-                                .padding(.leading, 60)
-                        } else if let selectedSlot = selectedTimeSlot {
-                            plusIndicator(at: selectedSlot)
-                                .padding(.leading, 60)
+                            // Show + indicator only (not inline creator)
+                            if !isCreatingEvent, let selectedSlot = selectedTimeSlot {
+                                plusIndicator(at: selectedSlot)
+                                    .padding(.leading, 60)
+                            }
+
+                            // Current time indicator
+                            if let currentMinutes = currentTimeMinutes {
+                                currentTimeIndicator(minutes: currentMinutes)
+                            }
                         }
-
-                        // Current time indicator
-                        if let currentMinutes = currentTimeMinutes {
-                            currentTimeIndicator(minutes: currentMinutes)
-                        }
+                        .frame(height: totalHeight)
+                        .id("timeline")
                     }
-                    .frame(height: totalHeight)
-                    .id("timeline")
-                }
-                .onAppear {
-                    if isToday, let currentMinutes = currentTimeMinutes {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            withAnimation {
-                                proxy.scrollTo("timeline")
+                    .onAppear {
+                        if isToday, let currentMinutes = currentTimeMinutes {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation {
+                                    proxy.scrollTo("timeline")
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            // Full-screen event creator modal
+            if isCreatingEvent, let eventTime = newEventTime {
+                inlineEventCreator(at: eventTime)
+                    .transition(.move(edge: .bottom))
             }
         }
     }
@@ -538,64 +543,192 @@ struct TimelineView: View {
 
     private func inlineEventCreator(at time: Date) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                TextField("Event name", text: $newEventTitle)
-                    .font(.system(size: 14, weight: .medium))
-                    .focused($isTextFieldFocused)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    )
-
-                Button(action: {
-                    if !newEventTitle.isEmpty {
-                        onAddEvent?(
-                            newEventTitle,
-                            nil,
-                            date,
-                            time,
-                            nil,
-                            .none,
-                            false,
-                            nil,
-                            selectedTagId
-                        )
-                        cancelEventCreation()
-                    }
-                }) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.green)
-                }
-
-                Button(action: {
+            // Dimmed background
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
                     cancelEventCreation()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.red)
                 }
+
+            Spacer()
+
+            // Modal Sheet
+            VStack(spacing: 16) {
+                // Header
+                VStack(spacing: 8) {
+                    // Drag indicator
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                        .frame(width: 40, height: 5)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("New Event")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                            Text(formatTime(time))
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        }
+
+                        Spacer()
+
+                        Button(action: { cancelEventCreation() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                }
+
+                Divider()
+                    .padding(.horizontal, 0)
+
+                // Input field
+                HStack(spacing: 12) {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(accentColor)
+
+                    TextField("Event name", text: $newEventTitle)
+                        .font(.system(size: 16, weight: .medium))
+                        .focused($isTextFieldFocused)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                .padding(.horizontal, 20)
+
+                // Time display
+                HStack(spacing: 12) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(accentColor)
+
+                    Text(formatTime(time))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                .padding(.horizontal, 20)
+
+                Spacer()
+                    .frame(height: 12)
+
+                // Action buttons
+                HStack(spacing: 12) {
+                    Button(action: { cancelEventCreation() }) {
+                        Text("Cancel")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                            )
+                    }
+
+                    Button(action: {
+                        if !newEventTitle.isEmpty {
+                            onAddEvent?(
+                                newEventTitle,
+                                nil,
+                                date,
+                                time,
+                                nil,
+                                .none,
+                                false,
+                                nil,
+                                selectedTagId
+                            )
+                            cancelEventCreation()
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .semibold))
+
+                            Text("Create")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            newEventTitle.isEmpty ? Color.gray : accentColor,
+                                            newEventTitle.isEmpty ? Color.gray.opacity(0.7) : accentColor.opacity(0.8)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                    }
+                    .disabled(newEventTitle.isEmpty)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-            .padding(8)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.black : Color.white)
-                    .shadow(radius: 4)
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(colorScheme == .dark ? Color(red: 0.11, green: 0.11, blue: 0.12) : Color.white)
             )
-            .padding(.horizontal, 16)
-            .offset(y: -20)
+            .ignoresSafeArea(edges: .bottom)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     private func plusIndicator(at time: Date) -> some View {
         VStack(spacing: 0) {
-            Text("+")
-                .font(.system(size: 24, weight: .light))
-                .foregroundColor(accentColor)
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 40, height: 40)
+                .background(
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    accentColor,
+                                    accentColor.opacity(0.8)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .shadow(color: accentColor.opacity(0.4), radius: 8, x: 0, y: 4)
+                )
         }
-        .offset(y: yPosition(for: time) - 12)
+        .offset(y: yPosition(for: time) - 20)
     }
 }
 
