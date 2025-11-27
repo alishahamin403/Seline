@@ -296,40 +296,42 @@ struct TimelineView: View {
 
     var body: some View {
         ZStack {
-            GeometryReader { geometry in
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: true) {
-                        ZStack(alignment: .topLeading) {
-                            // Timeline background with hour markers
-                            timelineBackground
+            if !isCreatingEvent {
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: true) {
+                            ZStack(alignment: .topLeading) {
+                                // Timeline background with hour markers
+                                timelineBackground
 
-                            // Clickable overlay for time slots
-                            timeSlotClickableLayer
-                                .padding(.leading, 60) // Leave space for time labels
+                                // Clickable overlay for time slots
+                                timeSlotClickableLayer
+                                    .padding(.leading, 60) // Leave space for time labels
 
-                            // Events layer
-                            eventsLayer
-                                .padding(.leading, 60) // Leave space for time labels
+                                // Events layer
+                                eventsLayer
+                                    .padding(.leading, 60) // Leave space for time labels
 
-                            // Show + indicator only (not inline creator)
-                            if !isCreatingEvent, let selectedSlot = selectedTimeSlot {
-                                plusIndicator(at: selectedSlot)
-                                    .padding(.leading, 60)
+                                // Show + indicator only (not inline creator)
+                                if let selectedSlot = selectedTimeSlot {
+                                    plusIndicator(at: selectedSlot)
+                                        .padding(.leading, 60)
+                                }
+
+                                // Current time indicator
+                                if let currentMinutes = currentTimeMinutes {
+                                    currentTimeIndicator(minutes: currentMinutes)
+                                }
                             }
-
-                            // Current time indicator
-                            if let currentMinutes = currentTimeMinutes {
-                                currentTimeIndicator(minutes: currentMinutes)
-                            }
+                            .frame(height: totalHeight)
+                            .id("timeline")
                         }
-                        .frame(height: totalHeight)
-                        .id("timeline")
-                    }
-                    .onAppear {
-                        if isToday, let currentMinutes = currentTimeMinutes {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                withAnimation {
-                                    proxy.scrollTo("timeline")
+                        .onAppear {
+                            if isToday, let currentMinutes = currentTimeMinutes {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    withAnimation {
+                                        proxy.scrollTo("timeline")
+                                    }
                                 }
                             }
                         }
@@ -573,24 +575,11 @@ struct TimelineView: View {
                         }
 
                         Spacer()
-
-                        Button(action: { cancelEventCreation() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    Circle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                )
-                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
+                    .padding(.bottom, 12)
                 }
-
-                Divider()
-                    .padding(.horizontal, 0)
 
                 // Input field
                 HStack(spacing: 12) {
@@ -604,26 +593,6 @@ struct TimelineView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
-                .padding(.horizontal, 20)
-
-                // Time display
-                HStack(spacing: 12) {
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(accentColor)
-
-                    Text(formatTime(time))
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
