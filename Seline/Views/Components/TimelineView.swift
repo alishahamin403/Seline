@@ -642,7 +642,7 @@ struct TimelineView: View {
                             Text("Create")
                                 .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(.white)
+                        .foregroundColor(newEventTitle.isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
