@@ -706,6 +706,7 @@ struct TimelineView: View {
 
 #Preview {
     TimelineView(
+        tasks: [],
         date: Date(),
         onTapTask: { _ in },
         onToggleCompletion: { _ in }
