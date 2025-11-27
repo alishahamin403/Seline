@@ -804,18 +804,22 @@ class LocationsManager: ObservableObject {
 // MARK: - User Location Preferences
 
 struct UserLocationPreferences: Codable, Equatable {
+    var location1Name: String?
     var location1Address: String?
     var location1Latitude: Double?
     var location1Longitude: Double?
     var location1Icon: String?
+    var location2Name: String?
     var location2Address: String?
     var location2Latitude: Double?
     var location2Longitude: Double?
     var location2Icon: String?
+    var location3Name: String?
     var location3Address: String?
     var location3Latitude: Double?
     var location3Longitude: Double?
     var location3Icon: String?
+    var location4Name: String?
     var location4Address: String?
     var location4Latitude: Double?
     var location4Longitude: Double?

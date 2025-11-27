@@ -140,6 +140,7 @@ struct EventsCardWidget: View {
                     Text(formatTime(scheduledTime))
                         .font(.shadcnTextXs)
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }
             }
         }

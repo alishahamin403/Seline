@@ -367,12 +367,11 @@ struct MapsViewNew: View, Searchable {
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08),
-                        lineWidth: 0.5
+                    .shadow(
+                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                        radius: 8,
+                        x: 0,
+                        y: 2
                     )
             )
             .padding(.horizontal, 8)
@@ -641,15 +640,6 @@ struct MapsViewNew: View, Searchable {
     private var quickLocationsSection: some View {
         if locationPreferences != nil {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text("Quick Locations")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-
                 HStack(spacing: 12) {
                     quickLocationCard(icon: locationPreferences?.location1Icon ?? "house.fill", name: "Home", eta: navigationService.location1ETA, isLocationSet: locationPreferences?.location1Coordinate != nil, onTap: { if locationPreferences?.location1Coordinate != nil { openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address) } }, onLongPress: { showETAEditModal = true })
 
@@ -661,7 +651,7 @@ struct MapsViewNew: View, Searchable {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 14)
+                .padding(.vertical, 14)
             }
             .background(
                 RoundedRectangle(cornerRadius: 12)
@@ -770,27 +760,21 @@ struct MapsViewNew: View, Searchable {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
-                VStack(spacing: 2) {
-                    if navigationService.isLoading && isLocationSet {
-                        ProgressView()
-                            .scaleEffect(0.7, anchor: .center)
-                    } else if let eta = eta, isLocationSet {
-                        Text(eta)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
-                            .lineLimit(1)
-                    } else {
-                        Text("--")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    }
-
-                    Text(name)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                if navigationService.isLoading && isLocationSet {
+                    ProgressView()
+                        .scaleEffect(0.7, anchor: .center)
+                } else if let eta = eta, isLocationSet {
+                    Text(eta)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
+                        .lineLimit(1)
+                } else {
+                    Text("--")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12)

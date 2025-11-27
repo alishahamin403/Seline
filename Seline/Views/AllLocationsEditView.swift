@@ -11,6 +11,7 @@ struct AllLocationsEditView: View {
 
     @State private var selectedLocationIndex = 0
 
+    @State private var location1Name: String = ""
     @State private var location1Address: String = ""
     @State private var location1Icon: String = "house.fill"
     @State private var location1SearchQuery: String = ""
@@ -18,6 +19,7 @@ struct AllLocationsEditView: View {
     @State private var location1Latitude: Double?
     @State private var location1Longitude: Double?
 
+    @State private var location2Name: String = ""
     @State private var location2Address: String = ""
     @State private var location2Icon: String = "briefcase.fill"
     @State private var location2SearchQuery: String = ""
@@ -25,6 +27,7 @@ struct AllLocationsEditView: View {
     @State private var location2Latitude: Double?
     @State private var location2Longitude: Double?
 
+    @State private var location3Name: String = ""
     @State private var location3Address: String = ""
     @State private var location3Icon: String = "fork.knife"
     @State private var location3SearchQuery: String = ""
@@ -32,6 +35,7 @@ struct AllLocationsEditView: View {
     @State private var location3Latitude: Double?
     @State private var location3Longitude: Double?
 
+    @State private var location4Name: String = ""
     @State private var location4Address: String = ""
     @State private var location4Icon: String = "mappin.circle.fill"
     @State private var location4SearchQuery: String = ""
@@ -46,11 +50,36 @@ struct AllLocationsEditView: View {
     }
 
     private var locationNames: [String] {
-        ["Home", "Work", "Dining", "Fitness"]
+        [
+            location1Name.isEmpty && location1Address.isEmpty ? "Location 1" : (location1Name.isEmpty ? location1Address : location1Name),
+            location2Name.isEmpty && location2Address.isEmpty ? "Location 2" : (location2Name.isEmpty ? location2Address : location2Name),
+            location3Name.isEmpty && location3Address.isEmpty ? "Location 3" : (location3Name.isEmpty ? location3Address : location3Name),
+            location4Name.isEmpty && location4Address.isEmpty ? "Location 4" : (location4Name.isEmpty ? location4Address : location4Name)
+        ]
     }
 
     private var locationIcons: [String] {
         ["house.fill", "briefcase.fill", "fork.knife", "dumbbell.fill"]
+    }
+
+    private func getCurrentName() -> String {
+        switch selectedLocationIndex {
+        case 0: return location1Name
+        case 1: return location2Name
+        case 2: return location3Name
+        case 3: return location4Name
+        default: return ""
+        }
+    }
+
+    private func setCurrentName(_ value: String) {
+        switch selectedLocationIndex {
+        case 0: location1Name = value
+        case 1: location2Name = value
+        case 2: location3Name = value
+        case 3: location4Name = value
+        default: break
+        }
     }
 
     private func getCurrentAddress() -> String {
@@ -204,24 +233,28 @@ struct AllLocationsEditView: View {
         var updatedPrefs = currentPreferences ?? UserLocationPreferences()
 
         // Update location 1
+        updatedPrefs.location1Name = location1Name.isEmpty ? nil : location1Name
         updatedPrefs.location1Address = location1Address.isEmpty ? nil : location1Address
         updatedPrefs.location1Icon = location1Icon
         updatedPrefs.location1Latitude = location1Latitude
         updatedPrefs.location1Longitude = location1Longitude
 
         // Update location 2
+        updatedPrefs.location2Name = location2Name.isEmpty ? nil : location2Name
         updatedPrefs.location2Address = location2Address.isEmpty ? nil : location2Address
         updatedPrefs.location2Icon = location2Icon
         updatedPrefs.location2Latitude = location2Latitude
         updatedPrefs.location2Longitude = location2Longitude
 
         // Update location 3
+        updatedPrefs.location3Name = location3Name.isEmpty ? nil : location3Name
         updatedPrefs.location3Address = location3Address.isEmpty ? nil : location3Address
         updatedPrefs.location3Icon = location3Icon
         updatedPrefs.location3Latitude = location3Latitude
         updatedPrefs.location3Longitude = location3Longitude
 
         // Update location 4
+        updatedPrefs.location4Name = location4Name.isEmpty ? nil : location4Name
         updatedPrefs.location4Address = location4Address.isEmpty ? nil : location4Address
         updatedPrefs.location4Icon = location4Icon
         updatedPrefs.location4Latitude = location4Latitude
@@ -276,6 +309,39 @@ struct AllLocationsEditView: View {
                 // Location Editor
                 ScrollView {
                     VStack(spacing: 24) {
+                        // Custom Name Input
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Location Name")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .padding(.horizontal, 16)
+
+                            HStack(spacing: 10) {
+                                TextField("e.g. My Home, Office, etc.", text: .init(
+                                    get: { getCurrentName() },
+                                    set: { newValue in
+                                        setCurrentName(newValue)
+                                    }
+                                ))
+                                .font(.system(size: 16, weight: .regular))
+
+                                if !getCurrentName().isEmpty {
+                                    Button(action: {
+                                        HapticManager.shared.selection()
+                                        setCurrentName("")
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                            .cornerRadius(10)
+                            .padding(.horizontal, 16)
+                        }
+
                         // Icon Selector - Horizontal
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Icon")
@@ -463,21 +529,25 @@ struct AllLocationsEditView: View {
             }
         }
         .onAppear {
+            location1Name = currentPreferences?.location1Name ?? ""
             location1Address = currentPreferences?.location1Address ?? ""
             location1Icon = currentPreferences?.location1Icon ?? "house.fill"
             location1Latitude = currentPreferences?.location1Latitude
             location1Longitude = currentPreferences?.location1Longitude
 
+            location2Name = currentPreferences?.location2Name ?? ""
             location2Address = currentPreferences?.location2Address ?? ""
             location2Icon = currentPreferences?.location2Icon ?? "briefcase.fill"
             location2Latitude = currentPreferences?.location2Latitude
             location2Longitude = currentPreferences?.location2Longitude
 
+            location3Name = currentPreferences?.location3Name ?? ""
             location3Address = currentPreferences?.location3Address ?? ""
             location3Icon = currentPreferences?.location3Icon ?? "fork.knife"
             location3Latitude = currentPreferences?.location3Latitude
             location3Longitude = currentPreferences?.location3Longitude
 
+            location4Name = currentPreferences?.location4Name ?? ""
             location4Address = currentPreferences?.location4Address ?? ""
             location4Icon = currentPreferences?.location4Icon ?? "mappin.circle.fill"
             location4Latitude = currentPreferences?.location4Latitude

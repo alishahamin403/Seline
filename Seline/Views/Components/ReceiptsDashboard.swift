@@ -301,14 +301,9 @@ struct RecurringExpenseRow: View {
                     Text(expense.formattedAmount)
                         .font(.headline)
                         .fontWeight(.bold)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(expense.formattedYearlyAmount)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("yearly")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
+                    Text(expense.formattedYearlyAmount)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
 
