@@ -8,11 +8,11 @@ struct TimelineView: View {
     let onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)?
     let onEditEvent: ((TaskItem) -> Void)?
     let onDeleteEvent: ((TaskItem) -> Void)?
+    @Binding var isCreatingEvent: Bool
 
     @StateObject private var taskManager = TaskManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedTimeSlot: Date?
-    @State private var isCreatingEvent = false
     @State private var newEventTitle = ""
     @State private var newEventTime: Date?
     @State private var showReminderOptions = false
@@ -22,6 +22,7 @@ struct TimelineView: View {
     init(
         date: Date,
         selectedTagId: String? = nil,
+        isCreatingEvent: Binding<Bool>,
         onTapTask: @escaping (TaskItem) -> Void,
         onToggleCompletion: @escaping (TaskItem) -> Void,
         onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)? = nil,
@@ -30,6 +31,7 @@ struct TimelineView: View {
     ) {
         self.date = date
         self.selectedTagId = selectedTagId
+        self._isCreatingEvent = isCreatingEvent
         self.onTapTask = onTapTask
         self.onToggleCompletion = onToggleCompletion
         self.onAddEvent = onAddEvent
@@ -50,6 +52,7 @@ struct TimelineView: View {
         self.init(
             date: date,
             selectedTagId: nil,
+            isCreatingEvent: .constant(false),
             onTapTask: onTapTask,
             onToggleCompletion: onToggleCompletion,
             onAddEvent: onAddEvent,

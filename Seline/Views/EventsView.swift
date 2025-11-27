@@ -17,6 +17,7 @@ struct EventsView: View {
     @State private var cameraSourceType: UIImagePickerController.SourceType = .camera
     @State private var selectedImage: UIImage?
     @State private var showImagePicker = false
+    @State private var isCreatingEvent = false
 
     enum EventViewType: Hashable {
         case events
@@ -67,31 +68,33 @@ struct EventsView: View {
                 // Floating buttons (only show in events view)
                 Group {
                     if selectedView == .events {
-                        VStack {
-                            Spacer()
-                            HStack {
+                        if !isCreatingEvent {
+                            VStack {
                                 Spacer()
-                                VStack(spacing: 12) {
-                                    // Photo import button
-                                    Button(action: {
-                                        showPhotoImportDialog = true
-                                    }) {
-                                        Image(systemName: "camera.fill")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 56, height: 56)
-                                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
-                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
+                                HStack {
+                                    Spacer()
+                                    VStack(spacing: 12) {
+                                        // Photo import button
+                                        Button(action: {
+                                            showPhotoImportDialog = true
+                                        }) {
+                                            Image(systemName: "camera.fill")
+                                                .font(.system(size: 20, weight: .semibold))
+                                                .foregroundColor(.white)
+                                                .frame(width: 56, height: 56)
+                                                .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
 
-                                    // Calendar button
-                                    FloatingCalendarButton {
-                                        activeSheet = .calendar
+                                        // Calendar button
+                                        FloatingCalendarButton {
+                                            activeSheet = .calendar
+                                        }
                                     }
+                                    .padding(.trailing, 20)
+                                    .padding(.bottom, 30)
                                 }
-                                .padding(.trailing, 20)
-                                .padding(.bottom, 30)
                             }
                         }
                     }
@@ -431,6 +434,7 @@ struct EventsView: View {
             TimelineView(
                 date: selectedDate,
                 selectedTagId: selectedTagId,
+                isCreatingEvent: $isCreatingEvent,
                 onTapTask: { task in
                     selectedTaskForViewing = task
                     activeSheet = .viewTask
