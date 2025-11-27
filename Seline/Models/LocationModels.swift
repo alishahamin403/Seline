@@ -885,18 +885,22 @@ struct UserProfileSupabaseData: Codable {
     let id: String
     let email: String?
     let full_name: String?
+    let location1_name: String?
     let location1_address: String?
     let location1_latitude: Double?
     let location1_longitude: Double?
     let location1_icon: String?
+    let location2_name: String?
     let location2_address: String?
     let location2_latitude: Double?
     let location2_longitude: Double?
     let location2_icon: String?
+    let location3_name: String?
     let location3_address: String?
     let location3_latitude: Double?
     let location3_longitude: Double?
     let location3_icon: String?
+    let location4_name: String?
     let location4_address: String?
     let location4_latitude: Double?
     let location4_longitude: Double?
@@ -905,18 +909,22 @@ struct UserProfileSupabaseData: Codable {
 
     func toLocationPreferences() -> UserLocationPreferences {
         var prefs = UserLocationPreferences()
+        prefs.location1Name = location1_name
         prefs.location1Address = location1_address
         prefs.location1Latitude = location1_latitude
         prefs.location1Longitude = location1_longitude
         prefs.location1Icon = location1_icon ?? "house.fill"
+        prefs.location2Name = location2_name
         prefs.location2Address = location2_address
         prefs.location2Latitude = location2_latitude
         prefs.location2Longitude = location2_longitude
         prefs.location2Icon = location2_icon ?? "briefcase.fill"
+        prefs.location3Name = location3_name
         prefs.location3Address = location3_address
         prefs.location3Latitude = location3_latitude
         prefs.location3Longitude = location3_longitude
         prefs.location3Icon = location3_icon ?? "fork.knife"
+        prefs.location4Name = location4_name
         prefs.location4Address = location4_address
         prefs.location4Latitude = location4_latitude
         prefs.location4Longitude = location4_longitude

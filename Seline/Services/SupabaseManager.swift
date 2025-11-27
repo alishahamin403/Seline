@@ -228,18 +228,22 @@ class SupabaseManager: ObservableObject {
 
         let client = await getPostgrestClient()
         let preferencesData: [String: PostgREST.AnyJSON] = [
+            "location1_name": preferences.location1Name != nil ? .string(preferences.location1Name!) : .null,
             "location1_address": preferences.location1Address != nil ? .string(preferences.location1Address!) : .null,
             "location1_latitude": preferences.location1Latitude != nil ? .double(preferences.location1Latitude!) : .null,
             "location1_longitude": preferences.location1Longitude != nil ? .double(preferences.location1Longitude!) : .null,
             "location1_icon": preferences.location1Icon != nil ? .string(preferences.location1Icon!) : .null,
+            "location2_name": preferences.location2Name != nil ? .string(preferences.location2Name!) : .null,
             "location2_address": preferences.location2Address != nil ? .string(preferences.location2Address!) : .null,
             "location2_latitude": preferences.location2Latitude != nil ? .double(preferences.location2Latitude!) : .null,
             "location2_longitude": preferences.location2Longitude != nil ? .double(preferences.location2Longitude!) : .null,
             "location2_icon": preferences.location2Icon != nil ? .string(preferences.location2Icon!) : .null,
+            "location3_name": preferences.location3Name != nil ? .string(preferences.location3Name!) : .null,
             "location3_address": preferences.location3Address != nil ? .string(preferences.location3Address!) : .null,
             "location3_latitude": preferences.location3Latitude != nil ? .double(preferences.location3Latitude!) : .null,
             "location3_longitude": preferences.location3Longitude != nil ? .double(preferences.location3Longitude!) : .null,
             "location3_icon": preferences.location3Icon != nil ? .string(preferences.location3Icon!) : .null,
+            "location4_name": preferences.location4Name != nil ? .string(preferences.location4Name!) : .null,
             "location4_address": preferences.location4Address != nil ? .string(preferences.location4Address!) : .null,
             "location4_latitude": preferences.location4Latitude != nil ? .double(preferences.location4Latitude!) : .null,
             "location4_longitude": preferences.location4Longitude != nil ? .double(preferences.location4Longitude!) : .null,

@@ -270,39 +270,42 @@ struct AllLocationsEditView: View {
         }
     }
 
+    private var locationSelectorView: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<4, id: \.self) { index in
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedLocationIndex = index
+                    }
+                }) {
+                    VStack(spacing: 12) {
+                        Image(systemName: locationIcons[index])
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
+
+                        Text(locationNames[index])
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
+
+                        if selectedLocationIndex == index {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                                .frame(width: 24, height: 3)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Location Selector with dots
-                HStack(spacing: 0) {
-                    ForEach(0..<4, id: \.self) { index in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedLocationIndex = index
-                            }
-                        }) {
-                            VStack(spacing: 12) {
-                                Image(systemName: locationIcons[index])
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
-
-                                Text(locationNames[index])
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
-
-                                if selectedLocationIndex == index {
-                                    RoundedRectangle(cornerRadius: 1.5)
-                                        .fill(colorScheme == .dark ? Color.white : Color.black)
-                                        .frame(width: 24, height: 3)
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                }
-                .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+                locationSelectorView
 
                 Divider()
 
