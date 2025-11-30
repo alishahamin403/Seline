@@ -848,7 +848,8 @@ struct MainAppView: View {
                             selectedLocationPlace = place
                             showingLocationPlaceDetail = true
                         }
-                    }
+                    },
+                    savedPlaces: locationsManager.savedPlaces
                 )
                 .presentationBg()
             }
