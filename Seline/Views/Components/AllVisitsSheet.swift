@@ -115,23 +115,22 @@ struct AllVisitsSheet: View {
                                 }) {
                                     VStack(spacing: 0) {
                                         HStack(spacing: 12) {
-                                            // Location icon badge
+                                            // Location icon badge - matching SavedPlaceRow style
                                             ZStack {
-                                                Circle()
+                                                RoundedRectangle(cornerRadius: 8)
                                                     .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.white)
 
                                                 Image(systemName: iconForLocation(location.id, location.displayName))
                                                     .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
                                             }
-                                            .frame(width: 40, height: 40)
+                                            .frame(width: 56, height: 56)
                                             .overlay(
-                                                Circle()
+                                                RoundedRectangle(cornerRadius: 8)
                                                     .stroke(
                                                         colorScheme == .dark ? Color.clear : Color.gray.opacity(0.15),
                                                         lineWidth: 1
                                                     )
-                                                    .frame(width: 40, height: 40)
                                             )
 
                                             VStack(alignment: .leading, spacing: 2) {
