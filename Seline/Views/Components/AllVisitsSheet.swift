@@ -11,59 +11,6 @@ struct AllVisitsSheet: View {
         allLocations.filter { $0.visitCount > 0 }
     }
 
-    private func iconForLocation(_ locationId: UUID, _ displayName: String) -> String {
-        // First check if this location is saved and has a user-selected icon
-        if let savedPlace = savedPlaces.first(where: { $0.id == locationId }) {
-            return savedPlace.getDisplayIcon()
-        }
-
-        // Otherwise, auto-detect based on location name (matching SavedPlace.getDisplayIcon logic)
-        let lowerName = displayName.lowercased()
-
-        if lowerName.contains("home") {
-            return "house.fill"
-        } else if lowerName.contains("work") || lowerName.contains("office") || lowerName.contains("briefcase") {
-            return "briefcase.fill"
-        } else if lowerName.contains("gym") || lowerName.contains("fitness") {
-            return "dumbbell.fill"
-        } else if lowerName.contains("pizza") {
-            return "square.fill"
-        } else if lowerName.contains("burger") || lowerName.contains("hamburger") {
-            return "circle.fill"
-        } else if lowerName.contains("pasta") {
-            return "triangle.fill"
-        } else if lowerName.contains("shawarma") || lowerName.contains("kebab") {
-            return "diamond.fill"
-        } else if lowerName.contains("jamaican") || lowerName.contains("reggae") {
-            return "pentagon.fill"
-        } else if lowerName.contains("steak") || lowerName.contains("barbecue") || lowerName.contains("bbq") {
-            return "hexagon.fill"
-        } else if lowerName.contains("mexican") || lowerName.contains("taco") {
-            return "sun.max.fill"
-        } else if lowerName.contains("chinese") {
-            return "cloud.fill"
-        } else if lowerName.contains("haircut") || lowerName.contains("barber") || lowerName.contains("salon") {
-            return "scissors"
-        } else if lowerName.contains("hotel") || lowerName.contains("motel") {
-            return "building.fill"
-        } else if lowerName.contains("mosque") {
-            return "building.2.fill"
-        } else if lowerName.contains("smoke") || lowerName.contains("hookah") || lowerName.contains("shisha") {
-            return "flame.fill"
-        } else if lowerName.contains("restaurant") || lowerName.contains("diner") || lowerName.contains("cafe") || lowerName.contains("food") {
-            return "fork.knife"
-        } else if lowerName.contains("park") || lowerName.contains("outdoor") {
-            return "tree.fill"
-        } else if lowerName.contains("hospital") || lowerName.contains("clinic") || lowerName.contains("medical") {
-            return "heart.fill"
-        } else if lowerName.contains("shop") || lowerName.contains("store") || lowerName.contains("mall") {
-            return "bag.fill"
-        } else if lowerName.contains("school") || lowerName.contains("university") {
-            return "book.fill"
-        } else {
-            return "mappin.circle.fill"
-        }
-    }
 
     var body: some View {
         NavigationView {
@@ -115,24 +62,6 @@ struct AllVisitsSheet: View {
                                 }) {
                                     VStack(spacing: 0) {
                                         HStack(spacing: 12) {
-                                            // Location icon badge - matching SavedPlaceRow style
-                                            ZStack {
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.white)
-
-                                                Image(systemName: iconForLocation(location.id, location.displayName))
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
-                                            }
-                                            .frame(width: 56, height: 56)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .stroke(
-                                                        colorScheme == .dark ? Color.clear : Color.gray.opacity(0.15),
-                                                        lineWidth: 1
-                                                    )
-                                            )
-
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(location.displayName)
                                                     .font(.system(size: 14, weight: .medium))
