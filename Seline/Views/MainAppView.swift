@@ -63,6 +63,12 @@ struct MainAppView: View {
         return notesManager.pinnedNotes.count
     }
 
+    private var isAnySheetPresented: Bool {
+        showingNewNoteSheet || searchSelectedNote != nil || authManager.showLocationSetup ||
+        authManager.showLabelSelection || searchSelectedEmail != nil || searchSelectedTask != nil ||
+        showingAddEventPopup || showReceiptStats || showAllLocationsSheet || showingLocationPlaceDetail
+    }
+
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
@@ -724,6 +730,7 @@ struct MainAppView: View {
                     .presentationDragIndicator(.hidden)
                     .presentationBg()
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showingNewNoteSheet)
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { searchSelectedNote != nil },
@@ -832,12 +839,14 @@ struct MainAppView: View {
                 )
                 .presentationBg()
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showingAddEventPopup)
             .sheet(isPresented: $showReceiptStats) {
                 ReceiptStatsView()
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                     .presentationBg()
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showReceiptStats)
             .sheet(isPresented: $showAllLocationsSheet) {
                 AllVisitsSheet(
                     allLocations: $allLocations,
@@ -853,12 +862,14 @@ struct MainAppView: View {
                 )
                 .presentationBg()
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showAllLocationsSheet)
             .sheet(isPresented: $showingLocationPlaceDetail) {
                 if let place = selectedLocationPlace {
                     PlaceDetailSheet(place: place, onDismiss: { showingLocationPlaceDetail = false }, isFromRanking: false)
                         .presentationBg()
                 }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showingLocationPlaceDetail)
     }
 
     private var mainContentBase: some View {
@@ -873,6 +884,8 @@ struct MainAppView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(colorScheme == .dark ? Color.black : Color.white)
+            .blur(radius: isAnySheetPresented ? 5 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isAnySheetPresented)
         }
     }
 
@@ -903,6 +916,11 @@ struct MainAppView: View {
                     MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
                 }
             }
+            .transition(.asymmetric(
+                insertion: .scale(scale: 0.95).combined(with: .opacity),
+                removal: .opacity
+            ))
+            .animation(.easeInOut(duration: 0.25), value: selectedTab)
             .frame(maxHeight: .infinity)
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
@@ -912,6 +930,35 @@ struct MainAppView: View {
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(colorScheme == .dark ? Color.black : Color.white)
+        .gesture(
+            DragGesture()
+                .onEnded { value in
+                    let threshold: CGFloat = 50
+                    let horizontalAmount = value.translation.width
+
+                    if horizontalAmount < -threshold {
+                        // Swipe left - next tab
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            let tabs = TabSelection.allCases
+                            if let currentIndex = tabs.firstIndex(of: selectedTab),
+                               currentIndex < tabs.count - 1 {
+                                selectedTab = tabs[currentIndex + 1]
+                                HapticManager.shared.tabChange()
+                            }
+                        }
+                    } else if horizontalAmount > threshold {
+                        // Swipe right - previous tab
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            let tabs = TabSelection.allCases
+                            if let currentIndex = tabs.firstIndex(of: selectedTab),
+                               currentIndex > 0 {
+                                selectedTab = tabs[currentIndex - 1]
+                                HapticManager.shared.tabChange()
+                            }
+                        }
+                    }
+                }
+        )
     }
 
     private var mainContentHeader: some View {

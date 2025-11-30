@@ -75,17 +75,21 @@ struct TabButton: View {
     var body: some View {
         Button(action: {
             HapticManager.shared.tabChange()
-            selectedTab = tab
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                selectedTab = tab
+            }
         }) {
             Image(systemName: isSelected ? tab.filledIcon : tab.rawValue)
                 .font(FontManager.geist(size: .title1, weight: .medium))
                 .foregroundColor(
                     isSelected ? selectedColor : .gray
                 )
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+                .scaleEffect(isSelected ? 1.15 : 1.0)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
         }
         .buttonStyle(PlainButtonStyle())
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
     }
 }
 
