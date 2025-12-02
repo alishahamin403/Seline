@@ -28,6 +28,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
     var userCuisine: String? // User's manual cuisine assignment
     var isFavourite: Bool // Whether this location is marked as favourite
     var userIcon: String? // User's selected SF Symbol icon name
+    var customGeofenceRadius: Double? // User's custom geofence radius in meters (optional override) - NEW
     var dateCreated: Date
     var dateModified: Date
 
@@ -53,6 +54,7 @@ struct SavedPlace: Identifiable, Codable, Hashable {
         self.userCuisine = nil
         self.isFavourite = false
         self.userIcon = nil
+        self.customGeofenceRadius = nil // NEW: User can override geofence radius
         self.dateCreated = Date()
         self.dateModified = Date()
 

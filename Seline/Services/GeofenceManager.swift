@@ -15,6 +15,9 @@ struct LocationVisitRecord: Codable, Identifiable {
     var timeOfDay: String
     var month: Int
     var year: Int
+    var sessionId: UUID? // Groups related visits (app restart, GPS loss) - NEW
+    var confidenceScore: Double? // 1.0 (certain), 0.95, 0.85 (app restart/GPS) - NEW
+    var mergeReason: String? // "app_restart", "gps_reconnect", "quick_return" - NEW
     let createdAt: Date
     var updatedAt: Date
 
@@ -28,6 +31,9 @@ struct LocationVisitRecord: Codable, Identifiable {
         case dayOfWeek = "day_of_week"
         case timeOfDay = "time_of_day"
         case month, year
+        case sessionId = "session_id" // NEW
+        case confidenceScore = "confidence_score" // NEW
+        case mergeReason = "merge_reason" // NEW
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -35,7 +41,10 @@ struct LocationVisitRecord: Codable, Identifiable {
     static func create(
         userId: UUID,
         savedPlaceId: UUID,
-        entryTime: Date
+        entryTime: Date,
+        sessionId: UUID? = nil,
+        confidenceScore: Double? = 1.0,
+        mergeReason: String? = nil
     ) -> LocationVisitRecord {
         let calendar = Calendar.current
         let components = calendar.dateComponents([.weekday, .month, .year], from: entryTime)
@@ -56,6 +65,9 @@ struct LocationVisitRecord: Codable, Identifiable {
             timeOfDay: timeOfDay,
             month: month,
             year: year,
+            sessionId: sessionId ?? UUID(), // NEW: Create new session if not provided
+            confidenceScore: confidenceScore, // NEW: Default 1.0 (high confidence)
+            mergeReason: mergeReason, // NEW: No merge reason for new visits
             createdAt: Date(),
             updatedAt: Date()
         )
