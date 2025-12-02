@@ -127,7 +127,7 @@ struct EventsCardWidget: View {
 
                 // Event title
                 Text(task.title)
-                    .font(.shadcnTextXs)
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                     .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     .lineLimit(1)
@@ -138,7 +138,7 @@ struct EventsCardWidget: View {
                 // Event time
                 if let scheduledTime = task.scheduledTime {
                     Text(formatTime(scheduledTime))
-                        .font(.shadcnTextXs)
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }

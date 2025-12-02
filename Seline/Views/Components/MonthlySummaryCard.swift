@@ -13,7 +13,7 @@ struct MonthlySummaryCard: View {
 
     var body: some View {
         if let summary = monthlySummary, summary.hasSignificantActivity {
-            ShadcnCard {
+            VStack {
                 // Header
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -177,6 +177,11 @@ struct MonthlySummaryCard: View {
                     .padding(16)
                 }
             }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            )
             .onAppear {
                 Task {
                     await loadData()

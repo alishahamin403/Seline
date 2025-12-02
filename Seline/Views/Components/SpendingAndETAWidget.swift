@@ -15,6 +15,7 @@ struct SpendingAndETAWidget: View {
     @State private var setupLocationSlot: LocationSlot?
     @State private var showReceiptStats = false
     @State private var showETAEditModal = false
+    @State private var upcomingRecurringExpenses: [(title: String, amount: Double, date: Date)] = []
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -160,6 +161,7 @@ struct SpendingAndETAWidget: View {
         .onAppear {
             locationService.requestLocationPermission()
             updateCategoryBreakdown()
+            loadUpcomingRecurringExpenses()
             Task {
                 do {
                     locationPreferences = try await supabaseManager.loadLocationPreferences()
@@ -198,6 +200,7 @@ struct SpendingAndETAWidget: View {
         }
         .onChange(of: notesManager.notes.count) { _ in
             updateCategoryBreakdown()
+            loadUpcomingRecurringExpenses()
         }
         .onChange(of: showETAEditModal) { isShowing in
             if !isShowing {
@@ -225,19 +228,63 @@ struct SpendingAndETAWidget: View {
     }
 
     private func spendingCard() -> some View {
-        Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 6) {
-                Spacer()
-
-                spendingAmountView
-                topCategoryView
-
-                Spacer()
+        HStack(spacing: 12) {
+            // Left box - Monthly Expenses
+            Button(action: { showReceiptStats = true }) {
+                VStack(alignment: .leading, spacing: 4) {
+                    monthlySpendingView
+                    topCategoryView
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .buttonStyle(PlainButtonStyle())
+
+            // Right box - Upcoming Expenses
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Upcoming Expenses")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    if upcomingRecurringExpenses.isEmpty {
+                        Text("None")
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : Color(white: 0.5))
+                    } else {
+                        ForEach(upcomingRecurringExpenses.prefix(2), id: \.title) { expense in
+                            HStack(spacing: 4) {
+                                Text(expense.title)
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : Color(white: 0.3))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+
+                                Text("$\(Int(expense.amount))")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : Color(white: 0.3))
+
+                                Spacer()
+
+                                Text(formatExpenseDate(expense.date))
+                                    .font(.system(size: 9, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : Color(white: 0.4))
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            )
         }
-        .buttonStyle(PlainButtonStyle())
     }
 
     private var daysLeftInMonth: Int {
@@ -257,33 +304,75 @@ struct SpendingAndETAWidget: View {
         return formatter.string(from: nextMonth)
     }
 
-    private var spendingAmountView: some View {
-        HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+    private func formatExpenseDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let expenseDay = calendar.startOfDay(for: date)
 
-                HStack(spacing: 4) {
-                    Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                        .font(.system(size: 11, weight: .regular))
+        if expenseDay == today {
+            return "Today"
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: today), expenseDay == tomorrow {
+            return "Tomorrow"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
+        }
+    }
+
+    private func loadUpcomingRecurringExpenses() {
+        Task {
+            do {
+                let recurringExpenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
+                let calendar = Calendar.current
+                let now = Date()
+                var expenses: [(title: String, amount: Double, date: Date)] = []
+
+                // Get next 7 days
+                let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: now)!
+
+                for expense in recurringExpenses {
+                    let instances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
+
+                    for instance in instances {
+                        let instanceDay = calendar.startOfDay(for: instance.occurrenceDate)
+                        let nowStart = calendar.startOfDay(for: now)
+                        let sevenDaysStart = calendar.startOfDay(for: sevenDaysFromNow)
+
+                        // Check if instance is within next 7 days and is pending
+                        if instanceDay >= nowStart && instanceDay < sevenDaysStart {
+                            if instance.status == .pending {
+                                expenses.append((title: expense.title, amount: Double(truncating: expense.amount as NSDecimalNumber), date: instance.occurrenceDate))
+                            }
+                        }
+                    }
                 }
-                .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : Color(red: 0.4, green: 0.9, blue: 0.4))
+
+                // Sort by date ascending (earliest first)
+                expenses.sort { $0.date < $1.date }
+
+                await MainActor.run {
+                    upcomingRecurringExpenses = expenses
+                }
+            } catch {
+                print("Error loading recurring expenses: \(error)")
             }
+        }
+    }
 
-            Spacer()
+    private var monthlySpendingView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(daysLeftInMonth) days till")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
-
-                Text(nextMonthName)
+            HStack(spacing: 4) {
+                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
             }
+            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : Color(red: 0.4, green: 0.9, blue: 0.4))
         }
     }
 

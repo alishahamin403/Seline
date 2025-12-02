@@ -347,7 +347,8 @@ struct MainAppView: View {
 
                     // If already in geofence but no active visit record, create one
                     // (handles case where user was already at location when app launched)
-                    if geofenceManager.activeVisits[place.id] == nil {
+                    // IMPORTANT: Only create if we've already loaded incomplete visits to avoid duplicate visits on app restart
+                    if geofenceManager.activeVisits[place.id] == nil && hasLoadedIncompleteVisits {
                         // IMPORTANT: Only create if we have a valid user ID
                         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
                             print("⚠️ Cannot auto-create visit - user not authenticated")
@@ -1546,11 +1547,10 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 12) {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
                 .padding(.horizontal, 12)
-                .padding(.bottom, -6)
 
             // Current Location card
             CurrentLocationCardWidget(
@@ -1566,8 +1566,6 @@ struct MainAppView: View {
                 showAllLocationsSheet: $showAllLocationsSheet
             )
             .padding(.horizontal, 12)
-
-            Spacer()
 
             // Events card - expands to fill available space
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
