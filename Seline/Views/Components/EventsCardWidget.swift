@@ -206,8 +206,7 @@ struct EventsCardWidget: View {
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.vertical, 12)
-        .padding(.horizontal, 0)
+        .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
