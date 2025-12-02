@@ -34,9 +34,56 @@ class LocationErrorRecoveryService {
         print("🚀 ===== RECOVERY COMPLETE =====\n")
     }
 
+    // MARK: - Unresolved Visit Check (SOLUTION 2)
+
+    /// Check if there are any unresolved visits globally
+    /// SOLUTION 2: Prevents new visits from starting if an old incomplete visit exists
+    func hasUnresolvedVisits(geofenceManager: GeofenceManager) async -> LocationVisitRecord? {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return nil
+        }
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .is("exit_time", value: "null")
+                .order("entry_time", ascending: false)
+                .limit(1)
+                .execute()
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            guard let mostRecentVisit = visits.first else {
+                return nil
+            }
+
+            let hoursSinceEntry = Date().timeIntervalSince(mostRecentVisit.entryTime) / 3600
+
+            // Return unresolved visit if it's been open more than a threshold (e.g., 10 seconds)
+            // This catches cases where:
+            // - App crash just created a visit
+            // - GPS loss left a visit hanging
+            // - User entered location but geofence exit didn't fire
+            if hoursSinceEntry < 4 {  // Less than 4 hours is considered active
+                return mostRecentVisit
+            }
+
+            return nil
+        } catch {
+            print("❌ Error checking for unresolved visits: \(error)")
+            return nil
+        }
+    }
+
     // MARK: - Incomplete Visit Recovery
 
     /// Restore incomplete visits from Supabase to activeVisits
+    /// SOLUTION 1: Only restore the most recent visit and auto-close all others
     private func restoreIncompleteVisits(geofenceManager: GeofenceManager) async {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("⚠️ No user ID")
@@ -49,23 +96,25 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
+                .is("exit_time", value: "null")
                 .order("entry_time", ascending: false)
-                .limit(10)
                 .execute()
 
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
-            if visits.isEmpty {
+            if allVisits.isEmpty {
                 print("✅ No incomplete visits to restore")
                 return
             }
 
-            print("📋 Found \(visits.count) incomplete visit(s)")
+            print("📋 Found \(allVisits.count) incomplete visit(s)")
 
-            for visit in visits {
-                // Deduplicate: Don't restore if already in activeVisits
+            var hasRestoredOneVisit = false
+
+            for visit in allVisits {
+                // Deduplicate: Don't process if already in activeVisits
                 if geofenceManager.activeVisits[visit.savedPlaceId] != nil {
                     print("ℹ️ Visit already in activeVisits: \(visit.savedPlaceId.uuidString)")
                     continue
@@ -73,18 +122,25 @@ class LocationErrorRecoveryService {
 
                 let hoursSinceEntry = Date().timeIntervalSince(visit.entryTime) / 3600
 
-                if hoursSinceEntry > 24 {
-                    // Auto-close very old visits
+                // SOLUTION 1: Auto-close all visits except the single most recent one
+                if hasRestoredOneVisit {
+                    // Auto-close all older visits
+                    print("🔴 SOLUTION 1 - Auto-closing older incomplete visit: \(visit.id.uuidString) (started \(String(format: "%.1f", hoursSinceEntry))h ago)")
+                    await autoCloseVisit(visit)
+                } else if hoursSinceEntry > 24 {
+                    // Auto-close very old visits (>24h)
                     print("⚠️ Visit open >24h, auto-closing: \(visit.id.uuidString)")
                     await autoCloseVisit(visit)
                 } else if hoursSinceEntry > 4 {
-                    // Log long visits but restore them
-                    print("⚠️ Visit open \(String(format: "%.1f", hoursSinceEntry))h: \(visit.id.uuidString)")
+                    // Log long visits but restore the most recent one
+                    print("⚠️ Visit open \(String(format: "%.1f", hoursSinceEntry))h: \(visit.id.uuidString) - RESTORING as most recent")
                     geofenceManager.activeVisits[visit.savedPlaceId] = visit
+                    hasRestoredOneVisit = true
                 } else {
-                    // Restore short-duration visits silently
-                    print("✅ Restored visit: \(visit.savedPlaceId.uuidString)")
+                    // Restore only the single most recent short-duration visit
+                    print("✅ Restored visit (most recent): \(visit.savedPlaceId.uuidString)")
                     geofenceManager.activeVisits[visit.savedPlaceId] = visit
+                    hasRestoredOneVisit = true
                 }
             }
         } catch {
@@ -93,6 +149,19 @@ class LocationErrorRecoveryService {
     }
 
     // MARK: - Stale Visit Auto-Close
+
+    /// Public method to auto-close a specific unresolved visit (used by SOLUTION 2)
+    func autoCloseUnresolvedVisit(_ visit: LocationVisitRecord) async {
+        var closedVisit = visit
+        closedVisit.recordExit(exitTime: Date())
+
+        let visitsToSave = closedVisit.splitAtMidnightIfNeeded()
+        for part in visitsToSave {
+            await updateVisitInSupabase(part)
+        }
+
+        print("🔴 SOLUTION 2 - Auto-closed unresolved visit: \(visit.id.uuidString)")
+    }
 
     /// Auto-close visits that have been open too long
     func autoCloseStaleVisits(

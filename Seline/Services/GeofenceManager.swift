@@ -362,6 +362,22 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
+            // SOLUTION 2: Check if there's an unresolved visit from a different location
+            // This prevents multiple active visits across different places
+            if let unresolvedVisit = await LocationErrorRecoveryService.shared.hasUnresolvedVisits(geofenceManager: self) {
+                let hoursSinceEntry = Date().timeIntervalSince(unresolvedVisit.entryTime) / 3600
+                print("⚠️ SOLUTION 2 - Unresolved visit exists at different location")
+                print("   Location: \(unresolvedVisit.savedPlaceId.uuidString)")
+                print("   Started: \(String(format: "%.1f", hoursSinceEntry))h ago")
+                print("   Action: Auto-closing old visit to allow new one")
+
+                // Auto-close the old unresolved visit
+                await LocationErrorRecoveryService.shared.autoCloseUnresolvedVisit(unresolvedVisit)
+
+                // Remove from activeVisits if it's there
+                self.activeVisits.removeValue(forKey: unresolvedVisit.savedPlaceId)
+            }
+
             // NEW: Use MergeDetectionService for 3-scenario merge logic
             let currentCoords = self.sharedLocationManager.currentLocation?.coordinate ?? CLLocationCoordinate2D()
 
