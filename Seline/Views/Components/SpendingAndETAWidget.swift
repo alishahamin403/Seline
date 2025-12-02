@@ -236,6 +236,17 @@ struct SpendingAndETAWidget: View {
                     topCategoryView
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                        .shadow(
+                            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                            radius: 8,
+                            x: 0,
+                            y: 2
+                        )
+                )
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -278,19 +289,18 @@ struct SpendingAndETAWidget: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                    .shadow(
+                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                        radius: 8,
+                        x: 0,
+                        y: 2
+                    )
+            )
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-                .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                    radius: 8,
-                    x: 0,
-                    y: 2
-                )
-        )
-        .cornerRadius(12)
     }
 
     private var daysLeftInMonth: Int {
