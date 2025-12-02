@@ -183,6 +183,10 @@ class GeofenceManager: NSObject, ObservableObject {
     var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
     // DEPRECATED: recentlyClosedVisits cache moved to MergeDetectionService.shared
 
+    // Thread safety: Protect activeVisits dictionary from race conditions
+    // Ensures atomic access during simultaneous geofence entry/exit events
+    private let activeVisitsLock = NSLock()
+
     @Published var isMonitoring = false
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
@@ -279,7 +283,9 @@ class GeofenceManager: NSObject, ObservableObject {
         print("🛑 Stopping all geofence monitoring")
         monitoredRegions.forEach { sharedLocationManager.stopMonitoring(region: $0.value) }
         monitoredRegions.removeAll()
+        activeVisitsLock.lock()
         activeVisits.removeAll()
+        activeVisitsLock.unlock()
         MergeDetectionService.shared.clearCache() // Clear merge detection cache
         LocationBackgroundValidationService.shared.stopValidationTimer()
         isMonitoring = false
@@ -357,7 +363,12 @@ class GeofenceManager: NSObject, ObservableObject {
 
             // Check if we already have an active visit for this location
             // This prevents duplicate sessions if geofence is re-triggered while user is still in location
-            if self.activeVisits[placeId] != nil {
+            // THREAD SAFETY: Use lock to prevent race conditions during simultaneous entry/exit
+            activeVisitsLock.lock()
+            let hasExistingVisit = self.activeVisits[placeId] != nil
+            activeVisitsLock.unlock()
+
+            if hasExistingVisit {
                 print("ℹ️ Active visit already exists for place: \(placeId), skipping duplicate entry")
                 return
             }
@@ -374,8 +385,13 @@ class GeofenceManager: NSObject, ObservableObject {
                 // Auto-close the old unresolved visit
                 await LocationErrorRecoveryService.shared.autoCloseUnresolvedVisit(unresolvedVisit)
 
-                // Remove from activeVisits if it's there
+                // Remove from activeVisits if it's there (with lock protection)
+                activeVisitsLock.lock()
                 self.activeVisits.removeValue(forKey: unresolvedVisit.savedPlaceId)
+                activeVisitsLock.unlock()
+
+                // Invalidate cache for the location that was auto-closed
+                LocationVisitAnalytics.shared.invalidateCache(for: unresolvedVisit.savedPlaceId)
             }
 
             // NEW: Use MergeDetectionService for 3-scenario merge logic
@@ -417,13 +433,19 @@ class GeofenceManager: NSObject, ObservableObject {
                     mergeReason: nil
                 )
 
+                // Add to activeVisits with lock protection
+                activeVisitsLock.lock()
                 self.activeVisits[placeId] = visit
+                activeVisitsLock.unlock()
 
                 // Create session and save to Supabase
                 LocationSessionManager.shared.createSession(for: placeId, userId: userId)
 
                 print("📝 Started tracking visit for place: \(placeId)")
                 print("📝 New session: \(sessionId.uuidString)")
+
+                // Invalidate analytics cache since a new active visit was created
+                LocationVisitAnalytics.shared.invalidateCache(for: placeId)
 
                 // Save to Supabase
                 await self.saveVisitToSupabase(visit)
@@ -458,7 +480,12 @@ class GeofenceManager: NSObject, ObservableObject {
             }
 
             // First, check if we have an active visit in memory
-            if var visit = self.activeVisits.removeValue(forKey: placeId) {
+            // THREAD SAFETY: Use lock to prevent race conditions during simultaneous entry/exit
+            activeVisitsLock.lock()
+            let visit = self.activeVisits.removeValue(forKey: placeId)
+            activeVisitsLock.unlock()
+
+            if var visit = visit {
                 visit.recordExit(exitTime: Date())
 
                 // Filter out visits shorter than 5 minutes (noise from brief location hiccups)
