@@ -359,7 +359,10 @@ struct SpendingAndETAWidget: View {
                                     .font(.system(size: 9, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
+
+                            Spacer()
                         }
+                        .frame(maxWidth: .infinity)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 4)
                         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
