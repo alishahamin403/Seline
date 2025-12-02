@@ -1,4 +1,5 @@
 import CoreLocation
+import PostgREST
 
 // MARK: - GeofenceRadiusManager
 //
@@ -277,6 +278,8 @@ class GeofenceRadiusManager {
 
     /// Get all categories with their recommended radiuses
     func getCategoryRecommendations() -> [(category: String, radius: CLLocationDistance)] {
-        return Array(radiusByCategory).sorted { $0.key < $1.key }
+        return Array(radiusByCategory)
+            .sorted { $0.key < $1.key }
+            .map { (category: $0.key, radius: $0.value) }
     }
 }

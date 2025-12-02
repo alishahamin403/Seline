@@ -1,4 +1,5 @@
 import Foundation
+import PostgREST
 
 // MARK: - LocationErrorRecoveryService
 //
@@ -48,7 +49,6 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .is("exit_time", value: "null")
                 .order("entry_time", ascending: false)
                 .limit(10)
                 .execute()
@@ -116,7 +116,6 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .is("exit_time", value: "null")
                 .lt("entry_time", value: formatter.string(from: thresholdTime))
                 .execute()
 
@@ -275,12 +274,14 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .is("session_id", value: "null")
                 .execute()
 
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let orphaned: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Filter for orphaned visits (session_id is nil)
+            let orphaned = allVisits.filter { $0.sessionId == nil }
 
             if !orphaned.isEmpty {
                 print("⚠️ Found \(orphaned.count) orphaned visits (session_id = null)")
