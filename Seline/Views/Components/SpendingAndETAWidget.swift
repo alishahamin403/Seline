@@ -228,57 +228,14 @@ struct SpendingAndETAWidget: View {
     }
 
     private func spendingCard() -> some View {
-        HStack(spacing: 12) {
-            // Left box - Monthly Expenses
-            Button(action: { showReceiptStats = true }) {
-                VStack(alignment: .leading, spacing: 4) {
-                    monthlySpendingView
-                    topCategoryView
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            // Right box - Upcoming Expenses
+        Button(action: { showReceiptStats = true }) {
             VStack(alignment: .leading, spacing: 4) {
-                Spacer()
-
-                Text("Upcoming Expenses")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    if upcomingRecurringExpenses.isEmpty {
-                        Text("None")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : Color(white: 0.5))
-                    } else {
-                        ForEach(upcomingRecurringExpenses.prefix(2), id: \.title) { expense in
-                            HStack(spacing: 4) {
-                                Text(expense.title)
-                                    .font(.system(size: 10, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : Color(white: 0.3))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-
-                                Text("$\(Int(expense.amount))")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : Color(white: 0.3))
-
-                                Spacer()
-
-                                Text(formatExpenseDate(expense.date))
-                                    .font(.system(size: 9, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : Color(white: 0.4))
-                            }
-                        }
-                    }
-                }
-
-                Spacer()
+                monthlySpendingView
+                topCategoryView
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .buttonStyle(PlainButtonStyle())
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
