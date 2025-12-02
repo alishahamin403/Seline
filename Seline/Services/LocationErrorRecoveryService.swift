@@ -49,7 +49,7 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .filter("exit_time", "is", "null")
+                .filter("exit_time", operator: "is", value: "null")
                 .order("entry_time", ascending: false)
                 .limit(1)
                 .execute()
@@ -96,7 +96,7 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .filter("exit_time", "is", "null")
+                .filter("exit_time", operator: "is", value: "null")
                 .order("entry_time", ascending: false)
                 .execute()
 
