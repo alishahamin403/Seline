@@ -181,13 +181,14 @@ class GeofenceManager: NSObject, ObservableObject {
 
     private var monitoredRegions: [String: CLCircularRegion] = [:] // [placeId: region]
     var activeVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit]
-    private var recentlyClosedVisits: [UUID: LocationVisitRecord] = [:] // [placeId: visit] - for merge detection before Supabase sync
+    // DEPRECATED: recentlyClosedVisits cache moved to MergeDetectionService.shared
 
     @Published var isMonitoring = false
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
 
-    private let geofenceRadius: CLLocationDistance = 200 // 200 meters
+    private let geofenceRadius: CLLocationDistance = 200 // Used for fallback in some contexts
+    // Note: Smart radius detection is now handled by GeofenceRadiusManager.shared
 
     override init() {
         super.init()
@@ -245,9 +246,12 @@ class GeofenceManager: NSObject, ObservableObject {
         let locationsToTrack = places
 
         for place in locationsToTrack {
+            // NEW: Use smart radius detection (user override or auto-detect)
+            let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+
             let region = CLCircularRegion(
                 center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude),
-                radius: geofenceRadius,
+                radius: radius, // Use smart radius instead of fixed 200m
                 identifier: place.id.uuidString
             )
 
@@ -276,13 +280,42 @@ class GeofenceManager: NSObject, ObservableObject {
         monitoredRegions.forEach { sharedLocationManager.stopMonitoring(region: $0.value) }
         monitoredRegions.removeAll()
         activeVisits.removeAll()
-        recentlyClosedVisits.removeAll()
+        MergeDetectionService.shared.clearCache() // Clear merge detection cache
+        LocationBackgroundValidationService.shared.stopValidationTimer()
         isMonitoring = false
     }
 
     /// Update background location tracking based on user preference
     func updateBackgroundLocationTracking(enabled: Bool) {
         sharedLocationManager.enableBackgroundLocationTracking(enabled)
+    }
+
+    /// Update geofence radius for a place (when user changes radius or category)
+    /// NEW: Called by GeofenceRadiusManager when radius changes
+    func updateGeofenceRadius(for place: SavedPlace) {
+        guard let existingRegion = monitoredRegions[place.id.uuidString] else {
+            print("⚠️ Geofence not found for place: \(place.id.uuidString)")
+            return
+        }
+
+        // Get new radius
+        let newRadius = GeofenceRadiusManager.shared.getRadius(for: place)
+
+        // Create new region with updated radius
+        let newRegion = CLCircularRegion(
+            center: existingRegion.center,
+            radius: newRadius,
+            identifier: existingRegion.identifier
+        )
+        newRegion.notifyOnEntry = true
+        newRegion.notifyOnExit = true
+
+        // Stop old region and start new one
+        sharedLocationManager.stopMonitoring(region: existingRegion)
+        sharedLocationManager.startMonitoring(region: newRegion)
+        monitoredRegions[place.id.uuidString] = newRegion
+
+        print("🔄 Updated geofence radius for \(place.displayName): \(Int(newRadius))m")
     }
 
     // MARK: - Geofence Event Handling (called by SharedLocationManager)
@@ -329,44 +362,64 @@ class GeofenceManager: NSObject, ObservableObject {
                 return
             }
 
-            // Check if there's a recent visit within 30 minutes that we can merge with
-            if let previousVisit = await self.findRecentVisitWithin30Minutes(for: placeId) {
-                print("\n🔄 ===== MERGING VISITS =====")
-                print("🔄 Found recent visit from \(previousVisit.entryTime) to \(previousVisit.exitTime?.description ?? "unknown")")
+            // NEW: Use MergeDetectionService for 3-scenario merge logic
+            let currentCoords = self.sharedLocationManager.currentLocation?.coordinate ?? CLLocationCoordinate2D()
 
-                var mergedVisit = previousVisit
-                // Update entry time to current re-entry (don't keep old entry time from previous visit)
-                mergedVisit.entryTime = Date()
-                // Clear the exit time to reopen the visit
-                mergedVisit.exitTime = nil
-                mergedVisit.durationMinutes = nil
-                mergedVisit.updatedAt = Date()
+            if let (mergeCandidate, confidence, reason) = await MergeDetectionService.shared.findMergeCandidate(
+                for: placeId,
+                currentLocation: currentCoords,
+                geofenceRadius: self.geofenceRadius
+            ) {
+                print("\n🔄 ===== MERGING VISITS (Confidence: \(String(format: "%.0f%%", confidence * 100))) =====")
+                print("🔄 Reason: \(reason)")
+                print("🔄 Previous visit: \(mergeCandidate.entryTime) to \(mergeCandidate.exitTime?.description ?? "ongoing")")
 
-                // Add back to active visits with updated entry time
-                self.activeVisits[placeId] = mergedVisit
+                // Use atomic merge to ensure data consistency
+                let sessionId = mergeCandidate.sessionId ?? UUID()
+                if await LocationErrorRecoveryService.shared.executeAtomicMerge(
+                    mergeCandidate,
+                    sessionId: sessionId,
+                    confidence: confidence,
+                    reason: reason,
+                    geofenceManager: self,
+                    sessionManager: LocationSessionManager.shared
+                ) {
+                    print("🔄 ============================\n")
 
-                print("🔄 Reopened visit with new entry time: \(mergedVisit.entryTime)")
-                print("🔄 ============================\n")
-
-                // Clear from recently closed visits since it's been reopened
-                self.recentlyClosedVisits.removeValue(forKey: placeId)
-
-                // Update Supabase to clear the exit time and update entry time
-                await self.mergeVisitInSupabase(mergedVisit)
+                    // Add to merge detection cache for future reference
+                    MergeDetectionService.shared.cacheClosedVisit(mergeCandidate)
+                }
             } else {
-                // Create a new visit record
+                // Create a new visit record with new session
+                let sessionId = UUID()
                 var visit = LocationVisitRecord.create(
                     userId: userId,
                     savedPlaceId: placeId,
-                    entryTime: Date()
+                    entryTime: Date(),
+                    sessionId: sessionId,
+                    confidenceScore: 1.0,
+                    mergeReason: nil
                 )
 
                 self.activeVisits[placeId] = visit
 
+                // Create session and save to Supabase
+                LocationSessionManager.shared.createSession(for: placeId, userId: userId)
+
                 print("📝 Started tracking visit for place: \(placeId)")
+                print("📝 New session: \(sessionId.uuidString)")
 
                 // Save to Supabase
                 await self.saveVisitToSupabase(visit)
+            }
+
+            // Start background validation timer if not already running
+            if !LocationBackgroundValidationService.shared.isValidationRunning() {
+                LocationBackgroundValidationService.shared.startValidationTimer(
+                    geofenceManager: self,
+                    locationManager: self.sharedLocationManager,
+                    savedPlaces: LocationsManager.shared.savedPlaces
+                )
             }
         }
     }
@@ -399,13 +452,9 @@ class GeofenceManager: NSObject, ObservableObject {
                     return
                 }
 
-                // Store in recently closed visits for merge detection (before Supabase sync completes)
-                self.recentlyClosedVisits[placeId] = visit
-
-                // Clear after 5 minutes to avoid memory leak
-                DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
-                    self.recentlyClosedVisits.removeValue(forKey: placeId)
-                }
+                // NEW: Store in MergeDetectionService cache for merge detection
+                // This handles the scenario where app backgrounded and re-enters within 30 minutes
+                MergeDetectionService.shared.cacheClosedVisit(visit)
 
                 // Check if visit spans midnight and split if needed
                 let visitsToSave = visit.splitAtMidnightIfNeeded()
@@ -420,6 +469,9 @@ class GeofenceManager: NSObject, ObservableObject {
                     print("✅ Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
                     await self.updateVisitInSupabase(visit)
                 }
+
+                // Close session when all visits for this place are done
+                LocationSessionManager.shared.closeSession(visit.sessionId ?? UUID())
             } else {
                 // If not in memory (app was backgrounded/killed), fetch from Supabase
                 print("⚠️ Visit not found in memory, fetching from Supabase...")
@@ -428,80 +480,12 @@ class GeofenceManager: NSObject, ObservableObject {
         }
     }
 
-    /// Checks if there's a recent visit within 30 minutes that can be merged
-    /// Returns the visit record if found, nil otherwise
-    private func findRecentVisitWithin30Minutes(for placeId: UUID) async -> LocationVisitRecord? {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            print("⚠️ No user ID, cannot check for recent visits")
-            return nil
-        }
-
-        // CRITICAL FIX: Check in-memory closed visits first to avoid race condition
-        // A visit may have just exited but not yet synced to Supabase
-        if let recentVisit = self.recentlyClosedVisits[placeId] {
-            if let exitTime = recentVisit.exitTime {
-                let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
-                let durationMinutes = recentVisit.durationMinutes ?? 0
-
-                if durationMinutes < 5 {
-                    print("⏭️ MERGE CANDIDATE FILTERED: Visit too short (\(durationMinutes) min < 5 min minimum)")
-                    return nil
-                }
-
-                if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
-                    print("✅ Found recent closed visit in memory that ended \(minutesSinceExit) minutes ago - candidate for merging")
-                    return recentVisit
-                }
-            }
-        }
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            let response = try await client
-                .from("location_visits")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .eq("saved_place_id", value: placeId.uuidString)
-                .order("exit_time", ascending: false)
-                .limit(1)
-                .execute()
-
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-
-            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-
-            if let visit = visits.first, let exitTime = visit.exitTime {
-                let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
-                let durationMinutes = visit.durationMinutes ?? 0
-
-                // Filter out short visits (< 5 minutes) - they're noise
-                if durationMinutes < 5 {
-                    print("⏭️ MERGE CANDIDATE FILTERED: Visit too short (\(durationMinutes) min < 5 min minimum)")
-                    return nil
-                }
-
-                // If visit was completed within the last 30 minutes, it's a candidate for merging
-                if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
-                    print("✅ Found recent visit that ended \(minutesSinceExit) minutes ago - candidate for merging")
-                    return visit
-                } else if minutesSinceExit < 0 {
-                    // Exit time is in the future (shouldn't happen, but be safe)
-                    print("⚠️ Visit has future exit time, skipping merge")
-                    return nil
-                } else {
-                    print("ℹ️ Most recent visit ended \(minutesSinceExit) minutes ago (beyond 30 minute window)")
-                    return nil
-                }
-            } else {
-                print("ℹ️ No recent visits found for this location")
-                return nil
-            }
-        } catch {
-            print("❌ Error checking for recent visits: \(error)")
-            return nil
-        }
-    }
+    // DEPRECATED: Merge detection has been moved to MergeDetectionService
+    // See: MergeDetectionService.shared.findMergeCandidate()
+    // This provides three-scenario merge logic:
+    // - Scenario A: Open visit <5 min (app restart, 100% confidence)
+    // - Scenario B: Closed visit <3 min (quick return, 95% confidence)
+    // - Scenario C: Closed visit 3-10 min in geofence (GPS reconnect, 85% confidence)
 
     /// Fetches the most recent incomplete visit for a location and closes it
     private func findAndCloseIncompleteVisit(for placeId: UUID) async {
@@ -542,13 +526,8 @@ class GeofenceManager: NSObject, ObservableObject {
                         return
                     }
 
-                    // Store in recently closed visits for merge detection (for backgrounded app scenario)
-                    self.recentlyClosedVisits[placeId] = visit
-
-                    // Clear after 5 minutes to avoid memory leak
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
-                        self.recentlyClosedVisits.removeValue(forKey: placeId)
-                    }
+                    // NEW: Store in MergeDetectionService cache for merge detection (for backgrounded app scenario)
+                    MergeDetectionService.shared.cacheClosedVisit(visit)
 
                     // Check if visit spans midnight and split if needed
                     let visitsToSave = visit.splitAtMidnightIfNeeded()
@@ -611,54 +590,18 @@ class GeofenceManager: NSObject, ObservableObject {
 
     /// Load incomplete visits from Supabase and restore them to activeVisits
     /// Called on app startup to resume tracking
+    /// NEW: Delegates to LocationErrorRecoveryService for unified recovery handling
     func loadIncompleteVisitsFromSupabase() async {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             print("⚠️ No user ID, skipping incomplete visits load")
             return
         }
 
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            let response = try await client
-                .from("location_visits")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .order("entry_time", ascending: false)
-                .limit(10)
-                .execute()
-
-            // Decode the response data
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-
-            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-
-            // Find the first incomplete visit (no exit_time)
-            if let incompleteVisit = visits.first(where: { $0.exitTime == nil }) {
-                // Check if visit has been open for more than 24 hours - if so, auto-complete it
-                let hoursSinceEntry = Date().timeIntervalSince(incompleteVisit.entryTime) / 3600
-                if hoursSinceEntry > 24 {
-                    print("⚠️ Incomplete visit has been open for \(Int(hoursSinceEntry)) hours, auto-completing...")
-                    var completedVisit = incompleteVisit
-                    completedVisit.recordExit(exitTime: Date())
-                    await self.updateVisitInSupabase(completedVisit)
-                    print("✅ Auto-completed stale visit: \(incompleteVisit.savedPlaceId)")
-                } else {
-                    // DEDUPLICATION: Only restore if not already in activeVisits
-                    if self.activeVisits[incompleteVisit.savedPlaceId] == nil {
-                        self.activeVisits[incompleteVisit.savedPlaceId] = incompleteVisit
-                        print("📝 Restored incomplete visit from Supabase: \(incompleteVisit.savedPlaceId)")
-                        print("   Entry time: \(incompleteVisit.entryTime), Hours since entry: \(String(format: "%.1f", hoursSinceEntry))")
-                    } else {
-                        print("ℹ️ Incomplete visit already in activeVisits, skipping restore: \(incompleteVisit.savedPlaceId)")
-                    }
-                }
-            } else {
-                print("✅ No incomplete visits in Supabase")
-            }
-        } catch {
-            print("❌ Error loading incomplete visits: \(error)")
-        }
+        await LocationErrorRecoveryService.shared.recoverOnAppLaunch(
+            userId: userId,
+            geofenceManager: self,
+            sessionManager: LocationSessionManager.shared
+        )
     }
 
     /// Force cleanup of stale visits in memory
@@ -840,56 +783,26 @@ class GeofenceManager: NSObject, ObservableObject {
     }
 
     /// Merges a reopened visit by clearing exit_time and duration_minutes (continuous session)
-    private func mergeVisitInSupabase(_ visit: LocationVisitRecord) async {
-        guard SupabaseManager.shared.getCurrentUser() != nil else {
-            print("⚠️ No user ID, skipping Supabase visit merge")
-            return
-        }
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let updateData: [String: PostgREST.AnyJSON] = [
-            "exit_time": .null,
-            "duration_minutes": .null,
-            "updated_at": .string(formatter.string(from: visit.updatedAt))
-        ]
-
-        do {
-            print("🔄 Merging visit in Supabase - ID: \(visit.id.uuidString) (clearing exit_time and duration)")
-
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            try await client
-                .from("location_visits")
-                .update(updateData)
-                .eq("id", value: visit.id.uuidString)
-                .execute()
-
-            print("✅ VISIT MERGE SUCCESSFUL - ID: \(visit.id.uuidString)")
-
-            // Invalidate cached stats for this location
-            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
-        } catch {
-            print("❌ Error merging visit in Supabase: \(error)")
-        }
-    }
+    // DEPRECATED: Atomic merge operations have been moved to LocationErrorRecoveryService
+    // See: LocationErrorRecoveryService.shared.executeAtomicMerge()
+    // This ensures all-or-nothing operation preventing race conditions
 
     /// Auto-complete any active visits if user has moved too far from the location
     func autoCompleteVisitsIfOutOfRange(currentLocation: CLLocation, savedPlaces: [SavedPlace]) async {
-        let geofenceRadius: CLLocationDistance = 200 // 200 meters
-
         // Check each active visit
         for (placeId, var visit) in activeVisits {
             // Find the location for this visit
             if let place = savedPlaces.first(where: { $0.id == placeId }) {
+                // NEW: Use smart radius detection (user override or auto-detect)
+                let radius = GeofenceRadiusManager.shared.getRadius(for: place)
                 let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
                 let distance = currentLocation.distance(from: placeLocation)
 
                 // If user has moved beyond geofence radius, auto-complete the visit
-                if distance > geofenceRadius {
+                if distance > radius {
                     print("\n🚀 ===== AUTO-COMPLETING VISIT (OUT OF RANGE) =====")
                     print("🚀 Location: \(place.displayName)")
-                    print("🚀 Distance from location: \(String(format: "%.1f", distance))m (beyond \(geofenceRadius)m geofence)")
+                    print("🚀 Distance from location: \(String(format: "%.1f", distance))m (beyond \(Int(radius))m geofence)")
                     print("🚀 Active visit duration: \(Int(Date().timeIntervalSince(visit.entryTime) / 60)) minutes")
                     print("🚀 ===================================================\n")
 
