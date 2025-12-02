@@ -283,14 +283,14 @@ struct SpendingAndETAWidget: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-                .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                    radius: 8,
-                    x: 0,
-                    y: 2
-                )
         )
         .cornerRadius(12)
+        .shadow(
+            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+            radius: 8,
+            x: 0,
+            y: 2
+        )
     }
 
     private var daysLeftInMonth: Int {
