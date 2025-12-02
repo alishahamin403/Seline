@@ -236,16 +236,13 @@ struct SpendingAndETAWidget: View {
                     topCategoryView
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                )
             }
             .buttonStyle(PlainButtonStyle())
 
             // Right box - Upcoming Expenses
             VStack(alignment: .leading, spacing: 4) {
+                Spacer()
+
                 Text("Upcoming Expenses")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
@@ -277,14 +274,23 @@ struct SpendingAndETAWidget: View {
                         }
                     }
                 }
+
+                Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-            )
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                .shadow(
+                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                    radius: 8,
+                    x: 0,
+                    y: 2
+                )
+        )
+        .cornerRadius(12)
     }
 
     private var daysLeftInMonth: Int {
@@ -340,7 +346,7 @@ struct SpendingAndETAWidget: View {
                         let sevenDaysStart = calendar.startOfDay(for: sevenDaysFromNow)
 
                         // Check if instance is within next 7 days and is pending
-                        if instanceDay >= nowStart && instanceDay < sevenDaysStart {
+                        if instanceDay >= nowStart && instanceDay <= sevenDaysStart {
                             if instance.status == .pending {
                                 expenses.append((title: expense.title, amount: Double(truncating: expense.amount as NSDecimalNumber), date: instance.occurrenceDate))
                             }
@@ -372,34 +378,33 @@ struct SpendingAndETAWidget: View {
                 Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
                     .font(.system(size: 11, weight: .regular))
             }
-            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : Color(red: 0.4, green: 0.9, blue: 0.4))
+            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
         }
     }
 
     private var topCategoryView: some View {
         Group {
             if !categoryBreakdown.isEmpty {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(categoryBreakdown.prefix(2), id: \.category) { category in
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Text(categoryIcon(category.category))
-                                .font(.system(size: 14))
+                                .font(.system(size: 12))
 
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 1) {
                                 Text(category.category)
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 10, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
 
                                 Text(String(format: "%.0f%%", category.percentage))
-                                    .font(.system(size: 10, weight: .regular))
+                                    .font(.system(size: 9, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 4)
                         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
                         .cornerRadius(6)
                     }

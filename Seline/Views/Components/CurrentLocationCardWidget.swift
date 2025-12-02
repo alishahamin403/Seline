@@ -16,14 +16,14 @@ struct CurrentLocationCardWidget: View {
     @Binding var showAllLocationsSheet: Bool
 
     var body: some View {
-        Button(action: {
-            if let place = nearbyLocationPlace {
-                selectedPlace = place
-                showingPlaceDetail = true
-            }
-        }) {
-            HStack(spacing: 16) {
-                // LEFT HALF - Current Location Info
+        HStack(spacing: 12) {
+            // LEFT BOX - Current Location Info
+            Button(action: {
+                if let place = nearbyLocationPlace {
+                    selectedPlace = place
+                    showingPlaceDetail = true
+                }
+            }) {
                 VStack(alignment: .leading, spacing: 8) {
                     // Location name
                     Text(currentLocationName)
@@ -73,62 +73,75 @@ struct CurrentLocationCardWidget: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                        .shadow(
+                            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                            radius: 8,
+                            x: 0,
+                            y: 2
+                        )
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
 
-                // DIVIDER
-                Divider()
-                    .frame(height: 70)
+            // RIGHT BOX - Top 3 Locations
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Top 3")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                // RIGHT HALF - Top 3 Locations
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Top 3")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    Spacer()
 
-                        Spacer()
-
-                        if !topLocations.isEmpty {
-                            Button(action: {
-                                showAllLocationsSheet = true
-                            }) {
-                                Text("See All")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                            }
+                    if !topLocations.isEmpty {
+                        Button(action: {
+                            showAllLocationsSheet = true
+                        }) {
+                            Text("See All")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
                     }
+                }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        if topLocations.isEmpty {
-                            Text("No visits yet")
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                        } else {
-                            ForEach(topLocations.prefix(3), id: \.id) { location in
-                                HStack(spacing: 8) {
-                                    Text(location.displayName)
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    if topLocations.isEmpty {
+                        Text("No visits yet")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    } else {
+                        ForEach(topLocations.prefix(3), id: \.id) { location in
+                            HStack(spacing: 8) {
+                                Text(location.displayName)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .lineLimit(1)
 
-                                    Spacer()
+                                Spacer()
 
-                                    Text("\(location.visitCount)")
-                                        .font(.system(size: 10, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                }
+                                Text("\(location.visitCount)")
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                    .shadow(
+                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                        radius: 8,
+                        x: 0,
+                        y: 2
+                    )
             )
         }
-        .buttonStyle(PlainButtonStyle())
     }
 }

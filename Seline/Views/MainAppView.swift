@@ -1551,6 +1551,7 @@ struct MainAppView: View {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
                 .padding(.horizontal, 12)
+                .padding(.top, 12)
 
             // Current Location card
             CurrentLocationCardWidget(
@@ -1569,6 +1570,7 @@ struct MainAppView: View {
 
             // Events card - expands to fill available space
             EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
+                .padding(.horizontal, 12)
                 .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)

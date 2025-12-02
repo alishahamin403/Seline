@@ -755,27 +755,28 @@ struct MapsViewNew: View, Searchable {
         onLongPress: @escaping () -> Void
     ) -> some View {
         Button(action: onTap) {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
                 if navigationService.isLoading && isLocationSet {
                     ProgressView()
-                        .scaleEffect(0.7, anchor: .center)
+                        .scaleEffect(0.6, anchor: .center)
                 } else if let eta = eta, isLocationSet {
                     Text(eta)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                         .lineLimit(1)
                 } else {
                     Text("--")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.03))

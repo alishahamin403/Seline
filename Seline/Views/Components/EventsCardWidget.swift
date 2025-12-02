@@ -172,7 +172,7 @@ struct EventsCardWidget: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 12)
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
@@ -200,17 +200,25 @@ struct EventsCardWidget: View {
                         }
                     }
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 12)
             }
             .frame(maxHeight: .infinity)
-            .padding(.top, 2)
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        .padding(.horizontal, 0)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                .shadow(
+                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
+                    radius: 8,
+                    x: 0,
+                    y: 2
+                )
+        )
         .cornerRadius(12)
-        .padding(.horizontal, 12)
         .sheet(item: $selectedTask) { task in
             if showingEditTask {
                 NavigationView {

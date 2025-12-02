@@ -10,6 +10,7 @@ struct ReceiptStatsView: View {
     @State private var showRecurringExpenses = false
     @Environment(\.colorScheme) var colorScheme
     @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
+    @State private var showingNewReceiptSheet = false
 
     var isPopup: Bool = false
 
@@ -120,16 +121,10 @@ struct ReceiptStatsView: View {
 
                         Spacer()
 
-                        if !availableYears.isEmpty && currentYear != availableYears.max() {
-                            Button(action: { selectNextYear() }) {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .frame(width: 32, height: 32)
-                            }
-                        } else {
-                            // Placeholder to maintain spacing
-                            Color.clear
+                        Button(action: { showingNewReceiptSheet = true }) {
+                            Image(systemName: "receipt.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .frame(width: 32, height: 32)
                         }
                     }
@@ -262,6 +257,9 @@ struct ReceiptStatsView: View {
                 .presentationDetents([.medium, .large])
             }
         }
+        .fullScreenCover(isPresented: $showingNewReceiptSheet) {
+            NoteEditView(note: nil, isPresented: $showingNewReceiptSheet)
+        }
     }
 
     private func selectPreviousYear() {
@@ -304,6 +302,7 @@ struct ReceiptStatsView: View {
             return receiptMonth == month && receiptYear == year
         }
     }
+
 }
 
 // MARK: - Recurring Expense Stats Content
