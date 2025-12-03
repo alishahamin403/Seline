@@ -1591,16 +1591,16 @@ class SearchService: ObservableObject {
             let emailService = EmailService.shared
             // Get recent emails from inbox and sent, sorted by date
             var recentEmails = emailService.inboxEmails + emailService.sentEmails
-            recentEmails.sort { email1, email2 in
-                (email1.date ?? Date()) > (email2.date ?? Date())
+            recentEmails.sort { (email1: Email, email2: Email) in
+                email1.timestamp > email2.timestamp
             }
 
             for email in recentEmails.prefix(3) {
                 relatedItems.append(RelatedDataItem(
                     type: .email,
-                    title: email.subject ?? "No Subject",
-                    subtitle: email.from,
-                    date: email.date ?? Date()
+                    title: email.subject.isEmpty ? "No Subject" : email.subject,
+                    subtitle: email.sender.displayName,
+                    date: email.timestamp
                 ))
             }
         }
