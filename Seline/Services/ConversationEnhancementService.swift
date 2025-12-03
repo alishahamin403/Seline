@@ -193,8 +193,103 @@ class ConversationEnhancementService {
             )
         }
 
-        // Limit to 2-3 suggestions max
-        return Array(suggestions.prefix(3))
+        // Limit to 1-2 suggestions max (not 3) for better UX
+        return Array(suggestions.prefix(2))
+    }
+
+    /// Generates smart follow-up suggestions based on the LLM's actual response content
+    /// This creates more relevant suggestions by analyzing what was actually returned
+    func generateResponseBasedSuggestions(
+        for responseContent: String,
+        originalQuery: String,
+        queryType: QueryType
+    ) -> [FollowUpSuggestion] {
+        var suggestions: [FollowUpSuggestion] = []
+        let response = responseContent.lowercased()
+        let query = originalQuery.lowercased()
+
+        // Detect numbers/data in response and suggest drilling down
+        if response.contains("$") && response.contains("%") {
+            // Spending data with percentages - suggest breakdown
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "Which category should I focus on?",
+                    emoji: "🔍",
+                    category: .moreDetails
+                )
+            )
+        }
+
+        // Detect time periods and suggest comparison
+        if (response.contains("this month") || response.contains("last month") ||
+            response.contains("this week") || response.contains("last week")) &&
+           !query.contains("compare") {
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "How does this compare to last period?",
+                    emoji: "📊",
+                    category: .relatedData
+                )
+            )
+        }
+
+        // Detect patterns and suggest investigation
+        if response.contains("pattern") || response.contains("trend") || response.contains("increasing") {
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "Why do you think that's happening?",
+                    emoji: "🤔",
+                    category: .discovery
+                )
+            )
+        }
+
+        // Detect warnings and suggest action
+        if response.contains("above") || response.contains("unusual") || response.contains("higher than") {
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "Should I adjust my spending?",
+                    emoji: "⚠️",
+                    category: .action
+                )
+            )
+        }
+
+        // Detect schedule/calendar info and suggest next steps
+        if response.contains("scheduled") || response.contains("upcoming") || response.contains("calendar") {
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "Help me prepare for this",
+                    emoji: "📝",
+                    category: .action
+                )
+            )
+        }
+
+        // Detect locations and suggest related queries
+        if response.contains("@") || response.contains("location") || response.contains("visited") {
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "When was I last there?",
+                    emoji: "📍",
+                    category: .relatedData
+                )
+            )
+        }
+
+        // If response shows limited data, suggest broader search
+        if response.contains("don't have") || response.contains("not much") || response.contains("no data") {
+            suggestions.append(
+                FollowUpSuggestion(
+                    text: "Try searching a different timeframe",
+                    emoji: "📅",
+                    category: .moreDetails
+                )
+            )
+        }
+
+        // Limit to 1 suggestion max to avoid overwhelming
+        return Array(suggestions.prefix(1))
     }
 
     // MARK: - Pattern Detection & Insights
