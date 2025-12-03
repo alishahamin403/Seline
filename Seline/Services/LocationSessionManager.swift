@@ -123,8 +123,7 @@ class LocationSessionManager {
                 .limit(20)
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.supabaseDecoder()
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             // Group by session_id
@@ -234,8 +233,7 @@ class LocationSessionManager {
                 .order("entry_time", ascending: true)
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.supabaseDecoder()
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             return visits.isEmpty ? nil : visits

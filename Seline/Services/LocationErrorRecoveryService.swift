@@ -1,6 +1,46 @@
 import Foundation
 import PostgREST
 
+// MARK: - Custom Date Decoder for Flexible Date Formats
+extension JSONDecoder {
+    static func supabaseDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { container in
+            let dateString = try container.decode(String.self)
+
+            // Try ISO8601 with fractional seconds
+            let iso8601Formatter = ISO8601DateFormatter()
+            iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso8601Formatter.date(from: dateString) {
+                return date
+            }
+
+            // Try ISO8601 without fractional seconds
+            iso8601Formatter.formatOptions = [.withInternetDateTime]
+            if let date = iso8601Formatter.date(from: dateString) {
+                return date
+            }
+
+            // Try PostgreSQL timestamp format (YYYY-MM-DD HH:MM:SS.ffffff)
+            let postgresFormatter = DateFormatter()
+            postgresFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS"
+            postgresFormatter.timeZone = TimeZone(abbreviation: "UTC")
+            if let date = postgresFormatter.date(from: dateString) {
+                return date
+            }
+
+            // Try PostgreSQL format without microseconds
+            postgresFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            if let date = postgresFormatter.date(from: dateString) {
+                return date
+            }
+
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date string: \(dateString)")
+        }
+        return decoder
+    }
+}
+
 // MARK: - LocationErrorRecoveryService
 //
 // Handles app launch recovery, stale visit cleanup, and atomic merge operations
@@ -54,8 +94,7 @@ class LocationErrorRecoveryService {
                 .limit(1)
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.supabaseDecoder()
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             guard let mostRecentVisit = visits.first else {
@@ -100,8 +139,7 @@ class LocationErrorRecoveryService {
                 .order("entry_time", ascending: false)
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.supabaseDecoder()
             let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             if allVisits.isEmpty {
@@ -188,8 +226,7 @@ class LocationErrorRecoveryService {
                 .lt("entry_time", value: formatter.string(from: thresholdTime))
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.supabaseDecoder()
             var staleVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             print("Found \(staleVisits.count) stale visit(s)")
@@ -345,8 +382,7 @@ class LocationErrorRecoveryService {
                 .eq("user_id", value: userId.uuidString)
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let decoder = JSONDecoder.supabaseDecoder()
             let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
             // Filter for orphaned visits (session_id is nil)
