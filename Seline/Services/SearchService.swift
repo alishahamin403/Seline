@@ -1506,21 +1506,36 @@ class SearchService: ObservableObject {
             // Fetch recent/upcoming events from TaskManager
             let taskManager = TaskManager.shared
             let allTasks = taskManager.tasks.values.flatMap { $0 }
+            let now = Date()
             let relevantEvents = allTasks
                 .filter { task in
                     // Only include events that are from calendar
                     task.isFromCalendar &&
                     // And were created recently or are upcoming
-                    (abs(task.dueDate.timeIntervalSinceNow) < 7 * 24 * 60 * 60)  // Last 7 days
+                    {
+                        if let targetDate = task.targetDate {
+                            return abs(targetDate.timeIntervalSinceNow) < 7 * 24 * 60 * 60  // Last 7 days
+                        } else if let scheduledTime = task.scheduledTime {
+                            return abs(scheduledTime.timeIntervalSinceNow) < 7 * 24 * 60 * 60
+                        } else {
+                            return abs(task.createdAt.timeIntervalSinceNow) < 7 * 24 * 60 * 60
+                        }
+                    }()
+                }
+                .sorted { (task1, task2) in
+                    let date1 = task1.targetDate ?? task1.scheduledTime ?? task1.createdAt
+                    let date2 = task2.targetDate ?? task2.scheduledTime ?? task2.createdAt
+                    return date1 > date2  // Most recent first
                 }
                 .prefix(3)
 
             for task in relevantEvents {
+                let eventDate = task.targetDate ?? task.scheduledTime ?? task.createdAt
                 relatedItems.append(RelatedDataItem(
                     type: .event,
                     title: task.title,
                     subtitle: task.description?.isEmpty == false ? task.description : nil,
-                    date: task.dueDate
+                    date: eventDate
                 ))
             }
         }
@@ -1533,15 +1548,16 @@ class SearchService: ObservableObject {
             let allNotes = notesManager.notes
             // Get recent notes that might be relevant
             let recentNotes = allNotes
-                .sorted { $0.createdDate > $1.createdDate }
+                .sorted { $0.dateCreated > $1.dateCreated }
                 .prefix(3)
 
             for note in recentNotes {
+                let contentPreview = String(note.content.prefix(50)).trimmingCharacters(in: .whitespaces)
                 relatedItems.append(RelatedDataItem(
                     type: .note,
                     title: note.title,
-                    subtitle: note.content.prefix(50).trimmingCharacters(in: .whitespaces) + (note.content.count > 50 ? "..." : ""),
-                    date: note.createdDate
+                    subtitle: contentPreview + (note.content.count > 50 ? "..." : ""),
+                    date: note.dateCreated
                 ))
             }
         }
@@ -1552,18 +1568,18 @@ class SearchService: ObservableObject {
            lowerResponse.contains("went to") || lowerResponse.contains("@") {
 
             let locationsManager = LocationsManager.shared
-            let savedLocations = locationsManager.savedLocations
+            let savedPlaces = locationsManager.savedPlaces
             // Get recent saved locations
-            let recentLocations = savedLocations
-                .sorted { $0.timestamp > $1.timestamp }
+            let recentLocations = savedPlaces
+                .sorted { $0.dateCreated > $1.dateCreated }
                 .prefix(3)
 
-            for location in recentLocations {
+            for place in recentLocations {
                 relatedItems.append(RelatedDataItem(
                     type: .location,
-                    title: location.customName ?? location.address,
-                    subtitle: location.customName != nil ? location.address : nil,
-                    date: location.timestamp
+                    title: place.customName ?? place.name,
+                    subtitle: place.customName != nil ? place.address : nil,
+                    date: place.dateCreated
                 ))
             }
         }
@@ -1573,15 +1589,19 @@ class SearchService: ObservableObject {
            lowerResponse.contains("message") || lowerResponse.contains("sent") {
 
             let emailService = EmailService.shared
-            if let emails = await emailService.fetchRecentEmails(limit: 3) {
-                for email in emails {
-                    relatedItems.append(RelatedDataItem(
-                        type: .email,
-                        title: email.subject ?? "No Subject",
-                        subtitle: email.from,
-                        date: email.date
-                    ))
-                }
+            // Get recent emails from inbox and sent, sorted by date
+            var recentEmails = emailService.inboxEmails + emailService.sentEmails
+            recentEmails.sort { email1, email2 in
+                (email1.date ?? Date()) > (email2.date ?? Date())
+            }
+
+            for email in recentEmails.prefix(3) {
+                relatedItems.append(RelatedDataItem(
+                    type: .email,
+                    title: email.subject ?? "No Subject",
+                    subtitle: email.from,
+                    date: email.date ?? Date()
+                ))
             }
         }
 
