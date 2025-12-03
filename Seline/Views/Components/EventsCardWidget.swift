@@ -148,7 +148,7 @@ struct EventsCardWidget: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 12) {
             // Header with "Todos" and Add Event button
             HStack(spacing: 8) {
                 Text("Todos")
@@ -176,7 +176,7 @@ struct EventsCardWidget: View {
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 8) {
                     if sortedEvents.isEmpty {
                         Text("No events")
                             .font(.system(size: 13, weight: .regular))
@@ -203,7 +203,6 @@ struct EventsCardWidget: View {
                 .padding(.horizontal, 12)
             }
             .frame(maxHeight: .infinity)
-            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)

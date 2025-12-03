@@ -89,7 +89,7 @@ struct CurrentLocationCardWidget: View {
             .buttonStyle(PlainButtonStyle())
 
             // RIGHT BOX - Top 3 Locations
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Top 3")
                         .font(.system(size: 11, weight: .semibold))
@@ -108,7 +108,7 @@ struct CurrentLocationCardWidget: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 8) {
                     if topLocations.isEmpty {
                         Text("No visits yet")
                             .font(.system(size: 11, weight: .regular))
