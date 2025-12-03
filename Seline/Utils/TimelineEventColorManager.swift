@@ -4,7 +4,7 @@ struct TimelineEventColorManager {
     // MARK: - Google Brand Color Palette for Timeline Events
     // Using Google's brand colors for each filter type, with light/dark mode variants
 
-    enum FilterType: Equatable {
+    enum FilterType: Equatable, Hashable {
         case personal
         case personalSync        // Calendar synced events
         case tag(_ id: String)
