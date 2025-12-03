@@ -103,7 +103,7 @@ struct EventsCardWidget: View {
         switch filterType {
         case .personal:
             return "Personal"
-        case .synced:
+        case .personalSync:
             return "Synced"
         case .tag(let tagId):
             if let tag = tagManager.getTag(by: tagId) {
@@ -130,6 +130,20 @@ struct EventsCardWidget: View {
                 tagColorIndex: colorIndex
             )
         }
+    }
+
+    private func tagColorIndicatorRow(_ type: TimelineEventColorManager.FilterType, colorIndex: Int?) -> some View {
+        let color = filterAccentColor(type, colorIndex)
+        return VStack(spacing: 2) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(filterDisplayNameForType(type))
+                .font(.system(size: 8, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func eventRow(_ task: TaskItem) -> some View {
@@ -210,17 +224,7 @@ struct EventsCardWidget: View {
                 if !uniqueEventTypes.isEmpty {
                     HStack(spacing: 6) {
                         ForEach(uniqueEventTypes, id: \.filterType) { type, colorIndex in
-                            let color = filterAccentColor(type, colorIndex)
-                            VStack(spacing: 2) {
-                                Circle()
-                                    .fill(color)
-                                    .frame(width: 8, height: 8)
-                                Text(filterDisplayNameForType(type))
-                                    .font(.system(size: 8, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                                    .lineLimit(1)
-                            }
-                            .frame(maxWidth: .infinity)
+                            tagColorIndicatorRow(type, colorIndex: colorIndex)
                         }
                     }
                 }
