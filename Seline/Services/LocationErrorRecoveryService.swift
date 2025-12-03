@@ -5,7 +5,8 @@ import PostgREST
 extension JSONDecoder {
     static func supabaseDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { container in
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
             let dateString = try container.decode(String.self)
 
             // Try ISO8601 with fractional seconds
