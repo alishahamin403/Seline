@@ -703,8 +703,9 @@ class SelineAppContext {
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
                     let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
-                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+                    context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(timeInfo)\n"
 
                     if let description = event.description, !description.isEmpty {
                         context += "    \(description)\n"
@@ -721,8 +722,9 @@ class SelineAppContext {
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
                     let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
-                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+                    context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(timeInfo)\n"
 
                     if let description = event.description, !description.isEmpty {
                         context += "    \(description)\n"
@@ -739,8 +741,9 @@ class SelineAppContext {
                     let timeInfo = getTimeInfo(event, isAllDay: isAllDay)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
                     let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
-                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(timeInfo)\n"
+                    context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(timeInfo)\n"
                 }
             }
 
@@ -754,8 +757,9 @@ class SelineAppContext {
                     let dateStr = formatDate(event.targetDate ?? event.scheduledTime ?? currentDate)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
                     let recurringInfo = event.isRecurring ? " [RECURRING]" : ""
+                    let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
-                    context += "  \(status): \(event.title)\(recurringInfo) - \(categoryName) - \(dateStr)\n"
+                    context += "  \(status): \(event.title)\(recurringInfo)\(calendarIndicator) - \(categoryName) - \(dateStr)\n"
                 }
                 if upcoming.count > 10 {
                     context += "  ... and \(upcoming.count - 10) more upcoming events\n"
@@ -774,8 +778,9 @@ class SelineAppContext {
                     let categoryName = getCategoryName(for: event.tagId)
                     let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
-                    context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
+                    context += "  \(status): \(event.title)\(calendarIndicator) - \(categoryName) - \(dateStr)\n"
                 }
             }
 
@@ -790,8 +795,9 @@ class SelineAppContext {
                     let categoryName = getCategoryName(for: event.tagId)
                     let dateStr = formatDate(event.targetDate ?? event.completedDate ?? currentDate)
                     let status = event.isCompleted ? "✓ COMPLETED" : "○ PENDING"
+                    let calendarIndicator = event.isFromCalendar ? " [📅 CALENDAR]" : ""
 
-                    context += "  \(status): \(event.title) - \(categoryName) - \(dateStr)\n"
+                    context += "  \(status): \(event.title)\(calendarIndicator) - \(categoryName) - \(dateStr)\n"
                 }
                 if olderPastEvents.count > 5 {
                     context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
