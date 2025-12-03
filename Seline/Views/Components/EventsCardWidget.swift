@@ -136,7 +136,7 @@ struct EventsCardWidget: View {
         let color = filterAccentColor(type, colorIndex)
         return Text(filterDisplayNameForType(type))
             .font(.system(size: 9, weight: .medium))
-            .foregroundColor(.white)
+            .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
