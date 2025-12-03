@@ -172,7 +172,7 @@ struct EventsCardWidget: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 0)
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
@@ -200,7 +200,7 @@ struct EventsCardWidget: View {
                         }
                     }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 0)
             }
             .frame(maxHeight: .infinity)
             .padding(.top, 8)
