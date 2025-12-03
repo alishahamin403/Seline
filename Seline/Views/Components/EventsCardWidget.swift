@@ -192,7 +192,7 @@ struct EventsCardWidget: View {
                                 let nextFilterType = filterType(from: sortedEvents[index + 1])
                                 if currentFilterType != nextFilterType {
                                     Divider()
-                                        .frame(height: 0.5)
+                                        .frame(maxWidth: .infinity, maxHeight: 0.5)
                                         .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                                 }
                             }
