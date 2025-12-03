@@ -157,7 +157,7 @@ struct SpendingAndETAWidget: View {
         VStack(spacing: 0) {
             spendingCard()
         }
-        .frame(height: 130)
+        .frame(height: 170)
         .onAppear {
             locationService.requestLocationPermission()
             updateCategoryBreakdown()
@@ -229,8 +229,9 @@ struct SpendingAndETAWidget: View {
 
     private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 12) {
                 monthlySpendingView
+                Spacer()
                 topCategoryView
             }
             .frame(maxWidth: .infinity, alignment: .leading)
