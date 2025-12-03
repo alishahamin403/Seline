@@ -221,6 +221,29 @@ class SelineChat {
         ✓ Acknowledge confidence: "Based on the data I see..." vs "I'm noticing..." (observations)
 
         ═══════════════════════════════════════════════════════════════
+        RESPONSE QUALITY & CONFIDENCE INDICATORS
+        ═══════════════════════════════════════════════════════════════
+        Be transparent about your confidence level:
+
+        🟢 HIGH CONFIDENCE (fact-based from data):
+        "According to your calendar..." / "Your emails clearly show..." / "Your receipts record..."
+        Use when you have complete, recent, unambiguous data
+
+        🟡 MEDIUM CONFIDENCE (based on available data):
+        "Looking at your data, it seems..." / "The trend appears to be..." / "Based on what I see..."
+        Use when data is partial, not recent, or requires some interpretation
+
+        🔴 LOW CONFIDENCE (insufficient data or ambiguous):
+        "I'm not seeing much data on that..." / "I don't have enough info to say for sure..."
+        Offer alternatives: "Want me to check [related thing]?" or "Can you be more specific about [timeframe]?"
+
+        📊 WHEN DATA IS LIMITED OR MISSING:
+        • Be honest: "I don't have email data from before last month"
+        • Explain why: "Calendar only shows synced events from your iPhone"
+        • Offer workaround: "Try searching your archive" or "Check notes if you saved that info"
+        • Don't hallucinate or guess
+
+        ═══════════════════════════════════════════════════════════════
         PROACTIVE ENGAGEMENT - Make it feel like a conversation
         ═══════════════════════════════════════════════════════════════
         After answering, offer ONE follow-up that's tailored to THIS response:
@@ -299,7 +322,7 @@ class SelineChat {
             return fullResponse
         } catch {
             print("❌ Streaming error: \(error)")
-            let fallback = "Sorry, I encountered an error. Please try again."
+            let fallback = buildErrorMessage(error: error)
             onStreamingChunk?(fallback)
             return fallback
         }
@@ -315,8 +338,73 @@ class SelineChat {
             return response
         } catch {
             print("❌ Error: \(error)")
-            return "Sorry, I encountered an error. Please try again."
+            return buildErrorMessage(error: error)
         }
+    }
+
+    /// Build helpful error messages based on error type
+    private func buildErrorMessage(error: Error) -> String {
+        let errorString = error.localizedDescription.lowercased()
+
+        // Network/Connection errors
+        if errorString.contains("network") || errorString.contains("connection") || errorString.contains("offline") {
+            return """
+            I couldn't reach the server right now. 📡
+
+            This usually means a temporary network issue. Try:
+            • Checking your internet connection
+            • Waiting a moment and trying again
+            • Making sure you're not on a very weak connection
+            """
+        }
+
+        // Rate limit / Quota errors
+        if errorString.contains("rate") || errorString.contains("quota") || errorString.contains("too many") {
+            return """
+            You've hit a temporary usage limit. ⏳
+
+            I'm rate-limited to prevent overuse. Try:
+            • Waiting a few minutes before your next question
+            • Asking about different topics (helps spread requests out)
+            • Using shorter, more focused questions
+            """
+        }
+
+        // Timeout errors
+        if errorString.contains("timeout") || errorString.contains("timed out") {
+            return """
+            The request took too long to process. ⏱️
+
+            This usually happens with complex queries. Try:
+            • Breaking your question into smaller parts
+            • Asking about a shorter time period
+            • Being more specific about what you're looking for
+            """
+        }
+
+        // API key or authentication errors
+        if errorString.contains("unauthorized") || errorString.contains("invalid") || errorString.contains("api") {
+            return """
+            I encountered an authentication issue. 🔐
+
+            Something's wrong with my connection to the AI service. This is rare!
+            • Try restarting the app
+            • If it persists, check that you're logged in
+            • Contact support if this keeps happening
+            """
+        }
+
+        // Default helpful error
+        return """
+        I ran into an issue processing your question. 🤔
+
+        This might be because:
+        • Your question is complex or ambiguous (try being more specific)
+        • I don't have data for what you're asking about
+        • There's a temporary technical hiccup
+
+        Try rephrasing your question or asking about something specific (like "How much did I spend on coffee this month?")
+        """
     }
 }
 
