@@ -134,16 +134,15 @@ struct EventsCardWidget: View {
 
     private func tagColorIndicatorRow(_ type: TimelineEventColorManager.FilterType, colorIndex: Int?) -> some View {
         let color = filterAccentColor(type, colorIndex)
-        return VStack(spacing: 2) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(filterDisplayNameForType(type))
-                .font(.system(size: 8, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
+        return Text(filterDisplayNameForType(type))
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(color)
+            )
     }
 
     private func eventRow(_ task: TaskItem) -> some View {
@@ -196,29 +195,10 @@ struct EventsCardWidget: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Header with "Todos" and tag color indicators
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text("Todos")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    Spacer()
-
-                    Button(action: {
-                        HapticManager.shared.selection()
-                        showingAddEventPopup = true
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
+            HStack(spacing: 8) {
+                Text("Todos")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 // Tag color indicators
                 if !uniqueEventTypes.isEmpty {
@@ -228,6 +208,23 @@ struct EventsCardWidget: View {
                         }
                     }
                 }
+
+                Spacer()
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showingAddEventPopup = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 0)
 
