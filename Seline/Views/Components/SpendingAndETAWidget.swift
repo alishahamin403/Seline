@@ -244,6 +244,7 @@ struct SpendingAndETAWidget: View {
                             .font(.system(size: 11, weight: .regular))
                     }
                     .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
+                    .offset(y: -4)
 
                     Spacer()
                 }
