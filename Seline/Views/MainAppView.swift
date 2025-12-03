@@ -1547,7 +1547,7 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             // Spending + ETA widget - replaces weather widget
             SpendingAndETAWidget(isVisible: selectedTab == .home)
                 .padding(.horizontal, 12)
