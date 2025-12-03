@@ -412,6 +412,7 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
+        .padding(.top, 6)
     }
 
     private func extractAmount(from text: String) -> Double? {
