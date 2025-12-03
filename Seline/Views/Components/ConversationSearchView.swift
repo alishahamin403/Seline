@@ -184,28 +184,28 @@ struct ConversationSearchView: View {
     }
 
     private var inputBoxContainer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             inputTextEditor
             sendButton
         }
         .frame(height: inputHeight)
         .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(colorScheme == .dark ? Color.black : Color.white)
+            RoundedRectangle(cornerRadius: 18)
+                .fill(colorScheme == .dark ? Color(white: 0.08) : Color(white: 0.96))
         )
         .overlay(inputBoxBorder)
         .shadow(
             color: isInputFocused
-                ? (colorScheme == .dark ? Color.black.opacity(0.4) : Color.black.opacity(0.12))
-                : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.08)),
-            radius: isInputFocused ? 12 : 6,
+                ? (colorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.1))
+                : (colorScheme == .dark ? Color.black.opacity(0.15) : Color.black.opacity(0.05)),
+            radius: isInputFocused ? 10 : 4,
             x: 0,
-            y: isInputFocused ? 8 : 2
+            y: isInputFocused ? 6 : 1
         )
         .animation(.easeInOut(duration: 0.2), value: isInputFocused)
         .animation(.easeInOut(duration: 0.15), value: inputHeight)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     private var inputTextEditor: some View {
@@ -213,22 +213,22 @@ struct ConversationSearchView: View {
             // Placeholder
             if messageText.isEmpty {
                 Text("Ask a follow-up question...")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                     .allowsHitTesting(false)
             }
 
             TextEditor(text: $messageText)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 15, weight: .regular))
                 .focused($isInputFocused)
                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 .accentColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                 .textFieldStyle(PlainTextFieldStyle())
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .scrollContentBackground(.hidden)
                 .onChange(of: messageText) { _ in
                     updateInputHeight()
@@ -248,7 +248,7 @@ struct ConversationSearchView: View {
             context: nil
         ).height + 20
 
-        let maxHeight: CGFloat = 120
+        let maxHeight: CGFloat = 200  // Increased to show 4-5 lines
         let minHeight: CGFloat = 44
         inputHeight = min(max(estimatedHeight, minHeight), maxHeight)
     }
@@ -267,21 +267,23 @@ struct ConversationSearchView: View {
         }) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : (colorScheme == .dark ? Color.white : Color.black))
-                .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1.0 : 1.1, anchor: .center)
+                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.3) : (colorScheme == .dark ? Color.white : Color.black))
+                .opacity(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
+                .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.9 : 1.0, anchor: .center)
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
         .animation(.easeInOut(duration: 0.15), value: messageText)
-        .padding(.trailing, 10)
+        .padding(.trailing, 12)
+        .padding(.bottom, 2)
     }
 
     private var inputBoxBorder: some View {
-        RoundedRectangle(cornerRadius: 14)
+        RoundedRectangle(cornerRadius: 18)
             .stroke(
                 isInputFocused
-                    ? (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.15))
-                    : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08)),
+                    ? (colorScheme == .dark ? Color.white.opacity(0.25) : Color.black.opacity(0.12))
+                    : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)),
                 lineWidth: 1
             )
     }
