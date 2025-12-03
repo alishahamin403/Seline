@@ -1494,14 +1494,26 @@ class SearchService: ObservableObject {
     // MARK: - Related Data Fetching
 
     /// Fetches related data items (events, notes, locations, etc.) based on LLM response content
+    /// Only shows items that are ACTUALLY RELEVANT to the response intent
     func fetchRelatedDataForResponse(_ responseText: String) async -> [RelatedDataItem] {
         var relatedItems: [RelatedDataItem] = []
         let lowerResponse = responseText.lowercased()
 
-        // MARK: - Events/Calendar Detection
-        if lowerResponse.contains("event") || lowerResponse.contains("calendar") ||
-           lowerResponse.contains("meeting") || lowerResponse.contains("appointment") ||
-           lowerResponse.contains("scheduled") || lowerResponse.contains("time") {
+        // Check if response actually discusses the data type (not just mentioning it in passing)
+        // Be conservative - only show items if they're clearly relevant to the response intent
+
+        // MARK: - Events/Calendar Detection (Only if discussing specific events/times)
+        let eventKeywords = ["event", "calendar", "meeting", "appointment", "scheduled", "when", "time"]
+        let hasEventContext = eventKeywords.contains { keyword in
+            // Make sure it's not just passing mention - look for context phrases
+            let hasContext = lowerResponse.contains(keyword) &&
+                (lowerResponse.contains("you have") || lowerResponse.contains("you're") ||
+                 lowerResponse.contains("upcoming") || lowerResponse.contains("next ") ||
+                 lowerResponse.contains("scheduled for") || lowerResponse.contains("at "))
+            return hasContext
+        } || lowerResponse.contains("📅") || lowerResponse.contains("calendar")
+
+        if hasEventContext {
 
             // Fetch recent/upcoming events from TaskManager
             let taskManager = TaskManager.shared
@@ -1540,10 +1552,17 @@ class SearchService: ObservableObject {
             }
         }
 
-        // MARK: - Notes Detection
-        if lowerResponse.contains("note") || lowerResponse.contains("notes") ||
-           lowerResponse.contains("memo") || lowerResponse.contains("reminder") {
+        // MARK: - Notes Detection (Only if discussing notes specifically)
+        let noteKeywords = ["note", "notes", "memo", "reminder", "document"]
+        let hasNoteContext = noteKeywords.contains { keyword in
+            let hasContext = lowerResponse.contains(keyword) &&
+                (lowerResponse.contains("you have") || lowerResponse.contains("saved") ||
+                 lowerResponse.contains("found") || lowerResponse.contains("check your") ||
+                 lowerResponse.contains("your notes") || lowerResponse.contains("note about"))
+            return hasContext
+        } || lowerResponse.contains("📝")
 
+        if hasNoteContext {
             let notesManager = NotesManager.shared
             let allNotes = notesManager.notes
             // Get recent notes that might be relevant
@@ -1562,11 +1581,17 @@ class SearchService: ObservableObject {
             }
         }
 
-        // MARK: - Locations Detection
-        if lowerResponse.contains("location") || lowerResponse.contains("place") ||
-           lowerResponse.contains("visited") || lowerResponse.contains("been to") ||
-           lowerResponse.contains("went to") || lowerResponse.contains("@") {
+        // MARK: - Locations Detection (Only if discussing specific places)
+        let locationKeywords = ["location", "place", "visit", "visited", "been to", "went to", "shop", "restaurant", "cafe"]
+        let hasLocationContext = locationKeywords.contains { keyword in
+            let hasContext = lowerResponse.contains(keyword) &&
+                (lowerResponse.contains("you've") || lowerResponse.contains("you've been") ||
+                 lowerResponse.contains("you visited") || lowerResponse.contains("near") ||
+                 lowerResponse.contains("favorite") || lowerResponse.contains("saved place"))
+            return hasContext
+        } || lowerResponse.contains("📍")
 
+        if hasLocationContext {
             let locationsManager = LocationsManager.shared
             let savedPlaces = locationsManager.savedPlaces
             // Get recent saved locations
@@ -1584,10 +1609,17 @@ class SearchService: ObservableObject {
             }
         }
 
-        // MARK: - Email Detection
-        if lowerResponse.contains("email") || lowerResponse.contains("mail") ||
-           lowerResponse.contains("message") || lowerResponse.contains("sent") {
+        // MARK: - Email Detection (Only if discussing specific emails)
+        let emailKeywords = ["email", "mail", "message", "sent", "received", "inbox"]
+        let hasEmailContext = emailKeywords.contains { keyword in
+            let hasContext = lowerResponse.contains(keyword) &&
+                (lowerResponse.contains("you received") || lowerResponse.contains("you have") ||
+                 lowerResponse.contains("from ") || lowerResponse.contains("sent you") ||
+                 lowerResponse.contains("check your") || lowerResponse.contains("your email"))
+            return hasContext
+        } || lowerResponse.contains("📧")
 
+        if hasEmailContext {
             let emailService = EmailService.shared
             // Get recent emails from inbox and sent, sorted by date
             var recentEmails = emailService.inboxEmails + emailService.sentEmails

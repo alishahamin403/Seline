@@ -597,7 +597,6 @@ struct ConversationMessageView: View {
                 Text(message.text)
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(message.isUser ? (colorScheme == .dark ? Color.black : Color.white) : Color.shadcnForeground(colorScheme))
-                    .textSelection(.enabled)
                     .lineLimit(nil)
             }
         }
@@ -1055,46 +1054,37 @@ struct DataTypeCardView: View {
     private var typeIcon: some View {
         switch item.type {
         case .receipt:
-            Image(systemName: "receipt.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.green)
+            Image(systemName: "receipt")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
         case .event:
-            Image(systemName: "calendar.badge.clock")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.blue)
+            Image(systemName: "calendar")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
         case .note:
-            Image(systemName: "doc.text.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.orange)
+            Image(systemName: "doc.text")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
         case .location:
-            Image(systemName: "mappin.circle.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.red)
+            Image(systemName: "mappin")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
         case .email:
-            Image(systemName: "envelope.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.purple)
+            Image(systemName: "envelope")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
         }
     }
 
     @ViewBuilder
     private var typeIconBackground: some View {
-        switch item.type {
-        case .receipt:
-            Color.green.opacity(colorScheme == .dark ? 0.15 : 0.1)
-        case .event:
-            Color.blue.opacity(colorScheme == .dark ? 0.15 : 0.1)
-        case .note:
-            Color.orange.opacity(colorScheme == .dark ? 0.15 : 0.1)
-        case .location:
-            Color.red.opacity(colorScheme == .dark ? 0.15 : 0.1)
-        case .email:
-            Color.purple.opacity(colorScheme == .dark ? 0.15 : 0.1)
-        }
+        colorScheme == .dark
+            ? Color.white.opacity(0.08)
+            : Color.black.opacity(0.05)
     }
 
     @ViewBuilder
@@ -1104,7 +1094,7 @@ struct DataTypeCardView: View {
             if let amount = item.amount {
                 Text(String(format: "$%.2f", amount))
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.green)
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
             }
 
         case .event:
@@ -1127,10 +1117,9 @@ struct DataTypeCardView: View {
             }
 
         case .email:
-            Image(systemName: "star.fill")
+            Image(systemName: "arrow.up.right")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.yellow)
-                .opacity(0.6)
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
         }
     }
 
