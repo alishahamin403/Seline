@@ -194,12 +194,14 @@ struct EventsCardWidget: View {
                                     Divider()
                                         .frame(maxWidth: .infinity, maxHeight: 0.5)
                                         .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
+                                        .padding(.horizontal, -12)
                                 }
                             }
                         }
                     }
                 }
                 .padding(.horizontal, 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: .infinity)
             .padding(.top, 8)
