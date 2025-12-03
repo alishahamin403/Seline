@@ -193,7 +193,7 @@ struct EventsCardWidget: View {
                                 if currentFilterType != nextFilterType {
                                     Divider()
                                         .frame(height: 0.5)
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                                 }
                             }
                         }
