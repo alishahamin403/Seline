@@ -19,12 +19,21 @@ class SelineChat {
     private let appContext: SelineAppContext
     private let openAIService: OpenAIService
     private var isStreaming = false
+    private var shouldCancelStreaming = false
 
     // MARK: - Callbacks
 
     var onMessageAdded: ((ChatMessage) -> Void)?
     var onStreamingChunk: ((String) -> Void)?
     var onStreamingComplete: (() -> Void)?
+    var onStreamingStateChanged: ((Bool) -> Void)? // Notify when streaming starts/stops
+
+    // MARK: - Public Properties
+
+    /// True when LLM is actively streaming a response
+    var isCurrentlyStreaming: Bool {
+        isStreaming
+    }
 
     // MARK: - Init
 
@@ -75,6 +84,12 @@ class SelineChat {
     func clearHistory() async {
         conversationHistory = []
         await appContext.refresh()
+    }
+
+    /// Cancel the currently streaming response
+    func cancelStreaming() {
+        print("🛑 Cancelling streaming response...")
+        shouldCancelStreaming = true
     }
 
     /// Get context size estimate (for display)
@@ -307,6 +322,8 @@ class SelineChat {
 
     private func getStreamingResponse(systemPrompt: String, messages: [[String: String]]) async -> String {
         isStreaming = true
+        shouldCancelStreaming = false
+        onStreamingStateChanged?(true)
         var fullResponse = ""
 
         do {
@@ -314,16 +331,29 @@ class SelineChat {
                 systemPrompt: systemPrompt,
                 messages: messages
             ) { chunk in
+                // Check if streaming was cancelled
+                if self.shouldCancelStreaming {
+                    return
+                }
                 self.onStreamingChunk?(chunk)
+            }
+
+            // Check if we cancelled
+            if shouldCancelStreaming {
+                fullResponse = fullResponse.isEmpty ? "⏹️ Response cancelled by user." : fullResponse
+                shouldCancelStreaming = false
             }
 
             onStreamingComplete?()
             isStreaming = false
+            onStreamingStateChanged?(false)
             return fullResponse
         } catch {
             print("❌ Streaming error: \(error)")
             let fallback = buildErrorMessage(error: error)
             onStreamingChunk?(fallback)
+            isStreaming = false
+            onStreamingStateChanged?(false)
             return fallback
         }
     }

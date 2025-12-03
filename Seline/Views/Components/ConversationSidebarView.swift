@@ -73,6 +73,47 @@ struct ConversationSidebarView: View {
 
     private var headerView: some View {
         VStack(spacing: 12) {
+            // Quick stats
+            VStack(spacing: 6) {
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(searchService.savedConversations.count)")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        Text("Total Chats")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(getTodayConversationCount())")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        Text("Today")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(getTotalMessages())")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        Text("Messages")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                .cornerRadius(8)
+
+                Divider()
+                    .padding(.horizontal, 4)
+            }
+
             HStack(spacing: 12) {
                 if isEditMode {
                     Button(action: {
@@ -303,6 +344,21 @@ struct ConversationSidebarView: View {
 
     private func getRowShadowY(for conversation: SavedConversation) -> CGFloat {
         hoveredConversationId == conversation.id ? 2 : 0
+    }
+
+    // MARK: - Sidebar Stats Helpers
+
+    private func getTodayConversationCount() -> Int {
+        let calendar = Calendar.current
+        return searchService.savedConversations.filter { conversation in
+            calendar.isDateInToday(conversation.createdAt)
+        }.count
+    }
+
+    private func getTotalMessages() -> Int {
+        searchService.savedConversations.reduce(0) { total, conversation in
+            total + conversation.messages.count
+        }
     }
 }
 

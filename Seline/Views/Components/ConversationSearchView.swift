@@ -9,6 +9,9 @@ struct ConversationSearchView: View {
     @State private var scrollToBottom: UUID?
     @State private var showingSidebar = false
     @State private var inputHeight: CGFloat = 44
+    @State private var isStreamingResponse = false
+    @State private var streamingStartTime: Date?
+    @State private var elapsedTimeUpdateTrigger = UUID() // Triggers elapsed time updates
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -30,6 +33,11 @@ struct ConversationSearchView: View {
 
             // Main conversation view
             VStack(spacing: 0) {
+                // Streaming indicator bar
+                if isStreamingResponse {
+                    streamingIndicatorView
+                }
+
                 headerView
                 conversationScrollView
                 inputAreaView
@@ -47,10 +55,28 @@ struct ConversationSearchView: View {
             }
         }
         // ZStack with sidebar overlay
+        .onChange(of: searchService.isLoadingQuestionResponse) { newValue in
+            if newValue {
+                // Started streaming
+                isStreamingResponse = true
+                streamingStartTime = Date()
+            } else {
+                // Stopped streaming
+                isStreamingResponse = false
+                streamingStartTime = nil
+            }
+        }
         .onAppear {
             isInputFocused = true
             // Load saved conversations from local storage when conversation view appears
             searchService.loadConversationHistoryLocally()
+
+            // Set up timer to update elapsed time while streaming
+            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+                if isStreamingResponse {
+                    elapsedTimeUpdateTrigger = UUID()
+                }
+            }
         }
         .onDisappear {
             // Generate final title and save conversation before clearing
@@ -67,6 +93,190 @@ struct ConversationSearchView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Subviews
+
+    private var emptyStateView: some View {
+        VStack(spacing: 32) {
+            Spacer()
+
+            VStack(spacing: 16) {
+                // Icon/greeting
+                Text("👋")
+                    .font(.system(size: 64))
+
+                Text("Hi! I'm Seline")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                Text("Your intelligent personal assistant")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+
+            // Help section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("I can help with:")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 16)
+
+                VStack(spacing: 8) {
+                    emptyStateCard(emoji: "💰", title: "Spending analysis", subtitle: "Track your expenses")
+                    emptyStateCard(emoji: "📅", title: "Schedule planning", subtitle: "Manage your calendar")
+                    emptyStateCard(emoji: "📝", title: "Note search", subtitle: "Find your notes")
+                    emptyStateCard(emoji: "📍", title: "Location insights", subtitle: "Explore places you go")
+                }
+                .padding(.horizontal, 16)
+            }
+
+            // Example questions
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Try asking:")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 16)
+
+                VStack(spacing: 6) {
+                    emptyStateExample("💡 How much did I spend on coffee this month?")
+                    emptyStateExample("💡 What's my busiest day this week?")
+                    emptyStateExample("💡 Show me my recent dining expenses")
+                }
+                .padding(.horizontal, 16)
+            }
+
+            VStack(alignment: .center, spacing: 8) {
+                Text("Start typing below or tap an example above!")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+
+            Spacer()
+        }
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func emptyStateCard(emoji: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 12) {
+            Text(emoji)
+                .font(.system(size: 20))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        .cornerRadius(8)
+    }
+
+    private func emptyStateExample(_ text: String) -> some View {
+        Button(action: {
+            // Extract the question without the emoji
+            let question = String(text.dropFirst(2))
+            HapticManager.shared.selection()
+            Task {
+                await searchService.addConversationMessage(question)
+            }
+        }) {
+            HStack(spacing: 8) {
+                Text(text)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .multilineTextAlignment(.leading)
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+            .cornerRadius(8)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    // MARK: - Subviews
+
+    private var streamingIndicatorView: some View {
+        VStack(spacing: 0) {
+            // Progress bar animation
+            HStack(spacing: 12) {
+                VStack(spacing: 2) {
+                    // Animated progress bar
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            // Background bar
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+
+                            // Animated progress
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.blue.opacity(0.6),
+                                            Color.blue.opacity(0.8)
+                                        ]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geometry.size.width * 0.6)
+                                .animation(.linear(duration: 0.8).repeatForever(autoreverses: true), value: isStreamingResponse)
+                        }
+                    }
+                    .frame(height: 2)
+
+                    // Status text
+                    HStack(spacing: 6) {
+                        Text("✍️ Writing response...")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+
+                        Spacer()
+
+                        if let startTime = streamingStartTime {
+                            Text(formatElapsedTime(since: startTime))
+                                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        }
+                    }
+                }
+
+                // Stop button
+                Button(action: {
+                    HapticManager.shared.medium()
+                    isStreamingResponse = false
+                    searchService.stopCurrentRequest()
+                }) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+
+            Divider()
+                .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
+        }
+        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .transition(.opacity)
     }
 
     // MARK: - Subviews
@@ -121,30 +331,35 @@ struct ConversationSearchView: View {
     private var conversationScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    ForEach(searchService.conversationHistory) { message in
-                        ConversationMessageView(
-                            message: message,
-                            onSendMessage: { text in
-                                await searchService.addConversationMessage(text)
-                            }
-                        )
-                            .id(message.id)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .bottom)),
-                                removal: .opacity
-                            ))
-                    }
+                if searchService.conversationHistory.isEmpty {
+                    // Empty state
+                    emptyStateView
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(searchService.conversationHistory) { message in
+                            ConversationMessageView(
+                                message: message,
+                                onSendMessage: { text in
+                                    await searchService.addConversationMessage(text)
+                                }
+                            )
+                                .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .move(edge: .bottom)),
+                                    removal: .opacity
+                                ))
+                        }
 
-                    if searchService.isLoadingQuestionResponse {
-                        TypingIndicatorView(colorScheme: colorScheme)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .bottom)),
-                                removal: .opacity
-                            ))
+                        if searchService.isLoadingQuestionResponse {
+                            TypingIndicatorView(colorScheme: colorScheme)
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .move(edge: .bottom)),
+                                    removal: .opacity
+                                ))
+                        }
                     }
+                    .padding(.vertical, 16)
                 }
-                .padding(.vertical, 16)
                 .onChange(of: searchService.conversationHistory.count) { _ in
                     withAnimation(.easeInOut(duration: 0.3)) {
                         if let lastMessage = searchService.conversationHistory.last {
@@ -253,6 +468,18 @@ struct ConversationSearchView: View {
         inputHeight = min(max(estimatedHeight, minHeight), maxHeight)
     }
 
+    private func formatElapsedTime(since startDate: Date) -> String {
+        let elapsed = Date().timeIntervalSince(startDate)
+        let seconds = Int(elapsed) % 60
+        let minutes = Int(elapsed) / 60
+
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s"
+        } else {
+            return "\(seconds)s"
+        }
+    }
+
     private var sendButton: some View {
         Button(action: {
             if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -354,7 +581,7 @@ struct ConversationMessageView: View {
     private var messageContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             messageText
-            relatedReceiptsView
+            relatedDataView
             followUpSuggestionsView
         }
     }
@@ -376,33 +603,70 @@ struct ConversationMessageView: View {
     }
 
     @ViewBuilder
-    private var relatedReceiptsView: some View {
-        if !message.isUser, let relatedData = message.relatedData {
-            let receipts = relatedData.filter { $0.type == .receipt }
-            if !receipts.isEmpty {
-                var seenIds = Set<UUID>()
-                let uniqueReceipts = receipts.filter { receipt in
-                    let isNew = !seenIds.contains(receipt.id)
-                    seenIds.insert(receipt.id)
-                    return isNew
-                }
+    private var relatedDataView: some View {
+        if !message.isUser, let relatedData = message.relatedData, !relatedData.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Divider().padding(.vertical, 4)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Divider().padding(.vertical, 4)
-                    ForEach(uniqueReceipts) { receipt in
-                        ReceiptCardView(
-                            id: receipt.id,
-                            merchant: receipt.merchant ?? receipt.title,
-                            date: receipt.date,
-                            amount: receipt.amount,
-                            colorScheme: colorScheme,
-                            onTap: {
-                                print("Receipt tapped: \(receipt.id)")
+                // Group data by type
+                let groupedData = Dictionary(grouping: relatedData) { $0.type }
+
+                // Display each data type group
+                ForEach(Array(groupedData.keys).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { dataType in
+                    if let items = groupedData[dataType], !items.isEmpty {
+                        // Data type header
+                        HStack(spacing: 6) {
+                            Text(iconForDataType(dataType))
+                                .font(.system(size: 14))
+                            Text(labelForDataType(dataType))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        }
+                        .padding(.top, 4)
+
+                        // Items for this type
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(items.prefix(3)) { item in // Limit to 3 items per type
+                                DataTypeCardView(
+                                    item: item,
+                                    colorScheme: colorScheme,
+                                    onTap: {
+                                        print("\(item.type) tapped: \(item.id)")
+                                    }
+                                )
                             }
-                        )
+
+                            // Show "more" indicator if there are additional items
+                            if items.count > 3 {
+                                Text("+ \(items.count - 3) more")
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+                                    .padding(.top, 4)
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private func iconForDataType(_ type: RelatedDataItem.DataType) -> String {
+        switch type {
+        case .receipt: return "🧾"
+        case .event: return "📅"
+        case .note: return "📝"
+        case .location: return "📍"
+        case .email: return "📧"
+        }
+    }
+
+    private func labelForDataType(_ type: RelatedDataItem.DataType) -> String {
+        switch type {
+        case .receipt: return "Receipts"
+        case .event: return "Events"
+        case .note: return "Notes"
+        case .location: return "Locations"
+        case .email: return "Emails"
         }
     }
 
@@ -711,6 +975,180 @@ struct TypingIndicatorView: View {
             return -2
         } else {
             return 0
+        }
+    }
+}
+
+// MARK: - Unified Data Type Card Component
+
+struct DataTypeCardView: View {
+    let item: RelatedDataItem
+    let colorScheme: ColorScheme
+    let onTap: () -> Void
+
+    @State private var isPressed = false
+
+    private var backgroundColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(isPressed ? 0.1 : 0.05)
+            : Color.black.opacity(isPressed ? 0.08 : 0.03)
+    }
+
+    private var borderColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(isPressed ? 0.2 : 0.1)
+            : Color.black.opacity(isPressed ? 0.15 : 0.08)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Type-specific icon
+            typeIcon
+                .frame(width: 32, height: 32)
+                .background(typeIconBackground)
+                .cornerRadius(8)
+
+            // Main content
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .lineLimit(1)
+
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            // Right-side info based on type
+            rightInfoView
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(borderColor, lineWidth: 0.5)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            HapticManager.shared.selection()
+            onTap()
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
+    }
+
+    @ViewBuilder
+    private var typeIcon: some View {
+        switch item.type {
+        case .receipt:
+            Image(systemName: "receipt.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.green)
+
+        case .event:
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.blue)
+
+        case .note:
+            Image(systemName: "doc.text.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.orange)
+
+        case .location:
+            Image(systemName: "mappin.circle.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.red)
+
+        case .email:
+            Image(systemName: "envelope.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.purple)
+        }
+    }
+
+    @ViewBuilder
+    private var typeIconBackground: some View {
+        switch item.type {
+        case .receipt:
+            Color.green.opacity(colorScheme == .dark ? 0.15 : 0.1)
+        case .event:
+            Color.blue.opacity(colorScheme == .dark ? 0.15 : 0.1)
+        case .note:
+            Color.orange.opacity(colorScheme == .dark ? 0.15 : 0.1)
+        case .location:
+            Color.red.opacity(colorScheme == .dark ? 0.15 : 0.1)
+        case .email:
+            Color.purple.opacity(colorScheme == .dark ? 0.15 : 0.1)
+        }
+    }
+
+    @ViewBuilder
+    private var rightInfoView: some View {
+        switch item.type {
+        case .receipt:
+            if let amount = item.amount {
+                Text(String(format: "$%.2f", amount))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.green)
+            }
+
+        case .event:
+            if let date = item.date {
+                Text(formatEventTime(date))
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+            }
+
+        case .note:
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+
+        case .location:
+            if let date = item.date {
+                Text(formatLocationTime(date))
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+            }
+
+        case .email:
+            Image(systemName: "star.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.yellow)
+                .opacity(0.6)
+        }
+    }
+
+    private func formatEventTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private func formatLocationTime(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Today"
+        } else if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            return formatter.string(from: date)
         }
     }
 }

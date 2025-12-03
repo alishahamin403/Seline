@@ -912,6 +912,13 @@ class SearchService: ObservableObject {
         updateConversationTitle()
     }
 
+    /// Stop/cancel the currently streaming response
+    func stopCurrentRequest() {
+        selineChat?.cancelStreaming()
+        isLoadingQuestionResponse = false
+        print("🛑 User cancelled the response")
+    }
+
     /// Start a conversation with an initial question
     func startConversation(with initialQuestion: String) async {
         startNewConversation()
