@@ -105,6 +105,7 @@ struct ConversationSearchView: View {
                 // Icon/greeting
                 Text("👋")
                     .font(.system(size: 64))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Text("Hi! I'm Seline")
                     .font(.system(size: 24, weight: .bold))
@@ -360,11 +361,11 @@ struct ConversationSearchView: View {
                     }
                     .padding(.vertical, 16)
                 }
-                .onChange(of: searchService.conversationHistory.count) { _ in
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        if let lastMessage = searchService.conversationHistory.last {
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                        }
+            }
+            .onChange(of: searchService.conversationHistory.count) { _ in
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    if let lastMessage = searchService.conversationHistory.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
                 }
             }

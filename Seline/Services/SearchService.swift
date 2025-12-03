@@ -631,19 +631,31 @@ class SearchService: ObservableObject {
         // Callback when streaming completes
         chat.onStreamingComplete = { [weak self] in
             DispatchQueue.main.async {
-                // Update final message with completion time
+                // Update final message with completion time and fetch related data
                 if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
-                    let finalMsg = ConversationMessage(
-                        id: streamingMessageID,
-                        isUser: false,
-                        text: self?.conversationHistory[lastIndex].text ?? "",
-                        timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
-                        intent: self?.conversationHistory[lastIndex].intent ?? .general,
-                        timeStarted: self?.conversationHistory[lastIndex].timeStarted,
-                        timeFinished: Date()
-                    )
-                    self?.conversationHistory[lastIndex] = finalMsg
-                    self?.saveConversationLocally()
+                    let responseText = self?.conversationHistory[lastIndex].text ?? ""
+
+                    // Fetch related data based on response
+                    Task {
+                        let relatedData = await self?.fetchRelatedDataForResponse(responseText) ?? []
+
+                        DispatchQueue.main.async {
+                            if let lastIndex = self?.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
+                                let finalMsg = ConversationMessage(
+                                    id: streamingMessageID,
+                                    isUser: false,
+                                    text: self?.conversationHistory[lastIndex].text ?? "",
+                                    timestamp: self?.conversationHistory[lastIndex].timestamp ?? Date(),
+                                    intent: self?.conversationHistory[lastIndex].intent ?? .general,
+                                    relatedData: relatedData.isEmpty ? nil : relatedData,
+                                    timeStarted: self?.conversationHistory[lastIndex].timeStarted,
+                                    timeFinished: Date()
+                                )
+                                self?.conversationHistory[lastIndex] = finalMsg
+                                self?.saveConversationLocally()
+                            }
+                        }
+                    }
                 }
 
                 self?.isLoadingQuestionResponse = false
@@ -654,8 +666,10 @@ class SearchService: ObservableObject {
         // Send message through SelineChat (handles both streaming and non-streaming based on enableStreamingResponses)
         let response = await chat.sendMessage(userMessage, streaming: enableStreamingResponses)
 
-        // For non-streaming responses, add message synchronously
+        // For non-streaming responses, add message synchronously with related data
         if !enableStreamingResponses {
+            let relatedData = await fetchRelatedDataForResponse(response)
+
             DispatchQueue.main.async {
                 let assistantMsg = ConversationMessage(
                     id: UUID(),
@@ -663,6 +677,7 @@ class SearchService: ObservableObject {
                     text: response,
                     timestamp: Date(),
                     intent: .general,
+                    relatedData: relatedData.isEmpty ? nil : relatedData,
                     timeStarted: thinkStartTime,
                     timeFinished: Date()
                 )
@@ -1474,6 +1489,114 @@ class SearchService: ObservableObject {
                 )
             }
         }
+    }
+
+    // MARK: - Related Data Fetching
+
+    /// Fetches related data items (events, notes, locations, etc.) based on LLM response content
+    func fetchRelatedDataForResponse(_ responseText: String) async -> [RelatedDataItem] {
+        var relatedItems: [RelatedDataItem] = []
+        let lowerResponse = responseText.lowercased()
+
+        // MARK: - Events/Calendar Detection
+        if lowerResponse.contains("event") || lowerResponse.contains("calendar") ||
+           lowerResponse.contains("meeting") || lowerResponse.contains("appointment") ||
+           lowerResponse.contains("scheduled") || lowerResponse.contains("time") {
+
+            // Fetch recent/upcoming events from TaskManager
+            let taskManager = TaskManager.shared
+            let allTasks = taskManager.tasks.values.flatMap { $0 }
+            let relevantEvents = allTasks
+                .filter { task in
+                    // Only include events that are from calendar
+                    task.isFromCalendar &&
+                    // And were created recently or are upcoming
+                    (abs(task.dueDate.timeIntervalSinceNow) < 7 * 24 * 60 * 60)  // Last 7 days
+                }
+                .prefix(3)
+
+            for task in relevantEvents {
+                relatedItems.append(RelatedDataItem(
+                    type: .event,
+                    title: task.title,
+                    subtitle: task.description?.isEmpty == false ? task.description : nil,
+                    date: task.dueDate
+                ))
+            }
+        }
+
+        // MARK: - Notes Detection
+        if lowerResponse.contains("note") || lowerResponse.contains("notes") ||
+           lowerResponse.contains("memo") || lowerResponse.contains("reminder") {
+
+            let notesManager = NotesManager.shared
+            let allNotes = notesManager.notes
+            // Get recent notes that might be relevant
+            let recentNotes = allNotes
+                .sorted { $0.createdDate > $1.createdDate }
+                .prefix(3)
+
+            for note in recentNotes {
+                relatedItems.append(RelatedDataItem(
+                    type: .note,
+                    title: note.title,
+                    subtitle: note.content.prefix(50).trimmingCharacters(in: .whitespaces) + (note.content.count > 50 ? "..." : ""),
+                    date: note.createdDate
+                ))
+            }
+        }
+
+        // MARK: - Locations Detection
+        if lowerResponse.contains("location") || lowerResponse.contains("place") ||
+           lowerResponse.contains("visited") || lowerResponse.contains("been to") ||
+           lowerResponse.contains("went to") || lowerResponse.contains("@") {
+
+            let locationsManager = LocationsManager.shared
+            let savedLocations = locationsManager.savedLocations
+            // Get recent saved locations
+            let recentLocations = savedLocations
+                .sorted { $0.timestamp > $1.timestamp }
+                .prefix(3)
+
+            for location in recentLocations {
+                relatedItems.append(RelatedDataItem(
+                    type: .location,
+                    title: location.customName ?? location.address,
+                    subtitle: location.customName != nil ? location.address : nil,
+                    date: location.timestamp
+                ))
+            }
+        }
+
+        // MARK: - Email Detection
+        if lowerResponse.contains("email") || lowerResponse.contains("mail") ||
+           lowerResponse.contains("message") || lowerResponse.contains("sent") {
+
+            let emailService = EmailService.shared
+            if let emails = await emailService.fetchRecentEmails(limit: 3) {
+                for email in emails {
+                    relatedItems.append(RelatedDataItem(
+                        type: .email,
+                        title: email.subject ?? "No Subject",
+                        subtitle: email.from,
+                        date: email.date
+                    ))
+                }
+            }
+        }
+
+        // MARK: - Receipts Detection
+        if lowerResponse.contains("receipt") || lowerResponse.contains("spent") ||
+           lowerResponse.contains("purchase") || lowerResponse.contains("bought") ||
+           lowerResponse.contains("cost") || lowerResponse.contains("price") ||
+           lowerResponse.contains("$") {
+
+            // Try to fetch receipts - this would depend on your implementation
+            // For now, we'll skip as it may not be available
+            // Implement this once you have a ReceiptsManager
+        }
+
+        return relatedItems
     }
 
     /// Delete conversation from history
