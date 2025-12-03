@@ -233,7 +233,7 @@ struct SpendingAndETAWidget: View {
                 // Monthly spending amount and % on same line
                 HStack(alignment: .bottom, spacing: 8) {
                     Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 28, weight: .bold))
                         .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
                     // Month over month percentage
@@ -412,7 +412,7 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
-        .padding(.top, 6)
+        .padding(.top, 10)
     }
 
     private func extractAmount(from text: String) -> Double? {
