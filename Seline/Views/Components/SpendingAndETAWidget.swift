@@ -230,19 +230,23 @@ struct SpendingAndETAWidget: View {
     private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
             VStack(alignment: .leading, spacing: 5) {
-                // Monthly spending amount
-                Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+                // Monthly spending amount and % on same line
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
-                // Month over month percentage
-                HStack(spacing: 4) {
-                    Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                        .font(.system(size: 11, weight: .regular))
+                    // Month over month percentage
+                    HStack(spacing: 4) {
+                        Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
+                            .font(.system(size: 11, weight: .regular))
+                    }
+                    .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
+
+                    Spacer()
                 }
-                .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
 
                 // Categories - below % text
                 topCategoryView
