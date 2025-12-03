@@ -229,7 +229,7 @@ struct SpendingAndETAWidget: View {
 
     private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 // Monthly spending amount
                 Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
                     .font(.system(size: 24, weight: .bold))
@@ -238,9 +238,9 @@ struct SpendingAndETAWidget: View {
                 // Month over month percentage
                 HStack(spacing: 4) {
                     Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                     Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                        .font(.system(size: 10, weight: .regular))
+                        .font(.system(size: 11, weight: .regular))
                 }
                 .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
 
@@ -347,17 +347,17 @@ struct SpendingAndETAWidget: View {
                     ForEach(categoryBreakdown.prefix(2), id: \.category) { category in
                         HStack(spacing: 2) {
                             Text(categoryIcon(category.category))
-                                .font(.system(size: 10))
+                                .font(.system(size: 11))
 
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(category.category)
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(.system(size: 10, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
 
                                 Text(String(format: "%.0f%%", category.percentage))
-                                    .font(.system(size: 8, weight: .regular))
+                                    .font(.system(size: 9, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
 
@@ -384,25 +384,25 @@ struct SpendingAndETAWidget: View {
             let noteMonth = calendar.component(.month, from: note.dateCreated ?? Date())
             let noteYear = calendar.component(.year, from: note.dateCreated ?? Date())
             return noteMonth == currentMonth && noteYear == currentYear
-        }.sorted { ($0.dateCreated ?? Date()) > ($1.dateCreated ?? Date()) }.prefix(4)
+        }.sorted { ($0.dateCreated ?? Date()) > ($1.dateCreated ?? Date()) }.prefix(3)
 
-        return VStack(alignment: .leading, spacing: 3) {
+        return VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(currentMonthNotes), id: \.id) { note in
                 HStack(spacing: 6) {
                     Text(note.title)
-                        .font(.system(size: 9, weight: .regular))
+                        .font(.system(size: 10, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
                     Spacer()
 
                     Text(formatExpenseDate(note.dateCreated ?? Date()))
-                        .font(.system(size: 8, weight: .regular))
+                        .font(.system(size: 9, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
 
                     if let amount = extractAmount(from: note.content ?? "") {
                         Text(CurrencyParser.formatAmountNoDecimals(amount))
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                 }
