@@ -229,10 +229,26 @@ struct SpendingAndETAWidget: View {
 
     private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 12) {
-                monthlySpendingView
-                Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                // Monthly spending amount
+                Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+
+                // Month over month percentage
+                HStack(spacing: 4) {
+                    Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
+                        .font(.system(size: 11, weight: .regular))
+                }
+                .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
+
+                // Categories - below % text
                 topCategoryView
+
+                // Recent transactions
+                recentTransactionsView
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -324,22 +340,6 @@ struct SpendingAndETAWidget: View {
         }
     }
 
-    private var monthlySpendingView: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
-
-            HStack(spacing: 4) {
-                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                    .font(.system(size: 11, weight: .regular))
-            }
-            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
-        }
-    }
-
     private var topCategoryView: some View {
         Group {
             if !categoryBreakdown.isEmpty {
@@ -372,6 +372,61 @@ struct SpendingAndETAWidget: View {
                 }
             }
         }
+    }
+
+    private var recentTransactionsView: some View {
+        let calendar = Calendar.current
+        let now = Date()
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
+
+        let currentMonthNotes = notesManager.notes.filter { note in
+            let noteMonth = calendar.component(.month, from: note.dateCreated ?? Date())
+            let noteYear = calendar.component(.year, from: note.dateCreated ?? Date())
+            return noteMonth == currentMonth && noteYear == currentYear
+        }.sorted { ($0.dateCreated ?? Date()) > ($1.dateCreated ?? Date()) }.prefix(4)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(currentMonthNotes), id: \.id) { note in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(note.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .lineLimit(1)
+
+                        Text(formatExpenseDate(note.dateCreated ?? Date()))
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+
+                    Spacer()
+
+                    if let amount = extractAmount(from: note.content ?? "") {
+                        Text(CurrencyParser.formatAmountNoDecimals(amount))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+                .cornerRadius(6)
+            }
+        }
+    }
+
+    private func extractAmount(from text: String) -> Double? {
+        let pattern = "\\$[0-9,]+(?:\\.[0-9]{2})?"
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            if let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let range = Range(match.range, in: text) {
+                    let amountStr = String(text[range]).replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
+                    return Double(amountStr)
+                }
+            }
+        }
+        return nil
     }
 
     private func navigationCard2x2(width: CGFloat) -> some View {
