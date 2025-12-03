@@ -62,6 +62,24 @@ struct EventsCardWidget: View {
         allDayEvents + amEvents + pmEvents
     }
 
+    private var uniqueEventTypes: [(filterType: TimelineEventColorManager.FilterType, colorIndex: Int?)] {
+        var seen: Set<String> = []
+        var result: [(TimelineEventColorManager.FilterType, Int?)] = []
+
+        for task in selectedDateEvents {
+            let type = filterType(from: task)
+            let colorIndex = getTagColorIndex(for: task)
+            let key = "\(type)-\(colorIndex ?? -1)"
+
+            if !seen.contains(key) {
+                seen.insert(key)
+                result.append((type, colorIndex))
+            }
+        }
+
+        return result
+    }
+
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
@@ -78,6 +96,20 @@ struct EventsCardWidget: View {
             return "Tag"
         } else {
             return "Personal"
+        }
+    }
+
+    private func filterDisplayNameForType(_ filterType: TimelineEventColorManager.FilterType) -> String {
+        switch filterType {
+        case .personal:
+            return "Personal"
+        case .synced:
+            return "Synced"
+        case .tag(let tagId):
+            if let tag = tagManager.getTag(by: tagId) {
+                return tag.name
+            }
+            return "Tag"
         }
     }
 
@@ -149,28 +181,49 @@ struct EventsCardWidget: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Header with "Todos" and Add Event button
-            HStack(spacing: 8) {
-                Text("Todos")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showingAddEventPopup = true
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
+            // Header with "Todos" and tag color indicators
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("Todos")
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                        )
+
+                    Spacer()
+
+                    Button(action: {
+                        HapticManager.shared.selection()
+                        showingAddEventPopup = true
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
+
+                // Tag color indicators
+                if !uniqueEventTypes.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(uniqueEventTypes, id: \.filterType) { type, colorIndex in
+                            let color = filterAccentColor(type, colorIndex)
+                            VStack(spacing: 2) {
+                                Circle()
+                                    .fill(color)
+                                    .frame(width: 8, height: 8)
+                                Text(filterDisplayNameForType(type))
+                                    .font(.system(size: 8, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
             }
             .padding(.horizontal, 0)
 
@@ -183,20 +236,8 @@ struct EventsCardWidget: View {
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 4)
                     } else {
-                        ForEach(Array(sortedEvents.enumerated()), id: \.element.id) { index, task in
+                        ForEach(sortedEvents, id: \.id) { task in
                             eventRow(task)
-
-                            // Add divider between different event categories
-                            if index < sortedEvents.count - 1 {
-                                let currentFilterType = filterType(from: task)
-                                let nextFilterType = filterType(from: sortedEvents[index + 1])
-                                if currentFilterType != nextFilterType {
-                                    Divider()
-                                        .frame(maxWidth: .infinity, maxHeight: 0.5)
-                                        .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
-                                        .padding(.horizontal, -12)
-                                }
-                            }
                         }
                     }
                 }
