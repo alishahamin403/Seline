@@ -2869,6 +2869,34 @@ class TaskManager: ObservableObject {
         saveTasks()
     }
 
+    /// Force a fresh calendar sync after resetting tracking
+    /// Use this to re-sync calendar events and pick up any missing events
+    @MainActor
+    func forceRefreshCalendarSync() async {
+        print("🔄 [TaskManager] Starting forced calendar sync...")
+
+        // First, get the current count
+        let beforeCount = tasks.values.flatMap { $0 }.filter { $0.isFromCalendar }.count
+        print("📊 [TaskManager] Calendar events before refresh: \(beforeCount)")
+
+        // Delete all synced calendar events and reset tracking
+        deleteSyncedCalendarEventsAndReset()
+        print("🗑️  [TaskManager] Cleared \(beforeCount) calendar events")
+
+        // Request fresh calendar access
+        let hasAccess = await requestCalendarAccess()
+        print("🔐 [TaskManager] Calendar access: \(hasAccess ? "GRANTED" : "DENIED")")
+
+        if hasAccess {
+            // Perform fresh sync
+            await syncCalendarEvents()
+
+            let afterCount = tasks.values.flatMap { $0 }.filter { $0.isFromCalendar }.count
+            print("✅ [TaskManager] Calendar events after refresh: \(afterCount)")
+            print("📈 [TaskManager] Added \(afterCount - beforeCount) new calendar events")
+        }
+    }
+
     // MARK: - Widget Support
 
     func syncTodaysTasksToWidget(tags: [Tag] = []) {

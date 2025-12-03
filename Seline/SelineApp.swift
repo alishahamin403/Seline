@@ -20,8 +20,8 @@ struct SelineApp: App {
         configureGoogleSignIn()
         configureNotifications()
         configureBackgroundRefresh()
-        // Defer calendar sync to avoid initialization issues - will be called from didBecomeActiveNotification
-        // syncCalendarEventsOnFirstLaunch()
+        // Sync calendar events on launch to ensure calendar permission is granted and events are fetched
+        syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
 
         // DISABLED: Nuclear reset was causing app to hang on startup
