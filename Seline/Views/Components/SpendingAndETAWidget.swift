@@ -157,7 +157,7 @@ struct SpendingAndETAWidget: View {
         VStack(spacing: 0) {
             spendingCard()
         }
-        .frame(height: 170)
+        .frame(height: 150)
         .onAppear {
             locationService.requestLocationPermission()
             updateCategoryBreakdown()
@@ -229,7 +229,7 @@ struct SpendingAndETAWidget: View {
 
     private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
                 // Monthly spending amount
                 Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
                     .font(.system(size: 24, weight: .bold))
@@ -238,9 +238,9 @@ struct SpendingAndETAWidget: View {
                 // Month over month percentage
                 HStack(spacing: 4) {
                     Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                     Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 10, weight: .regular))
                 }
                 .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
 
@@ -343,31 +343,31 @@ struct SpendingAndETAWidget: View {
     private var topCategoryView: some View {
         Group {
             if !categoryBreakdown.isEmpty {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     ForEach(categoryBreakdown.prefix(2), id: \.category) { category in
-                        HStack(spacing: 3) {
+                        HStack(spacing: 2) {
                             Text(categoryIcon(category.category))
-                                .font(.system(size: 12))
+                                .font(.system(size: 10))
 
-                            VStack(alignment: .leading, spacing: 1) {
+                            VStack(alignment: .leading, spacing: 0) {
                                 Text(category.category)
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
 
                                 Text(String(format: "%.0f%%", category.percentage))
-                                    .font(.system(size: 9, weight: .regular))
+                                    .font(.system(size: 8, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
                             }
 
                             Spacer()
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 3)
                         .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        .cornerRadius(6)
+                        .cornerRadius(4)
                     }
                 }
             }
@@ -386,32 +386,26 @@ struct SpendingAndETAWidget: View {
             return noteMonth == currentMonth && noteYear == currentYear
         }.sorted { ($0.dateCreated ?? Date()) > ($1.dateCreated ?? Date()) }.prefix(4)
 
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 3) {
             ForEach(Array(currentMonthNotes), id: \.id) { note in
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(note.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .lineLimit(1)
-
-                        Text(formatExpenseDate(note.dateCreated ?? Date()))
-                            .font(.system(size: 9, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                    }
+                HStack(spacing: 6) {
+                    Text(note.title)
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
 
                     Spacer()
 
+                    Text(formatExpenseDate(note.dateCreated ?? Date()))
+                        .font(.system(size: 8, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+
                     if let amount = extractAmount(from: note.content ?? "") {
                         Text(CurrencyParser.formatAmountNoDecimals(amount))
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
-                .cornerRadius(6)
             }
         }
     }
