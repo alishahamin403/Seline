@@ -33,7 +33,8 @@ class LocationBackgroundValidationService {
             return
         }
 
-        print("⏱️  Starting background validation timer (30 sec interval)")
+        // DEBUG: Commented out to reduce console spam
+        // print("⏱️  Starting background validation timer (30 sec interval)")
         self.geofenceManager = geofenceManager
         self.locationManager = locationManager
 
@@ -88,7 +89,8 @@ class LocationBackgroundValidationService {
             return
         }
 
-        print("🔍 Validating \(activeVisits.count) active visit(s)...")
+        // DEBUG: Commented out to reduce console spam
+        // print("🔍 Validating \(activeVisits.count) active visit(s)...")
 
         for (placeId, visit) in activeVisits {
             // Find the saved place
@@ -112,8 +114,9 @@ class LocationBackgroundValidationService {
                 // Auto-close the visit
                 await autoCloseVisit(placeId, geofenceManager: geofenceManager)
             } else {
-                print("✅ User still at \(place.displayName)")
-                print("   Distance: \(String(format: "%.0f", distance))m, within \(String(format: "%.0f", radius))m radius")
+                // DEBUG: Commented out to reduce console spam
+                // print("✅ User still at \(place.displayName)")
+                // print("   Distance: \(String(format: "%.0f", distance))m, within \(String(format: "%.0f", radius))m radius")
             }
         }
     }
@@ -133,10 +136,12 @@ class LocationBackgroundValidationService {
         // Record exit
         visit.recordExit(exitTime: Date())
 
-        // Filter out very short visits
+        // Filter out very short visits (< 10 minutes to match GeofenceManager threshold)
         let durationMinutes = visit.durationMinutes ?? 0
-        if durationMinutes < 5 {
-            print("⏭️ Visit too short (\(durationMinutes) min), discarding")
+        if durationMinutes < 10 {
+            print("⏭️ Visit too short (\(durationMinutes) min < 10 min minimum), discarding")
+            // Delete from Supabase if it was already saved
+            await geofenceManager.deleteVisitFromSupabase(visit)
             geofenceManager.activeVisits.removeValue(forKey: placeId)
             return
         }

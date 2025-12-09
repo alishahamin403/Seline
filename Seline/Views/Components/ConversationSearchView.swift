@@ -33,11 +33,7 @@ struct ConversationSearchView: View {
 
             // Main conversation view
             VStack(spacing: 0) {
-                // Streaming indicator bar
-                if isStreamingResponse {
-                    streamingIndicatorView
-                }
-
+                // Removed streaming indicator bar - user doesn't want it
                 headerView
                 conversationScrollView
                 inputAreaView
@@ -342,6 +338,9 @@ struct ConversationSearchView: View {
                                 message: message,
                                 onSendMessage: { text in
                                     await searchService.addConversationMessage(text)
+                                },
+                                onRegenerate: { messageId in
+                                    await searchService.regenerateResponse(for: messageId)
                                 }
                             )
                                 .id(message.id)
@@ -351,13 +350,7 @@ struct ConversationSearchView: View {
                                 ))
                         }
 
-                        if searchService.isLoadingQuestionResponse {
-                            TypingIndicatorView(colorScheme: colorScheme)
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .move(edge: .bottom)),
-                                    removal: .opacity
-                                ))
-                        }
+                        // Removed typing indicator - user doesn't want "..." loading dots
                     }
                     .padding(.vertical, 16)
                 }
@@ -483,7 +476,12 @@ struct ConversationSearchView: View {
 
     private var sendButton: some View {
         Button(action: {
-            if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // If loading, stop the request; otherwise send the message
+            if searchService.isLoadingQuestionResponse || isStreamingResponse {
+                HapticManager.shared.medium()
+                isStreamingResponse = false
+                searchService.stopCurrentRequest()
+            } else if !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 HapticManager.shared.medium()
                 let query = messageText
                 messageText = ""
@@ -493,15 +491,21 @@ struct ConversationSearchView: View {
                 }
             }
         }) {
-            Image(systemName: "arrow.up.circle.fill")
+            Image(systemName: (searchService.isLoadingQuestionResponse || isStreamingResponse) ? "stop.circle.fill" : "arrow.up.circle.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.3) : (colorScheme == .dark ? Color.white : Color.black))
-                .opacity(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-                .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.9 : 1.0, anchor: .center)
+                .foregroundColor(
+                    (searchService.isLoadingQuestionResponse || isStreamingResponse) 
+                        ? .red 
+                        : (messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.3) : (colorScheme == .dark ? Color.white : Color.black))
+                )
+                .opacity(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse) ? 0.5 : 1.0)
+                .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse) ? 0.9 : 1.0, anchor: .center)
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchService.isLoadingQuestionResponse)
+        .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse))
         .animation(.easeInOut(duration: 0.15), value: messageText)
+        .animation(.easeInOut(duration: 0.15), value: searchService.isLoadingQuestionResponse)
+        .animation(.easeInOut(duration: 0.15), value: isStreamingResponse)
         .padding(.trailing, 12)
         .padding(.bottom, 2)
     }
@@ -521,6 +525,7 @@ struct ConversationSearchView: View {
 struct ConversationMessageView: View {
     let message: ConversationMessage
     let onSendMessage: (String) async -> Void
+    let onRegenerate: ((UUID) async -> Void)?
     @Environment(\.colorScheme) var colorScheme
     @State private var isLongPressed = false
     @State private var showContextMenu = false
@@ -562,6 +567,18 @@ struct ConversationMessageView: View {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
 
+                    // Regenerate option for assistant messages
+                    if !message.isUser, let regenerate = onRegenerate {
+                        Button(action: {
+                            HapticManager.shared.medium()
+                            Task {
+                                await regenerate(message.id)
+                            }
+                        }) {
+                            Label("Regenerate", systemImage: "arrow.clockwise")
+                        }
+                    }
+
                     if message.isUser {
                         Button(role: .destructive, action: {
                             HapticManager.shared.delete()
@@ -582,7 +599,7 @@ struct ConversationMessageView: View {
     private var messageContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             messageText
-            relatedDataView
+            // relatedDataView  // Removed - user doesn't want to see related items
             followUpSuggestionsView
         }
     }

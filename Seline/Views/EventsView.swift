@@ -4,6 +4,7 @@ struct EventsView: View {
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
     @Environment(\.colorScheme) var colorScheme
+    @Namespace private var tabAnimation
     @State private var activeSheet: ActiveSheet?
     @State private var selectedTaskForRecurring: TaskItem?
     @State private var selectedTaskForViewing: TaskItem?
@@ -299,19 +300,37 @@ struct EventsView: View {
     // MARK: - Tab Selector
 
     private var tabSelector: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             ForEach([EventViewType.events, EventViewType.stats], id: \.self) { viewType in
-                EventTabButton(
-                    title: viewType == .events ? "Events" : "Stats",
-                    viewType: viewType,
-                    selectedView: $selectedView,
-                    colorScheme: colorScheme
-                )
+                let isSelected = selectedView == viewType
+                let tabLabel = viewType == .events ? "Events" : "Stats"
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        selectedView = viewType
+                    }
+                }) {
+                    Text(tabLabel)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(tabBackgroundColor())
+                                    .matchedGeometryEffect(id: "tab", in: tabAnimation)
+                            }
+                        }
+                }
+                .buttonStyle(PlainButtonStyle())
             }
         }
+        .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
+            Capsule()
+                .fill(tabContainerColor())
         )
     }
 
@@ -489,51 +508,23 @@ struct EventsView: View {
                 Color.black : Color.white
         )
     }
-}
 
-struct EventTabButton: View {
-    let title: String
-    let viewType: EventsView.EventViewType
-    @Binding var selectedView: EventsView.EventViewType
-    let colorScheme: ColorScheme
+    // MARK: - Helper Functions for Pill Buttons
 
-    private var isSelected: Bool {
-        selectedView == viewType
-    }
-
-    private var selectedColor: Color {
-        // Matches + sign button fill color - #333333
-        return Color(red: 0.2, green: 0.2, blue: 0.2)
-    }
-
-    private var backgroundColor: Color {
+    private func tabForegroundColor(isSelected: Bool) -> Color {
         if isSelected {
-            return selectedColor
+            return colorScheme == .dark ? .black : .white
+        } else {
+            return colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)
         }
-        return Color.clear
     }
 
-    var body: some View {
-        Button(action: {
-            HapticManager.shared.selection()
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedView = viewType
-            }
-        }) {
-            Text(title)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundColor(
-                    isSelected ? .white : .gray
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(backgroundColor)
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
+    private func tabBackgroundColor() -> Color {
+        return colorScheme == .dark ? .white : .black
+    }
+
+    private func tabContainerColor() -> Color {
+        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
     }
 }
 

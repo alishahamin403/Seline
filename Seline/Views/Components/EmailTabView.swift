@@ -22,68 +22,63 @@ enum EmailTab: String, CaseIterable {
 struct EmailTabView: View {
     @Binding var selectedTab: EmailTab
     @Environment(\.colorScheme) var colorScheme
+    @Namespace private var tabAnimation
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             ForEach(EmailTab.allCases, id: \.self) { tab in
-                EmailTabButton(
-                    tab: tab,
-                    selectedTab: $selectedTab,
-                    colorScheme: colorScheme
-                )
+                let isSelected = selectedTab == tab
+
+                Button(action: {
+                    HapticManager.shared.selection()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        selectedTab = tab
+                    }
+                }) {
+                    HStack(spacing: ShadcnSpacing.sm) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 14, weight: .medium))
+
+                        Text(tab.rawValue)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(tabBackgroundColor())
+                                .matchedGeometryEffect(id: "emailTab", in: tabAnimation)
+                        }
+                    }
+                }
+                .buttonStyle(PlainButtonStyle())
             }
         }
+        .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
+            Capsule()
+                .fill(tabContainerColor())
         )
     }
-}
 
-struct EmailTabButton: View {
-    let tab: EmailTab
-    @Binding var selectedTab: EmailTab
-    let colorScheme: ColorScheme
+    // MARK: - Helper Functions for Pill Buttons
 
-    private var isSelected: Bool {
-        selectedTab == tab
-    }
-
-    private var selectedColor: Color {
-        // Matches + sign button fill color - #333333
-        return Color(red: 0.2, green: 0.2, blue: 0.2)
-    }
-
-    private var backgroundColor: Color {
+    private func tabForegroundColor(isSelected: Bool) -> Color {
         if isSelected {
-            return selectedColor
+            return colorScheme == .dark ? .black : .white
+        } else {
+            return colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)
         }
-        return Color.clear
     }
 
-    var body: some View {
-        Button(action: {
-            selectedTab = tab
-        }) {
-            HStack(spacing: ShadcnSpacing.sm) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 14, weight: .medium))
+    private func tabBackgroundColor() -> Color {
+        return colorScheme == .dark ? .white : .black
+    }
 
-                Text(tab.rawValue)
-                    .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-            }
-            .foregroundColor(
-                isSelected ? .white : .gray
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: ShadcnRadius.md)
-                    .fill(backgroundColor)
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
+    private func tabContainerColor() -> Color {
+        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
     }
 }
 

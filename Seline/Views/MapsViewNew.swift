@@ -9,17 +9,14 @@ struct MapsViewNew: View, Searchable {
     @StateObject private var supabaseManager = SupabaseManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
+    @Namespace private var tabAnimation
 
-    @State private var selectedTab: String = "folders" // "folders" or "ranking"
+    @State private var selectedTab: String = "folders" // "folders", "ranking", or "timeline"
     @State private var selectedCategory: String? = nil
     @State private var showSearchModal = false
     @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
-    @State private var locationPreferences: UserLocationPreferences?
-    @State private var showETAEditModal = false
-    @State private var selectedCountry: String? = nil
-    @State private var selectedProvince: String? = nil
-    @State private var selectedCity: String? = nil
+    @State private var locationSearchText: String = ""
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
     @State private var nearbyLocationFolder: String? = nil
@@ -45,34 +42,41 @@ struct MapsViewNew: View, Searchable {
         ZStack {
             // Main content layer
             VStack(spacing: 0) {
-                // Tab bar
-                HStack(spacing: 0) {
-                    ForEach(["folders", "ranking"], id: \.self) { tab in
+                // Tab bar - Modern pill-based segmented control
+                HStack(spacing: 4) {
+                    ForEach(["folders", "ranking", "timeline"], id: \.self) { tab in
+                        let isSelected = selectedTab == tab
+                        let tabLabel = tab == "folders" ? "Locations" : (tab == "ranking" ? "Ranking" : "Timeline")
+
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                 selectedTab = tab
                             }
                         }) {
-                            Text(tab == "folders" ? "Locations" : "Ranking")
-                                .font(.system(size: 14, weight: selectedTab == tab ? .semibold : .medium))
-                                .foregroundColor(selectedTab == tab ? .white : .gray)
-                                .frame(maxWidth: .infinity)
+                            Text(tabLabel)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                                .padding(.horizontal, 16)
                                 .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(selectedTab == tab ? Color(red: 0.2, green: 0.2, blue: 0.2) : Color.clear)
-                                )
+                                .background {
+                                    if isSelected {
+                                        Capsule()
+                                            .fill(tabBackgroundColor())
+                                            .matchedGeometryEffect(id: "tab", in: tabAnimation)
+                                    }
+                                }
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
                 }
+                .padding(4)
                 .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
+                    Capsule()
+                        .fill(tabContainerColor())
                 )
                 .padding(.horizontal, 20)
-                .padding(.top, 4)
-                .padding(.bottom, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
                 .background(
                     colorScheme == .dark ? Color.black : Color.white
                 )
@@ -81,10 +85,17 @@ struct MapsViewNew: View, Searchable {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         if selectedTab == "folders" {
-                            quickLocationsSection
+                            // Location search bar at the top
+                            LocationSearchBar(searchText: $locationSearchText, colorScheme: colorScheme, placeholder: "Search by location...")
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                                .padding(.bottom, 12)
+
                             locationsTabContent
-                        } else {
+                        } else if selectedTab == "ranking" {
                             rankingTabContent
+                        } else {
+                            timelineTabContent
                         }
                     }
                 }
@@ -175,29 +186,7 @@ struct MapsViewNew: View, Searchable {
             // Load top 3 locations by visit count
             loadTopLocations()
 
-            // Load location preferences for quick locations section
             locationService.requestLocationPermission()
-            Task {
-                do {
-                    locationPreferences = try await supabaseManager.loadLocationPreferences()
-
-                    // Initial refresh or check if 5km moved since last refresh
-                    if let currentLocation = locationService.currentLocation, let preferences = locationPreferences {
-                        await navigationService.checkAndRefreshIfNeeded(
-                            currentLocation: currentLocation,
-                            location1: preferences.location1Coordinate,
-                            location2: preferences.location2Coordinate,
-                            location3: preferences.location3Coordinate,
-                            location4: preferences.location4Coordinate
-                        )
-                    } else {
-                        // Fallback to direct update if no location yet
-                        updateETAs()
-                    }
-                } catch {
-                    print("Failed to load location preferences: \(error)")
-                }
-            }
         }
         .onReceive(locationService.$currentLocation) { _ in
             // Only update location if we've finished loading incomplete visits
@@ -223,15 +212,16 @@ struct MapsViewNew: View, Searchable {
                 }
             }
         }
-        // OPTIMIZATION: Update cached categories only once when any filter changes
-        // Combined onChange instead of three separate ones to avoid redundant calculations
-        .onChange(of: selectedCountry) { _ in updateCachedCategories() }
-        .onChange(of: selectedProvince) { _ in updateCachedCategories() }
-        .onChange(of: selectedCity) { _ in updateCachedCategories() }
+        // Update cached categories when location search text changes
+        .onChange(of: locationSearchText) { _ in updateCachedCategories() }
         // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
         // The timer only runs when user is actively looking at the screen
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
+                // FIX: Immediately check current location to update nearby location state
+                // This ensures UI updates right away when app comes to foreground
+                updateCurrentLocation()
+
                 // App came to foreground - restart timer if tracking a location
                 if nearbyLocation != nil {
                     startLocationTimer()
@@ -256,43 +246,19 @@ struct MapsViewNew: View, Searchable {
             // Reload top 3 locations when places are added/removed/updated
             loadTopLocations()
         }
-        .onChange(of: locationService.currentLocation) { location in
-            // Auto-refresh ETAs when user moves 5km+
-            guard let currentLocation = location, let preferences = locationPreferences else { return }
-
-            Task {
-                await navigationService.checkAndRefreshIfNeeded(
-                    currentLocation: currentLocation,
-                    location1: preferences.location1Coordinate,
-                    location2: preferences.location2Coordinate,
-                    location3: preferences.location3Coordinate,
-                    location4: preferences.location4Coordinate
-                )
-            }
+        .onChange(of: colorScheme) { _ in
+            // FIX: Force view refresh when system theme changes
+            // This ensures the app immediately updates from light to dark mode
+            // The onChange itself triggers a view update cycle
         }
-        .onChange(of: showETAEditModal) { isShowing in
-            if !isShowing {
-                // Reload location preferences when edit sheet closes
-                Task {
-                    do {
-                        locationPreferences = try await supabaseManager.loadLocationPreferences()
-                        updateETAs()
-                    } catch {
-                        print("Failed to reload location preferences: \(error)")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showETAEditModal) {
-            AllLocationsEditView(currentPreferences: locationPreferences)
-        }
+        .id(colorScheme) // Force complete view recreation on theme change
         .onDisappear {
             stopLocationTimer()
         }
 
         // iPhone-style folder overlay
         if selectedCategory != nil {
-            let filteredPlaces = locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity)
+            let filteredPlaces = getFilteredPlaces()
                 .filter { $0.category == selectedCategory }
             FolderOverlayView(
                 category: selectedCategory!,
@@ -331,25 +297,49 @@ struct MapsViewNew: View, Searchable {
         if !favourites.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Text("Favorites").font(.system(size: 16, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                    Text("Favorites").font(.system(size: 17, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
 
                 VStack(spacing: 12) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                         ForEach(favourites, id: \.id) { place in
                             Button(action: { selectedPlace = place; showingPlaceDetail = true }) {
-                                VStack(spacing: 4) {
+                                VStack(spacing: 6) {
                                     ZStack(alignment: .topTrailing) {
-                                        PlaceImageView(place: place, size: 60, cornerRadius: 12)
+                                        PlaceImageView(place: place, size: 80, cornerRadius: 16)
                                         Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
-                                            Image(systemName: place.isFavourite ? "star.fill" : "star").font(.system(size: 12, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black).padding(6).background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
+                                            Image(systemName: place.isFavourite ? "star.fill" : "star")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                .padding(6)
+                                                .background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
                                         }
                                         .offset(x: 6, y: -6)
                                     }
-                                    Text(place.displayName).font(.system(size: 10, weight: .regular)).foregroundColor(colorScheme == .dark ? .white : .black).lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.8).frame(height: 20)
+
+                                    VStack(spacing: 2) {
+                                        Text(place.displayName)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.center)
+                                            .minimumScaleFactor(0.8)
+                                            .frame(height: 28)
+
+                                        if let rating = place.rating {
+                                            HStack(spacing: 2) {
+                                                Image(systemName: "star.fill")
+                                                    .font(.system(size: 8))
+                                                    .foregroundColor(.yellow)
+                                                Text(String(format: "%.1f", rating))
+                                                    .font(.system(size: 9, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -361,15 +351,15 @@ struct MapsViewNew: View, Searchable {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
             }
-            .padding(.bottom, 14)
+            .padding(.bottom, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
                     .shadow(
-                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                        radius: 8,
+                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
+                        radius: 12,
                         x: 0,
                         y: 2
                     )
@@ -383,32 +373,34 @@ struct MapsViewNew: View, Searchable {
     private var savedLocationsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text("Saved Locations").font(.system(size: 16, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                Text("Saved Locations").font(.system(size: 17, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
 
-            LocationFiltersView(locationsManager: locationsManager, selectedCountry: $selectedCountry, selectedProvince: $selectedProvince, selectedCity: $selectedCity, colorScheme: colorScheme)
-
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10)
+            ], spacing: 10) {
                 ForEach(cachedSortedCategories, id: \.self) { category in
-                    CategoryCard(category: category, count: locationsManager.getPlaces(country: selectedCountry, province: selectedProvince, city: selectedCity).filter { $0.category == category }.count, colorScheme: colorScheme) {
+                    CategoryCard(category: category, count: getFilteredPlaces().filter { $0.category == category }.count, colorScheme: colorScheme) {
                         withAnimation(.spring(response: 0.3)) {
                             selectedCategory = category
                         }
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
         }
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+            RoundedRectangle(cornerRadius: 16)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
                 .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                    radius: 8,
+                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
+                    radius: 12,
                     x: 0,
                     y: 2
                 )
@@ -420,6 +412,11 @@ struct MapsViewNew: View, Searchable {
     @ViewBuilder
     private var rankingTabContent: some View {
         RankingView(locationsManager: locationsManager, colorScheme: colorScheme)
+    }
+
+    @ViewBuilder
+    private var timelineTabContent: some View {
+        LocationTimelineView(colorScheme: colorScheme)
     }
 
     // MARK: - Current Location Tracking
@@ -597,14 +594,30 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
+    // Filter places based on location search text
+    private func getFilteredPlaces() -> [SavedPlace] {
+        if locationSearchText.isEmpty {
+            return locationsManager.savedPlaces
+        }
+
+        let searchLower = locationSearchText.lowercased()
+        return locationsManager.savedPlaces.filter { place in
+            (place.country?.lowercased().contains(searchLower) ?? false) ||
+            (place.province?.lowercased().contains(searchLower) ?? false) ||
+            (place.city?.lowercased().contains(searchLower) ?? false) ||
+            place.address.lowercased().contains(searchLower) ||
+            place.displayName.lowercased().contains(searchLower)
+        }
+    }
+
     // OPTIMIZATION: Cache sorted categories to avoid re-sorting on every render
     private func updateCachedCategories() {
-        let categories = Array(locationsManager.getCategories(
-            country: selectedCountry,
-            province: selectedProvince,
-            city: selectedCity
-        )).sorted()
-        cachedSortedCategories = categories
+        let filteredPlaces = getFilteredPlaces()
+        var categorySet = Set<String>()
+        for place in filteredPlaces {
+            categorySet.insert(place.category)
+        }
+        cachedSortedCategories = Array(categorySet).sorted()
     }
 
     private func startLocationTimer() {
@@ -636,36 +649,23 @@ struct MapsViewNew: View, Searchable {
         }
     }
 
-    @ViewBuilder
-    private var quickLocationsSection: some View {
-        if locationPreferences != nil {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    quickLocationCard(icon: locationPreferences?.location1Icon ?? "house.fill", name: "Home", eta: navigationService.location1ETA, isLocationSet: locationPreferences?.location1Coordinate != nil, onTap: { if locationPreferences?.location1Coordinate != nil { openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address) } }, onLongPress: { showETAEditModal = true })
 
-                    quickLocationCard(icon: locationPreferences?.location2Icon ?? "briefcase.fill", name: "Work", eta: navigationService.location2ETA, isLocationSet: locationPreferences?.location2Coordinate != nil, onTap: { if locationPreferences?.location2Coordinate != nil { openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address) } }, onLongPress: { showETAEditModal = true })
+    // MARK: - Helper Functions
 
-                    quickLocationCard(icon: locationPreferences?.location3Icon ?? "fork.knife", name: "Lunch", eta: navigationService.location3ETA, isLocationSet: locationPreferences?.location3Coordinate != nil, onTap: { if locationPreferences?.location3Coordinate != nil { openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address) } }, onLongPress: { showETAEditModal = true })
-
-                    quickLocationCard(icon: locationPreferences?.location4Icon ?? "dumbbell.fill", name: "Gym", eta: navigationService.location4ETA, isLocationSet: locationPreferences?.location4Coordinate != nil, onTap: { if locationPreferences?.location4Coordinate != nil { openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address) } }, onLongPress: { showETAEditModal = true })
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-                    .shadow(
-                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                        radius: 8,
-                        x: 0,
-                        y: 2
-                    )
-            )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
+    private func tabForegroundColor(isSelected: Bool) -> Color {
+        if isSelected {
+            return colorScheme == .dark ? .black : .white
+        } else {
+            return colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)
         }
+    }
+
+    private func tabBackgroundColor() -> Color {
+        return colorScheme == .dark ? .white : .black
+    }
+
+    private func tabContainerColor() -> Color {
+        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
     }
 
     // MARK: - Searchable Protocol
@@ -737,82 +737,6 @@ struct MapsViewNew: View, Searchable {
         return items
     }
 
-    private func openNavigation(to coordinate: CLLocationCoordinate2D?, address: String?) {
-        guard let coordinate = coordinate, let address = address else { return }
-        let url = "comgooglemaps://?q=\(address)&center=\(coordinate.latitude),\(coordinate.longitude)"
-        if let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: encodedUrl) {
-            UIApplication.shared.open(url)
-        }
-    }
-
-    private func quickLocationCard(
-        icon: String,
-        name: String,
-        eta: String?,
-        isLocationSet: Bool,
-        onTap: @escaping () -> Void,
-        onLongPress: @escaping () -> Void
-    ) -> some View {
-        Button(action: onTap) {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
-
-                if navigationService.isLoading && isLocationSet {
-                    ProgressView()
-                        .scaleEffect(0.6, anchor: .center)
-                } else if let eta = eta, isLocationSet {
-                    Text(eta)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
-                        .lineLimit(1)
-                } else {
-                    Text("--")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.03))
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .contextMenu {
-            Button(action: {
-                HapticManager.shared.selection()
-                onLongPress()
-            }) {
-                Label("Edit Locations", systemImage: "pencil")
-            }
-        }
-    }
-
-    private func updateETAs() {
-        guard let preferences = locationPreferences else { return }
-
-        if locationService.currentLocation == nil {
-            locationService.requestLocationPermission()
-            return
-        }
-
-        guard let currentLocation = locationService.currentLocation else { return }
-
-        Task {
-            await navigationService.updateETAs(
-                currentLocation: currentLocation,
-                location1: preferences.location1Coordinate,
-                location2: preferences.location2Coordinate,
-                location3: preferences.location3Coordinate,
-                location4: preferences.location4Coordinate
-            )
-        }
-    }
 }
 
 // MARK: - Category Card
@@ -894,11 +818,11 @@ struct CategoryCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 // iPhone-style folder with location icons inside
                 ZStack {
                     // Folder background
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 16)
                         .fill(
                             colorScheme == .dark ?
                                 Color.white.opacity(0.05) : Color.black.opacity(0.05)
@@ -906,11 +830,14 @@ struct CategoryCard: View {
 
                     // Grid of small location photos/initials (2x2)
                     if !places.isEmpty {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                            ForEach(Array(places.enumerated()), id: \.element.id) { index, place in
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), spacing: 6),
+                            GridItem(.flexible(), spacing: 6)
+                        ], spacing: 6) {
+                            ForEach(Array(places.prefix(4).enumerated()), id: \.element.id) { index, place in
                                 PlaceImageView(
                                     place: place,
-                                    size: 32,
+                                    size: 36,
                                     cornerRadius: 8
                                 )
                             }
@@ -920,13 +847,12 @@ struct CategoryCard: View {
                         // Empty folder - show single large icon
                         Image(systemName: "mappin.circle.fill")
                             .font(.system(size: 40, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : Color(white: 0.25))
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1, contentMode: .fill)
+                .aspectRatio(1, contentMode: .fit)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(
                             colorScheme == .dark ?
                                 Color.white.opacity(0.1) : Color.black.opacity(0.05),
@@ -937,12 +863,10 @@ struct CategoryCard: View {
                 // Folder name below
                 Text(category)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
         }
         .buttonStyle(PlainButtonStyle())
     }

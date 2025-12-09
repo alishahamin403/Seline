@@ -6,8 +6,8 @@ import PostgREST
 //
 // Handles three-scenario merge detection for location visits:
 // 1. App Restart: Open visit within 5 minutes (user didn't actually exit)
-// 2. Quick Return: Closed visit within 3 minutes (user stepped out briefly)
-// 3. GPS Reconnect: Closed visit 3-10 min ago + still within geofence (GPS loss recovery)
+// 2. Quick Return: Closed visit within 10 minutes (user stepped out briefly or continuous visit)
+// 3. GPS Reconnect: Closed visit 10-20 min ago + still within geofence (GPS loss recovery)
 
 @MainActor
 class MergeDetectionService {
@@ -65,9 +65,9 @@ class MergeDetectionService {
 
     // MARK: - Scenario B: Quick Return (Closed Visit)
 
-    /// SCENARIO B: Recently closed visit with exit < 3 minutes ago
-    /// Confidence: 95% - User exited and came back quickly
-    /// Example: User stepped out of cafe, came back within 3 minutes
+    /// SCENARIO B: Recently closed visit with exit < 10 minutes ago
+    /// Confidence: 95% for 0-3 min, 90% for 3-10 min - User exited and came back quickly
+    /// Example: User stepped out of cafe, came back within 10 minutes
     private func checkScenarioB_QuickReturn(
         _ visit: LocationVisitRecord
     ) -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
@@ -76,16 +76,18 @@ class MergeDetectionService {
         let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
         let durationMinutes = visit.durationMinutes ?? 0
 
-        // Filter: Must be at least 5 minute visit (not noise)
-        if durationMinutes < 5 {
+        // Filter: Must be at least 5 minute visit (not noise), UNLESS exit is within 1 minute (likely continuous visit)
+        if durationMinutes < 5 && minutesSinceExit > 1 {
             print("⏭️ Scenario B filtered: Visit too short (\(durationMinutes) min)")
             return nil
         }
 
-        // Closed visit < 3 minutes ago
-        if minutesSinceExit <= 3 && minutesSinceExit >= 0 {
-            print("✅ MERGE SCENARIO B: Quick return (\(minutesSinceExit) min ago)")
-            return (visit, 0.95, "quick_return")
+        // Closed visit < 10 minutes ago (extended from 3 minutes)
+        if minutesSinceExit <= 10 && minutesSinceExit >= 0 {
+            // Higher confidence for very quick returns (0-3 min), slightly lower for 3-10 min
+            let confidence = minutesSinceExit <= 3 ? 0.95 : 0.90
+            print("✅ MERGE SCENARIO B: Quick return (\(minutesSinceExit) min ago, confidence: \(String(format: "%.0f%%", confidence * 100)))")
+            return (visit, confidence, "quick_return")
         }
 
         return nil
@@ -93,9 +95,9 @@ class MergeDetectionService {
 
     // MARK: - Scenario C: GPS Reconnect (GPS Loss Recovery)
 
-    /// SCENARIO C: Recently closed visit (3-10 min ago) + still within geofence
-    /// Confidence: 85% - GPS signal was lost briefly, user stayed at location
-    /// Example: GPS lost for 5 minutes due to building/tunnel, user is still there
+    /// SCENARIO C: Recently closed visit (10-20 min ago) + still within geofence
+    /// Confidence: 85% - GPS signal was lost for extended period, user stayed at location
+    /// Example: GPS lost for 15 minutes due to building/tunnel, user is still there
     private func checkScenarioC_GPSReconnect(
         _ visit: LocationVisitRecord,
         currentLocation: CLLocationCoordinate2D,
@@ -112,10 +114,10 @@ class MergeDetectionService {
             return nil
         }
 
-        // Closed visit 3-10 minutes ago
-        guard minutesSinceExit > 3 && minutesSinceExit <= 10 else {
-            if minutesSinceExit > 10 {
-                print("ℹ️ Visit too old for Scenario C (\(minutesSinceExit) min > 10 min window)")
+        // Closed visit 10-20 minutes ago (updated to avoid overlap with Scenario B)
+        guard minutesSinceExit > 10 && minutesSinceExit <= 20 else {
+            if minutesSinceExit > 20 {
+                print("ℹ️ Visit too old for Scenario C (\(minutesSinceExit) min > 20 min window)")
             }
             return nil
         }
@@ -145,17 +147,20 @@ class MergeDetectionService {
         let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
         let durationMinutes = recentVisit.durationMinutes ?? 0
 
-        // Must be at least 5 minute visit
-        if durationMinutes < 5 {
+        // Must be at least 5 minute visit, UNLESS exit is within 1 minute (likely continuous visit)
+        if durationMinutes < 5 && minutesSinceExit > 1 {
             return nil
         }
 
         // Within 30 minute merge window
         if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
             print("✅ Found recent closed visit in memory (\(minutesSinceExit) min ago)")
-            if minutesSinceExit <= 3 {
-                return (recentVisit, 0.95, "quick_return")
-            } else if minutesSinceExit <= 10 {
+            if minutesSinceExit <= 10 {
+                // 0-10 minutes: Quick return scenario
+                let confidence = minutesSinceExit <= 3 ? 0.95 : 0.90
+                return (recentVisit, confidence, "quick_return")
+            } else if minutesSinceExit <= 20 {
+                // 10-20 minutes: GPS reconnect scenario
                 return (recentVisit, 0.85, "gps_reconnect")
             }
         }

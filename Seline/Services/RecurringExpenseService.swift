@@ -64,7 +64,8 @@ class RecurringExpenseService {
             return []
         }
 
-        print("📊 Fetching active recurring expenses from Supabase...")
+        // DEBUG: Commented out to reduce console spam
+        // print("📊 Fetching active recurring expenses from Supabase...")
 
         let client = await supabaseManager.getPostgrestClient()
         let decoder = JSONDecoder()
@@ -91,7 +92,8 @@ class RecurringExpenseService {
             return updatedExpense
         }
 
-        print("✅ Fetched \(expenses.count) active recurring expenses")
+        // DEBUG: Commented out to reduce console spam
+        // print("✅ Fetched \(expenses.count) active recurring expenses")
         return expenses
     }
 
@@ -248,7 +250,8 @@ class RecurringExpenseService {
 
     /// Fetch instances for a recurring expense
     func fetchInstances(for recurringExpenseId: UUID) async throws -> [RecurringInstance] {
-        print("📅 Fetching instances for recurring expense...")
+        // DEBUG: Commented out to reduce console spam
+        // print("📅 Fetching instances for recurring expense...")
 
         let client = await supabaseManager.getPostgrestClient()
         let decoder = JSONDecoder()
@@ -261,7 +264,8 @@ class RecurringExpenseService {
             .execute()
 
         let instances = try decoder.decode([RecurringInstance].self, from: response.data)
-        print("✅ Fetched \(instances.count) instances")
+        // DEBUG: Commented out to reduce console spam
+        // print("✅ Fetched \(instances.count) instances")
         return instances
     }
 

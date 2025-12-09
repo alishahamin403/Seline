@@ -1,6 +1,60 @@
 import SwiftUI
 import CoreLocation
 
+// MARK: - Location Search Bar
+
+struct LocationSearchBar: View {
+    @Binding var searchText: String
+    let colorScheme: ColorScheme
+    let placeholder: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+
+            TextField(placeholder, text: $searchText)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+
+            if !searchText.isEmpty {
+                Button(action: {
+                    withAnimation {
+                        searchText = ""
+                    }
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(
+                    colorScheme == .dark ?
+                        Color.white.opacity(0.08) :
+                        Color.black.opacity(0.05)
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(
+                    colorScheme == .dark ?
+                        Color.white.opacity(0.12) :
+                        Color.black.opacity(0.08),
+                    lineWidth: 1
+                )
+        )
+    }
+}
+
 // MARK: - Compact Dropdown Component
 
 struct CompactDropdown: View {

@@ -23,43 +23,40 @@ struct EventsCardWidget: View {
         taskManager.getTasksForDate(selectedDate)
     }
 
-    private var amEvents: [TaskItem] {
-        selectedDateEvents.filter { task in
-            if let scheduledTime = task.scheduledTime {
-                let hour = Calendar.current.component(.hour, from: scheduledTime)
-                return hour < 12
-            }
-            return false
-        }.sorted { task1, task2 in
-            guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
-                return false
-            }
-            return time1 < time2
-        }
-    }
-
-    private var pmEvents: [TaskItem] {
-        selectedDateEvents.filter { task in
-            if let scheduledTime = task.scheduledTime {
-                let hour = Calendar.current.component(.hour, from: scheduledTime)
-                return hour >= 12
-            }
-            return false
-        }.sorted { task1, task2 in
-            guard let time1 = task1.scheduledTime, let time2 = task2.scheduledTime else {
-                return false
-            }
-            return time1 < time2
-        }
-    }
-
-    private var allDayEvents: [TaskItem] {
-        selectedDateEvents.filter { $0.scheduledTime == nil }
-    }
-
     private var sortedEvents: [TaskItem] {
-        // Combine all events in order: All Day first, then AM, then PM
-        allDayEvents + amEvents + pmEvents
+        let calendar = Calendar.current
+
+        // Sort: all-day events first, then timed events by TIME OF DAY only (ignore date component)
+        return selectedDateEvents.sorted { task1, task2 in
+            // All-day events (nil scheduledTime) come first
+            if task1.scheduledTime == nil && task2.scheduledTime != nil {
+                return true
+            }
+            if task1.scheduledTime != nil && task2.scheduledTime == nil {
+                return false
+            }
+
+            // Both are all-day events - sort by creation date
+            if task1.scheduledTime == nil && task2.scheduledTime == nil {
+                return task1.createdAt < task2.createdAt
+            }
+
+            // Both have scheduled times - sort by TIME OF DAY ONLY (hour:minute)
+            if let time1 = task1.scheduledTime, let time2 = task2.scheduledTime {
+                let hour1 = calendar.component(.hour, from: time1)
+                let minute1 = calendar.component(.minute, from: time1)
+                let hour2 = calendar.component(.hour, from: time2)
+                let minute2 = calendar.component(.minute, from: time2)
+
+                // Compare hours first, then minutes
+                if hour1 != hour2 {
+                    return hour1 < hour2
+                }
+                return minute1 < minute2
+            }
+
+            return false
+        }
     }
 
     private var uniqueEventTypes: [(filterType: TimelineEventColorManager.FilterType, colorIndex: Int?)] {

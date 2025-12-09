@@ -32,7 +32,8 @@ class SharedLocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         if enabled {
             locationManager.startUpdatingLocation()
-            print("📍 Background location tracking enabled")
+            // DEBUG: Commented out to reduce console spam
+            // print("📍 Background location tracking enabled")
         } else {
             locationManager.stopUpdatingLocation()
             print("📍 Background location tracking disabled")

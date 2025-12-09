@@ -367,10 +367,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         emailIsImportant = try container.decodeIfPresent(Bool.self, forKey: .emailIsImportant) ?? false
         emailAiSummary = try container.decodeIfPresent(String.self, forKey: .emailAiSummary)
 
-        // Log loaded recurring task with completion info
-        if isRecurring {
-            print("📥 Loaded recurring task '\(title)' with \(completedDates.count) completed dates, tagId: \(tagId ?? "nil")")
-        }
+        // Removed excessive logging
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1076,9 +1073,10 @@ class TaskManager: ObservableObject {
         dateFormatter.timeZone = calendar.timeZone // CRITICAL: Match calendar timezone to ensure consistent cache keys
         let dateKey = dateFormatter.string(from: calendar.startOfDay(for: date))
 
-        if let cached = dateTaskCache[dateKey] {
-            return cached
-        }
+        // TEMPORARILY DISABLED CACHE TO FIX SORTING ISSUE
+        // if let cached = dateTaskCache[dateKey] {
+        //     return cached
+        // }
 
         let targetDate = calendar.startOfDay(for: date)
 
@@ -1145,7 +1143,8 @@ class TaskManager: ObservableObject {
         }
 
         // OPTIMIZATION: Cache the result for this date
-        dateTaskCache[dateKey] = sortedTasks
+        // TEMPORARILY DISABLED TO FIX SORTING ISSUE
+        // dateTaskCache[dateKey] = sortedTasks
         return sortedTasks
     }
 
@@ -1585,14 +1584,7 @@ class TaskManager: ObservableObject {
         let recurringTasks = allTasks.filter { $0.isRecurring }
         if !recurringTasks.isEmpty {
             for task in recurringTasks {
-                if !task.completedDates.isEmpty {
-                    print("💾 Saving recurring task '\(task.title)' with \(task.completedDates.count) completed dates:")
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-                    for date in task.completedDates {
-                        print("   - \(dateFormatter.string(from: date))")
-                    }
-                }
+                // Removed excessive logging
             }
         }
 
@@ -1651,7 +1643,8 @@ class TaskManager: ObservableObject {
             return
         }
 
-        print("📂 Loaded \(savedTasks.count) tasks from cache")
+        // DEBUG: Commented out to reduce console spam
+        // print("📂 Loaded \(savedTasks.count) tasks from cache")
 
         // Note: Emergency cache cleanup already ran in init() if needed
         // If we reach here with normal task count, no cleanup was necessary
@@ -1749,7 +1742,7 @@ class TaskManager: ObservableObject {
 
                 for taskDict in tasksArray {
                     if let taskItem = await parseTaskFromSupabase(taskDict) {
-                        print("📥 Loaded task: '\(taskItem.title)' on \(taskItem.weekday), isRecurring: \(taskItem.isRecurring), frequency: \(taskItem.recurrenceFrequency?.rawValue ?? "nil"), targetDate: \(taskItem.targetDate?.description ?? "nil")")
+                        // Removed excessive logging
                         supabaseTasks.append(taskItem)
                     }
                 }
@@ -1949,7 +1942,8 @@ class TaskManager: ObservableObject {
             let formatter = ISO8601DateFormatter()
             taskItem.completedDates = dateStrings.compactMap { formatter.date(from: $0) }
             if !taskItem.completedDates.isEmpty && taskItem.isRecurring {
-                print("📥 Restored \(taskItem.completedDates.count) completed dates for recurring task '\(taskItem.title)' from Supabase")
+                // DEBUG: Commented out to reduce console spam
+                // print("📥 Restored \(taskItem.completedDates.count) completed dates for recurring task '\(taskItem.title)' from Supabase")
             }
         }
 
@@ -3117,7 +3111,8 @@ class TagManager: ObservableObject {
             return
         }
 
-        print("📂 Loading \(loadedTags.count) tags from local storage")
+        // DEBUG: Commented out to reduce console spam
+        // print("📂 Loading \(loadedTags.count) tags from local storage")
         self.tags = loadedTags
     }
 

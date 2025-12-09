@@ -306,7 +306,7 @@ class SearchService: ObservableObject {
             let batchItems = batch.map { ($0.identifier, $0.searchText) }
 
             do {
-                let batchScores = try await OpenAIService.shared.getSemanticSimilarityScores(
+                let batchScores = try await DeepSeekService.shared.getSemanticSimilarityScores(
                     query: query,
                     contents: batchItems
                 )
@@ -436,7 +436,7 @@ class SearchService: ObservableObject {
     /// Returns (success, formattedResponse, relatedItems) or nil if semantic query didn't apply
     func processWithSemanticQuery(_ userQuery: String) async -> (text: String, items: [RelatedDataItem])? {
         // Step 1: Generate semantic query from user input
-        guard let semanticQuery = await OpenAIService.shared.generateSemanticQuery(from: userQuery) else {
+        guard let semanticQuery = await DeepSeekService.shared.generateSemanticQuery(from: userQuery) else {
             print("⚠️ Semantic query generation failed, falling back to conversation")
             return nil
         }
@@ -561,7 +561,7 @@ class SearchService: ObservableObject {
     private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date) async {
         // Initialize SelineChat if needed
         if selineChat == nil {
-            selineChat = SelineChat(appContext: SelineAppContext(), openAIService: OpenAIService.shared)
+            selineChat = SelineChat(appContext: SelineAppContext(), deepSeekService: DeepSeekService.shared)
 
             // IMPORTANT: Sync existing conversation history to SelineChat
             // This ensures historical chats retain context when reopened
@@ -733,15 +733,11 @@ class SearchService: ObservableObject {
                 self.streamingMessageID = streamingMessageID
                 var messageAdded = false
 
-                try await OpenAIService.shared.answerQuestionWithStreaming(
+                try await DeepSeekService.shared.answerQuestionWithStreaming(
                     query: userMessage,
-                    taskManager: TaskManager.shared,
-                    notesManager: NotesManager.shared,
-                    emailService: EmailService.shared,
-                    weatherService: WeatherService.shared,
-                    locationsManager: LocationsManager.shared,
-                    navigationService: NavigationService.shared,
-                    conversationHistory: Array(conversationHistory.dropLast(1)), // All messages except user message
+                    conversationHistory: Array(conversationHistory.dropLast(1)).map { msg in
+                        DeepSeekService.Message(role: msg.isUser ? "user" : "assistant", content: msg.text)
+                    },
                     onChunk: { chunk in
                         fullResponse += chunk
 
@@ -786,7 +782,7 @@ class SearchService: ObservableObject {
                     if let lastIndex = self.conversationHistory.lastIndex(where: { $0.id == streamingMessageID }) {
                         // Extract related data from OpenAIService's lastSearchAnswer
                         var relatedData: [RelatedDataItem]? = nil
-                        if let searchAnswer = OpenAIService.shared.lastSearchAnswer {
+                        if let searchAnswer = DeepSeekService.shared.lastSearchAnswer {
                             var items: [RelatedDataItem] = []
 
                             // Add related receipts
@@ -823,20 +819,17 @@ class SearchService: ObservableObject {
                 }
             } else {
                 // Non-streaming response
-                let response = try await OpenAIService.shared.answerQuestion(
+                let response = try await DeepSeekService.shared.answerQuestion(
                     query: userMessage,
-                    taskManager: TaskManager.shared,
-                    notesManager: NotesManager.shared,
-                    emailService: EmailService.shared,
-                    weatherService: WeatherService.shared,
-                    locationsManager: LocationsManager.shared,
-                    navigationService: NavigationService.shared,
-                    conversationHistory: conversationHistory.dropLast() // All messages except the current user message
+                    conversationHistory: Array(conversationHistory.dropLast()).map { msg in
+                        DeepSeekService.Message(role: msg.isUser ? "user" : "assistant", content: msg.text)
+                    },
+                    operationType: "chat"
                 )
 
                 // Extract related data from OpenAIService's lastSearchAnswer
                 var relatedData: [RelatedDataItem]? = nil
-                if let searchAnswer = OpenAIService.shared.lastSearchAnswer {
+                if let searchAnswer = DeepSeekService.shared.lastSearchAnswer {
                     var items: [RelatedDataItem] = []
 
                     // Add related receipts
@@ -932,6 +925,49 @@ class SearchService: ObservableObject {
         selineChat?.cancelStreaming()
         isLoadingQuestionResponse = false
         print("🛑 User cancelled the response")
+    }
+
+    /// Regenerate response for a given assistant message
+    /// Finds the previous user message and re-sends it to get a new response
+    func regenerateResponse(for assistantMessageId: UUID) async {
+        // Find the assistant message in history
+        guard let assistantIndex = conversationHistory.firstIndex(where: { $0.id == assistantMessageId && !$0.isUser }) else {
+            print("❌ Could not find assistant message to regenerate")
+            return
+        }
+
+        // Find the previous user message (should be right before the assistant message)
+        guard assistantIndex > 0 else {
+            print("❌ No previous user message found")
+            return
+        }
+
+        let userMessageIndex = assistantIndex - 1
+        guard conversationHistory[userMessageIndex].isUser else {
+            print("❌ Previous message is not a user message")
+            return
+        }
+
+        let userMessage = conversationHistory[userMessageIndex].text
+
+        // Remove the assistant message from conversation history
+        conversationHistory.remove(at: assistantIndex)
+
+        // Also remove the last assistant message from SelineChat's conversation history if it exists
+        // This keeps the history in sync for regeneration
+        if let chat = selineChat, !chat.conversationHistory.isEmpty {
+            let lastMessage = chat.conversationHistory.last
+            if lastMessage?.role == .assistant {
+                chat.conversationHistory.removeLast()
+                print("🔄 Removed last assistant message from SelineChat history for regeneration")
+            }
+        }
+
+        // Save the updated conversation (without the old assistant message)
+        saveConversationLocally()
+
+        // Re-send the user message to get a new response
+        await addConversationMessage(userMessage)
     }
 
     /// Start a conversation with an initial question
@@ -1072,7 +1108,7 @@ class SearchService: ObservableObject {
             Respond with ONLY the summary, no additional text.
             """
 
-            let summaryResponse = try await OpenAIService.shared.generateText(
+            let summaryResponse = try await DeepSeekService.shared.generateText(
                 systemPrompt: "You are an expert at creating concise conversation summaries.",
                 userPrompt: summaryPrompt,
                 maxTokens: 100,
@@ -1090,7 +1126,7 @@ class SearchService: ObservableObject {
             Respond with ONLY the title, no additional text, quotes, or punctuation.
             """
 
-            let titleResponse = try await OpenAIService.shared.generateText(
+            let titleResponse = try await DeepSeekService.shared.generateText(
                 systemPrompt: "You are an expert at creating concise, descriptive, and smart conversation titles that accurately reflect the conversation content.",
                 userPrompt: titlePrompt,
                 maxTokens: 50,

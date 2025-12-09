@@ -11,7 +11,8 @@ class GeofenceRadiusManager {
     static let shared = GeofenceRadiusManager()
 
     // Default radius for all location types (fallback)
-    private let defaultRadius: CLLocationDistance = 200
+    // Increased from 200m to 300m to better capture large stores like Walmart
+    private let defaultRadius: CLLocationDistance = 300
 
     // Smart auto-detected radiuses by category
     private let radiusByCategory: [String: CLLocationDistance] = [
@@ -27,43 +28,54 @@ class GeofenceRadiusManager {
         "Corporate Office": 300,
 
         // Food & Dining
-        "Restaurant": 150,
-        "Cafe": 150,
-        "Coffee": 150,
-        "Bakery": 150,
-        "Diner": 150,
-        "Fast Food": 150,
-        "Pub": 150,
-        "Bar": 150,
-        "Bistro": 150,
+        "Restaurant": 75,
+        "Cafe": 75,
+        "Coffee": 75,
+        "Bakery": 75,
+        "Diner": 75,
+        "Fast Food": 75,
+        "Pub": 75,
+        "Bar": 75,
+        "Bistro": 75,
+        "Grill": 75,
+        "Burger": 75,
+        "Steak": 75,
+
+        // Personal Services
+        "Salon": 75,
+        "Haircut": 75,
+        "Barber": 75,
+        "Spa": 75,
+        "Beauty": 75,
 
         // Shopping
-        "Shop": 150,
-        "Store": 150,
-        "Retail": 150,
+        "Shop": 75,
+        "Store": 75,
+        "Retail": 75,
         "Mall": 200,
         "Shopping Center": 200,
-        "Market": 150,
-        "Grocery": 150,
-        "Supermarket": 150,
+        "Market": 75,
+        "Grocery": 100,
+        "Supermarket": 100,
+        "Essential": 300,  // Large stores like Walmart with metal roofs
 
         // Entertainment & Leisure
         "Park": 800,
         "Recreation": 800,
-        "Gym": 150,
-        "Fitness": 150,
+        "Gym": 75,
+        "Fitness": 75,
         "Sports": 200,
-        "Movie": 150,
-        "Theater": 150,
-        "Library": 150,
+        "Movie": 75,
+        "Theater": 75,
+        "Library": 100,
         "Museum": 200,
 
         // Healthcare
         "Hospital": 200,
-        "Clinic": 150,
-        "Medical": 150,
-        "Pharmacy": 150,
-        "Doctor": 150,
+        "Clinic": 75,
+        "Medical": 75,
+        "Pharmacy": 75,
+        "Doctor": 75,
 
         // Education
         "School": 300,
@@ -89,7 +101,7 @@ class GeofenceRadiusManager {
         "Synagogue": 200,
 
         // Other
-        "Uncategorized": 200
+        "Uncategorized": 300  // Increased default for better coverage
     ]
 
     private init() {}
@@ -108,7 +120,8 @@ class GeofenceRadiusManager {
 
         // 2. Smart auto-detect from category
         let autoRadius = autoDetectRadius(from: place.category)
-        print("📍 Using smart radius for \(place.displayName): \(autoRadius)m (category: \(place.category))")
+        // DEBUG: Commented out to reduce console spam
+        // print("📍 Using smart radius for \(place.displayName): \(autoRadius)m (category: \(place.category))")
         return autoRadius
     }
 
@@ -281,5 +294,135 @@ class GeofenceRadiusManager {
         return Array(radiusByCategory)
             .sorted { $0.key < $1.key }
             .map { (category: $0.key, radius: $0.value) }
+    }
+
+    // MARK: - SOLUTION 4: Proximity Collision Detection
+
+    struct ProximityCollision {
+        let place1: SavedPlace
+        let place2: SavedPlace
+        let distance: CLLocationDistance
+        let place1Radius: CLLocationDistance
+        let place2Radius: CLLocationDistance
+        let overlapPercentage: Double
+
+        var description: String {
+            return "\(place1.displayName) (\(Int(place1Radius))m) ↔ \(place2.displayName) (\(Int(place2Radius))m): \(String(format: "%.0f", distance))m apart (\(String(format: "%.0f", overlapPercentage))% overlap)"
+        }
+
+        var isCritical: Bool {
+            return overlapPercentage > 50 // Critical if overlap > 50%
+        }
+    }
+
+    /// Detect all proximity collisions between saved places
+    /// Returns list of collisions where geofence radii overlap
+    func detectProximityCollisions(for places: [SavedPlace]) -> [ProximityCollision] {
+        var collisions: [ProximityCollision] = []
+
+        for i in 0..<places.count {
+            for j in (i+1)..<places.count {
+                let place1 = places[i]
+                let place2 = places[j]
+
+                let location1 = CLLocation(latitude: place1.latitude, longitude: place1.longitude)
+                let location2 = CLLocation(latitude: place2.latitude, longitude: place2.longitude)
+                let distance = location1.distance(from: location2)
+
+                let radius1 = getRadius(for: place1)
+                let radius2 = getRadius(for: place2)
+
+                // Calculate if geofences overlap
+                let combinedRadius = radius1 + radius2
+
+                if distance < combinedRadius {
+                    // Calculate overlap percentage
+                    let overlap = combinedRadius - distance
+                    let overlapPercentage = (overlap / combinedRadius) * 100
+
+                    let collision = ProximityCollision(
+                        place1: place1,
+                        place2: place2,
+                        distance: distance,
+                        place1Radius: radius1,
+                        place2Radius: radius2,
+                        overlapPercentage: overlapPercentage
+                    )
+
+                    collisions.append(collision)
+                }
+            }
+        }
+
+        return collisions.sorted { $0.overlapPercentage > $1.overlapPercentage }
+    }
+
+    /// Print proximity collision report
+    func printProximityCollisionReport(for places: [SavedPlace]) {
+        let collisions = detectProximityCollisions(for: places)
+
+        if collisions.isEmpty {
+            print("\n✅ ===== PROXIMITY COLLISION REPORT =====")
+            print("✅ No geofence collisions detected!")
+            print("✅ All locations have sufficient spacing")
+            print("✅ =====================================\n")
+            return
+        }
+
+        print("\n⚠️ ===== PROXIMITY COLLISION REPORT =====")
+        print("⚠️ Found \(collisions.count) geofence collision(s):")
+        print()
+
+        for (index, collision) in collisions.enumerated() {
+            let severity = collision.isCritical ? "🔴 CRITICAL" : "⚠️ WARNING"
+            print("\(index + 1). \(severity)")
+            print("   \(collision.description)")
+
+            // Suggest radius reduction
+            let suggestedRadius1 = max(50, collision.distance * 0.4)
+            let suggestedRadius2 = max(50, collision.distance * 0.4)
+
+            print("   💡 Suggestion: Reduce radii to ~\(Int(suggestedRadius1))m each to prevent overlap")
+            print()
+        }
+
+        print("⚠️ ====================================\n")
+    }
+
+    /// Get suggested radius reduction to eliminate collision
+    func getSuggestedRadiusForCollision(_ collision: ProximityCollision) -> (place1: CLLocationDistance, place2: CLLocationDistance) {
+        // Suggest radius = 40% of distance between locations (leaves 20% buffer)
+        let suggestedRadius = max(50, collision.distance * 0.4)
+        return (suggestedRadius, suggestedRadius)
+    }
+
+    /// Auto-fix collisions by reducing radii (optional, use with caution)
+    func autoFixCollisions(for places: inout [SavedPlace], criticalOnly: Bool = true) async {
+        let collisions = detectProximityCollisions(for: places)
+        let toFix = criticalOnly ? collisions.filter { $0.isCritical } : collisions
+
+        guard !toFix.isEmpty else {
+            print("✅ No collisions to fix")
+            return
+        }
+
+        print("\n🔧 AUTO-FIXING \(toFix.count) COLLISION(S)...\n")
+
+        for collision in toFix {
+            let (suggested1, suggested2) = getSuggestedRadiusForCollision(collision)
+
+            // Only reduce if current radius is larger than suggested
+            if collision.place1Radius > suggested1 {
+                setCustomRadius(suggested1, for: collision.place1.id, in: &places)
+                print("   ✅ Reduced \(collision.place1.displayName): \(Int(collision.place1Radius))m → \(Int(suggested1))m")
+            }
+
+            if collision.place2Radius > suggested2 {
+                setCustomRadius(suggested2, for: collision.place2.id, in: &places)
+                print("   ✅ Reduced \(collision.place2.displayName): \(Int(collision.place2Radius))m → \(Int(suggested2))m")
+            }
+        }
+
+        print("\n🔧 Auto-fix complete!\n")
     }
 }

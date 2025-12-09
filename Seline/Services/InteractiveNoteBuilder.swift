@@ -77,7 +77,7 @@ class InteractiveNoteBuilder {
         """
 
         do {
-            let response = try await OpenAIService.shared.generateText(
+            let response = try await DeepSeekService.shared.generateText(
                 systemPrompt: "You are a helpful note assistant. Return ONLY valid JSON array.",
                 userPrompt: prompt,
                 maxTokens: 400,
@@ -153,7 +153,7 @@ class InteractiveNoteBuilder {
         }
 
         do {
-            let content = try await OpenAIService.shared.generateText(
+            let content = try await DeepSeekService.shared.generateText(
                 systemPrompt: "You are a helpful note assistant. Return ONLY the content to add, no explanations.",
                 userPrompt: prompt,
                 maxTokens: 200,

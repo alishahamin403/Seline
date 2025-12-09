@@ -45,7 +45,6 @@ struct HorizontalCategoryCard: View {
                     Text(category.category)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.primary)
-                        .lineLimit(1)
 
                     Text(category.formattedAmount)
                         .font(.system(size: 12, weight: .bold))
@@ -57,7 +56,7 @@ struct HorizontalCategoryCard: View {
                         .foregroundColor(.gray)
                 }
             }
-            .frame(width: 90)
+            .frame(minWidth: 90)
             .padding(10)
             .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
             .cornerRadius(8)

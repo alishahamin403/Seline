@@ -29,63 +29,6 @@ struct ReceiptStatsView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: isPopup ? 8 : 12) {
-                // Toggle between Receipts and Recurring Expenses - EmailTabView style
-                HStack(spacing: 0) {
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showRecurringExpenses = false
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "receipt.fill")
-                                .font(.system(size: 14, weight: .medium))
-
-                            Text("Receipts")
-                                .font(.system(size: 14, weight: !showRecurringExpenses ? .semibold : .medium))
-                        }
-                        .foregroundColor(
-                            !showRecurringExpenses ? .white : .gray
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(!showRecurringExpenses ? Color(red: 0.2, green: 0.2, blue: 0.2) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showRecurringExpenses = true
-                        }
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "repeat.circle.fill")
-                                .font(.system(size: 14, weight: .medium))
-
-                            Text("Recurring")
-                                .font(.system(size: 14, weight: showRecurringExpenses ? .semibold : .medium))
-                        }
-                        .foregroundColor(
-                            showRecurringExpenses ? .white : .gray
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(showRecurringExpenses ? Color(red: 0.2, green: 0.2, blue: 0.2) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color.gray.opacity(0.08))
-                )
-                .padding(.horizontal, 12)
-                .padding(.top, isPopup ? 12 : 0)
-
                 // Main card container
                 VStack(alignment: .leading, spacing: 0) {
                     if showRecurringExpenses {

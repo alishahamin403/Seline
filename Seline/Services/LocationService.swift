@@ -157,7 +157,8 @@ extension LocationService: CLLocationManagerDelegate {
                                 userDefaults.set(location.coordinate.latitude, forKey: "lastUserLocationLatitude")
                                 userDefaults.set(location.coordinate.longitude, forKey: "lastUserLocationLongitude")
                                 userDefaults.synchronize()
-                                print("✅ LocationService: Saved to shared UserDefaults - Lat: \(location.coordinate.latitude), Lon: \(location.coordinate.longitude)")
+                                // DEBUG: Commented out to reduce console spam
+                                // print("✅ LocationService: Saved to shared UserDefaults - Lat: \(location.coordinate.latitude), Lon: \(location.coordinate.longitude)")
                             } else {
                                 print("❌ LocationService: Could not access shared UserDefaults group.seline")
                             }
@@ -165,7 +166,8 @@ extension LocationService: CLLocationManagerDelegate {
                             // Reverse geocode to get location name
                             self.reverseGeocode(location: location)
 
-                            print("📍 Location updated: \(location.coordinate.latitude), \(location.coordinate.longitude) (accuracy: \(location.horizontalAccuracy)m)")
+                            // DEBUG: Commented out to reduce console spam
+                            // print("📍 Location updated: \(location.coordinate.latitude), \(location.coordinate.longitude) (accuracy: \(location.horizontalAccuracy)m)")
                         } else {
                             print("📍 Location received but no significant change (< 50m)")
                         }

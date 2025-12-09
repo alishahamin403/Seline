@@ -1001,7 +1001,7 @@ class SelineAppContext {
                 // Show favorites first
                 if !favorites.isEmpty {
                     context += "\n**FAVORITES** (\(favorites.count) locations):\n"
-                    for place in favorites.sorted(by: { $0.displayName < $1.displayName }) {
+                    for place in favorites.sorted(by: { $0.displayName < $1.displayName }).prefix(10) {  // Limit to 10 favorites
                         context += "  ★ \(place.displayName)\n"
                         context += "    Address: \(place.address)\n"
 
@@ -1090,7 +1090,7 @@ class SelineAppContext {
 
                         context += "\n**\(category.uppercased())** (\(placesInCategory.count) locations):\n"
 
-                        for place in placesInCategory.sorted(by: { $0.displayName < $1.displayName }) {
+                        for place in placesInCategory.sorted(by: { $0.displayName < $1.displayName }).prefix(8) {  // Limit to 8 per category
                             context += "  • \(place.displayName)\n"
                             context += "    Address: \(place.address)\n"
 
@@ -1238,7 +1238,7 @@ class SelineAppContext {
         if !notes.isEmpty {
             // Filter notes by query relevance (smart multi-source search)
             let filteredNotes = !userQuery.isEmpty ?
-                filterNotesByRelevance(notes: notes, query: userQuery) :
+                Array(filterNotesByRelevance(notes: notes, query: userQuery).prefix(12)) :  // Limit to 12 most relevant
                 Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
 
             if !filteredNotes.isEmpty {
@@ -1267,12 +1267,15 @@ class SelineAppContext {
                         let lastModified = formatDate(note.dateModified)
                         context += "  • **\(note.title)** (Updated: \(lastModified))\n"
 
-                        // Include FULL note content - important for detailed notes like transaction lists
+                        // Truncate note content to 500 chars to save tokens (full content for transaction lists)
                         let noteContent = note.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                         if !noteContent.isEmpty {
+                            let truncatedContent = noteContent.count > 500 
+                                ? String(noteContent.prefix(500)) + "... [truncated]" 
+                                : noteContent
                             // Split into lines and add with proper indentation
-                            let contentLines = noteContent.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
-                            for line in contentLines {
+                            let contentLines = truncatedContent.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
+                            for line in contentLines.prefix(20) {  // Limit to 20 lines max
                                 let trimmedLine = line.trimmingCharacters(in: CharacterSet.whitespaces)
                                 if !trimmedLine.isEmpty {
                                     context += "    \(trimmedLine)\n"
@@ -1329,7 +1332,7 @@ class SelineAppContext {
                 context += "\n**\(folder)** (\(folderEmails.count) emails):\n"
 
                 // Show most recent emails first
-                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(10) {
+                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(6) {  // Reduced from 10 to 6
                     let dateFormatter = DateFormatter()
                     dateFormatter.dateStyle = .medium
                     dateFormatter.timeStyle = .short
@@ -1349,15 +1352,15 @@ class SelineAppContext {
 
                     // Add brief content preview
                     if let body = email.body, !body.isEmpty {
-                        let bodyPreview = String(body.prefix(150))
+                        let bodyPreview = String(body.prefix(100))  // Reduced from 150 to 100 chars
                         context += "    Preview: \(bodyPreview)...\n"
                     }
 
                     context += "\n"
                 }
 
-                if folderEmails.count > 10 {
-                    context += "  ... and \(folderEmails.count - 10) more emails in this folder\n"
+                if folderEmails.count > 6 {
+                    context += "  ... and \(folderEmails.count - 6) more emails in this folder\n"
                 }
             }
         } else {
@@ -1377,7 +1380,7 @@ class SelineAppContext {
                 context += "\n**\(folder.name)** (\(folderEmails.count) emails):\n"
 
                 // Show most recent emails first
-                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(10) {
+                for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(6) {  // Reduced from 10 to 6
                     let dateFormatter = DateFormatter()
                     dateFormatter.dateStyle = .medium
                     dateFormatter.timeStyle = .short
@@ -1396,7 +1399,7 @@ class SelineAppContext {
 
                     // Add brief content preview
                     if let body = email.body, !body.isEmpty {
-                        let bodyPreview = String(body.prefix(150))
+                        let bodyPreview = String(body.prefix(100))  // Reduced from 150 to 100 chars
                         context += "    Preview: \(bodyPreview)...\n"
                     }
 

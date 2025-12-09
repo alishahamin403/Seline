@@ -52,7 +52,8 @@ class LocationVisitAnalytics: ObservableObject {
     func fetchStats(for placeId: UUID) async {
         // OPTIMIZATION: Check cache first before querying Supabase
         if let cachedStats = statsCache[placeId], !cachedStats.isExpired(ttlSeconds: statscacheTTL) {
-            print("📊 Using cached stats for place \(placeId) (age: \(Int(Date().timeIntervalSince(cachedStats.timestamp)))s)")
+            // DEBUG: Commented out to reduce console spam
+            // print("📊 Using cached stats for place \(placeId) (age: \(Int(Date().timeIntervalSince(cachedStats.timestamp)))s)")
             self.visitStats[placeId] = cachedStats.stats
             return
         }
@@ -67,11 +68,9 @@ class LocationVisitAnalytics: ObservableObject {
             return
         }
 
-        print("📊 LocationVisitAnalytics: Fetching visits for place \(placeId) with user \(userId)")
-
+        // Removed excessive logging
         do {
             let visits = try await fetchVisits(for: placeId, userId: userId)
-            print("📊 LocationVisitAnalytics: Found \(visits.count) visits for place \(placeId)")
 
             // Include the active visit if one exists for this location
             let activeVisit = GeofenceManager.shared.activeVisits[placeId]
@@ -83,7 +82,8 @@ class LocationVisitAnalytics: ObservableObject {
                 self.statsCache[placeId] = CachedStats(stats: stats, timestamp: Date())
             }
 
-            print("📊 Fetched stats for place \(placeId): \(stats.totalVisits) visits, Peak time: \(stats.mostCommonTimeOfDay ?? "N/A")")
+            // DEBUG: Commented out to reduce console spam
+            // print("📊 Fetched stats for place \(placeId): \(stats.totalVisits) visits, Peak time: \(stats.mostCommonTimeOfDay ?? "N/A")")
         } catch {
             errorMessage = "Failed to fetch visit stats: \(error.localizedDescription)"
             print("❌ Error fetching stats for place \(placeId): \(error.localizedDescription)")
@@ -210,6 +210,97 @@ class LocationVisitAnalytics: ObservableObject {
         return locationVisits
     }
 
+    /// Get today's visits with total duration per location
+    /// Returns array of (placeId, displayName, totalDurationMinutes, isActive) sorted by most recent visit
+    func getTodaysVisitsWithDuration() async -> [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] {
+        guard SupabaseManager.shared.getCurrentUser()?.id != nil else {
+            return []
+        }
+
+        let calendar = Calendar.current
+        let today = Date()
+        let startOfDay = calendar.startOfDay(for: today)
+        let endOfDay = calendar.date(byAdding: .second, value: -1, to: calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: today)!))!
+
+        var results: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool, lastVisitTime: Date)] = []
+        var processedPlaceIds: Set<UUID> = [] // Track which places we've already processed
+
+        // Get all saved places
+        let allPlaces = LocationsManager.shared.savedPlaces
+
+        // FIRST: Check for active visits from GeofenceManager (these might have started yesterday)
+        let activeVisits = GeofenceManager.shared.activeVisits
+
+        for (placeId, activeVisit) in activeVisits {
+            guard let place = allPlaces.first(where: { $0.id == placeId }) else { continue }
+
+            processedPlaceIds.insert(placeId)
+
+            // Calculate duration spent TODAY only
+            let visitEntryTime = activeVisit.entryTime
+
+            // If visit started before today, use start of today as the effective start time
+            let effectiveStartTime = visitEntryTime < startOfDay ? startOfDay : visitEntryTime
+
+            // Calculate minutes from effective start to now
+            let minutesToday = Int(Date().timeIntervalSince(effectiveStartTime) / 60)
+
+            // Also check for any completed visits today from the database
+            let visitsToday = await getVisitsInDateRange(for: placeId, startDate: startOfDay, endDate: endOfDay)
+            let completedMinutesToday = visitsToday.compactMap { $0.durationMinutes }.reduce(0, +)
+
+            let totalMinutes = minutesToday + completedMinutesToday
+
+            results.append((
+                id: placeId,
+                displayName: place.displayName,
+                totalDurationMinutes: totalMinutes,
+                isActive: true,
+                lastVisitTime: Date() // Active visit is always most recent
+            ))
+        }
+
+        // SECOND: Process places with completed visits today (that aren't already active)
+        for place in allPlaces {
+            // Skip if we already processed this place as an active visit
+            if processedPlaceIds.contains(place.id) {
+                continue
+            }
+
+            let visits = await getVisitsInDateRange(for: place.id, startDate: startOfDay, endDate: endOfDay)
+            if !visits.isEmpty {
+                // Calculate total duration for today
+                var totalMinutes = 0
+                var latestVisitTime: Date = .distantPast
+
+                for visit in visits {
+                    if let duration = visit.durationMinutes {
+                        totalMinutes += duration
+                    }
+
+                    // Track latest visit time for sorting
+                    if visit.entryTime > latestVisitTime {
+                        latestVisitTime = visit.entryTime
+                    }
+                }
+
+                results.append((
+                    id: place.id,
+                    displayName: place.displayName,
+                    totalDurationMinutes: totalMinutes,
+                    isActive: false,
+                    lastVisitTime: latestVisitTime
+                ))
+            }
+        }
+
+        // Sort by most recent visit first
+        let sorted = results.sorted { $0.lastVisitTime > $1.lastVisitTime }
+
+        // Return without the lastVisitTime (internal sorting field)
+        return sorted.map { (id: $0.id, displayName: $0.displayName, totalDurationMinutes: $0.totalDurationMinutes, isActive: $0.isActive) }
+    }
+
     // MARK: - Cache Management
 
     /// Invalidate cache for a specific place (call when visit is recorded/updated)
@@ -253,10 +344,141 @@ class LocationVisitAnalytics: ObservableObject {
         }
     }
 
+    /// Clean up all visits shorter than 10 minutes (false positives from GPS glitches, passing by, etc.)
+    /// Merge consecutive visits and cleanup short visits
+    /// Returns (mergedCount, deletedCount)
+    func mergeAndCleanupVisits() async -> (merged: Int, deleted: Int) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("❌ LocationVisitAnalytics: User not authenticated")
+            return (0, 0)
+        }
+
+        let client = await SupabaseManager.shared.getPostgrestClient()
+
+        do {
+            // Fetch all completed visits sorted by entry_time
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: true)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            var allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Only process completed visits
+            allVisits = allVisits.filter { $0.exitTime != nil && $0.durationMinutes != nil }
+
+            if allVisits.isEmpty {
+                print("✅ No completed visits to process")
+                return (0, 0)
+            }
+
+            // Group by saved_place_id
+            let groupedVisits = Dictionary(grouping: allVisits) { $0.savedPlaceId }
+
+            var totalMerged = 0
+            var totalDeleted = 0
+            var visitsToDelete: Set<UUID> = []
+
+            // Process each location's visits
+            for (placeId, visits) in groupedVisits {
+                let sortedVisits = visits.sorted { $0.entryTime < $1.entryTime }
+
+                var i = 0
+                while i < sortedVisits.count {
+                    let currentVisit = sortedVisits[i]
+
+                    // Check if we can merge with next visit
+                    if i + 1 < sortedVisits.count {
+                        let nextVisit = sortedVisits[i + 1]
+
+                        // Calculate gap between visits
+                        if let currentExit = currentVisit.exitTime {
+                            let gapMinutes = Int(nextVisit.entryTime.timeIntervalSince(currentExit) / 60)
+
+                            // Merge if gap is 10 minutes or less
+                            if gapMinutes <= 10 && gapMinutes >= 0 {
+                                print("🔄 Merging visits: \(currentVisit.id) and \(nextVisit.id) (gap: \(gapMinutes) min)")
+
+                                // Merge: update first visit to have exit time of second visit
+                                if let nextExit = nextVisit.exitTime {
+                                    let newDuration = Int(nextExit.timeIntervalSince(currentVisit.entryTime) / 60)
+
+                                    let formatter = ISO8601DateFormatter()
+                                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+                                    let updateData: [String: PostgREST.AnyJSON] = [
+                                        "exit_time": .string(formatter.string(from: nextExit)),
+                                        "duration_minutes": .int(newDuration),
+                                        "updated_at": .string(formatter.string(from: Date()))
+                                    ]
+
+                                    try await client
+                                        .from("location_visits")
+                                        .update(updateData)
+                                        .eq("id", value: currentVisit.id.uuidString)
+                                        .execute()
+
+                                    // Mark second visit for deletion
+                                    visitsToDelete.insert(nextVisit.id)
+                                    totalMerged += 1
+
+                                    // Skip next visit since it's been merged
+                                    i += 2
+                                    continue
+                                }
+                            }
+                        }
+                    }
+
+                    // If visit is < 10 minutes and wasn't merged, mark for deletion
+                    if let duration = currentVisit.durationMinutes, duration < 10 {
+                        print("🗑️ Marking short visit for deletion: \(currentVisit.id) (duration: \(duration) min)")
+                        visitsToDelete.insert(currentVisit.id)
+                        totalDeleted += 1
+                    }
+
+                    i += 1
+                }
+            }
+
+            // Delete all marked visits
+            for visitId in visitsToDelete {
+                do {
+                    try await client
+                        .from("location_visits")
+                        .delete()
+                        .eq("id", value: visitId.uuidString)
+                        .execute()
+                } catch {
+                    print("⚠️ Failed to delete visit \(visitId): \(error)")
+                }
+            }
+
+            print("✅ Merged \(totalMerged) visit(s), deleted \(totalDeleted) short visit(s)")
+
+            // Invalidate cache to force refresh
+            invalidateAllCache()
+
+            return (totalMerged, totalDeleted)
+        } catch {
+            print("❌ LocationVisitAnalytics: Failed to merge and cleanup visits: \(error)")
+            return (0, 0)
+        }
+    }
+
+    func cleanupShortVisits() async -> Int {
+        // Deprecated: Use mergeAndCleanupVisits() instead
+        let (_, deleted) = await mergeAndCleanupVisits()
+        return deleted
+    }
+
     // MARK: - Private Methods
 
     private func fetchVisits(for placeId: UUID, userId: UUID) async throws -> [LocationVisitRecord] {
-        print("📊 LocationVisitAnalytics.fetchVisits: Querying location_visits for place=\(placeId), user=\(userId)")
+        // Removed excessive logging
 
         let client = await SupabaseManager.shared.getPostgrestClient()
 
@@ -270,7 +492,6 @@ class LocationVisitAnalytics: ObservableObject {
                 .execute()
                 .value
 
-            print("📊 LocationVisitAnalytics.fetchVisits: Query returned \(response.count) records")
             return response
         } catch {
             print("❌ LocationVisitAnalytics.fetchVisits: Query failed with error: \(error)")

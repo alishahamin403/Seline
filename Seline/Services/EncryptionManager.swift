@@ -34,7 +34,8 @@ class EncryptionManager: ObservableObject {
     func setupEncryption(with userId: UUID) {
         let key = deriveKeyFromUserId(userId)
         self.encryptionKey = key
-        print("✅ Encryption initialized for user: \(userId.uuidString)")
+        // DEBUG: Commented out to reduce console spam
+        // print("✅ Encryption initialized for user: \(userId.uuidString)")
     }
 
     /// Derive encryption key from user ID deterministically

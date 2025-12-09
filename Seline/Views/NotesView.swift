@@ -16,6 +16,8 @@ struct NotesView: View, Searchable {
     @State private var selectedFolderId: UUID? = nil
     @State private var showReceiptStats = false
     @State private var showingRecurringExpenseForm = false
+    @State private var selectedTab = "notes" // "notes", "receipts", "recurring"
+    @Namespace private var tabAnimation
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -135,100 +137,160 @@ struct NotesView: View, Searchable {
         NavigationStack(path: $navigationPath) {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
-                // Header with search and stats toggle
-                VStack(spacing: 4) {
-                    HStack(alignment: .center, spacing: 8) {
-                        // Folders button
-                        Button(action: {
-                            withAnimation {
-                                showingFolderSidebar.toggle()
-                            }
-                        }) {
-                            Image(systemName: "folder")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(width: 36, height: 36)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-
-                        NotesSearchBar(
-                            searchText: $searchText,
-                            showingFolderSidebar: $showingFolderSidebar
-                        )
-
-                        // Stats button (only shown if there are receipts)
-                        if hasReceipts {
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showReceiptStats.toggle()
-                                }
-                            }) {
-                                Image(systemName: "dollarsign")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .frame(width: 36, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
-                                    )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        } else {
-                            // Spacer to keep layout consistent when no receipts
-                            Color.clear
-                                .frame(width: 36, height: 36)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-
-                    // Selected folder indicator chip
-                    if let folderId = selectedFolderId {
-                        HStack(spacing: 6) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                            Text(notesManager.getFolderName(for: folderId))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                            Spacer()
+                    // Pill tabs
+                    HStack(spacing: 4) {
+                        ForEach(["notes", "receipts", "recurring"], id: \.self) { tab in
+                            let isSelected = selectedTab == tab
+                            let tabLabel = tab == "notes" ? "Notes" : (tab == "receipts" ? "Receipts" : "Recurring")
 
                             Button(action: {
-                                withAnimation {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    selectedTab = tab
+                                    // Clear search when switching tabs
+                                    searchText = ""
                                     selectedFolderId = nil
                                 }
                             }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.gray)
+                                Text(tabLabel)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background {
+                                        if isSelected {
+                                            Capsule()
+                                                .fill(tabBackgroundColor())
+                                                .matchedGeometryEffect(id: "tab", in: tabAnimation)
+                                        }
+                                    }
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                        )
-                        .padding(.horizontal, 20)
-                        .padding(.top, 4)
                     }
-                }
-                .padding(.top, 2)
-                .padding(.bottom, 4)
+                    .padding(4)
+                    .background(
+                        Capsule()
+                            .fill(tabContainerColor())
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
 
-                // Conditional rendering: Stats view or Notes list
-                if showReceiptStats {
-                    ReceiptStatsView()
-                } else {
-                    // Notes list
-                    ScrollView(.vertical, showsIndicators: false) {
+                    // Search bar and folder button - only in Notes tab
+                    if selectedTab == "notes" {
+                        VStack(spacing: 4) {
+                            HStack(alignment: .center, spacing: 8) {
+                                // Folders button
+                                Button(action: {
+                                    withAnimation {
+                                        showingFolderSidebar.toggle()
+                                    }
+                                }) {
+                                    Image(systemName: "folder")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .frame(width: 36, height: 36)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                NotesSearchBar(
+                                    searchText: $searchText,
+                                    showingFolderSidebar: $showingFolderSidebar
+                                )
+                            }
+                            .padding(.horizontal, 20)
+
+                            // Selected folder indicator chip
+                            if let folderId = selectedFolderId {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                    Text(notesManager.getFolderName(for: folderId))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                    Spacer()
+
+                                    Button(action: {
+                                        withAnimation {
+                                            selectedFolderId = nil
+                                        }
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(.gray)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                )
+                                .padding(.horizontal, 20)
+                                .padding(.top, 4)
+                            }
+                        }
+                        .padding(.bottom, 4)
+                    }
+
+                // Tab content
+                ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 16) {
+                        if selectedTab == "notes" {
+                            notesTabContent
+                        } else if selectedTab == "receipts" {
+                            receiptsTabContent
+                        } else {
+                            recurringTabContent
+                        }
+
+                        // Bottom spacer for floating button
+                        Spacer()
+                            .frame(height: 80)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                }
+
+                Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 0)
+                .background(
+                    (colorScheme == .dark ? Color.black : Color.white)
+                        .ignoresSafeArea()
+                )
+                .overlay(floatingAddButton)
+                .overlay(folderSidebar)
+            }
+            .navigationDestination(for: Note.self) { note in
+                NoteEditView(note: note, isPresented: .constant(true))
+            }
+        }
+        .fullScreenCover(isPresented: $showingNewNoteSheet) {
+            NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+        }
+        .sheet(isPresented: $showingRecurringExpenseForm) {
+            RecurringExpenseForm { expense in
+                HapticManager.shared.buttonTap()
+                print("Created recurring expense: \(expense.title)")
+            }
+            .presentationBg()
+        }
+    }
+
+    // MARK: - Tab Content Views
+
+    private var notesTabContent: some View {
+        Group {
                         // Pinned section card
                         if !filteredPinnedNotes.isEmpty {
                             VStack(spacing: 0) {
@@ -363,138 +425,128 @@ struct NotesView: View, Searchable {
                             )
                         }
 
-                        // Empty state
-                        if filteredPinnedNotes.isEmpty && recentNotes.isEmpty && notesByMonth.isEmpty {
-                            VStack(spacing: 16) {
-                                Image(systemName: "note.text")
-                                    .font(.system(size: 48, weight: .light))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+            // Empty state for notes tab
+            if filteredPinnedNotes.isEmpty && recentNotes.isEmpty && notesByMonth.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 48, weight: .light))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
-                                Text(searchText.isEmpty ? "No notes yet" : "No notes found")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    Text(searchText.isEmpty ? "No notes yet" : "No notes found")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
-                                if searchText.isEmpty {
-                                    Text("Tap the + button to create your first note")
-                                        .font(.system(size: 14, weight: .regular))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
-                            .padding(.top, 60)
+                    if searchText.isEmpty {
+                        Text("Tap the + button to create your first note")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding(.top, 60)
+            }
+        }
+    }
+
+    private var receiptsTabContent: some View {
+        ReceiptStatsView()
+            .padding(.horizontal, -8) // Remove padding since content has its own
+    }
+
+    private var recurringTabContent: some View {
+        RecurringExpenseStatsContent()
+            .padding(.horizontal, -8) // Remove padding since content has its own
+    }
+
+    // MARK: - Helper Views
+
+    private var floatingAddButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+
+                // Show button on notes and recurring tabs only
+                if selectedTab == "notes" || selectedTab == "recurring" {
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        if selectedTab == "notes" {
+                            showingNewNoteSheet = true
+                        } else {
+                            showingRecurringExpenseForm = true
                         }
-
-                        // Bottom spacer for floating button
-                        Spacer()
-                            .frame(height: 0)
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 56, height: 56)
+                            .background(
+                                Circle()
+                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                            )
+                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-                    }
-
-                    Spacer()
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 30)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 0)
-            .background(
-                (colorScheme == .dark ? Color.black : Color.white)
-                    .ignoresSafeArea()
-            )
-            .overlay(
-                // Floating add button with menu
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Menu {
-                            Button(action: {
-                                HapticManager.shared.buttonTap()
-                                showingNewNoteSheet = true
-                            }) {
-                                Label("New Note", systemImage: "note.text")
-                            }
+        }
+    }
 
-                            Button(action: {
-                                HapticManager.shared.buttonTap()
-                                showingRecurringExpenseForm = true
-                            }) {
-                                Label("Add Recurring", systemImage: "repeat.circle.fill")
+    private var folderSidebar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                // Dimmed background
+                if showingFolderSidebar && selectedTab == "notes" {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation {
+                                showingFolderSidebar = false
                             }
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
-                                .background(
-                                    Circle()
-                                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
-                                )
-                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                         }
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 30)
-                    }
                 }
-            )
-            .overlay(
-                // Folder sidebar
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        // Dimmed background
-                        if showingFolderSidebar {
-                            Color.black.opacity(0.3)
-                                .ignoresSafeArea()
-                                .onTapGesture {
+
+                // Sidebar - only show in notes tab
+                if showingFolderSidebar && selectedTab == "notes" {
+                    FolderSidebarView(
+                        isPresented: $showingFolderSidebar,
+                        selectedFolderId: $selectedFolderId
+                    )
+                    .frame(width: geo.size.width * 0.85)
+                    .transition(.move(edge: .leading))
+                    .gesture(
+                        DragGesture()
+                            .onEnded { value in
+                                if value.translation.width < -100 {
                                     withAnimation {
                                         showingFolderSidebar = false
                                     }
                                 }
-                        }
-
-                        // Sidebar
-                        if showingFolderSidebar {
-                            FolderSidebarView(
-                                isPresented: $showingFolderSidebar,
-                                selectedFolderId: $selectedFolderId
-                            )
-                            .frame(width: geo.size.width * 0.85)
-                            .transition(.move(edge: .leading))
-                            .gesture(
-                                DragGesture()
-                                    .onEnded { value in
-                                        if value.translation.width < -100 {
-                                            withAnimation {
-                                                showingFolderSidebar = false
-                                            }
-                                        }
-                                    }
-                            )
-                        }
-                    }
+                            }
+                    )
                 }
-                .allowsHitTesting(showingFolderSidebar)
-            )
-            }
-            .navigationDestination(for: Note.self) { note in
-                NoteEditView(note: note, isPresented: .constant(true))
-                    .navigationBarBackButtonHidden(false)
             }
         }
-        .fullScreenCover(isPresented: $showingNewNoteSheet) {
-            NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
+        .allowsHitTesting(showingFolderSidebar && selectedTab == "notes")
+    }
+
+    // MARK: - Tab Color Helpers
+
+    private func tabForegroundColor(isSelected: Bool) -> Color {
+        if isSelected {
+            return colorScheme == .dark ? .black : .white
+        } else {
+            return colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)
         }
-        .sheet(isPresented: $showingRecurringExpenseForm) {
-            RecurringExpenseForm { expense in
-                HapticManager.shared.buttonTap()
-                print("Created recurring expense: \(expense.title)")
-            }
-            .presentationBg()
-        }
-        .onAppear {
-            // Register with search service
-            SearchService.shared.registerSearchableProvider(self, for: .notes)
-        }
+    }
+
+    private func tabBackgroundColor() -> Color {
+        return colorScheme == .dark ? .white : .black
+    }
+
+    private func tabContainerColor() -> Color {
+        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
     }
 
     // MARK: - Searchable Protocol
@@ -631,7 +683,7 @@ struct NoteEditView: View {
     @State private var newFolderName = ""
     @State private var isProcessingCleanup = false
     @State private var showingShareSheet = false
-    @StateObject private var openAIService = OpenAIService.shared
+    @StateObject private var openAIService = DeepSeekService.shared
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
     @State private var showingImagePicker = false
     @State private var showingCameraPicker = false
@@ -1928,7 +1980,7 @@ struct NoteEditView: View {
 
                 // Call OpenAI to process the text
                 print("🤖 Processing with OpenAI...")
-                let openAIService = OpenAIService.shared
+                let openAIService = DeepSeekService.shared
                 let processedText = try await openAIService.extractDetailedDocumentContent(
                     fileContent,
                     withPrompt: prompt,

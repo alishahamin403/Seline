@@ -105,7 +105,8 @@ class NavigationService: ObservableObject {
                 let distanceMeters = Int(route.distance)
                 let distanceText = self.formatDistance(distanceMeters)
 
-                print("✅ MapKit ETA: \(durationText) for \(distanceText)")
+                // DEBUG: Commented out to reduce console spam
+                // print("✅ MapKit ETA: \(durationText) for \(distanceText)")
 
                 continuation.resume(returning: ETAResult(
                     durationSeconds: durationSeconds,
@@ -210,7 +211,8 @@ class NavigationService: ObservableObject {
                 userDefaults.set(self.location3ETA, forKey: "widgetLocation3ETA")
                 userDefaults.set(self.location4ETA, forKey: "widgetLocation4ETA")
                 userDefaults.synchronize()
-                print("✅ NavigationService: Saved ETAs to shared UserDefaults - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---"), L4: \(self.location4ETA ?? "---")")
+                // DEBUG: Commented out to reduce console spam
+                // print("✅ NavigationService: Saved ETAs to shared UserDefaults - L1: \(self.location1ETA ?? "---"), L2: \(self.location2ETA ?? "---"), L3: \(self.location3ETA ?? "---"), L4: \(self.location4ETA ?? "---")")
             } else {
                 print("❌ NavigationService: Could not access shared UserDefaults group.seline")
             }

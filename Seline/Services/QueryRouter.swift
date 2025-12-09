@@ -182,7 +182,7 @@ class QueryRouter {
         """
 
         do {
-            let response = try await OpenAIService.shared.generateText(
+            let response = try await DeepSeekService.shared.generateText(
                 systemPrompt: systemPrompt,
                 userPrompt: query,
                 maxTokens: 10,
@@ -246,7 +246,7 @@ class QueryRouter {
         """
 
         do {
-            let response = try await OpenAIService.shared.generateText(
+            let response = try await DeepSeekService.shared.generateText(
                 systemPrompt: systemPrompt,
                 userPrompt: query,
                 maxTokens: 300,
@@ -258,7 +258,7 @@ class QueryRouter {
             // Try to extract JSON from response (LLM might include markdown or extra text)
             let jsonString = extractJSON(from: response)
 
-            if let data = jsonString.data(using: .utf8),
+            if let data = jsonString.data(using: String.Encoding.utf8),
                let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: String]] {
                 var actions: [(actionType: ActionType, query: String)] = []
                 for actionDict in jsonArray {

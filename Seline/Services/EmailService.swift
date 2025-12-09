@@ -55,7 +55,7 @@ class EmailService: ObservableObject {
     private let authManager = AuthenticationManager.shared
     private let gmailAPIClient = GmailAPIClient.shared
     let notificationService = NotificationService.shared // Made public for access from EmailView
-    private let openAIService = OpenAIService.shared
+    private let openAIService = DeepSeekService.shared
 
     private init() {
         // Clear old cached data on app startup to prevent showing yesterday's emails
@@ -135,12 +135,11 @@ class EmailService: ObservableObject {
                 updateCacheTimestamp(for: folder)
                 saveCachedData(for: folder)
 
-                // NOTE: AI summary pre-loading disabled to prevent unnecessary Gmail API calls
-                // AI summaries are generated on-demand when user views individual emails
-                // This reduces API quota usage and improves app performance
-                // Task.detached(priority: .background) {
-                //     await self.preloadAISummaries(for: mergedEmails)
-                // }
+                // Generate AI summaries in background when emails are loaded
+                // This ensures summaries are ready when user opens emails
+                Task.detached(priority: .background) {
+                    await self.preloadAISummaries(for: mergedEmails)
+                }
 
             } catch {
                 // Only update state if not cancelled
@@ -1016,7 +1015,8 @@ class EmailService: ObservableObject {
         // NOTE: Background refresh disabled - using Supabase as source of truth
         // No need for background Gmail API calls when data is cached in Supabase
         // Users will see cached data which is automatically synced when they use the app
-        print("⏹️ Background refresh disabled - using Supabase cache only")
+        // DEBUG: Commented out to reduce console spam
+        // print("⏹️ Background refresh disabled - using Supabase cache only")
     }
 
     // MARK: - Private Methods

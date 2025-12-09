@@ -98,6 +98,24 @@ struct NoteFolder: Identifiable, Codable, Hashable {
     }
 }
 
+// MARK: - Quick Notes
+// Quick notes are small, sticky notes that appear in Quick Access for fast capture
+struct QuickNote: Identifiable, Codable, Hashable {
+    var id: UUID
+    var content: String
+    var dateCreated: Date
+    var dateModified: Date
+    var userId: UUID
+
+    init(content: String, userId: UUID) {
+        self.id = UUID()
+        self.content = content
+        self.dateCreated = Date()
+        self.dateModified = Date()
+        self.userId = userId
+    }
+}
+
 // MARK: - Deleted Items Models
 
 struct DeletedNote: Identifiable, Codable, Hashable {
@@ -1490,9 +1508,11 @@ class NotesManager: ObservableObject {
             return
         }
 
-        print("✅ Encryption key is ready. Proceeding to load notes.")
+        // DEBUG: Commented out to reduce console spam
+        // print("✅ Encryption key is ready. Proceeding to load notes.")
 
-        print("📥 Loading notes from Supabase for user: \(userId.uuidString)")
+        // DEBUG: Commented out to reduce console spam
+        // print("📥 Loading notes from Supabase for user: \(userId.uuidString)")
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
@@ -1503,7 +1523,8 @@ class NotesManager: ObservableObject {
                 .execute()
                 .value
 
-            print("📥 Received \(response.count) notes from Supabase")
+            // DEBUG: Commented out to reduce console spam
+            // print("📥 Received \(response.count) notes from Supabase")
 
             // Parse notes with image URLs (no downloads!) and decrypt
             var parsedNotes: [Note] = []
@@ -1675,7 +1696,8 @@ class NotesManager: ObservableObject {
             return
         }
 
-        print("💾 Saving folder to Supabase - User ID: \(userId.uuidString), Folder ID: \(folder.id.uuidString)")
+        // DEBUG: Commented out to reduce console spam
+        // print("💾 Saving folder to Supabase - User ID: \(userId.uuidString), Folder ID: \(folder.id.uuidString)")
 
         let folderData: [String: PostgREST.AnyJSON] = [
             "id": .string(folder.id.uuidString),
@@ -1771,9 +1793,11 @@ class NotesManager: ObservableObject {
             return
         }
 
-        print("✅ Encryption key is ready. Proceeding to load folders.")
+        // DEBUG: Commented out to reduce console spam
+        // print("✅ Encryption key is ready. Proceeding to load folders.")
 
-        print("📥 Loading folders from Supabase for user: \(userId.uuidString)")
+        // DEBUG: Commented out to reduce console spam
+        // print("📥 Loading folders from Supabase for user: \(userId.uuidString)")
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
@@ -1784,7 +1808,8 @@ class NotesManager: ObservableObject {
                 .execute()
                 .value
 
-            print("📥 Received \(response.count) folders from Supabase")
+            // DEBUG: Commented out to reduce console spam
+            // print("📥 Received \(response.count) folders from Supabase")
 
             // Parse folders with decryption
             var parsedFolders: [NoteFolder] = []
@@ -1832,7 +1857,8 @@ class NotesManager: ObservableObject {
             print("✅ Decrypted folder name: \(data.name.prefix(30))... → \(folderName)")
         } catch {
             // Decryption failed - name is already plain text, use as-is
-            print("ℹ️ Folder name is plain text (not encrypted): \(folderName)")
+            // DEBUG: Commented out to reduce console spam
+            // print("ℹ️ Folder name is plain text (not encrypted): \(folderName)")
         }
 
         let folder = NoteFolder(

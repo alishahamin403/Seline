@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import WidgetKit
 
 struct MainAppView: View {
     @EnvironmentObject var authManager: AuthenticationManager
@@ -22,6 +23,7 @@ struct MainAppView: View {
     @State private var showingNewNoteSheet = false
     @State private var showingAddEventPopup = false
     @State private var searchText = ""
+    @State private var isDailyOverviewExpanded = false
     @State private var searchResults: [OverlaySearchResult] = []  // Cache search results instead of computing every time
     @State private var searchSelectedNote: Note? = nil
     @State private var searchSelectedEmail: Email? = nil
@@ -44,7 +46,7 @@ struct MainAppView: View {
     @State private var updateTimer: Timer?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
     @State private var hasLoadedIncompleteVisits = false
-    @State private var topLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
+    @State private var todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] = []
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast
@@ -342,6 +344,7 @@ struct MainAppView: View {
                         nearbyLocationFolder = place.category
                         nearbyLocationPlace = place
                         startLocationTimer()
+                        updateElapsedTime() // Immediately update widget data
                         print("✅ Entered geofence: \(place.displayName) (Folder: \(place.category))")
                     }
 
@@ -363,6 +366,9 @@ struct MainAppView: View {
                         geofenceManager.activeVisits[place.id] = visit
                         print("📝 Auto-created visit for already-present location: \(place.displayName)")
                         print("📍 Visit details - ID: \(visit.id.uuidString), UserID: \(visit.userId.uuidString), PlaceID: \(visit.savedPlaceId.uuidString)")
+
+                        // Immediately update widget data
+                        updateElapsedTime()
 
                         // Save to Supabase immediately
                         Task {
@@ -425,13 +431,15 @@ struct MainAppView: View {
         }
     }
 
-    private func loadTopLocations() {
+    private func loadTodaysVisits() {
         Task {
-            // Get all places with their visit counts sorted by most visited
+            // Get today's visits with duration for each location
+            let visits = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
+
+            // Also load all locations with visit counts for "See All" feature
             var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
 
             for place in locationsManager.savedPlaces {
-                // Fetch stats for this place
                 await LocationVisitAnalytics.shared.fetchStats(for: place.id)
 
                 if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
@@ -443,14 +451,10 @@ struct MainAppView: View {
                 }
             }
 
-            // Sort by visit count (descending)
             let allSorted = placesWithCounts.sorted { $0.visitCount > $1.visitCount }
 
-            // Top 3 for the card
-            let top3 = allSorted.prefix(3).map { $0 }
-
             await MainActor.run {
-                topLocations = top3
+                todaysVisits = visits
                 allLocations = allSorted  // Store all locations for "See All" feature
             }
         }
@@ -466,6 +470,15 @@ struct MainAppView: View {
                 if let activeVisit = geofenceManager.activeVisits[place.id] {
                     let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
                     elapsedTimeString = formatElapsedTime(elapsed)
+
+                    // Save to UserDefaults for widget
+                    if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                        userDefaults.set(nearbyLoc, forKey: "widgetVisitedLocation")
+                        userDefaults.set(elapsedTimeString, forKey: "widgetElapsedTime")
+                    }
+
+                    // Reload widget
+                    WidgetCenter.shared.reloadAllTimelines()
                     // Debug: Verify we're using real geofence data
                     // print("⏱️ Timer using REAL geofence data: \(place.displayName) - Entry: \(activeVisit.entryTime)")
                 } else {
@@ -473,13 +486,40 @@ struct MainAppView: View {
                     // Debug: Track when timer can't show because geofence event hasn't fired
                     // print("⚠️ No geofence entry recorded yet for: \(nearbyLoc) (proximity detected but geofence event pending)")
                     elapsedTimeString = ""
+
+                    // Clear widget data
+                    if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                        userDefaults.removeObject(forKey: "widgetVisitedLocation")
+                        userDefaults.removeObject(forKey: "widgetElapsedTime")
+                    }
+
+                    // Reload widget
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
             } else {
                 print("⚠️ Location '\(nearbyLoc)' not found in saved places")
                 elapsedTimeString = ""
+
+                // Clear widget data
+                if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                    userDefaults.removeObject(forKey: "widgetVisitedLocation")
+                    userDefaults.removeObject(forKey: "widgetElapsedTime")
+                }
+
+                // Reload widget
+                WidgetCenter.shared.reloadAllTimelines()
             }
         } else {
             elapsedTimeString = ""
+
+            // Clear widget data when not at any location
+            if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                userDefaults.removeObject(forKey: "widgetVisitedLocation")
+                userDefaults.removeObject(forKey: "widgetElapsedTime")
+            }
+
+            // Reload widget
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 
@@ -609,6 +649,12 @@ struct MainAppView: View {
                     resetDeepLinkFlags("maps")
                 }
             }
+            .onChange(of: colorScheme) { _ in
+                // FIX: Force view refresh when system theme changes
+                // This ensures the app immediately updates from light to dark mode
+                // The onChange itself triggers a view update cycle
+            }
+            .id(colorScheme) // Force complete view recreation on theme change
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()
             }
@@ -625,6 +671,14 @@ struct MainAppView: View {
                 // This fixes visits that got stuck before the auto-cleanup code was added
                 Task {
                     await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
+                }
+
+                // CLEANUP: Merge consecutive visits and delete short visits
+                Task {
+                    let (mergedCount, deletedCount) = await LocationVisitAnalytics.shared.mergeAndCleanupVisits()
+                    if mergedCount > 0 || deletedCount > 0 {
+                        print("🧹 On app startup - Merged \(mergedCount) visit(s), deleted \(deletedCount) short visit(s)")
+                    }
                 }
 
                 // Request location permissions immediately
@@ -656,7 +710,7 @@ struct MainAppView: View {
                 }
 
                 // Load top 3 locations by visit count
-                loadTopLocations()
+                loadTodaysVisits()
                 // Calendar sync is handled in SelineApp.swift via didBecomeActiveNotification
             }
             .onReceive(locationService.$currentLocation) { _ in
@@ -672,6 +726,10 @@ struct MainAppView: View {
             // The timer only runs when user is actively looking at the screen
             .onChange(of: scenePhase) { newPhase in
                 if newPhase == .active {
+                    // FIX: Immediately check current location to update nearby location state
+                    // This ensures UI updates right away when app comes to foreground
+                    updateCurrentLocation()
+
                     // App came to foreground - restart timer if tracking a location
                     if nearbyLocation != nil {
                         startLocationTimer()
@@ -694,7 +752,11 @@ struct MainAppView: View {
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
                 // Reload top 3 locations when places are added/removed/updated
-                loadTopLocations()
+                loadTodaysVisits()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
+                // Reload visits when a new visit is created (e.g., when app detects user is already inside)
+                loadTodaysVisits()
             }
             .onChange(of: locationService.locationName) { _ in
                 // Update location card when location service resolves the location name
@@ -1547,33 +1609,58 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        VStack(spacing: 16) {
-            // Spending + ETA widget - replaces weather widget
-            SpendingAndETAWidget(isVisible: selectedTab == .home)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 8) {
+                // Daily Overview widget - shows expenses due, important emails, and birthdays
+                DailyOverviewWidget(
+                    isExpanded: $isDailyOverviewExpanded,
+                    onNoteSelected: { note in
+                        selectedNoteToOpen = note
+                    },
+                    onEmailSelected: { email in
+                        searchSelectedEmail = email
+                    },
+                    onTaskSelected: { task in
+                        searchSelectedTask = task
+                    }
+                )
                 .padding(.horizontal, 12)
-                .padding(.top, 12)
+                .zIndex(1)
 
-            // Current Location card
-            CurrentLocationCardWidget(
-                currentLocationName: currentLocationName,
-                nearbyLocation: nearbyLocation,
-                nearbyLocationFolder: nearbyLocationFolder,
-                nearbyLocationPlace: nearbyLocationPlace,
-                distanceToNearest: distanceToNearest,
-                elapsedTimeString: elapsedTimeString,
-                topLocations: topLocations,
-                selectedPlace: $selectedLocationPlace,
-                showingPlaceDetail: $showingLocationPlaceDetail,
-                showAllLocationsSheet: $showAllLocationsSheet
-            )
-            .padding(.horizontal, 12)
+                // Spending + ETA widget - replaces weather widget
+                SpendingAndETAWidget(isVisible: selectedTab == .home)
+                    .padding(.horizontal, 12)
+                    .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+                    .allowsHitTesting(!isDailyOverviewExpanded)
 
-            // Events card - expands to fill available space
-            EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
+                // Current Location card
+                CurrentLocationCardWidget(
+                    currentLocationName: currentLocationName,
+                    nearbyLocation: nearbyLocation,
+                    nearbyLocationFolder: nearbyLocationFolder,
+                    nearbyLocationPlace: nearbyLocationPlace,
+                    distanceToNearest: distanceToNearest,
+                    elapsedTimeString: elapsedTimeString,
+                    todaysVisits: todaysVisits,
+                    selectedPlace: $selectedLocationPlace,
+                    showingPlaceDetail: $showingLocationPlaceDetail,
+                    showAllLocationsSheet: $showAllLocationsSheet
+                )
                 .padding(.horizontal, 12)
-                .frame(maxHeight: .infinity)
+                .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+                .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+                .allowsHitTesting(!isDailyOverviewExpanded)
+
+                // Events card
+                EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
+                    .padding(.horizontal, 12)
+                    .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+                    .allowsHitTesting(!isDailyOverviewExpanded)
+            }
+            .padding(.vertical, 12)
         }
-        .frame(maxHeight: .infinity)
     }
 
 

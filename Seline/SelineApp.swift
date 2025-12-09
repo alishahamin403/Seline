@@ -108,7 +108,8 @@ struct SelineApp: App {
         Task {
             let granted = await NotificationService.shared.requestAuthorization()
             if granted {
-                print("✅ Notification permissions granted")
+                // DEBUG: Commented out to reduce console spam
+                // print("✅ Notification permissions granted")
             } else {
                 print("❌ Notification permissions denied")
             }
@@ -141,7 +142,8 @@ struct SelineApp: App {
 
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("📅 Background refresh scheduled for 15 minutes from now")
+            // DEBUG: Commented out to reduce console spam
+            // print("📅 Background refresh scheduled for 15 minutes from now")
         } catch {
             print("⚠️ Failed to schedule background refresh: \(error)")
         }
@@ -151,17 +153,21 @@ struct SelineApp: App {
         // Sync calendar events on app launch
         // This runs asynchronously without blocking app initialization
         Task {
-            print("📅 [SelineApp] Starting calendar sync check on launch...")
+            // DEBUG: Commented out to reduce console spam
+            // print("📅 [SelineApp] Starting calendar sync check on launch...")
 
             // Check current permission status first
             let status = EventKit.EKEventStore.authorizationStatus(for: .event)
-            print("📅 [SelineApp] Current calendar permission status: \(status.rawValue)")
+            // DEBUG: Commented out to reduce console spam
+            // print("📅 [SelineApp] Current calendar permission status: \(status.rawValue)")
 
             let hasAccess = await taskManager.requestCalendarAccess()
-            print("📅 [SelineApp] requestCalendarAccess returned: \(hasAccess)")
+            // DEBUG: Commented out to reduce console spam
+            // print("📅 [SelineApp] requestCalendarAccess returned: \(hasAccess)")
 
             if hasAccess {
-                print("✅ [SelineApp] Calendar access granted - syncing events now")
+                // DEBUG: Commented out to reduce console spam
+                // print("✅ [SelineApp] Calendar access granted - syncing events now")
                 await taskManager.syncCalendarEvents()
             } else {
                 print("⚠️ [SelineApp] Calendar access not granted. Status: \(status.rawValue)")

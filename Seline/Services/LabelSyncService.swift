@@ -8,7 +8,7 @@ actor LabelSyncService {
     private let emailFolderService = EmailFolderService.shared
     private let gmailAPIClient = GmailAPIClient.shared
     private let supabaseManager = SupabaseManager.shared
-    private let openAIService = OpenAIService.shared
+    private let openAIService = DeepSeekService.shared
 
     // Progress tracking
     @MainActor private(set) var importProgress = ImportProgress()

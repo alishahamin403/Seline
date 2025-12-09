@@ -4,7 +4,7 @@ import Foundation
 class ReceiptCategorizationService: ObservableObject {
     static let shared = ReceiptCategorizationService()
 
-    private let openAIService = OpenAIService.shared
+    private let openAIService = DeepSeekService.shared
     private let userDefaults = UserDefaults.standard
     private let supabaseManager = SupabaseManager.shared
     private let categoryCache = NSMutableDictionary()
@@ -77,7 +77,7 @@ class ReceiptCategorizationService: ObservableObject {
 
         do {
             let category = try await openAIService.categorizeReceipt(title: title)
-            let cleanCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanCategory = category.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
             // Ensure the category is valid (apply legacy mapping first)
             let mappedCategory = legacyCategoryMapping[cleanCategory] ?? cleanCategory

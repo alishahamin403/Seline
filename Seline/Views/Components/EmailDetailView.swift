@@ -5,7 +5,7 @@ struct EmailDetailView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) private var dismiss
     @StateObject private var emailService = EmailService.shared
-    @StateObject private var openAIService = OpenAIService.shared
+    @StateObject private var openAIService = DeepSeekService.shared
     @State private var isOriginalEmailExpanded: Bool = false
     @State private var fullEmail: Email? = nil
     @State private var isLoadingFullBody: Bool = false

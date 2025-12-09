@@ -49,7 +49,8 @@ class LocationSessionManager {
             openTime: Date()
         )
         activeSessions[sessionId] = session
-        print("📋 Created new session: \(sessionId.uuidString) for place: \(placeId.uuidString)")
+        // DEBUG: Commented out to reduce console spam
+        // print("📋 Created new session: \(sessionId.uuidString) for place: \(placeId.uuidString)")
         return sessionId
     }
 
@@ -104,7 +105,8 @@ class LocationSessionManager {
 
     /// Recover incomplete sessions from Supabase on app launch
     func recoverSessionsOnAppLaunch(for userId: UUID) async {
-        print("\n🔍 ===== RECOVERING SESSIONS ON APP LAUNCH =====")
+        // DEBUG: Commented out to reduce console spam
+        // print("\n🔍 ===== RECOVERING SESSIONS ON APP LAUNCH =====")
 
         guard let user = SupabaseManager.shared.getCurrentUser() else {
             print("⚠️ No authenticated user")
@@ -167,7 +169,8 @@ class LocationSessionManager {
                 }
             }
 
-            print("🔍 ===== SESSION RECOVERY COMPLETE =====\n")
+            // DEBUG: Commented out to reduce console spam
+            // print("🔍 ===== SESSION RECOVERY COMPLETE =====\n")
         } catch {
             print("❌ Error recovering sessions: \(error)")
         }

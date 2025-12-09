@@ -152,12 +152,12 @@ private func extractJSONFromResponse(_ text: String) -> String {
 // In addConversationMessage, replace the OpenAI call:
 
 // OLD CODE:
-// let response = try await OpenAIService.shared.answerQuestion(...)
+// let response = try await DeepSeekService.shared.answerQuestion(...)
 // let assistantMsg = ConversationMessage(isUser: false, text: response, ...)
 // conversationHistory.append(assistantMsg)
 
 // NEW CODE:
-try await OpenAIService.shared.answerQuestionWithStructuredValidation(
+try await DeepSeekService.shared.answerQuestionWithStructuredValidation(
     query: trimmed,
     taskManager: TaskManager.shared,
     notesManager: NotesManager.shared,

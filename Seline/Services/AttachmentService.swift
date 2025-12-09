@@ -13,7 +13,7 @@ class AttachmentService: ObservableObject {
     private let attachmentStorageBucket = "note-attachments"
     private let maxFileSizeBytes = 5 * 1024 * 1024 // 5MB total per note
     private let authManager = AuthenticationManager.shared
-    private let openAIService = OpenAIService.shared
+    private let openAIService = DeepSeekService.shared
 
     private init() {}
 

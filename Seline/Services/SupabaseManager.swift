@@ -10,6 +10,15 @@ class SupabaseManager: ObservableObject {
     private let supabaseURL: URL
     private let supabaseKey: String
 
+    // Public getters for DeepSeek proxy
+    var url: String {
+        return supabaseURL.absoluteString
+    }
+
+    var anonKey: String {
+        return supabaseKey
+    }
+
     private init() {
         // Your Supabase project details
         self.supabaseURL = URL(string: "https://rtiacmeeqkihzhgosvjn.supabase.co")!

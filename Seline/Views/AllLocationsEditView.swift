@@ -6,6 +6,7 @@ struct AllLocationsEditView: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var googleMapsService = GoogleMapsService.shared
     @StateObject private var supabaseManager = SupabaseManager.shared
+    @Namespace private var locationAnimation
 
     var currentPreferences: UserLocationPreferences?
 
@@ -260,46 +261,64 @@ struct AllLocationsEditView: View {
         updatedPrefs.location4Latitude = location4Latitude
         updatedPrefs.location4Longitude = location4Longitude
 
+        // Debug: Print what we're saving
+        print("💾 Saving location preferences:")
+        print("Location 1 - Name: \(updatedPrefs.location1Name ?? "nil"), Address: \(updatedPrefs.location1Address ?? "nil")")
+        print("Location 2 - Name: \(updatedPrefs.location2Name ?? "nil"), Address: \(updatedPrefs.location2Address ?? "nil")")
+        print("Location 3 - Name: \(updatedPrefs.location3Name ?? "nil"), Address: \(updatedPrefs.location3Address ?? "nil")")
+        print("Location 4 - Name: \(updatedPrefs.location4Name ?? "nil"), Address: \(updatedPrefs.location4Address ?? "nil")")
+
         do {
             try await supabaseManager.saveLocationPreferences(updatedPrefs)
-            isSaving = false
-            dismiss()
+            print("✅ Successfully saved location preferences")
+            await MainActor.run {
+                isSaving = false
+                dismiss()
+            }
         } catch {
-            print("Error saving locations: \(error)")
-            isSaving = false
+            print("❌ Error saving locations: \(error)")
+            await MainActor.run {
+                isSaving = false
+            }
         }
     }
 
     private var locationSelectorView: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<4, id: \.self) { index in
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedLocationIndex = index
-                    }
-                }) {
-                    VStack(spacing: 12) {
-                        Image(systemName: locationIcons[index])
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(0..<4, id: \.self) { index in
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedLocationIndex = index
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: locationIcons[index])
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
 
-                        Text(locationNames[index])
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .white : .black) : (colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4)))
-
-                        if selectedLocationIndex == index {
-                            RoundedRectangle(cornerRadius: 1.5)
-                                .fill(colorScheme == .dark ? Color.white : Color.black)
-                                .frame(width: 24, height: 3)
+                            Text(locationNames[index])
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(selectedLocationIndex == index ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background {
+                            if selectedLocationIndex == index {
+                                Capsule()
+                                    .fill(colorScheme == .dark ? Color.white : Color.black)
+                                    .matchedGeometryEffect(id: "location", in: locationAnimation)
+                            }
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
     }
 
     var body: some View {
@@ -313,10 +332,10 @@ struct AllLocationsEditView: View {
                 ScrollView {
                     VStack(spacing: 24) {
                         // Custom Name Input
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Location Name")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 .padding(.horizontal, 16)
 
                             HStack(spacing: 10) {
@@ -326,7 +345,7 @@ struct AllLocationsEditView: View {
                                         setCurrentName(newValue)
                                     }
                                 ))
-                                .font(.system(size: 16, weight: .regular))
+                                .font(.system(size: 15, weight: .regular))
 
                                 if !getCurrentName().isEmpty {
                                     Button(action: {
@@ -334,22 +353,23 @@ struct AllLocationsEditView: View {
                                         setCurrentName("")
                                     }) {
                                         Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 16))
                                             .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                     }
                                 }
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
-                            .cornerRadius(10)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                            .cornerRadius(12)
                             .padding(.horizontal, 16)
                         }
 
                         // Icon Selector - Horizontal
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Icon")
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 .padding(.horizontal, 16)
 
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -360,11 +380,11 @@ struct AllLocationsEditView: View {
                                             setCurrentIcon(locationType.icon)
                                         }) {
                                             Image(systemName: locationType.icon)
-                                                .font(.system(size: 16, weight: .semibold))
+                                                .font(.system(size: 18, weight: .semibold))
                                                 .foregroundColor(getCurrentIcon() == locationType.icon ? (colorScheme == .dark ? .black : .white) : (colorScheme == .dark ? .white : .black))
-                                                .frame(width: 48, height: 48)
+                                                .frame(width: 52, height: 52)
                                                 .background(
-                                                    Circle()
+                                                    RoundedRectangle(cornerRadius: 14)
                                                         .fill(getCurrentIcon() == locationType.icon ? (colorScheme == .dark ? Color.white : Color.black) : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)))
                                                 )
                                         }
@@ -376,25 +396,32 @@ struct AllLocationsEditView: View {
                         }
 
                         // Address Search
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Address")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                                .padding(.horizontal, 16)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Address")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+
+                                Text("Required")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.red.opacity(0.7))
+                            }
+                            .padding(.horizontal, 16)
 
                             VStack(spacing: 0) {
                                 // Search Field
                                 HStack(spacing: 10) {
                                     Image(systemName: "magnifyingglass")
+                                        .font(.system(size: 14))
                                         .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
 
-                                    TextField("Search places", text: .init(
+                                    TextField("Search and select an address", text: .init(
                                         get: { getCurrentSearchQuery() },
                                         set: { newValue in
                                             setCurrentSearchQuery(newValue)
                                         }
                                     ))
-                                    .font(.system(size: 16, weight: .regular))
+                                    .font(.system(size: 15, weight: .regular))
                                     .onSubmit {
                                         performSearch(index: selectedLocationIndex + 1)
                                     }
@@ -406,13 +433,14 @@ struct AllLocationsEditView: View {
                                             setCurrentSearchResults([])
                                         }) {
                                             Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 16))
                                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                                         }
                                     }
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
 
                                 // Selected Address
                                 if !getCurrentAddress().isEmpty {
@@ -507,6 +535,7 @@ struct AllLocationsEditView: View {
                         if isSaving {
                             ProgressView()
                                 .scaleEffect(0.8)
+                                .tint(colorScheme == .dark ? .black : .white)
                         } else {
                             Text("Save")
                                 .font(.system(size: 16, weight: .semibold))
@@ -516,7 +545,7 @@ struct AllLocationsEditView: View {
                     .foregroundColor(colorScheme == .dark ? Color.black : Color.white)
                     .padding(.vertical, 14)
                     .background(colorScheme == .dark ? Color.white : Color.black)
-                    .cornerRadius(10)
+                    .cornerRadius(12)
                     .padding(16)
                 }
                 .disabled(isSaving)
@@ -532,6 +561,12 @@ struct AllLocationsEditView: View {
             }
         }
         .onAppear {
+            print("📖 Loading location preferences in AllLocationsEditView:")
+            print("Location 1 - Name: \(currentPreferences?.location1Name ?? "nil"), Address: \(currentPreferences?.location1Address ?? "nil")")
+            print("Location 2 - Name: \(currentPreferences?.location2Name ?? "nil"), Address: \(currentPreferences?.location2Address ?? "nil")")
+            print("Location 3 - Name: \(currentPreferences?.location3Name ?? "nil"), Address: \(currentPreferences?.location3Address ?? "nil")")
+            print("Location 4 - Name: \(currentPreferences?.location4Name ?? "nil"), Address: \(currentPreferences?.location4Address ?? "nil")")
+
             location1Name = currentPreferences?.location1Name ?? ""
             location1Address = currentPreferences?.location1Address ?? ""
             location1Icon = currentPreferences?.location1Icon ?? "house.fill"

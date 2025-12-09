@@ -79,7 +79,7 @@ class MerchantIntelligenceLayer {
         """
 
         do {
-            let response = try await OpenAIService.shared.generateText(
+            let response = try await DeepSeekService.shared.generateText(
                 systemPrompt: "You are a business expert. Identify what type of business this is and what they sell.",
                 userPrompt: prompt,
                 maxTokens: 150,
@@ -87,7 +87,7 @@ class MerchantIntelligenceLayer {
             )
 
             // Parse JSON response
-            if let data = response.data(using: .utf8),
+            if let data = response.data(using: String.Encoding.utf8),
                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let type = json["type"] as? String,
                let products = json["products"] as? [String] {

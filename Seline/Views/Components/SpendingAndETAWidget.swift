@@ -3,18 +3,11 @@ import CoreLocation
 
 struct SpendingAndETAWidget: View {
     @StateObject private var notesManager = NotesManager.shared
-    @StateObject private var locationService = LocationService.shared
-    @StateObject private var navigationService = NavigationService.shared
-    @StateObject private var supabaseManager = SupabaseManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     var isVisible: Bool = true
 
-    @State private var locationPreferences: UserLocationPreferences?
-    @State private var showLocationSetup = false
-    @State private var setupLocationSlot: LocationSlot?
     @State private var showReceiptStats = false
-    @State private var showETAEditModal = false
     @State private var upcomingRecurringExpenses: [(title: String, amount: Double, date: Date)] = []
 
     private var currentYearStats: YearlyReceiptSummary? {
@@ -34,6 +27,34 @@ struct SpendingAndETAWidget: View {
             let year = calendar.component(.year, from: summary.monthDate)
             return month == currentMonth && year == currentYear
         }.reduce(0) { $0 + $1.monthlyTotal }
+    }
+
+    private var dailyTotal: Double {
+        guard let stats = currentYearStats else { return 0 }
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+
+        // Get all receipts from current month
+        var todayReceipts: [ReceiptStat] = []
+        for monthlySummary in stats.monthlySummaries {
+            let month = calendar.component(.month, from: monthlySummary.monthDate)
+            let year = calendar.component(.year, from: monthlySummary.monthDate)
+            let currentMonth = calendar.component(.month, from: now)
+            let currentYear = calendar.component(.year, from: now)
+
+            if month == currentMonth && year == currentYear {
+                todayReceipts.append(contentsOf: monthlySummary.receipts)
+            }
+        }
+
+        // Filter for today only
+        let todayTotal = todayReceipts.filter { receipt in
+            let receiptDay = calendar.startOfDay(for: receipt.date)
+            return receiptDay == today
+        }.reduce(0.0) { $0 + $1.amount }
+
+        return todayTotal
     }
 
     private var previousMonthTotal: Double {
@@ -70,36 +91,6 @@ struct SpendingAndETAWidget: View {
 
     private func categoryColor(_ category: String) -> Color {
         return CategoryIconProvider.color(for: category)
-    }
-
-    private func openNavigation(to coordinate: CLLocationCoordinate2D?, address: String?) {
-        guard let coordinate = coordinate, let address = address else { return }
-        let url = "comgooglemaps://?q=\(address)&center=\(coordinate.latitude),\(coordinate.longitude)"
-        if let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: encodedUrl) {
-            UIApplication.shared.open(url)
-        }
-    }
-
-    private func updateETAs() {
-        guard let preferences = locationPreferences else { return }
-
-        if locationService.currentLocation == nil {
-            locationService.requestLocationPermission()
-            return
-        }
-
-        guard let currentLocation = locationService.currentLocation else { return }
-
-        Task {
-            await navigationService.updateETAs(
-                currentLocation: currentLocation,
-                location1: preferences.location1Coordinate,
-                location2: preferences.location2Coordinate,
-                location3: preferences.location3Coordinate,
-                location4: preferences.location4Coordinate
-            )
-        }
     }
 
     private func updateCategoryBreakdown() {
@@ -150,76 +141,19 @@ struct SpendingAndETAWidget: View {
             userDefaults.set(monthlyTotal, forKey: "widgetMonthlySpending")
             userDefaults.set(monthOverMonthPercentage.percentage, forKey: "widgetMonthOverMonthPercentage")
             userDefaults.set(monthOverMonthPercentage.isIncrease, forKey: "widgetIsSpendingIncreasing")
+            userDefaults.set(dailyTotal, forKey: "widgetDailySpending")
         }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            spendingCard()
-        }
-        .frame(height: 150)
+        spendingCard()
         .onAppear {
-            locationService.requestLocationPermission()
             updateCategoryBreakdown()
             loadUpcomingRecurringExpenses()
-            Task {
-                do {
-                    locationPreferences = try await supabaseManager.loadLocationPreferences()
-
-                    // Initial refresh or check if 5km moved since last refresh
-                    if let currentLocation = locationService.currentLocation, let preferences = locationPreferences {
-                        await navigationService.checkAndRefreshIfNeeded(
-                            currentLocation: currentLocation,
-                            location1: preferences.location1Coordinate,
-                            location2: preferences.location2Coordinate,
-                            location3: preferences.location3Coordinate,
-                            location4: preferences.location4Coordinate
-                        )
-                    } else {
-                        // Fallback to direct update if no location yet
-                        updateETAs()
-                    }
-                } catch {
-                    print("Failed to load location preferences: \(error)")
-                }
-            }
-        }
-        .onChange(of: locationService.currentLocation) { location in
-            // Auto-refresh ETAs when user moves 5km+
-            guard let currentLocation = location, let preferences = locationPreferences else { return }
-
-            Task {
-                await navigationService.checkAndRefreshIfNeeded(
-                    currentLocation: currentLocation,
-                    location1: preferences.location1Coordinate,
-                    location2: preferences.location2Coordinate,
-                    location3: preferences.location3Coordinate,
-                    location4: preferences.location4Coordinate
-                )
-            }
         }
         .onChange(of: notesManager.notes.count) { _ in
             updateCategoryBreakdown()
             loadUpcomingRecurringExpenses()
-        }
-        .onChange(of: showETAEditModal) { isShowing in
-            if !isShowing {
-                // Reload location preferences when edit sheet closes
-                Task {
-                    do {
-                        locationPreferences = try await supabaseManager.loadLocationPreferences()
-                        updateETAs()
-                    } catch {
-                        print("Failed to reload location preferences: \(error)")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showETAEditModal) {
-            AllLocationsEditView(currentPreferences: locationPreferences)
-        }
-        .sheet(isPresented: $showLocationSetup) {
-            LocationSetupView()
         }
         .sheet(isPresented: $showReceiptStats) {
             ReceiptStatsView(isPopup: true)
@@ -229,31 +163,24 @@ struct SpendingAndETAWidget: View {
 
     private func spendingCard() -> some View {
         Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 12) {
                 // Monthly spending amount and % on same line
                 HStack(alignment: .bottom, spacing: 8) {
                     Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
                     // Month over month percentage
-                    HStack(spacing: 4) {
-                        Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up.right" : "arrow.down.right")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(String(format: "%.0f%% last month", monthOverMonthPercentage.percentage))
-                            .font(.system(size: 11, weight: .regular))
-                    }
-                    .foregroundColor(monthOverMonthPercentage.isIncrease ? Color(red: 0.9, green: 0.4, blue: 0.4) : (colorScheme == .dark ? Color(red: 0.4, green: 0.9, blue: 0.4) : Color(red: 0.2, green: 0.65, blue: 0.2)))
-                    .offset(y: -4)
+                    Text(String(format: "%.0f%% %@ than last month", monthOverMonthPercentage.percentage, monthOverMonthPercentage.isIncrease ? "more" : "less"))
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        .offset(y: -3)
 
                     Spacer()
                 }
 
                 // Categories - below % text
                 topCategoryView
-
-                // Recent transactions
-                recentTransactionsView
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -349,7 +276,7 @@ struct SpendingAndETAWidget: View {
         Group {
             if !categoryBreakdown.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(categoryBreakdown.prefix(2), id: \.category) { category in
+                    ForEach(categoryBreakdown.prefix(3), id: \.category) { category in
                         HStack(spacing: 2) {
                             Text(categoryIcon(category.category))
                                 .font(.system(size: 11))
@@ -382,17 +309,15 @@ struct SpendingAndETAWidget: View {
     private var recentTransactionsView: some View {
         let calendar = Calendar.current
         let now = Date()
-        let currentMonth = calendar.component(.month, from: now)
-        let currentYear = calendar.component(.year, from: now)
+        let today = calendar.startOfDay(for: now)
 
-        let currentMonthNotes = notesManager.notes.filter { note in
-            let noteMonth = calendar.component(.month, from: note.dateCreated ?? Date())
-            let noteYear = calendar.component(.year, from: note.dateCreated ?? Date())
-            return noteMonth == currentMonth && noteYear == currentYear
-        }.sorted { ($0.dateCreated ?? Date()) > ($1.dateCreated ?? Date()) }.prefix(3)
+        let todaysNotes = notesManager.notes.filter { note in
+            let noteDay = calendar.startOfDay(for: note.dateCreated)
+            return noteDay == today
+        }.sorted { $0.dateCreated > $1.dateCreated }.prefix(3)
 
         return VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(currentMonthNotes), id: \.id) { note in
+            ForEach(Array(todaysNotes), id: \.id) { note in
                 HStack(spacing: 6) {
                     Text(note.title)
                         .font(.system(size: 10, weight: .regular))
@@ -427,216 +352,6 @@ struct SpendingAndETAWidget: View {
             }
         }
         return nil
-    }
-
-    private func navigationCard2x2(width: CGFloat) -> some View {
-        VStack(spacing: 8) {
-            Spacer()
-
-            // Top row - Location 1 and Location 2
-            HStack(spacing: 8) {
-                // Location 1
-                navigationETACircle(
-                    icon: locationPreferences?.location1Icon ?? "house.fill",
-                    eta: navigationService.location1ETA,
-                    isLocationSet: locationPreferences?.location1Coordinate != nil,
-                    onTap: {
-                        if locationPreferences?.location1Coordinate != nil {
-                            openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
-                        }
-                    },
-                    onLongPress: {
-                        showETAEditModal = true
-                    }
-                )
-
-                // Location 2
-                navigationETACircle(
-                    icon: locationPreferences?.location2Icon ?? "briefcase.fill",
-                    eta: navigationService.location2ETA,
-                    isLocationSet: locationPreferences?.location2Coordinate != nil,
-                    onTap: {
-                        if locationPreferences?.location2Coordinate != nil {
-                            openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
-                        }
-                    },
-                    onLongPress: {
-                        showETAEditModal = true
-                    }
-                )
-            }
-
-            // Bottom row - Location 3 and Location 4
-            HStack(spacing: 8) {
-                // Location 3
-                navigationETACircle(
-                    icon: locationPreferences?.location3Icon ?? "fork.knife",
-                    eta: navigationService.location3ETA,
-                    isLocationSet: locationPreferences?.location3Coordinate != nil,
-                    onTap: {
-                        if locationPreferences?.location3Coordinate != nil {
-                            openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
-                        }
-                    },
-                    onLongPress: {
-                        showETAEditModal = true
-                    }
-                )
-
-                // Location 4
-                navigationETACircle(
-                    icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
-                    eta: navigationService.location4ETA,
-                    isLocationSet: locationPreferences?.location4Coordinate != nil,
-                    onTap: {
-                        if locationPreferences?.location4Coordinate != nil {
-                            openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
-                        }
-                    },
-                    onLongPress: {
-                        showETAEditModal = true
-                    }
-                )
-            }
-
-            Spacer()
-        }
-        .padding(10)
-        .frame(maxWidth: width, maxHeight: .infinity)
-    }
-
-    private func navigationETACircle(icon: String, eta: String?, isLocationSet: Bool, onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
-        Button(action: onTap) {
-            VStack(spacing: 2) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
-
-                if navigationService.isLoading && isLocationSet {
-                    ProgressView()
-                        .scaleEffect(0.6, anchor: .center)
-                        .frame(height: 12)
-                } else if let eta = eta, isLocationSet {
-                    Text(eta)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
-                        .lineLimit(1)
-                } else {
-                    Text("--")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 40)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.03))
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .contextMenu {
-            Button(action: {
-                HapticManager.shared.selection()
-                onLongPress()
-            }) {
-                Label("Edit Locations", systemImage: "pencil")
-            }
-        }
-    }
-
-    private func navigationCard(width: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            // Location 1
-            NavigationETARow(
-                icon: locationPreferences?.location1Icon ?? "house.fill",
-                eta: navigationService.location1ETA,
-                isLocationSet: locationPreferences?.location1Coordinate != nil,
-                isLoading: navigationService.isLoading,
-                colorScheme: colorScheme,
-                onTap: {
-                    if locationPreferences?.location1Coordinate != nil {
-                        openNavigation(to: locationPreferences?.location1Coordinate, address: locationPreferences?.location1Address)
-                    } else {
-                        setupLocationSlot = .location1
-                        showLocationSetup = true
-                    }
-                },
-                onLongPress: {
-                    setupLocationSlot = .location1
-                    showLocationSetup = true
-                }
-            )
-
-            // Location 2
-            NavigationETARow(
-                icon: locationPreferences?.location2Icon ?? "briefcase.fill",
-                eta: navigationService.location2ETA,
-                isLocationSet: locationPreferences?.location2Coordinate != nil,
-                isLoading: navigationService.isLoading,
-                colorScheme: colorScheme,
-                onTap: {
-                    if locationPreferences?.location2Coordinate != nil {
-                        openNavigation(to: locationPreferences?.location2Coordinate, address: locationPreferences?.location2Address)
-                    } else {
-                        setupLocationSlot = .location2
-                        showLocationSetup = true
-                    }
-                },
-                onLongPress: {
-                    setupLocationSlot = .location2
-                    showLocationSetup = true
-                }
-            )
-
-            // Location 3
-            NavigationETARow(
-                icon: locationPreferences?.location3Icon ?? "fork.knife",
-                eta: navigationService.location3ETA,
-                isLocationSet: locationPreferences?.location3Coordinate != nil,
-                isLoading: navigationService.isLoading,
-                colorScheme: colorScheme,
-                onTap: {
-                    if locationPreferences?.location3Coordinate != nil {
-                        openNavigation(to: locationPreferences?.location3Coordinate, address: locationPreferences?.location3Address)
-                    } else {
-                        setupLocationSlot = .location3
-                        showLocationSetup = true
-                    }
-                },
-                onLongPress: {
-                    setupLocationSlot = .location3
-                    showLocationSetup = true
-                }
-            )
-
-            // Location 4
-            NavigationETARow(
-                icon: locationPreferences?.location4Icon ?? "dumbbell.fill",
-                eta: navigationService.location4ETA,
-                isLocationSet: locationPreferences?.location4Coordinate != nil,
-                isLoading: navigationService.isLoading,
-                colorScheme: colorScheme,
-                onTap: {
-                    if locationPreferences?.location4Coordinate != nil {
-                        openNavigation(to: locationPreferences?.location4Coordinate, address: locationPreferences?.location4Address)
-                    } else {
-                        setupLocationSlot = .location4
-                        showLocationSetup = true
-                    }
-                },
-                onLongPress: {
-                    setupLocationSlot = .location4
-                    showLocationSetup = true
-                }
-            )
-        }
-        .padding(10)
-        .frame(width: width)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-        )
     }
 }
 

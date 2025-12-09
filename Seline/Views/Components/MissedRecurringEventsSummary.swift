@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MissedRecurringEventsSummary: View {
     @StateObject private var taskManager = TaskManager.shared
-    @StateObject private var openAIService = OpenAIService.shared
+    @StateObject private var openAIService = DeepSeekService.shared
     @Environment(\.colorScheme) var colorScheme
 
     @State private var aiSummary: String = ""

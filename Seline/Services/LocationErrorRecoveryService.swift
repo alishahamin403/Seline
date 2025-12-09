@@ -9,16 +9,30 @@ extension JSONDecoder {
             let container = try decoder.singleValueContainer()
             let dateString = try container.decode(String.self)
 
-            // Try ISO8601 with fractional seconds
+            // Try ISO8601 with fractional seconds and timezone
             let iso8601Formatter = ISO8601DateFormatter()
             iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let date = iso8601Formatter.date(from: dateString) {
                 return date
             }
 
-            // Try ISO8601 without fractional seconds
+            // Try ISO8601 without fractional seconds but with timezone
             iso8601Formatter.formatOptions = [.withInternetDateTime]
             if let date = iso8601Formatter.date(from: dateString) {
+                return date
+            }
+
+            // Try ISO8601-style format without timezone (e.g., "2025-12-04T03:10:14.802")
+            let isoNoTimezoneFormatter = DateFormatter()
+            isoNoTimezoneFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+            isoNoTimezoneFormatter.timeZone = TimeZone(abbreviation: "UTC")
+            if let date = isoNoTimezoneFormatter.date(from: dateString) {
+                return date
+            }
+
+            // Try ISO8601-style format without fractional seconds and without timezone
+            isoNoTimezoneFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            if let date = isoNoTimezoneFormatter.date(from: dateString) {
                 return date
             }
 
@@ -61,18 +75,96 @@ class LocationErrorRecoveryService {
         geofenceManager: GeofenceManager,
         sessionManager: LocationSessionManager
     ) async {
-        print("\n🚀 ===== APP LAUNCH RECOVERY =====")
+        // DEBUG: Commented out to reduce console spam
+        // print("\n🚀 ===== APP LAUNCH RECOVERY =====")
+
+        // 0. CRITICAL: First close ALL stuck visits in Supabase to ensure clean slate
+        // This fixes the issue where visits never left active state
+        await closeAllStuckVisitsInSupabase(userId: userId)
 
         // 1. Recover sessions from Supabase
         await sessionManager.recoverSessionsOnAppLaunch(for: userId)
 
-        // 2. Restore incomplete visits to activeVisits
+        // 2. Restore incomplete visits to activeVisits (only recent ones)
         await restoreIncompleteVisits(geofenceManager: geofenceManager)
 
         // 3. Clean up stale sessions
         await sessionManager.cleanupStaleSessions(olderThanHours: 4)
 
-        print("🚀 ===== RECOVERY COMPLETE =====\n")
+        // DEBUG: Commented out to reduce console spam
+        // print("🚀 ===== RECOVERY COMPLETE =====\n")
+    }
+
+    /// CRITICAL FIX: Close all stuck visits that have been open for too long
+    /// This runs on every app launch to clean up any visits that got stuck
+    private func closeAllStuckVisitsInSupabase(userId: UUID) async {
+        // DEBUG: Commented out to reduce console spam
+        // print("🧹 Checking for stuck visits to close...")
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // Fetch all visits and filter for incomplete ones (exit_time IS NULL) in Swift
+            // This approach is more reliable than PostgREST NULL filtering
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Filter for incomplete visits (exit_time = nil)
+            let incompleteVisits = allVisits.filter { $0.exitTime == nil }
+
+            if incompleteVisits.isEmpty {
+                print("✅ No stuck visits found")
+                return
+            }
+
+            print("⚠️ Found \(incompleteVisits.count) incomplete visit(s) - CLOSING ALL OF THEM")
+
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            let now = Date()
+            var closedCount = 0
+
+            // AGGRESSIVE FIX: Close ALL incomplete visits on app launch
+            // New visits will be created when geofence entry is detected
+            for visit in incompleteVisits {
+                let timeSinceEntry = now.timeIntervalSince(visit.entryTime)
+                let hoursSinceEntry = timeSinceEntry / 3600
+                let durationMinutes = Int(timeSinceEntry / 60)
+
+                print("🧹 Closing visit: \(visit.id.uuidString) (was open \(String(format: "%.1f", hoursSinceEntry))h)")
+
+                let updateData: [String: PostgREST.AnyJSON] = [
+                    "exit_time": .string(formatter.string(from: now)),
+                    "duration_minutes": .double(Double(durationMinutes)),
+                    "updated_at": .string(formatter.string(from: now))
+                ]
+
+                do {
+                    try await client
+                        .from("location_visits")
+                        .update(updateData)
+                        .eq("id", value: visit.id.uuidString)
+                        .execute()
+
+                    closedCount += 1
+                    print("✅ Successfully closed visit: \(visit.id.uuidString)")
+                } catch {
+                    print("❌ Failed to close visit \(visit.id.uuidString): \(error)")
+                }
+            }
+
+            print("🧹 Closed \(closedCount)/\(incompleteVisits.count) stuck visit(s)")
+        } catch {
+            print("❌ Error closing stuck visits: \(error)")
+        }
     }
 
     // MARK: - Unresolved Visit Check (SOLUTION 2)
@@ -90,30 +182,26 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .filter("exit_time", operator: "is", value: "null")
                 .order("entry_time", ascending: false)
-                .limit(1)
+                .limit(20)
                 .execute()
 
             let decoder = JSONDecoder.supabaseDecoder()
-            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
-            guard let mostRecentVisit = visits.first else {
+            // Filter for incomplete visits (exit_time = nil) and get the most recent one
+            guard let mostRecentVisit = allVisits.first(where: { $0.exitTime == nil }) else {
                 return nil
             }
 
+            // FIXED: Return ANY unresolved visit so it can be auto-closed
+            // The previous logic skipped visits older than 4 hours, leaving them stuck forever
+            // Now we return all unresolved visits regardless of age - they will be auto-closed
+            // when a new geofence entry is detected
             let hoursSinceEntry = Date().timeIntervalSince(mostRecentVisit.entryTime) / 3600
+            print("📋 Found unresolved visit: \(mostRecentVisit.id.uuidString), started \(String(format: "%.1f", hoursSinceEntry))h ago")
 
-            // Return unresolved visit if it's been open more than a threshold (e.g., 10 seconds)
-            // This catches cases where:
-            // - App crash just created a visit
-            // - GPS loss left a visit hanging
-            // - User entered location but geofence exit didn't fire
-            if hoursSinceEntry < 4 {  // Less than 4 hours is considered active
-                return mostRecentVisit
-            }
-
-            return nil
+            return mostRecentVisit
         } catch {
             print("❌ Error checking for unresolved visits: \(error)")
             return nil
@@ -136,12 +224,14 @@ class LocationErrorRecoveryService {
                 .from("location_visits")
                 .select()
                 .eq("user_id", value: userId.uuidString)
-                .filter("exit_time", operator: "is", value: "null")
                 .order("entry_time", ascending: false)
                 .execute()
 
             let decoder = JSONDecoder.supabaseDecoder()
-            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            let fetchedVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            // Filter for incomplete visits (exit_time = nil)
+            let allVisits = fetchedVisits.filter { $0.exitTime == nil }
 
             if allVisits.isEmpty {
                 print("✅ No incomplete visits to restore")

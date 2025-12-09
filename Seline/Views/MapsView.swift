@@ -3,7 +3,7 @@ import SwiftUI
 struct MapsView: View, Searchable {
     @StateObject private var locationsManager = LocationsManager.shared
     @StateObject private var mapsService = GoogleMapsService.shared
-    @StateObject private var openAIService = OpenAIService.shared
+    @StateObject private var openAIService = DeepSeekService.shared
     @Environment(\.colorScheme) var colorScheme
 
     @State private var selectedCategory: String? = nil

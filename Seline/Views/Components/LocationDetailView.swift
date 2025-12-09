@@ -4,7 +4,7 @@ struct LocationDetailView: View {
     let placeDetails: PlaceDetails?
     let googlePlaceId: String
     @StateObject private var locationsManager = LocationsManager.shared
-    @StateObject private var openAIService = OpenAIService.shared
+    @StateObject private var openAIService = DeepSeekService.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 

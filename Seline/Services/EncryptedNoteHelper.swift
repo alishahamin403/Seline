@@ -38,7 +38,8 @@ extension NotesManager {
             decryptedNote.title = try await EncryptionManager.shared.decrypt(encryptedNote.title)
             decryptedNote.content = try await EncryptionManager.shared.decrypt(encryptedNote.content)
 
-            print("✅ Decrypted note: \(encryptedNote.id.uuidString)")
+            // DEBUG: Commented out to reduce console spam
+            // print("✅ Decrypted note: \(encryptedNote.id.uuidString)")
         } catch {
             // Decryption failed - this note is probably not encrypted (old data)
             // Return the note as-is (backward compatible)
