@@ -39,6 +39,8 @@ struct MapsViewNew: View, Searchable {
     @State private var recentlyVisitedPlaces: [SavedPlace] = []
     @State private var expandedCategories: Set<String> = []  // Track which categories are expanded
     @State private var showFullMapView = false  // Controls full map view sheet
+    @State private var showChangeFolderSheet = false  // Controls change folder sheet
+    @State private var placeToMove: SavedPlace? = nil  // Place being moved to different folder
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -214,6 +216,29 @@ struct MapsViewNew: View, Searchable {
                 }
             )
             .presentationBg()
+        }
+        .sheet(isPresented: $showChangeFolderSheet) {
+            if let place = placeToMove {
+                ChangeFolderSheet(
+                    place: place,
+                    currentCategory: place.category,
+                    allCategories: Array(Set(locationsManager.savedPlaces.map { $0.category })).sorted(),
+                    colorScheme: colorScheme,
+                    onFolderSelected: { newCategory in
+                        var updatedPlace = place
+                        updatedPlace.category = newCategory
+                        locationsManager.updatePlace(updatedPlace)
+                        showChangeFolderSheet = false
+                        placeToMove = nil
+                        HapticManager.shared.success()
+                    },
+                    onDismiss: {
+                        showChangeFolderSheet = false
+                        placeToMove = nil
+                    }
+                )
+                .presentationBg()
+            }
         }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
@@ -556,6 +581,10 @@ struct MapsViewNew: View, Searchable {
                         onPlaceTap: { place in
                             selectedPlace = place
                             showingPlaceDetail = true
+                        },
+                        onMoveToFolder: { place in
+                            placeToMove = place
+                            showChangeFolderSheet = true
                         }
                     )
                 }
@@ -1092,6 +1121,8 @@ struct FolderOverlayView: View {
     @State private var newPlaceName = ""
     @State private var showingIconPicker = false
     @State private var selectedIcon: String? = nil
+    @State private var showingChangeFolderSheet = false
+    @State private var placeToMove: SavedPlace? = nil
 
     // Get icon for a specific place based on its name
     func iconForPlace(_ place: SavedPlace) -> String {
@@ -1280,6 +1311,13 @@ struct FolderOverlayView: View {
                                             Label("Rename", systemImage: "pencil")
                                         }
 
+                                        Button(action: {
+                                            placeToMove = place
+                                            showingChangeFolderSheet = true
+                                        }) {
+                                            Label("Move to Folder", systemImage: "folder")
+                                        }
+
                                         Button(role: .destructive, action: {
                                             selectedPlace = place
                                             showingDeleteConfirm = true
@@ -1409,6 +1447,29 @@ struct FolderOverlayView: View {
                 .background(colorScheme == .dark ? Color.black : Color.white)
             }
             .background(colorScheme == .dark ? Color.black : Color.white)
+        }
+        .sheet(isPresented: $showingChangeFolderSheet) {
+            if let place = placeToMove {
+                ChangeFolderSheet(
+                    place: place,
+                    currentCategory: place.category,
+                    allCategories: Array(Set(locationsManager.savedPlaces.map { $0.category })).sorted(),
+                    colorScheme: colorScheme,
+                    onFolderSelected: { newCategory in
+                        var updatedPlace = place
+                        updatedPlace.category = newCategory
+                        locationsManager.updatePlace(updatedPlace)
+                        showingChangeFolderSheet = false
+                        placeToMove = nil
+                        HapticManager.shared.success()
+                    },
+                    onDismiss: {
+                        showingChangeFolderSheet = false
+                        placeToMove = nil
+                    }
+                )
+                .presentationBg()
+            }
         }
     }
 }
@@ -1610,6 +1671,7 @@ struct ExpandableCategoryRow: View {
     let colorScheme: ColorScheme
     let onToggle: () -> Void
     let onPlaceTap: (SavedPlace) -> Void
+    let onMoveToFolder: ((SavedPlace) -> Void)?
 
     @StateObject private var locationsManager = LocationsManager.shared
 
@@ -1693,6 +1755,12 @@ struct ExpandableCategoryRow: View {
                                     place.isFavourite ? "Remove from Favorites" : "Add to Favorites",
                                     systemImage: place.isFavourite ? "star.slash" : "star.fill"
                                 )
+                            }
+
+                            Button(action: {
+                                onMoveToFolder?(place)
+                            }) {
+                                Label("Move to Folder", systemImage: "folder")
                             }
 
                             Button(role: .destructive, action: {
@@ -1861,6 +1929,154 @@ struct FullMapView: View {
                 center: currentLoc.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
             )
+        }
+    }
+}
+
+// MARK: - Change Folder Sheet
+
+struct ChangeFolderSheet: View {
+    let place: SavedPlace
+    let currentCategory: String
+    let allCategories: [String]
+    let colorScheme: ColorScheme
+    let onFolderSelected: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var newFolderName: String = ""
+    @State private var showingNewFolderAlert = false
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("Move to Folder")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    Spacer()
+
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(colorScheme == .dark ? Color.black : Color.white)
+
+                // Place info
+                HStack(spacing: 12) {
+                    PlaceImageView(place: place, size: 50, cornerRadius: 10)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(place.displayName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                        Text("Currently in: \(currentCategory)")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03))
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
+                // Folder list
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(allCategories, id: \.self) { category in
+                            Button(action: {
+                                if category != currentCategory {
+                                    onFolderSelected(category)
+                                }
+                            }) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 18, weight: .medium))
+                                        .foregroundColor(category == currentCategory ? .blue : (colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7)))
+
+                                    Text(category)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                    Spacer()
+
+                                    if category == currentCategory {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(category == currentCategory ?
+                                            Color.blue.opacity(0.1) :
+                                            (colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                                        )
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(category == currentCategory)
+                        }
+
+                        // Create new folder button
+                        Button(action: {
+                            showingNewFolderAlert = true
+                        }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundColor(.green)
+
+                                Text("Create New Folder")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.green)
+
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 30)
+                }
+            }
+            .background(colorScheme == .dark ? Color.black : Color.white)
+            .alert("Create New Folder", isPresented: $showingNewFolderAlert) {
+                TextField("Folder name", text: $newFolderName)
+                Button("Cancel", role: .cancel) {
+                    newFolderName = ""
+                }
+                Button("Create") {
+                    let trimmedName = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedName.isEmpty && !allCategories.contains(trimmedName) {
+                        onFolderSelected(trimmedName)
+                    }
+                    newFolderName = ""
+                }
+            } message: {
+                Text("Enter a name for the new folder")
+            }
         }
     }
 }
