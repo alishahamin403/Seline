@@ -54,9 +54,10 @@ struct LocationTimelineView: View {
 
     @ViewBuilder
     private var calendarSection: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 6) {
             // Month navigation
-            HStack {
+            HStack(spacing: 8) {
+                // Previous month button
                 Button(action: {
                     withAnimation {
                         currentMonth = calendar.date(byAdding: .month, value: -1, to: currentMonth) ?? currentMonth
@@ -64,18 +65,45 @@ struct LocationTimelineView: View {
                     }
                 }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.clear)
+                        )
                 }
+                .buttonStyle(PlainButtonStyle())
 
-                Spacer()
-
+                // Month and year
                 Text(dateFormatter.string(from: currentMonth))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(maxWidth: .infinity)
 
-                Spacer()
+                // Today button
+                Button(action: {
+                    withAnimation {
+                        let today = Date()
+                        currentMonth = today
+                        selectedDate = today
+                        loadVisitsForMonth()
+                        loadVisitsForSelectedDay()
+                    }
+                }) {
+                    Text("Today")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
 
+                // Next month button
                 Button(action: {
                     withAnimation {
                         currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
@@ -83,26 +111,33 @@ struct LocationTimelineView: View {
                     }
                 }) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.clear)
+                        )
                 }
+                .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
 
             // Day headers
             HStack(spacing: 0) {
-                ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
+                ForEach(["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"], id: \.self) { day in
                     Text(day)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                         .frame(maxWidth: .infinity)
                 }
             }
             .padding(.horizontal, 12)
+            .padding(.top, 2)
 
             // Calendar grid
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
                 ForEach(daysInMonth(), id: \.self) { date in
                     if let date = date {
                         calendarDayCell(for: date)
@@ -113,7 +148,7 @@ struct LocationTimelineView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.bottom, 16)
+            .padding(.bottom, 8)
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
@@ -135,6 +170,7 @@ struct LocationTimelineView: View {
         let isToday = calendar.isDateInToday(date)
         let visitCount = visitsForMonth[normalizeDate(date)] ?? 0
         let hasVisits = visitCount > 0
+        let isInCurrentMonth = calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
 
         Button(action: {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -147,8 +183,9 @@ struct LocationTimelineView: View {
                     .font(.system(size: 13, weight: isToday ? .semibold : .regular))
                     .foregroundColor(
                         isSelected ? (colorScheme == .dark ? Color.black : Color.white) :
-                        (isToday ? (colorScheme == .dark ? Color.white : Color.black) :
-                        (colorScheme == .dark ? Color.white : Color.black))
+                        isToday ? (colorScheme == .dark ? Color.white : Color.black) :
+                        !isInCurrentMonth ? (colorScheme == .dark ? Color.white : Color.black).opacity(0.4) :
+                        (colorScheme == .dark ? Color.white : Color.black)
                     )
 
                 // Visit indicator - show up to 3 dots
@@ -169,12 +206,11 @@ struct LocationTimelineView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 36)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(
-                        isSelected ? (colorScheme == .dark ? Color.white : Color.black) :
-                        (isToday ? (colorScheme == .dark ? Color.white : Color.black).opacity(0.1) : Color.clear)
-                    )
+                isSelected ? (colorScheme == .dark ? Color.white : Color.black) :
+                isToday ? (colorScheme == .dark ? Color.white : Color.black).opacity(0.1) :
+                Color.clear
             )
+            .cornerRadius(8)
         }
         .buttonStyle(PlainButtonStyle())
     }

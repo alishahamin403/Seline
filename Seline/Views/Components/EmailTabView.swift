@@ -35,16 +35,11 @@ struct EmailTabView: View {
                         selectedTab = tab
                     }
                 }) {
-                    HStack(spacing: ShadcnSpacing.sm) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 14, weight: .medium))
-
-                        Text(tab.rawValue)
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
+                    Image(systemName: tab.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                     .background {
                         if isSelected {
                             Capsule()

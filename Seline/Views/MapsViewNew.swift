@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import MapKit
 
 struct MapsViewNew: View, Searchable {
     @StateObject private var locationsManager = LocationsManager.shared
@@ -17,6 +18,7 @@ struct MapsViewNew: View, Searchable {
     @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
     @State private var locationSearchText: String = ""
+    @State private var isLocationSearchActive: Bool = false
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
     @State private var nearbyLocationFolder: String? = nil
@@ -34,6 +36,9 @@ struct MapsViewNew: View, Searchable {
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
     @State private var isFavoritesExpanded = true  // Controls expand/collapse of favourites section
+    @State private var recentlyVisitedPlaces: [SavedPlace] = []
+    @State private var expandedCategories: Set<String> = []  // Track which categories are expanded
+    @State private var showFullMapView = false  // Controls full map view sheet
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -43,55 +48,93 @@ struct MapsViewNew: View, Searchable {
         ZStack {
             // Main content layer
             VStack(spacing: 0) {
-                // Tab bar - Modern pill-based segmented control
-                HStack(spacing: 4) {
-                    ForEach(["folders", "ranking", "timeline"], id: \.self) { tab in
-                        let isSelected = selectedTab == tab
-                        let tabLabel = tab == "folders" ? "Locations" : (tab == "ranking" ? "Ranking" : "Timeline")
-
+                // Header section with search
+                VStack(spacing: 0) {
+                    // Tab bar with search button - Modern pill-based segmented control
+                    HStack(spacing: 12) {
+                        // Search button
                         Button(action: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                selectedTab = tab
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if isLocationSearchActive {
+                                    isLocationSearchActive = false
+                                    locationSearchText = ""
+                                } else {
+                                    isLocationSearchActive = true
+                                }
                             }
                         }) {
-                            Text(tabLabel)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                                .padding(.horizontal, 16)
+                            Image(systemName: isLocationSearchActive ? "xmark.circle.fill" : "magnifyingglass")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background {
-                                    if isSelected {
-                                        Capsule()
-                                            .fill(tabBackgroundColor())
-                                            .matchedGeometryEffect(id: "tab", in: tabAnimation)
-                                    }
-                                }
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                )
                         }
                         .buttonStyle(PlainButtonStyle())
+
+                        Spacer()
+
+                        // Tab bar - Modern pill-based segmented control
+                        HStack(spacing: 4) {
+                            ForEach(["folders", "ranking", "timeline"], id: \.self) { tab in
+                                let isSelected = selectedTab == tab
+                                let tabIcon = tab == "folders" ? "folder.fill" : (tab == "ranking" ? "chart.bar.fill" : "clock.fill")
+
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        selectedTab = tab
+                                    }
+                                }) {
+                                    Image(systemName: tabIcon)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 8)
+                                        .background {
+                                            if isSelected {
+                                                Capsule()
+                                                    .fill(tabBackgroundColor())
+                                                    .matchedGeometryEffect(id: "tab", in: tabAnimation)
+                                            }
+                                        }
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(4)
+                        .background(
+                            Capsule()
+                                .fill(tabContainerColor())
+                        )
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                    .background(
+                        colorScheme == .dark ? Color.black : Color.white
+                    )
+
+                    // Search bar - show when search is active
+                    if isLocationSearchActive {
+                        EmailSearchBar(searchText: $locationSearchText) { query in
+                            // Search is handled by filtering in locationsTabContent
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 0)
+                        .padding(.bottom, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
-                .padding(4)
-                .background(
-                    Capsule()
-                        .fill(tabContainerColor())
-                )
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
-                .background(
-                    colorScheme == .dark ? Color.black : Color.white
-                )
 
                 // Main content
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         if selectedTab == "folders" {
-                            // Location search bar at the top
-                            LocationSearchBar(searchText: $locationSearchText, colorScheme: colorScheme, placeholder: "Search by location...")
-                                .padding(.horizontal, 16)
-                                .padding(.top, 0)
-                                .padding(.bottom, 12)
-
                             locationsTabContent
                         } else if selectedTab == "ranking" {
                             rankingTabContent
@@ -159,6 +202,19 @@ struct MapsViewNew: View, Searchable {
             )
             .presentationBg()
         }
+        .sheet(isPresented: $showFullMapView) {
+            FullMapView(
+                places: getFilteredPlaces(),
+                currentLocation: locationService.currentLocation,
+                colorScheme: colorScheme,
+                onPlaceTap: { place in
+                    showFullMapView = false
+                    selectedPlace = place
+                    showingPlaceDetail = true
+                }
+            )
+            .presentationBg()
+        }
         .onAppear {
             SearchService.shared.registerSearchableProvider(self, for: .maps)
 
@@ -186,6 +242,9 @@ struct MapsViewNew: View, Searchable {
 
             // Load top 3 locations by visit count
             loadTopLocations()
+
+            // Load recently visited places
+            loadRecentlyVisited()
 
             locationService.requestLocationPermission()
         }
@@ -285,8 +344,10 @@ struct MapsViewNew: View, Searchable {
                 Text("Search for places and save them to categories").font(.system(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
             }.padding(.top, 60)
         } else if selectedCategory == nil {
+            miniMapSection
+            recentlyVisitedSection
             favoritesSection
-            savedLocationsSection
+            expandableCategoriesSection
         }
 
         Spacer().frame(height: 100)
@@ -307,7 +368,7 @@ struct MapsViewNew: View, Searchable {
                    place.displayName.lowercased().contains(searchLower)
         }
         if !favourites.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 // Header with expand/collapse button
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -324,7 +385,7 @@ struct MapsViewNew: View, Searchable {
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
-                    .padding(.bottom, isFavoritesExpanded ? 4 : 10)
+                    .padding(.bottom, isFavoritesExpanded ? 0 : 10)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -387,26 +448,116 @@ struct MapsViewNew: View, Searchable {
     }
 
     @ViewBuilder
-    private var savedLocationsSection: some View {
+    private var miniMapSection: some View {
+        VStack(spacing: 0) {
+            MiniMapView(
+                places: getFilteredPlaces(),
+                currentLocation: locationService.currentLocation,
+                colorScheme: colorScheme,
+                onPlaceTap: { place in
+                    selectedPlace = place
+                    showingPlaceDetail = true
+                },
+                onExpandTap: {
+                    showFullMapView = true
+                }
+            )
+            .frame(height: 180)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var recentlyVisitedSection: some View {
+        if !recentlyVisitedPlaces.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text("Recently Visited")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(recentlyVisitedPlaces, id: \.id) { place in
+                            Button(action: {
+                                selectedPlace = place
+                                showingPlaceDetail = true
+                            }) {
+                                VStack(spacing: 6) {
+                                    PlaceImageView(place: place, size: 70, cornerRadius: 14)
+
+                                    Text(place.displayName)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                        .frame(width: 70, height: 28)
+                                        .minimumScaleFactor(0.8)
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
+                    .shadow(
+                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
+                        radius: 12,
+                        x: 0,
+                        y: 2
+                    )
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var expandableCategoriesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text("Saved Locations").font(.system(size: 17, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                Text("All Locations")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10)
-            ], spacing: 10) {
+            VStack(spacing: 8) {
                 ForEach(cachedSortedCategories, id: \.self) { category in
-                    CategoryCard(category: category, count: getFilteredPlaces().filter { $0.category == category }.count, colorScheme: colorScheme) {
-                        withAnimation(.spring(response: 0.3)) {
-                            selectedCategory = category
+                    ExpandableCategoryRow(
+                        category: category,
+                        places: getFilteredPlaces().filter { $0.category == category },
+                        isExpanded: expandedCategories.contains(category),
+                        currentLocation: locationService.currentLocation,
+                        colorScheme: colorScheme,
+                        onToggle: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                if expandedCategories.contains(category) {
+                                    expandedCategories.remove(category)
+                                } else {
+                                    expandedCategories.insert(category)
+                                }
+                            }
+                            HapticManager.shared.light()
+                        },
+                        onPlaceTap: { place in
+                            selectedPlace = place
+                            showingPlaceDetail = true
                         }
-                    }
+                    )
                 }
             }
             .padding(.horizontal, 12)
@@ -428,7 +579,7 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var rankingTabContent: some View {
-        RankingView(locationsManager: locationsManager, colorScheme: colorScheme)
+        RankingView(locationsManager: locationsManager, colorScheme: colorScheme, locationSearchText: locationSearchText)
     }
 
     @ViewBuilder
@@ -580,6 +731,41 @@ struct MapsViewNew: View, Searchable {
             await MainActor.run {
                 topLocations = top3
                 allLocations = allSorted  // Store all locations for "See All" feature
+            }
+        }
+    }
+
+    private func loadRecentlyVisited() {
+        Task {
+            // Get visits from last 7 days
+            let calendar = Calendar.current
+            let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+
+            guard let userId = supabaseManager.getCurrentUser()?.id else { return }
+
+            // Fetch recent visits from Supabase
+            let recentVisits = await geofenceManager.fetchRecentVisits(userId: userId, since: sevenDaysAgo, limit: 10)
+
+            // Get unique place IDs from recent visits, maintaining order
+            var seenPlaceIds = Set<UUID>()
+            var recentPlaces: [SavedPlace] = []
+
+            for visit in recentVisits {
+                if !seenPlaceIds.contains(visit.savedPlaceId) {
+                    if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
+                        recentPlaces.append(place)
+                        seenPlaceIds.insert(visit.savedPlaceId)
+                    }
+                }
+
+                // Limit to 8 places for the horizontal scroll
+                if recentPlaces.count >= 8 {
+                    break
+                }
+            }
+
+            await MainActor.run {
+                recentlyVisitedPlaces = recentPlaces
             }
         }
     }
@@ -1315,6 +1501,367 @@ struct LocationFiltersView: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
+    }
+}
+
+// MARK: - Mini Map View
+
+struct MiniMapView: View {
+    let places: [SavedPlace]
+    let currentLocation: CLLocation?
+    let colorScheme: ColorScheme
+    let onPlaceTap: (SavedPlace) -> Void
+    let onExpandTap: () -> Void
+
+    @State private var region: MKCoordinateRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+    )
+    @State private var hasInitialized = false
+
+    var body: some View {
+        ZStack {
+            Map(coordinateRegion: .constant(region), showsUserLocation: true, annotationItems: places) { place in
+                MapAnnotation(coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)) {
+                    Button(action: {
+                        onPlaceTap(place)
+                    }) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 12, height: 12)
+                            Circle()
+                                .stroke(Color.white, lineWidth: 2)
+                                .frame(width: 12, height: 12)
+                        }
+                    }
+                }
+            }
+            .disabled(false)
+
+            // Overlay button to open full map
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        onExpandTap()
+                    }) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    .padding(8)
+                }
+            }
+        }
+        .onAppear {
+            if !hasInitialized {
+                updateRegion()
+                hasInitialized = true
+            }
+        }
+    }
+
+    private func updateRegion() {
+        if let currentLoc = currentLocation {
+            region = MKCoordinateRegion(
+                center: currentLoc.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+            )
+        } else if !places.isEmpty {
+            // Calculate region to fit all places
+            var minLat = places[0].latitude
+            var maxLat = places[0].latitude
+            var minLon = places[0].longitude
+            var maxLon = places[0].longitude
+
+            for place in places {
+                minLat = min(minLat, place.latitude)
+                maxLat = max(maxLat, place.latitude)
+                minLon = min(minLon, place.longitude)
+                maxLon = max(maxLon, place.longitude)
+            }
+
+            let center = CLLocationCoordinate2D(
+                latitude: (minLat + maxLat) / 2,
+                longitude: (minLon + maxLon) / 2
+            )
+            let span = MKCoordinateSpan(
+                latitudeDelta: max(maxLat - minLat, 0.01) * 1.5,
+                longitudeDelta: max(maxLon - minLon, 0.01) * 1.5
+            )
+
+            region = MKCoordinateRegion(center: center, span: span)
+        }
+    }
+}
+
+// MARK: - Expandable Category Row
+
+struct ExpandableCategoryRow: View {
+    let category: String
+    let places: [SavedPlace]
+    let isExpanded: Bool
+    let currentLocation: CLLocation?
+    let colorScheme: ColorScheme
+    let onToggle: () -> Void
+    let onPlaceTap: (SavedPlace) -> Void
+
+    @StateObject private var locationsManager = LocationsManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Category header
+            Button(action: onToggle) {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        .frame(width: 20)
+
+                    Text(category)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                    Text("(\(places.count))")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+
+                    Spacer()
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Places list
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(places) { place in
+                        Button(action: {
+                            onPlaceTap(place)
+                        }) {
+                            HStack(spacing: 12) {
+                                PlaceImageView(place: place, size: 50, cornerRadius: 10)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text(place.displayName)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                                            .lineLimit(1)
+
+                                        if place.isFavourite {
+                                            Image(systemName: "star.fill")
+                                                .font(.system(size: 10, weight: .semibold))
+                                                .foregroundColor(.yellow)
+                                        }
+                                    }
+
+                                    if let distance = calculateDistance(to: place) {
+                                        Text(formatDistance(distance))
+                                            .font(.system(size: 12, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    }
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                            }
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.02) : Color.black.opacity(0.02))
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .contextMenu {
+                            Button(action: {
+                                locationsManager.toggleFavourite(for: place.id)
+                                HapticManager.shared.selection()
+                            }) {
+                                Label(
+                                    place.isFavourite ? "Remove from Favorites" : "Add to Favorites",
+                                    systemImage: place.isFavourite ? "star.slash" : "star.fill"
+                                )
+                            }
+
+                            Button(role: .destructive, action: {
+                                locationsManager.deletePlace(place)
+                            }) {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+    }
+
+    private func calculateDistance(to place: SavedPlace) -> CLLocationDistance? {
+        guard let current = currentLocation else { return nil }
+        let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+        return current.distance(from: placeLocation)
+    }
+
+    private func formatDistance(_ distance: CLLocationDistance) -> String {
+        if distance < 1000 {
+            return String(format: "%.0fm", distance)
+        } else {
+            return String(format: "%.1fkm", distance / 1000)
+        }
+    }
+}
+
+// MARK: - Full Map View
+
+struct FullMapView: View {
+    let places: [SavedPlace]
+    let currentLocation: CLLocation?
+    let colorScheme: ColorScheme
+    let onPlaceTap: (SavedPlace) -> Void
+
+    @Environment(\.dismiss) var dismiss
+    @State private var region: MKCoordinateRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+    )
+
+    var body: some View {
+        ZStack {
+            // Interactive map - user can pan and zoom freely
+            Map(coordinateRegion: $region, showsUserLocation: true, annotationItems: places) { place in
+                MapAnnotation(coordinate: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)) {
+                    Button(action: {
+                        onPlaceTap(place)
+                    }) {
+                        VStack(spacing: 4) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 16, height: 16)
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 2.5)
+                                    .frame(width: 16, height: 16)
+                            }
+
+                            Text(place.displayName)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.black.opacity(0.75))
+                                )
+                        }
+                    }
+                }
+            }
+            .ignoresSafeArea()
+
+            // Top bar with close button
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(.white)
+                            .background(
+                                Circle()
+                                    .fill(Color.black.opacity(0.3))
+                                    .frame(width: 32, height: 32)
+                            )
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.top, 16)
+                }
+                Spacer()
+            }
+
+            // Target current location button (bottom right)
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        centerOnCurrentLocation()
+                    }) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.blue)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 32)
+                }
+            }
+        }
+        .onAppear {
+            initializeRegion()
+        }
+    }
+
+    private func initializeRegion() {
+        if let currentLoc = currentLocation {
+            region = MKCoordinateRegion(
+                center: currentLoc.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+            )
+        } else if !places.isEmpty {
+            // Calculate region to fit all places
+            var minLat = places[0].latitude
+            var maxLat = places[0].latitude
+            var minLon = places[0].longitude
+            var maxLon = places[0].longitude
+
+            for place in places {
+                minLat = min(minLat, place.latitude)
+                maxLat = max(maxLat, place.latitude)
+                minLon = min(minLon, place.longitude)
+                maxLon = max(maxLon, place.longitude)
+            }
+
+            let center = CLLocationCoordinate2D(
+                latitude: (minLat + maxLat) / 2,
+                longitude: (minLon + maxLon) / 2
+            )
+            let span = MKCoordinateSpan(
+                latitudeDelta: max(maxLat - minLat, 0.01) * 1.5,
+                longitudeDelta: max(maxLon - minLon, 0.01) * 1.5
+            )
+
+            region = MKCoordinateRegion(center: center, span: span)
+        }
+    }
+
+    private func centerOnCurrentLocation() {
+        guard let currentLoc = currentLocation else { return }
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            region = MKCoordinateRegion(
+                center: currentLoc.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            )
+        }
     }
 }
 

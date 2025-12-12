@@ -3,9 +3,9 @@ import SwiftUI
 struct RankingView: View {
     @ObservedObject var locationsManager: LocationsManager
     let colorScheme: ColorScheme
+    let locationSearchText: String
 
     @State private var selectedCuisineFilter: String = "All Cuisines"
-    @State private var locationSearchText: String = ""
 
     var restaurants: [SavedPlace] {
         locationsManager.savedPlaces.filter { place in
@@ -114,12 +114,6 @@ struct RankingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Location search bar
-            LocationSearchBar(searchText: $locationSearchText, colorScheme: colorScheme, placeholder: "Search by location...")
-                .padding(.horizontal, 16)
-                .padding(.top, 0)
-                .padding(.bottom, 12)
-
             // Cuisine filter (pills)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -204,6 +198,7 @@ struct RankingView: View {
 #Preview {
     RankingView(
         locationsManager: LocationsManager.shared,
-        colorScheme: .dark
+        colorScheme: .dark,
+        locationSearchText: ""
     )
 }

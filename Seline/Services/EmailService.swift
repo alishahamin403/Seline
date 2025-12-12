@@ -17,6 +17,10 @@ class EmailService: ObservableObject {
     // Search functionality
     @Published var searchResults: [Email] = []
     @Published var isSearching: Bool = false
+    
+    // Debouncing for search
+    private var searchTask: Task<Void, Never>?
+    private let searchDebounceDelay: TimeInterval = 0.5 // 500ms delay
 
     // Cache for searchable emails (used by LLM search)
     @Published var cachedSearchableEmails: [SearchableItem] = []
@@ -78,6 +82,7 @@ class EmailService: ObservableObject {
         for task in currentTasks.values {
             task.cancel()
         }
+        searchTask?.cancel()
         newEmailTimer?.invalidate()
     }
 
@@ -159,31 +164,91 @@ class EmailService: ObservableObject {
         await task.value
     }
 
+    /// Search emails with debouncing to avoid excessive API calls
+    @MainActor
     func searchEmails(query: String) async {
-        guard !query.isEmpty else {
+        // Cancel previous search task
+        searchTask?.cancel()
+        
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // If query is empty, clear results immediately
+        guard !trimmedQuery.isEmpty && trimmedQuery.count >= 2 else {
             searchResults = []
             isSearching = false
             return
         }
-
-        isSearching = true
-
-        do {
-            // Use Gmail API search (doesn't count toward Supabase egress)
-            let emails = try await gmailAPIClient.searchEmails(query: query, maxResults: 15)
-            let todaysEmails = filterTodaysEmails(emails)
-            searchResults = todaysEmails
-        } catch {
-            // Fallback to local search
-            let allEmails = inboxEmails + sentEmails
-            let filteredEmails = allEmails.filter { email in
-                email.subject.localizedCaseInsensitiveContains(query) ||
-                email.sender.displayName.localizedCaseInsensitiveContains(query) ||
-                email.snippet.localizedCaseInsensitiveContains(query)
-            }
-            searchResults = filteredEmails
+        
+        // Debounce: wait before making API call
+        searchTask = Task { @MainActor in
+            // Wait for debounce delay
+            try? await Task.sleep(nanoseconds: UInt64(searchDebounceDelay * 1_000_000_000))
+            
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+            
+            await performSearch(query: trimmedQuery)
         }
-
+        
+        await searchTask?.value
+    }
+    
+    /// Perform the actual search (called after debounce)
+    @MainActor
+    private func performSearch(query: String) async {
+        // Minimum 2 characters required to search
+        guard query.count >= 2 else {
+            searchResults = []
+            isSearching = false
+            return
+        }
+        
+        isSearching = true
+        
+        // First, try local search (no API call) for cached emails - instant results
+        let allCachedEmails = inboxEmails + sentEmails
+        let localResults = allCachedEmails.filter { email in
+            email.subject.localizedCaseInsensitiveContains(query) ||
+            email.sender.displayName.localizedCaseInsensitiveContains(query) ||
+            email.sender.email.localizedCaseInsensitiveContains(query) ||
+            email.snippet.localizedCaseInsensitiveContains(query)
+        }
+        
+        // Show local results immediately if available
+        if !localResults.isEmpty {
+            searchResults = localResults.sorted { $0.timestamp > $1.timestamp }
+        }
+        
+        // Then search Gmail API for more results (only if query is substantial)
+        // Limit to 20 results to reduce API costs
+        do {
+            let emails = try await gmailAPIClient.searchEmails(query: query, maxResults: 20)
+            
+            // Check if task was cancelled during API call
+            guard !Task.isCancelled else {
+                isSearching = false
+                return
+            }
+            
+            // Merge with local results, removing duplicates
+            var allResults = localResults
+            let localGmailIds = Set(localResults.compactMap { $0.gmailMessageId })
+            
+            for email in emails {
+                if let gmailId = email.gmailMessageId, !localGmailIds.contains(gmailId) {
+                    allResults.append(email)
+                }
+            }
+            
+            searchResults = allResults.sorted { $0.timestamp > $1.timestamp }
+        } catch {
+            // If API fails, keep local results if we have them
+            if searchResults.isEmpty {
+                searchResults = localResults.sorted { $0.timestamp > $1.timestamp }
+            }
+            print("⚠️ Search API error (using local results): \(error.localizedDescription)")
+        }
+        
         isSearching = false
     }
 

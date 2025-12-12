@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import PostgREST
 
 /// Service that uses statistical analysis to detect outlier visits that don't match
 /// historical patterns for a location
@@ -264,9 +265,10 @@ class OutlierDetectionService: ObservableObject {
     private func flagVisitAsOutlier(_ visitId: UUID) async {
         do {
             let client = await supabaseManager.getPostgrestClient()
+            let updateData: [String: PostgREST.AnyJSON] = ["is_outlier": .bool(true)]
             try await client
                 .from("location_visits")
-                .update(["is_outlier": .bool(true)])
+                .update(updateData)
                 .eq("id", value: visitId.uuidString)
                 .execute()
 

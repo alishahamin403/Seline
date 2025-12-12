@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import PostgREST
 
 /// Service that detects commute patterns and filters out brief stops during commutes
 /// (gas stations, traffic lights, drive-throughs, etc.)
@@ -280,9 +281,10 @@ class CommuteDetectionService: ObservableObject {
                 if analysis.isCommuteStop && analysis.confidence >= 0.7 {
                     // Flag in database
                     let client = await supabaseManager.getPostgrestClient()
+                    let updateData: [String: PostgREST.AnyJSON] = ["is_commute_stop": .bool(true)]
                     try await client
                         .from("location_visits")
-                        .update(["is_commute_stop": .bool(true)])
+                        .update(updateData)
                         .eq("id", value: visit.id.uuidString)
                         .execute()
 

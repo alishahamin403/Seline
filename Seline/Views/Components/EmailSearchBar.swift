@@ -19,8 +19,17 @@ struct EmailSearchBar: View {
                 .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .focused($isSearchFocused)
-                .onChange(of: searchText, perform: onSearchChanged)
+                .onChange(of: searchText) { newValue in
+                    // Only trigger search if query is meaningful (2+ characters)
+                    if newValue.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 || newValue.isEmpty {
+                        onSearchChanged(newValue)
+                    }
+                }
                 .submitLabel(.search)
+                .onSubmit {
+                    // Trigger search on submit
+                    onSearchChanged(searchText)
+                }
 
             // Clear button
             if !searchText.isEmpty {

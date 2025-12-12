@@ -31,6 +31,7 @@ struct EventsView: View {
         case viewTask
         case editTask
         case photoImport
+        case stats
 
         var id: Int {
             hashValue
@@ -40,25 +41,9 @@ struct EventsView: View {
     var body: some View {
         ZStack {
             GeometryReader { geometry in
-                let topPadding = CGFloat(4)
-
                 VStack(spacing: 0) {
-                    // Tab selector at the top
-                    tabSelector
-                        .padding(.horizontal, 20)
-                        .padding(.top, topPadding)
-                        .padding(.bottom, 12)
-                        .background(
-                            colorScheme == .dark ?
-                                Color.black : Color.white
-                        )
-
-                    // Content based on selected view
-                    if selectedView == .events {
-                        eventsContent
-                    } else {
-                        EventStatsView()
-                    }
+                    // Events content
+                    eventsContent
                 }
                 .background(
                     colorScheme == .dark ?
@@ -66,36 +51,47 @@ struct EventsView: View {
                 )
             }
             .overlay(
-                // Floating buttons (only show in events view)
+                // Floating buttons
                 Group {
-                    if selectedView == .events {
-                        if !isCreatingEvent {
-                            VStack {
+                    if !isCreatingEvent {
+                        VStack {
+                            Spacer()
+                            HStack {
                                 Spacer()
-                                HStack {
-                                    Spacer()
-                                    VStack(spacing: 12) {
-                                        // Photo import button
-                                        Button(action: {
-                                            showPhotoImportDialog = true
-                                        }) {
-                                            Image(systemName: "camera.fill")
-                                                .font(.system(size: 20, weight: .semibold))
-                                                .foregroundColor(.white)
-                                                .frame(width: 56, height: 56)
-                                                .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
-                                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
-
-                                        // Calendar button
-                                        FloatingCalendarButton {
-                                            activeSheet = .calendar
-                                        }
+                                VStack(spacing: 12) {
+                                    // Stats button
+                                    Button(action: {
+                                        activeSheet = .stats
+                                    }) {
+                                        Image(systemName: "chart.bar.fill")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .frame(width: 56, height: 56)
+                                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                                     }
-                                    .padding(.trailing, 20)
-                                    .padding(.bottom, 30)
+                                    .buttonStyle(PlainButtonStyle())
+
+                                    // Photo import button
+                                    Button(action: {
+                                        showPhotoImportDialog = true
+                                    }) {
+                                        Image(systemName: "camera.fill")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .frame(width: 56, height: 56)
+                                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+
+                                    // Calendar button
+                                    FloatingCalendarButton {
+                                        activeSheet = .calendar
+                                    }
                                 }
+                                .padding(.trailing, 20)
+                                .padding(.bottom, 30)
                             }
                         }
                     }
@@ -248,6 +244,8 @@ struct EventsView: View {
                 }
             case .photoImport:
                 PhotoCalendarImportView()
+            case .stats:
+                EventStatsView()
                 }
             }
             .presentationBg()
@@ -295,43 +293,6 @@ struct EventsView: View {
             return tag.color
         }
         return Color.gray // Personal (default) color
-    }
-
-    // MARK: - Tab Selector
-
-    private var tabSelector: some View {
-        HStack(spacing: 4) {
-            ForEach([EventViewType.events, EventViewType.stats], id: \.self) { viewType in
-                let isSelected = selectedView == viewType
-                let tabLabel = viewType == .events ? "Events" : "Stats"
-
-                Button(action: {
-                    HapticManager.shared.selection()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        selectedView = viewType
-                    }
-                }) {
-                    Text(tabLabel)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background {
-                            if isSelected {
-                                Capsule()
-                                    .fill(tabBackgroundColor())
-                                    .matchedGeometryEffect(id: "tab", in: tabAnimation)
-                            }
-                        }
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-        }
-        .padding(4)
-        .background(
-            Capsule()
-                .fill(tabContainerColor())
-        )
     }
 
     // MARK: - Events Content
@@ -509,23 +470,6 @@ struct EventsView: View {
         )
     }
 
-    // MARK: - Helper Functions for Pill Buttons
-
-    private func tabForegroundColor(isSelected: Bool) -> Color {
-        if isSelected {
-            return colorScheme == .dark ? .black : .white
-        } else {
-            return colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)
-        }
-    }
-
-    private func tabBackgroundColor() -> Color {
-        return colorScheme == .dark ? .white : .black
-    }
-
-    private func tabContainerColor() -> Color {
-        return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
-    }
 }
 
 #Preview {

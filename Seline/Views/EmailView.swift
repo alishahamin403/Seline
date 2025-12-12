@@ -8,6 +8,9 @@ struct EmailView: View, Searchable {
     @State private var showUnreadOnly: Bool = false
     @State private var lastRefreshTime: Date? = nil
     @State private var showingEmailFolderSidebar: Bool = false
+    @State private var searchText: String = ""
+    @State private var selectedSearchEmail: Email? = nil
+    @State private var isSearchActive: Bool = false
 
     var currentEmails: [Email] {
         return emailService.getEmails(for: selectedTab.folder)
@@ -29,167 +32,7 @@ struct EmailView: View, Searchable {
 
     var body: some View {
         GeometryReader { geometry in
-            let topPadding = CGFloat(4)
-
-            VStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    // Tab selector and unread filter button
-                    HStack(spacing: 12) {
-                        // Folder sidebar button
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingEmailFolderSidebar.toggle()
-                            }
-                        }) {
-                            Image(systemName: "folder")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-
-                        EmailTabView(selectedTab: $selectedTab)
-                            .onChange(of: selectedTab) { newTab in
-                                // Load emails for the selected folder - cache will be respected
-                                // This will show cached content immediately if available
-                                Task {
-                                    await emailService.loadEmailsForFolder(newTab.folder)
-                                }
-                            }
-
-                        // Unread filter button
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showUnreadOnly.toggle()
-                            }
-                        }) {
-                            Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(
-                                    showUnreadOnly ?
-                                        (colorScheme == .dark ? .white : .black) :
-                                        Color.gray
-                                )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(
-                                            showUnreadOnly ?
-                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
-                                                (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
-                                        )
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, topPadding)
-                    .padding(.bottom, 12)
-
-                    // Category filter slider - Gmail style
-                    EmailCategoryFilterView(selectedCategory: $selectedCategory)
-                        .onChange(of: selectedCategory) { _ in
-                            // Category change doesn't require reloading data, just filtering
-                            // The currentSections computed property will handle the filtering
-                        }
-                }
-                .background(
-                    (colorScheme == .dark ? Color.black : Color.white)
-                )
-
-                // Email list
-                EmailListWithCategories(
-                    sections: currentSections,
-                    loadingState: currentLoadingState,
-                    onRefresh: {
-                        await refreshCurrentFolder()
-                    },
-                    onDeleteEmail: { email in
-                        Task {
-                            do {
-                                try await emailService.deleteEmail(email)
-                            } catch {
-                                print("Failed to delete email: \(error.localizedDescription)")
-                                // You could show an alert here if needed
-                            }
-                        }
-                    },
-                    onMarkAsUnread: { email in
-                        emailService.markAsUnread(email)
-                    }
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(
-                (colorScheme == .dark ? Color.black : Color.white)
-                    .ignoresSafeArea()
-            )
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            .overlay(
-            // Floating compose button
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        openGmailCompose()
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 56, height: 56)
-                            .background(
-                                Circle()
-                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
-                            )
-                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                    }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 30) // Move lower, closer to maps icon
-                }
-            }
-            )
-            .overlay(
-                Group {
-                    if showingEmailFolderSidebar {
-                        ZStack {
-                            NavigationStack {
-                                HStack(spacing: 0) {
-                                    EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
-                                        .frame(width: geometry.size.width * 0.85)
-                                        .transition(.move(edge: .leading))
-                                        .gesture(
-                                            DragGesture()
-                                                .onEnded { value in
-                                                    if value.translation.width < -100 {
-                                                        withAnimation {
-                                                            showingEmailFolderSidebar = false
-                                                        }
-                                                    }
-                                                }
-                                        )
-
-                                    // Tappable right area to close sidebar
-                                    Color.black.opacity(0.3)
-                                        .ignoresSafeArea()
-                                        .onTapGesture {
-                                            withAnimation {
-                                                showingEmailFolderSidebar = false
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        .allowsHitTesting(showingEmailFolderSidebar)
-                    }
-                }
-            )
+            mainContentView(geometry: geometry)
         }
         .onAppear {
             // Register with search service first
@@ -208,6 +51,273 @@ struct EmailView: View, Searchable {
                 let unreadCount = emailService.inboxEmails.filter { !$0.isRead }.count
                 emailService.notificationService.updateAppBadge(count: unreadCount)
             }
+        }
+    }
+
+    // MARK: - View Components
+    
+    @ViewBuilder
+    private func mainContentView(geometry: GeometryProxy) -> some View {
+        let topPadding = CGFloat(4)
+        
+        VStack(spacing: 0) {
+            headerSection(topPadding: topPadding)
+            contentSection
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            (colorScheme == .dark ? Color.black : Color.white)
+                .ignoresSafeArea()
+        )
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .overlay(composeButtonOverlay)
+        .overlay(folderSidebarOverlay(geometry: geometry))
+        .sheet(item: $selectedSearchEmail) { email in
+            EmailDetailView(email: email)
+                .presentationBg()
+        }
+    }
+    
+    @ViewBuilder
+    private func headerSection(topPadding: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            // Tab selector and buttons
+            tabSelectorSection(topPadding: topPadding)
+
+            // Search bar - show when search is active
+            if isSearchActive {
+                searchBarSection(topPadding: 0)
+            }
+
+            // Category filter slider
+            EmailCategoryFilterView(selectedCategory: $selectedCategory)
+                .onChange(of: selectedCategory) { _ in
+                    // Category change doesn't require reloading data, just filtering
+                }
+        }
+        .background(
+            (colorScheme == .dark ? Color.black : Color.white)
+        )
+    }
+    
+    @ViewBuilder
+    private func searchBarSection(topPadding: CGFloat) -> some View {
+        EmailSearchBar(searchText: $searchText) { query in
+            Task { @MainActor in
+                await emailService.searchEmails(query: query)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, topPadding)
+        .padding(.bottom, 12)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+    
+    @ViewBuilder
+    private func tabSelectorSection(topPadding: CGFloat) -> some View {
+        HStack(spacing: 12) {
+            folderButton
+            searchButton
+
+            Spacer()
+
+            EmailTabView(selectedTab: $selectedTab)
+                .onChange(of: selectedTab) { newTab in
+                    Task {
+                        await emailService.loadEmailsForFolder(newTab.folder)
+                    }
+                }
+
+            Spacer()
+
+            unreadFilterButton
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, topPadding)
+        .padding(.bottom, 12)
+    }
+    
+    private var searchButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isSearchActive {
+                    isSearchActive = false
+                    searchText = ""
+                    emailService.searchResults = []
+                } else {
+                    isSearchActive = true
+                }
+            }
+        }) {
+            Image(systemName: isSearchActive ? "xmark.circle.fill" : "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private var folderButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showingEmailFolderSidebar.toggle()
+            }
+        }) {
+            Image(systemName: "folder")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private var unreadFilterButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showUnreadOnly.toggle()
+            }
+        }) {
+            Image(systemName: showUnreadOnly ? "envelope.badge.fill" : "envelope.badge")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(
+                    showUnreadOnly ?
+                        (colorScheme == .dark ? .white : .black) :
+                        Color.gray
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(
+                            showUnreadOnly ?
+                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08)) :
+                                (colorScheme == .dark ? Color.gray.opacity(0.15) : Color.gray.opacity(0.08))
+                        )
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    @ViewBuilder
+    private var contentSection: some View {
+        if isSearchActive && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            searchResultsView
+        } else {
+            emailListView
+        }
+    }
+    
+    private var searchResultsView: some View {
+        EmailSearchResultsView(
+            searchText: searchText,
+            searchResults: emailService.searchResults,
+            isLoading: emailService.isSearching,
+            onEmailTap: { email in
+                selectedSearchEmail = email
+            },
+            onDeleteEmail: { email in
+                Task {
+                    do {
+                        try await emailService.deleteEmail(email)
+                        await emailService.searchEmails(query: searchText)
+                    } catch {
+                        print("Failed to delete email: \(error.localizedDescription)")
+                    }
+                }
+            },
+            onMarkAsUnread: { email in
+                emailService.markAsUnread(email)
+            }
+        )
+    }
+    
+    private var emailListView: some View {
+        EmailListWithCategories(
+            sections: currentSections,
+            loadingState: currentLoadingState,
+            onRefresh: {
+                await refreshCurrentFolder()
+            },
+            onDeleteEmail: { email in
+                Task {
+                    do {
+                        try await emailService.deleteEmail(email)
+                    } catch {
+                        print("Failed to delete email: \(error.localizedDescription)")
+                    }
+                }
+            },
+            onMarkAsUnread: { email in
+                emailService.markAsUnread(email)
+            }
+        )
+    }
+    
+    private var composeButtonOverlay: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button(action: {
+                    openGmailCompose()
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 56, height: 56)
+                        .background(
+                            Circle()
+                                .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                        )
+                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 30)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func folderSidebarOverlay(geometry: GeometryProxy) -> some View {
+        if showingEmailFolderSidebar {
+            ZStack {
+                NavigationStack {
+                    HStack(spacing: 0) {
+                        EmailFolderSidebarView(isPresented: $showingEmailFolderSidebar)
+                            .frame(width: geometry.size.width * 0.85)
+                            .transition(.move(edge: .leading))
+                            .gesture(
+                                DragGesture()
+                                    .onEnded { value in
+                                        if value.translation.width < -100 {
+                                            withAnimation {
+                                                showingEmailFolderSidebar = false
+                                            }
+                                        }
+                                    }
+                            )
+
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation {
+                                    showingEmailFolderSidebar = false
+                                }
+                            }
+                    }
+                }
+            }
+            .allowsHitTesting(showingEmailFolderSidebar)
         }
     }
 

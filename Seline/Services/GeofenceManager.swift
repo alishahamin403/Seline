@@ -727,7 +727,16 @@ class GeofenceManager: NSObject, ObservableObject {
                         month: visit.month,
                         year: visit.year,
                         confidenceScore: visit.confidenceScore,
-                        mergeReason: visit.mergeReason
+                        mergeReason: visit.mergeReason,
+                        signalDrops: visit.signalDrops,
+                        motionValidated: visit.motionValidated,
+                        stationaryPercentage: visit.stationaryPercentage,
+                        wifiMatched: visit.wifiMatched,
+                        isOutlier: visit.isOutlier,
+                        isCommuteStop: visit.isCommuteStop,
+                        semanticValid: visit.semanticValid,
+                        createdAt: visit.createdAt,
+                        updatedAt: visit.updatedAt
                     ),
                     category: category
                 )
@@ -1368,6 +1377,33 @@ class GeofenceManager: NSObject, ObservableObject {
             LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
         } catch {
             print("❌ Error deleting visit from Supabase: \(error)")
+        }
+    }
+
+    /// Fetch recent visits for a user from Supabase
+    func fetchRecentVisits(userId: UUID, since: Date, limit: Int = 10) async -> [LocationVisitRecord] {
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+
+            // Format date for PostgreSQL
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let sinceString = formatter.string(from: since)
+
+            let response: [LocationVisitRecord] = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .gte("entry_time", value: sinceString)
+                .order("entry_time", ascending: false)
+                .limit(limit)
+                .execute()
+                .value
+
+            return response
+        } catch {
+            print("❌ Error fetching recent visits from Supabase: \(error)")
+            return []
         }
     }
 

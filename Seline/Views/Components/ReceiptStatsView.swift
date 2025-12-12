@@ -11,6 +11,8 @@ struct ReceiptStatsView: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
     @State private var showingNewReceiptSheet = false
+    
+    var searchText: String? = nil
 
     var isPopup: Bool = false
 
@@ -19,7 +21,41 @@ struct ReceiptStatsView: View {
     }
 
     var currentYearStats: YearlyReceiptSummary? {
-        notesManager.getReceiptStatistics(year: currentYear).first
+        let stats = notesManager.getReceiptStatistics(year: currentYear).first
+        // Apply search filter if searchText is provided
+        if let searchText = searchText, !searchText.isEmpty {
+            // Filter receipts by search text
+            // This will be handled by filtering the underlying notes
+            return stats
+        }
+        return stats
+    }
+    
+    var filteredReceiptNotes: [Note] {
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+        guard let receiptsFolderId = receiptsFolder?.id else { return [] }
+        
+        var receiptNotes = notesManager.notes.filter { note in
+            guard let folderId = note.folderId else { return false }
+            var currentFolderId: UUID? = folderId
+            while let currentId = currentFolderId {
+                if currentId == receiptsFolderId {
+                    return true
+                }
+                currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+            }
+            return false
+        }
+        
+        // Apply search filter
+        if let searchText = searchText, !searchText.isEmpty {
+            receiptNotes = receiptNotes.filter { note in
+                note.title.localizedCaseInsensitiveContains(searchText) ||
+                note.content.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        
+        return receiptNotes
     }
 
     var body: some View {
@@ -32,7 +68,7 @@ struct ReceiptStatsView: View {
                 // Main card container
                 VStack(alignment: .leading, spacing: 0) {
                     if showRecurringExpenses {
-                        RecurringExpenseStatsContent()
+                        RecurringExpenseStatsContent(searchText: searchText)
                             .frame(maxWidth: .infinity, alignment: .topLeading)
                     } else {
                         // Year selector header with total
@@ -258,10 +294,23 @@ struct RecurringExpenseStatsContent: View {
     @State private var showEditSheet = false
     @State private var hasLoadedData = false
     @Environment(\.colorScheme) var colorScheme
+    
+    var searchText: String? = nil
+    
+    var filteredRecurringExpenses: [RecurringExpense] {
+        guard let searchText = searchText, !searchText.isEmpty else {
+            return recurringExpenses
+        }
+        return recurringExpenses.filter { expense in
+            expense.title.localizedCaseInsensitiveContains(searchText) ||
+            expense.category?.localizedCaseInsensitiveContains(searchText) ?? false ||
+            expense.description?.localizedCaseInsensitiveContains(searchText) ?? false
+        }
+    }
 
     var monthlyTotal: Double {
         // Only count active expenses in the total
-        recurringExpenses.filter { $0.isActive }.reduce(0) { total, expense in
+        filteredRecurringExpenses.filter { $0.isActive }.reduce(0) { total, expense in
             total + Double(truncating: expense.amount as NSDecimalNumber)
         }
     }
@@ -271,12 +320,12 @@ struct RecurringExpenseStatsContent: View {
     }
 
     var activeCount: Int {
-        recurringExpenses.filter { $0.isActive }.count
+        filteredRecurringExpenses.filter { $0.isActive }.count
     }
 
     // Sort expenses by next occurrence date (soonest first)
     var sortedExpenses: [RecurringExpense] {
-        recurringExpenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
+        filteredRecurringExpenses.sorted { $0.nextOccurrence < $1.nextOccurrence }
     }
 
     var body: some View {
@@ -284,7 +333,7 @@ struct RecurringExpenseStatsContent: View {
             if isLoading {
                 ProgressView()
                     .padding(.vertical, 16)
-            } else if recurringExpenses.isEmpty {
+            } else if filteredRecurringExpenses.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "repeat.circle.dashed")
                         .font(.system(size: 32, weight: .light))

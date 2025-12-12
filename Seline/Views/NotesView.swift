@@ -7,6 +7,7 @@ struct NotesView: View, Searchable {
     @StateObject private var notesManager = NotesManager.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var searchText = ""
+    @State private var isSearchActive = false
     @State private var showingNewNoteSheet = false
     @State private var selectedNote: Note? = nil
     @State private var navigationPath: [Note] = []
@@ -137,50 +138,12 @@ struct NotesView: View, Searchable {
         NavigationStack(path: $navigationPath) {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
-                    // Pill tabs
-                    HStack(spacing: 4) {
-                        ForEach(["notes", "receipts", "recurring"], id: \.self) { tab in
-                            let isSelected = selectedTab == tab
-                            let tabLabel = tab == "notes" ? "Notes" : (tab == "receipts" ? "Receipts" : "Recurring")
-
-                            Button(action: {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    selectedTab = tab
-                                    // Clear search when switching tabs
-                                    searchText = ""
-                                    selectedFolderId = nil
-                                }
-                            }) {
-                                Text(tabLabel)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background {
-                                        if isSelected {
-                                            Capsule()
-                                                .fill(tabBackgroundColor())
-                                                .matchedGeometryEffect(id: "tab", in: tabAnimation)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                    }
-                    .padding(4)
-                    .background(
-                        Capsule()
-                            .fill(tabContainerColor())
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 12)
-
-                    // Search bar and folder button - only in Notes tab
-                    if selectedTab == "notes" {
-                        VStack(spacing: 4) {
-                            HStack(alignment: .center, spacing: 8) {
-                                // Folders button
+                    // Header section with search
+                    VStack(spacing: 0) {
+                        // Pill tabs and icon buttons in same row
+                        HStack(spacing: 12) {
+                            // Folder button - only show in notes tab
+                            if selectedTab == "notes" {
                                 Button(action: {
                                     withAnimation {
                                         showingFolderSidebar.toggle()
@@ -189,57 +152,132 @@ struct NotesView: View, Searchable {
                                     Image(systemName: "folder")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                                        .frame(width: 36, height: 36)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
                                         .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
-
-                                NotesSearchBar(
-                                    searchText: $searchText,
-                                    showingFolderSidebar: $showingFolderSidebar
-                                )
                             }
-                            .padding(.horizontal, 20)
 
-                            // Selected folder indicator chip
-                            if let folderId = selectedFolderId {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "folder.fill")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                            // Search button
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    if isSearchActive {
+                                        isSearchActive = false
+                                        searchText = ""
+                                    } else {
+                                        isSearchActive = true
+                                    }
+                                }
+                            }) {
+                                Image(systemName: isSearchActive ? "xmark.circle.fill" : "magnifyingglass")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
 
-                                    Text(notesManager.getFolderName(for: folderId))
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                            Spacer()
 
-                                    Spacer()
+                            // Pill tabs - centered
+                            HStack(spacing: 4) {
+                                ForEach(["notes", "receipts", "recurring"], id: \.self) { tab in
+                                    let isSelected = selectedTab == tab
+                                    let tabIcon = tab == "notes" ? "note.text" : (tab == "receipts" ? "receipt.fill" : "repeat.circle.fill")
 
                                     Button(action: {
-                                        withAnimation {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            selectedTab = tab
+                                            // Clear search when switching tabs
+                                            searchText = ""
                                             selectedFolderId = nil
                                         }
                                     }) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(.gray)
+                                        Image(systemName: tabIcon)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .background {
+                                                if isSelected {
+                                                    Capsule()
+                                                        .fill(tabBackgroundColor())
+                                                        .matchedGeometryEffect(id: "tab", in: tabAnimation)
+                                                }
+                                            }
                                     }
                                     .buttonStyle(PlainButtonStyle())
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                )
-                                .padding(.horizontal, 20)
-                                .padding(.top, 4)
                             }
+                            .padding(4)
+                            .background(
+                                Capsule()
+                                    .fill(tabContainerColor())
+                            )
+
+                            Spacer()
                         }
-                        .padding(.bottom, 4)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+
+                        // Search bar - show when search is active
+                        if isSearchActive {
+                            EmailSearchBar(searchText: $searchText) { query in
+                                // Search is handled by filtering in content views
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 0)
+                            .padding(.bottom, 12)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                        
+                        // Selected folder indicator chip - only in notes tab
+                        if selectedTab == "notes", let folderId = selectedFolderId {
+                            HStack(spacing: 6) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                Text(notesManager.getFolderName(for: folderId))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+
+                                Spacer()
+
+                                Button(action: {
+                                    withAnimation {
+                                        selectedFolderId = nil
+                                    }
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.gray)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                            )
+                            .padding(.horizontal, 20)
+                            .padding(.top, 4)
+                            .padding(.bottom, 4)
+                        }
                     }
+                    .background(
+                        colorScheme == .dark ? Color.black : Color.white
+                    )
 
                 // Tab content
                 ScrollView(.vertical, showsIndicators: false) {
@@ -449,12 +487,12 @@ struct NotesView: View, Searchable {
     }
 
     private var receiptsTabContent: some View {
-        ReceiptStatsView()
+        ReceiptStatsView(searchText: searchText.isEmpty ? nil : searchText)
             .padding(.horizontal, -8) // Remove padding since content has its own
     }
 
     private var recurringTabContent: some View {
-        RecurringExpenseStatsContent()
+        RecurringExpenseStatsContent(searchText: searchText.isEmpty ? nil : searchText)
             .padding(.horizontal, -8) // Remove padding since content has its own
     }
 
