@@ -1277,7 +1277,7 @@ class EmailService: ObservableObject {
     }
 
     /// Download email attachments and save to Supabase Storage
-    private func downloadAndSaveAttachments(
+    func downloadAndSaveAttachments(
         from email: Email,
         toFolderId: UUID
     ) async throws -> [SavedEmailAttachment] {

@@ -435,12 +435,28 @@ actor LabelSyncService {
             }
         }
 
+        // Download and save attachments if any
+        var savedAttachments: [SavedEmailAttachment] = []
+        if email.hasAttachments && !email.attachments.isEmpty {
+            do {
+                print("      📎 Downloading \(email.attachments.count) attachment(s)...")
+                savedAttachments = try await EmailService.shared.downloadAndSaveAttachments(
+                    from: email,
+                    toFolderId: folderId
+                )
+                print("      ✅ Downloaded and saved \(savedAttachments.count) attachment(s)")
+            } catch {
+                print("      ⚠️ Failed to download some attachments: \(error.localizedDescription)")
+                // Continue saving email even if attachments fail
+            }
+        }
+
         // Save email to folder
         print("      💾 Saving email to folder...")
         let savedEmail = try await emailFolderService.saveEmail(
             from: email,
             to: folderId,
-            with: [],
+            with: savedAttachments,
             aiSummary: aiSummary
         )
 
