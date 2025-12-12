@@ -710,6 +710,9 @@ class GmailAPIClient {
         // Check for attachments
         let hasAttachments = hasAttachments(payload: payload)
 
+        // Extract attachments
+        let attachments = extractAttachments(from: payload, messageId: gmailMessage.id ?? "")
+
         return Email(
             id: gmailMessage.id ?? UUID().uuidString,
             threadId: gmailMessage.threadId ?? "",
@@ -723,7 +726,7 @@ class GmailAPIClient {
             isRead: isRead,
             isImportant: isImportant,
             hasAttachments: hasAttachments,
-            attachments: [], // TODO: Parse attachments from Gmail API
+            attachments: attachments,
             labels: gmailMessage.labelIds ?? [],
             aiSummary: nil, // TODO: Add AI summary generation
             gmailMessageId: gmailMessage.id,
@@ -830,26 +833,88 @@ class GmailAPIClient {
     /// This returns clean HTML or text without wrapping in display HTML structure
     private func extractBodyForAI(from payload: GmailMessagePayload) -> String? {
         // First, try to get the main body
-        if let body = payload.body?.data {
-            let decodedContent = decodeBase64String(body)
-            // Return raw content without display processing
+        if let body = payload.body?.data,
+           let decodedContent = decodeBase64String(body) {
+            // Strip HTML tags if content is HTML
+            if let mimeType = payload.mimeType, mimeType.contains("html") {
+                return stripHTMLTags(from: decodedContent)
+            }
             return decodedContent
         }
 
         // Recursively search through parts for text content
         if let parts = payload.parts {
-            // First pass: look for HTML content (recursively)
-            if let htmlContent = findContentInParts(parts, mimeType: "text/html") {
-                return htmlContent
-            }
-
-            // Second pass: fall back to plain text (recursively)
+            // First pass: look for plain text content (better for AI)
             if let plainContent = findContentInParts(parts, mimeType: "text/plain") {
                 return plainContent
+            }
+
+            // Second pass: fall back to HTML and strip tags
+            if let htmlContent = findContentInParts(parts, mimeType: "text/html") {
+                return stripHTMLTags(from: htmlContent)
             }
         }
 
         return nil
+    }
+
+    /// Strip HTML tags to get plain text for AI processing
+    private func stripHTMLTags(from html: String) -> String {
+        var text = html
+
+        // Remove script and style tags with their content
+        text = text.replacingOccurrences(
+            of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Replace common block elements with newlines for better structure
+        let blockElements = ["div", "p", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"]
+        for element in blockElements {
+            text = text.replacingOccurrences(
+                of: "</?\(element)[^>]*>",
+                with: "\n",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+
+        // Remove all remaining HTML tags
+        text = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Decode common HTML entities
+        let entities = [
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&apos;": "'",
+            "&hellip;": "...",
+            "&mdash;": "—",
+            "&ndash;": "–"
+        ]
+        for (entity, replacement) in entities {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+
+        // Clean up excessive whitespace and newlines
+        text = text.replacingOccurrences(
+            of: "[ \\t]+",
+            with: " ",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "\\n{3,}",
+            with: "\n\n",
+            options: .regularExpression
+        )
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // Recursively search through nested parts to find content with specific mime type
@@ -1124,6 +1189,47 @@ class GmailAPIClient {
 
         return parts.contains { part in
             return part.filename?.isEmpty == false && part.body?.attachmentId != nil
+        }
+    }
+
+    /// Extract attachments from email payload
+    /// Recursively searches through message parts to find attachments
+    private func extractAttachments(from payload: GmailMessagePayload, messageId: String) -> [EmailAttachment] {
+        var attachments: [EmailAttachment] = []
+
+        // Recursively search through parts
+        if let parts = payload.parts {
+            extractAttachmentsFromParts(parts, messageId: messageId, attachments: &attachments)
+        }
+
+        return attachments
+    }
+
+    /// Recursively extract attachments from message parts
+    private func extractAttachmentsFromParts(_ parts: [GmailMessagePart], messageId: String, attachments: inout [EmailAttachment]) {
+        for part in parts {
+            // Check if this part is an attachment
+            // An attachment has a filename and an attachmentId in the body
+            if let filename = part.filename,
+               !filename.isEmpty,
+               let body = part.body,
+               let attachmentId = body.attachmentId {
+
+                let attachment = EmailAttachment(
+                    id: attachmentId,
+                    name: filename,
+                    size: Int64(body.size ?? 0),
+                    mimeType: part.mimeType ?? "application/octet-stream",
+                    url: nil // URLs are generated on-demand when user wants to download
+                )
+
+                attachments.append(attachment)
+            }
+
+            // Recursively check nested parts (for multipart messages)
+            if let nestedParts = part.parts {
+                extractAttachmentsFromParts(nestedParts, messageId: messageId, attachments: &attachments)
+            }
         }
     }
 

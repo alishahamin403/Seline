@@ -40,7 +40,7 @@ struct EmailDetailView: View {
                             originalEmailSection
 
                             // Attachments Section
-                            if !email.attachments.isEmpty {
+                            if !(fullEmail ?? email).attachments.isEmpty {
                                 attachmentsSection
                                     .padding(.horizontal, 20)
                             }
@@ -229,8 +229,11 @@ struct EmailDetailView: View {
                 .foregroundColor(Color.shadcnForeground(colorScheme))
 
             LazyVStack(spacing: 8) {
-                ForEach(email.attachments) { attachment in
-                    AttachmentRow(attachment: attachment)
+                ForEach((fullEmail ?? email).attachments) { attachment in
+                    AttachmentRow(
+                        attachment: attachment,
+                        emailMessageId: (fullEmail ?? email).gmailMessageId
+                    )
                 }
             }
         }

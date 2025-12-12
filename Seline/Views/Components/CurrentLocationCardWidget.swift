@@ -105,7 +105,6 @@ struct CurrentLocationCardWidget: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
         )
-        .cornerRadius(16)
         .shadow(
             color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
             radius: 12,

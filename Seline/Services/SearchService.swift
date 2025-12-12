@@ -533,8 +533,18 @@ class SearchService: ObservableObject {
             isInConversationMode = true
         }
 
-        // Add user message to history for conversation
-        addMessageToHistory(trimmed, isUser: true, intent: .general)
+        // Check if the last message is already this user message (prevents duplicates on regeneration)
+        let shouldAddUserMessage: Bool
+        if let lastMessage = conversationHistory.last, lastMessage.isUser && lastMessage.text == trimmed {
+            shouldAddUserMessage = false
+        } else {
+            shouldAddUserMessage = true
+        }
+
+        // Add user message to history for conversation (only if not duplicate)
+        if shouldAddUserMessage {
+            addMessageToHistory(trimmed, isUser: true, intent: .general)
+        }
 
         // Don't update title during new conversations - keep it hidden until saved
         // Only update title for existing conversations
@@ -558,7 +568,7 @@ class SearchService: ObservableObject {
     // MARK: - SelineChat Implementation (Phase 2)
 
     /// NEW simplified chat using SelineChat with proper streaming support
-    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date) async {
+    private func addConversationMessageWithSelineChat(_ userMessage: String, thinkStartTime: Date, skipUserMessage: Bool = false) async {
         // Initialize SelineChat if needed
         if selineChat == nil {
             selineChat = SelineChat(appContext: SelineAppContext(), deepSeekService: DeepSeekService.shared)
@@ -584,6 +594,25 @@ class SearchService: ObservableObject {
                 self.isLoadingQuestionResponse = false
             }
             return
+        }
+        
+        // If skipUserMessage is true, don't add user message to SelineChat history
+        // (it's already there from the previous interaction)
+        if !skipUserMessage {
+            // Check if last message in SelineChat is already this user message
+            let shouldAddToChatHistory: Bool
+            if let lastChatMsg = chat.conversationHistory.last, 
+               lastChatMsg.role == .user && lastChatMsg.content == userMessage {
+                shouldAddToChatHistory = false
+            } else {
+                shouldAddToChatHistory = true
+            }
+            
+            if shouldAddToChatHistory {
+                // Add user message to SelineChat history if not skipping
+                let userMsg = ChatMessage(role: .user, content: userMessage, timestamp: Date())
+                chat.conversationHistory.append(userMsg)
+            }
         }
 
         // MARK: - Wire up streaming callbacks for real-time UI updates
@@ -966,8 +995,18 @@ class SearchService: ObservableObject {
         // Save the updated conversation (without the old assistant message)
         saveConversationLocally()
 
-        // Re-send the user message to get a new response
-        await addConversationMessage(userMessage)
+        // Regenerate response without adding duplicate user message
+        // The user message is already in the history at userMessageIndex, so we just regenerate the assistant response
+        isLoadingQuestionResponse = true
+        let thinkStartTime = Date()
+        
+        if useSelineChat {
+            // Use SelineChat to regenerate - the user message is already in chat history
+            await addConversationMessageWithSelineChat(userMessage, thinkStartTime: thinkStartTime, skipUserMessage: true)
+        } else {
+            // Legacy regeneration
+            await addConversationMessageLegacy(userMessage, thinkStartTime: thinkStartTime)
+        }
     }
 
     /// Start a conversation with an initial question
@@ -1207,6 +1246,13 @@ class SearchService: ObservableObject {
             let supabaseManager = SupabaseManager.shared
             let client = await supabaseManager.getPostgrestClient()
 
+            // Get current user ID
+            guard let session = try? await supabaseManager.authClient.session else {
+                print("❌ No authenticated user to save conversation")
+                return
+            }
+            let userId = session.user.id
+
             // Prepare conversation data
             var historyJson = "[]"
             if let encoded = try? JSONEncoder().encode(conversationHistory),
@@ -1216,6 +1262,7 @@ class SearchService: ObservableObject {
 
             // Create a struct that conforms to Encodable
             struct ConversationData: Encodable {
+                let user_id: UUID
                 let title: String
                 let messages: String
                 let message_count: Int
@@ -1224,6 +1271,7 @@ class SearchService: ObservableObject {
             }
 
             let data = ConversationData(
+                user_id: userId,
                 title: conversationTitle,
                 messages: historyJson,
                 message_count: conversationHistory.count,

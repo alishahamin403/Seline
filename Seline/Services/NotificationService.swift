@@ -223,4 +223,294 @@ class NotificationService: ObservableObject {
             print("Failed to schedule top story notification: \(error)")
         }
     }
+
+    // MARK: - Location-Based Notifications
+
+    /// Schedule arrival notification with contextual information
+    func scheduleArrivalNotification(
+        locationName: String,
+        unreadEmailCount: Int,
+        upcomingEventsCount: Int,
+        weatherInfo: String? = nil
+    ) async {
+        guard isAuthorized else {
+            print("Notification authorization not granted")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Welcome to \(locationName)"
+
+        // Build context summary
+        var contextParts: [String] = []
+        if unreadEmailCount > 0 {
+            contextParts.append("\(unreadEmailCount) unread email\(unreadEmailCount == 1 ? "" : "s")")
+        }
+        if upcomingEventsCount > 0 {
+            contextParts.append("\(upcomingEventsCount) event\(upcomingEventsCount == 1 ? "" : "s") today")
+        }
+        if let weather = weatherInfo {
+            contextParts.append(weather)
+        }
+
+        content.body = contextParts.isEmpty ? "You have arrived" : contextParts.joined(separator: " • ")
+        content.sound = .default
+        content.categoryIdentifier = "location_arrival"
+        content.userInfo = ["type": "location_arrival", "locationName": locationName]
+
+        let request = UNNotificationRequest(
+            identifier: "arrival-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("📍 Scheduled arrival notification for \(locationName)")
+        } catch {
+            print("Failed to schedule arrival notification: \(error)")
+        }
+    }
+
+    // MARK: - Daily Briefing Notifications
+
+    /// Schedule daily briefing notification
+    func scheduleDailyBriefing(
+        emailCount: Int,
+        eventsToday: Int,
+        upcomingExpenses: [(String, Double)],
+        weather: String?
+    ) async {
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Good Morning"
+
+        var summary: [String] = []
+        if eventsToday > 0 {
+            summary.append("\(eventsToday) event\(eventsToday == 1 ? "" : "s") today")
+        }
+        if emailCount > 0 {
+            summary.append("\(emailCount) unread email\(emailCount == 1 ? "" : "s")")
+        }
+        if !upcomingExpenses.isEmpty {
+            let total = upcomingExpenses.reduce(0) { $0 + $1.1 }
+            summary.append("$\(String(format: "%.0f", total)) in upcoming expenses")
+        }
+        if let weather = weather {
+            summary.append(weather)
+        }
+
+        content.body = summary.isEmpty ? "Have a great day!" : summary.joined(separator: " • ")
+        content.sound = .default
+        content.categoryIdentifier = "daily_briefing"
+        content.userInfo = ["type": "daily_briefing"]
+
+        let request = UNNotificationRequest(
+            identifier: "daily-briefing-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("🌅 Scheduled daily briefing notification")
+        } catch {
+            print("Failed to schedule daily briefing: \(error)")
+        }
+    }
+
+    /// Schedule daily briefing for a specific time
+    func scheduleDailyBriefingAt(hour: Int, minute: Int = 0) async {
+        guard isAuthorized else { return }
+
+        // Create date components for the trigger
+        var dateComponents = DateComponents()
+        dateComponents.hour = hour
+        dateComponents.minute = minute
+
+        // This will trigger every day at the specified time
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+
+        let content = UNMutableNotificationContent()
+        content.title = "Daily Briefing"
+        content.body = "Tap to see your day ahead"
+        content.sound = .default
+        content.categoryIdentifier = "daily_briefing_scheduled"
+        content.userInfo = ["type": "daily_briefing_scheduled"]
+
+        let request = UNNotificationRequest(
+            identifier: "daily-briefing-scheduled",
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("🌅 Scheduled recurring daily briefing at \(hour):\(String(format: "%02d", minute))")
+        } catch {
+            print("Failed to schedule daily briefing: \(error)")
+        }
+    }
+
+    // MARK: - Smart Event Reminders
+
+    /// Schedule smart reminder with travel time consideration
+    func scheduleSmartEventReminder(
+        eventTitle: String,
+        eventTime: Date,
+        travelMinutes: Int,
+        currentLocation: String?
+    ) async {
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Leave Soon"
+
+        var body = "Leave in \(travelMinutes) min to arrive on time for '\(eventTitle)'"
+        if let location = currentLocation {
+            body = "Leave \(location) in \(travelMinutes) min for '\(eventTitle)'"
+        }
+
+        content.body = body
+        content.sound = .default
+        content.categoryIdentifier = "smart_reminder"
+        content.userInfo = [
+            "type": "smart_reminder",
+            "eventTitle": eventTitle,
+            "travelMinutes": travelMinutes
+        ]
+
+        // Schedule for travel time before event
+        let notificationTime = eventTime.addingTimeInterval(-Double(travelMinutes * 60))
+        let timeComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: notificationTime)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: timeComponents, repeats: false)
+
+        let request = UNNotificationRequest(
+            identifier: "smart-reminder-\(eventTime.timeIntervalSince1970)",
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("⏰ Scheduled smart reminder for '\(eventTitle)' with \(travelMinutes) min travel time")
+        } catch {
+            print("Failed to schedule smart reminder: \(error)")
+        }
+    }
+
+    // MARK: - Habit & Streak Notifications
+
+    /// Schedule habit streak notification
+    func scheduleHabitStreakNotification(
+        locationName: String,
+        streakDays: Int,
+        habitType: String
+    ) async {
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "🎉 \(streakDays)-Day Streak!"
+        content.body = "You've visited \(locationName) \(streakDays) days in a row. Keep it up!"
+        content.sound = .default
+        content.categoryIdentifier = "habit_streak"
+        content.userInfo = [
+            "type": "habit_streak",
+            "locationName": locationName,
+            "streakDays": streakDays,
+            "habitType": habitType
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "streak-\(locationName)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("🔥 Scheduled streak notification for \(locationName)")
+        } catch {
+            print("Failed to schedule streak notification: \(error)")
+        }
+    }
+
+    /// Schedule habit reminder based on patterns
+    func scheduleHabitReminderNotification(
+        locationName: String,
+        usualTime: String,
+        daysActive: Int
+    ) async {
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Habit Reminder"
+        content.body = "You usually visit \(locationName) around \(usualTime). \(daysActive) visits logged."
+        content.sound = .default
+        content.categoryIdentifier = "habit_reminder"
+        content.userInfo = [
+            "type": "habit_reminder",
+            "locationName": locationName
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "habit-reminder-\(locationName)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("💪 Scheduled habit reminder for \(locationName)")
+        } catch {
+            print("Failed to schedule habit reminder: \(error)")
+        }
+    }
+
+    // MARK: - Spending Alert Notifications
+
+    /// Schedule spending alert notification
+    func scheduleSpendingAlert(category: String, amount: Double, threshold: Double) async {
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Spending Alert"
+        content.body = "You've spent $\(String(format: "%.0f", amount)) on \(category) this week (avg: $\(String(format: "%.0f", threshold)))"
+        content.sound = .default
+        content.categoryIdentifier = "spending_alert"
+        content.userInfo = [
+            "type": "spending_alert",
+            "category": category,
+            "amount": amount
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "spending-alert-\(category)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            print("💰 Scheduled spending alert for \(category)")
+        } catch {
+            print("Failed to schedule spending alert: \(error)")
+        }
+    }
+
+    // MARK: - Utility Methods
+
+    /// Cancel all pending notifications of a specific type
+    func cancelNotifications(ofType type: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { requests in
+            let identifiersToRemove = requests
+                .filter { $0.content.userInfo["type"] as? String == type }
+                .map { $0.identifier }
+
+            center.removePendingNotificationRequests(withIdentifiers: identifiersToRemove)
+            print("🗑️ Cancelled \(identifiersToRemove.count) notifications of type '\(type)'")
+        }
+    }
 }

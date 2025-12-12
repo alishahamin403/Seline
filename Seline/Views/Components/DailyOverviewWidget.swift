@@ -52,6 +52,21 @@ struct DailyOverviewWidget: View {
             .sorted { $0.expense.title < $1.expense.title }
     }
 
+    private var upcomingExpenses: [(expense: RecurringExpense, instance: RecurringInstance)] {
+        let calendar = Calendar.current
+        let dayAfterTomorrow = calendar.date(byAdding: .day, value: 2, to: today)!
+        let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: today)!
+
+        return expensesAndInstances
+            .filter { item in
+                let instanceDay = calendar.startOfDay(for: item.instance.occurrenceDate)
+                return instanceDay >= dayAfterTomorrow &&
+                       instanceDay < sevenDaysFromNow &&
+                       item.instance.status == .pending
+            }
+            .sorted { $0.instance.occurrenceDate < $1.instance.occurrenceDate }
+    }
+
     private var importantUnreadEmails: [Email] {
         emailService.inboxEmails
             .filter { $0.isImportant && !$0.isRead }
@@ -79,8 +94,13 @@ struct DailyOverviewWidget: View {
     private var todaysReceipts: [Note] {
         let calendar = Calendar.current
         return notesManager.notes.filter { note in
-            let amount = CurrencyParser.extractAmount(from: note.content ?? "")
+            let content = note.content ?? ""
+            let amount = CurrencyParser.extractAmount(from: content)
             guard amount > 0 else { return false }
+
+            // CRITICAL: Only include notes with bullet point structure (receipt format)
+            // Receipt notes must have bullet points (lines starting with "- ")
+            guard content.contains("- ") else { return false }
 
             // Try to extract date from title first (e.g., "Store - December 07, 2025")
             if let receiptDate = notesManager.extractFullDateFromTitle(note.title) {
@@ -106,6 +126,7 @@ struct DailyOverviewWidget: View {
     private var hasAnyContent: Bool {
         !expensesDueToday.isEmpty ||
         !expensesDueTomorrow.isEmpty ||
+        !upcomingExpenses.isEmpty ||
         !importantUnreadEmails.isEmpty ||
         !birthdaysThisWeek.isEmpty ||
         !todaysReceipts.isEmpty ||
@@ -132,6 +153,9 @@ struct DailyOverviewWidget: View {
         }
         if !expensesDueTomorrow.isEmpty {
             parts.append("\(expensesDueTomorrow.count) tomorrow")
+        }
+        if !upcomingExpenses.isEmpty {
+            parts.append("\(upcomingExpenses.count) upcoming")
         }
         if !importantUnreadEmails.isEmpty {
             parts.append("\(importantUnreadEmails.count) email\(importantUnreadEmails.count > 1 ? "s" : "")")
@@ -165,6 +189,10 @@ struct DailyOverviewWidget: View {
 
                         if !expensesDueTomorrow.isEmpty {
                             expensesDueTomorrowSection
+                        }
+
+                        if !upcomingExpenses.isEmpty {
+                            upcomingExpensesSection
                         }
 
                         if !importantUnreadEmails.isEmpty {
@@ -272,6 +300,18 @@ struct DailyOverviewWidget: View {
 
             ForEach(expensesDueTomorrow.prefix(5), id: \.instance.id) { item in
                 expenseRow(item.expense, instance: item.instance)
+            }
+        }
+    }
+
+    private var upcomingExpensesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Upcoming (Next 7 Days)")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+
+            ForEach(upcomingExpenses.prefix(10), id: \.instance.id) { item in
+                upcomingExpenseRow(item.expense, instance: item.instance)
             }
         }
     }
@@ -448,6 +488,24 @@ struct DailyOverviewWidget: View {
         }
     }
 
+    private func upcomingExpenseRow(_ expense: RecurringExpense, instance: RecurringInstance) -> some View {
+        HStack(spacing: 8) {
+            Text(expense.title)
+                .font(.system(size: 12))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+
+            Spacer()
+
+            Text(formatUpcomingDate(instance.occurrenceDate))
+                .font(.system(size: 11))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+
+            Text(instance.formattedAmount)
+                .font(.system(size: 12))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+        }
+    }
+
     private func emailRow(_ email: Email) -> some View {
         Button(action: {
             onEmailSelected?(email)
@@ -558,6 +616,12 @@ struct DailyOverviewWidget: View {
     }
 
     private func formatBirthdayDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d"
+        return formatter.string(from: date)
+    }
+
+    private func formatUpcomingDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE, MMM d"
         return formatter.string(from: date)

@@ -116,8 +116,8 @@ struct RankingView: View {
         VStack(spacing: 0) {
             // Location search bar
             LocationSearchBar(searchText: $locationSearchText, colorScheme: colorScheme, placeholder: "Search by location...")
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
+                .padding(.horizontal, 16)
+                .padding(.top, 0)
                 .padding(.bottom, 12)
 
             // Cuisine filter (pills)
@@ -151,7 +151,7 @@ struct RankingView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
             }
             .padding(.bottom, 16)
 

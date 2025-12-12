@@ -56,6 +56,7 @@ class EmailService: ObservableObject {
     private let gmailAPIClient = GmailAPIClient.shared
     let notificationService = NotificationService.shared // Made public for access from EmailView
     private let openAIService = DeepSeekService.shared
+    private let emailIntelligence = EmailNotificationIntelligence.shared
 
     private init() {
         // Clear old cached data on app startup to prevent showing yesterday's emails
@@ -858,24 +859,71 @@ class EmailService: ObservableObject {
 
                 // Only send notification if we have new emails from TODAY
                 if !todaysNewEmails.isEmpty {
-                    // Fetch metadata for the latest new email from today
-                    var latestSender: String?
-                    var latestSubject: String?
-                    var latestEmailId: String?
+                    // Use email intelligence to determine which emails should notify
+                    var emailsToNotify: [Email] = []
 
-                    if let firstNewEmail = todaysNewEmails.first {
-                        latestSender = firstNewEmail.sender.displayName
-                        latestSubject = firstNewEmail.subject
-                        latestEmailId = firstNewEmail.id
+                    for email in todaysNewEmails {
+                        // Record email activity for thread consolidation
+                        emailIntelligence.recordEmailActivity(email: email)
+
+                        // Check if this email should trigger a notification
+                        if let priority = await emailIntelligence.shouldNotify(for: email) {
+                            if priority.shouldNotify {
+                                emailsToNotify.append(email)
+                                print("📧 Email should notify: '\(email.subject)' - \(priority.displayReason)")
+                            } else {
+                                print("🔇 Email notification suppressed: '\(email.subject)' - \(priority.displayReason)")
+                            }
+                        }
                     }
 
-                    // Show notification for new emails (real-time notifications)
-                    await notificationService.scheduleNewEmailNotification(
-                        emailCount: todaysNewEmails.count,
-                        latestSender: latestSender,
-                        latestSubject: latestSubject,
-                        latestEmailId: latestEmailId
-                    )
+                    // Check for thread consolidation
+                    var consolidatedNotifications: [String: [Email]] = [:] // threadId: emails
+                    var standaloneEmails: [Email] = []
+
+                    for email in emailsToNotify {
+                        if let threadId = email.threadId ?? email.gmailThreadId {
+                            if consolidatedNotifications[threadId] == nil {
+                                consolidatedNotifications[threadId] = []
+                            }
+                            consolidatedNotifications[threadId]?.append(email)
+                        } else {
+                            standaloneEmails.append(email)
+                        }
+                    }
+
+                    // Send consolidated thread notifications
+                    for (threadId, emails) in consolidatedNotifications {
+                        if emails.count > 1 {
+                            // Multiple emails in same thread - send consolidated notification
+                            let senders = Set(emails.map { $0.sender.displayName }).joined(separator: ", ")
+                            let latestEmail = emails.first
+                            await notificationService.scheduleNewEmailNotification(
+                                emailCount: emails.count,
+                                latestSender: senders,
+                                latestSubject: "[\(emails.count) messages] \(latestEmail?.subject ?? "")",
+                                latestEmailId: latestEmail?.id
+                            )
+                            print("📨 Sent consolidated notification for thread with \(emails.count) emails")
+
+                            // Clear thread activity after sending notification
+                            emailIntelligence.clearThreadActivity(threadId: threadId)
+                        } else if let email = emails.first {
+                            // Single email in thread
+                            standaloneEmails.append(email)
+                        }
+                    }
+
+                    // Send standalone email notifications
+                    for email in standaloneEmails {
+                        await notificationService.scheduleNewEmailNotification(
+                            emailCount: 1,
+                            latestSender: email.sender.displayName,
+                            latestSubject: email.subject,
+                            latestEmailId: email.id
+                        )
+                        print("📧 Sent notification for email: '\(email.subject)'")
+                    }
 
                     // Update badge count (only count today's unread emails)
                     let currentUnreadCount = todaysNewEmails.filter { !$0.isRead }.count
@@ -1175,20 +1223,30 @@ class EmailService: ObservableObject {
         for attachment in email.attachments {
             do {
                 // Download attachment from Gmail
-                guard let fileData = try await gmailAPIClient.downloadAttachment(
-                    messageId: email.id,
-                    attachmentId: attachment.id
-                ) else {
+                guard let messageId = email.gmailMessageId else {
+                    print("⚠️ Warning: No Gmail message ID for email, skipping attachments")
                     continue
                 }
 
+                guard let fileData = try await gmailAPIClient.downloadAttachment(
+                    messageId: messageId,
+                    attachmentId: attachment.id
+                ) else {
+                    print("⚠️ Warning: Failed to download attachment '\(attachment.name)' - no data returned")
+                    continue
+                }
+
+                print("✅ Downloaded attachment '\(attachment.name)' (\(fileData.count) bytes)")
+
                 // Upload to Supabase Storage
-                let storagePath = "email-attachments/\(email.id)/\(attachment.id)/\(attachment.name)"
+                let storagePath = "email-attachments/\(messageId)/\(attachment.id)/\(attachment.name)"
                 try await supabaseManager.uploadFile(
                     data: fileData,
                     bucket: "email-attachments",
                     path: storagePath
                 )
+
+                print("✅ Uploaded attachment '\(attachment.name)' to Supabase Storage")
 
                 // Create attachment record in database
                 // Note: This will be saved when SavedEmail is saved via EmailFolderService

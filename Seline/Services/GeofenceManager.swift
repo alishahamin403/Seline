@@ -15,9 +15,19 @@ struct LocationVisitRecord: Codable, Identifiable {
     var timeOfDay: String
     var month: Int
     var year: Int
-    var sessionId: UUID? // Groups related visits (app restart, GPS loss) - NEW
-    var confidenceScore: Double? // 1.0 (certain), 0.95, 0.85 (app restart/GPS) - NEW
-    var mergeReason: String? // "app_restart", "gps_reconnect", "quick_return" - NEW
+    var sessionId: UUID? // Groups related visits (app restart, GPS loss)
+    var confidenceScore: Double? // 1.0 (certain), 0.95, 0.85 (app restart/GPS)
+    var mergeReason: String? // "app_restart", "gps_reconnect", "quick_return"
+
+    // ENHANCEMENT: Advanced tracking fields
+    var signalDrops: Int? // Number of GPS signal drops during visit
+    var motionValidated: Bool? // Whether motion sensors validated stationary behavior
+    var stationaryPercentage: Double? // Percentage of time user was stationary
+    var wifiMatched: Bool? // Whether WiFi networks matched known fingerprints
+    var isOutlier: Bool? // Whether visit is a statistical outlier
+    var isCommuteStop: Bool? // Whether visit is a brief stop during commute
+    var semanticValid: Bool? // Whether visit makes semantic sense
+
     let createdAt: Date
     var updatedAt: Date
 
@@ -31,9 +41,19 @@ struct LocationVisitRecord: Codable, Identifiable {
         case dayOfWeek = "day_of_week"
         case timeOfDay = "time_of_day"
         case month, year
-        case sessionId = "session_id" // NEW
-        case confidenceScore = "confidence_score" // NEW
-        case mergeReason = "merge_reason" // NEW
+        case sessionId = "session_id"
+        case confidenceScore = "confidence_score"
+        case mergeReason = "merge_reason"
+
+        // Advanced tracking fields
+        case signalDrops = "signal_drops"
+        case motionValidated = "motion_validated"
+        case stationaryPercentage = "stationary_percentage"
+        case wifiMatched = "wifi_matched"
+        case isOutlier = "is_outlier"
+        case isCommuteStop = "is_commute_stop"
+        case semanticValid = "semantic_valid"
+
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -193,6 +213,8 @@ class GeofenceManager: NSObject, ObservableObject {
 
     private let geofenceRadius: CLLocationDistance = 300 // Used for fallback in some contexts (increased from 200m)
     // Note: Smart radius detection is now handled by GeofenceRadiusManager.shared
+
+    private let notificationService = NotificationService.shared
 
     override init() {
         super.init()
@@ -358,11 +380,23 @@ class GeofenceManager: NSObject, ObservableObject {
             }
 
             let horizontalAccuracy = currentLocation.horizontalAccuracy
+
+            // ENHANCEMENT: Track signal quality
+            SignalQualityTracker.shared.recordLocationUpdate(accuracy: horizontalAccuracy, for: placeId)
+
             if horizontalAccuracy > 30 {
                 print("⚠️ GEOFENCE ENTRY REJECTED: GPS accuracy too low (\(String(format: "%.1f", horizontalAccuracy))m > 30m threshold)")
+                SignalQualityTracker.shared.recordLowAccuracy(accuracy: horizontalAccuracy, placeId: placeId)
                 return
             } else {
                 print("✅ GPS accuracy acceptable: \(String(format: "%.1f", horizontalAccuracy))m")
+            }
+
+            // ENHANCEMENT: Check motion - reject if user is driving (eliminates traffic stops)
+            let isDriving = await MotionDetectionService.shared.isUserDriving()
+            if isDriving {
+                print("⚠️ GEOFENCE ENTRY REJECTED: User is driving (automotive motion detected)")
+                return
             }
 
             // SOLUTION 3: BEST-MATCH LOCATION SELECTION
@@ -539,6 +573,11 @@ class GeofenceManager: NSObject, ObservableObject {
                     mergeReason: nil
                 )
 
+                // ENHANCEMENT: Set initial motion validation flag
+                let isStationary = await MotionDetectionService.shared.isUserStationary()
+                visit.motionValidated = isStationary
+                print("📱 Motion validation: stationary=\(isStationary)")
+
                 // Add to activeVisits with lock protection
                 activeVisitsLock.lock()
                 self.activeVisits[placeId] = visit
@@ -558,6 +597,13 @@ class GeofenceManager: NSObject, ObservableObject {
 
                 // Notify that visits have been updated so UI can refresh
                 NotificationCenter.default.post(name: NSNotification.Name("GeofenceVisitCreated"), object: nil)
+
+                // Send arrival notification with context
+                if let place = allPlaces.first(where: { $0.id == placeId }) {
+                    Task {
+                        await self.sendArrivalNotification(for: place)
+                    }
+                }
             }
 
             // Start background validation timer if not already running
@@ -604,11 +650,93 @@ class GeofenceManager: NSObject, ObservableObject {
             if var visit = visit {
                 visit.recordExit(exitTime: Date())
 
-                // Filter out visits shorter than 10 minutes (noise from brief location hiccups and passing by)
                 let durationMinutes = visit.durationMinutes ?? 0
-                if durationMinutes < 10 {
-                    print("⏭️ VISIT FILTERED OUT: Duration too short (\(durationMinutes) min < 10 min minimum)")
-                    // FIX: Delete the visit from Supabase since it was already saved during entry
+                let entryTime = visit.entryTime
+                let exitTime = visit.exitTime ?? Date()
+
+                // ENHANCEMENT: Get adaptive minimum duration for this location
+                let minDuration = await AdaptiveDurationService.shared.getMinimumDuration(for: placeId)
+                print("📊 Adaptive min duration for this location: \(minDuration) min")
+
+                // Filter out visits shorter than learned minimum (default 10 minutes)
+                if durationMinutes < minDuration {
+                    print("⏭️ VISIT FILTERED OUT: Duration too short (\(durationMinutes) min < \(minDuration) min adaptive minimum)")
+                    await self.deleteVisitFromSupabase(visit)
+                    return
+                }
+
+                // ENHANCEMENT: Validate motion during visit
+                let motionValidation = MotionDetectionService.shared.validateVisitMotion(
+                    entryTime: entryTime,
+                    exitTime: exitTime,
+                    duration: exitTime.timeIntervalSince(entryTime)
+                )
+
+                if !motionValidation.valid {
+                    print("⚠️ Motion validation failed: stationary=\(String(format: "%.0f%%", motionValidation.stationaryPercentage * 100)), confidence=\(String(format: "%.0f%%", motionValidation.confidence * 100))")
+                    print("⏭️ VISIT FILTERED OUT: User was not stationary (likely driving/moving)")
+                    await self.deleteVisitFromSupabase(visit)
+                    return
+                }
+
+                visit.stationaryPercentage = motionValidation.stationaryPercentage
+
+                // ENHANCEMENT: Get place details for category-based validation
+                let place = LocationsManager.shared.savedPlaces.first { $0.id == placeId }
+                let category = place?.category
+
+                // ENHANCEMENT: Semantic validation
+                let semanticValidation = SemanticValidationService.shared.validateVisit(
+                    category: category ?? "unknown",
+                    entryTime: entryTime,
+                    exitTime: exitTime,
+                    durationMinutes: durationMinutes
+                )
+
+                visit.semanticValid = semanticValidation.valid
+
+                if !semanticValidation.valid && semanticValidation.confidence < 0.5 {
+                    print("⚠️ Semantic validation failed: \(semanticValidation.issues.joined(separator: ", "))")
+                    print("⏭️ VISIT FILTERED OUT: Visit doesn't make semantic sense (confidence: \(String(format: "%.0f%%", semanticValidation.confidence * 100)))")
+                    await self.deleteVisitFromSupabase(visit)
+                    return
+                } else if !semanticValidation.valid {
+                    print("⚠️ Semantic validation warning: \(semanticValidation.issues.joined(separator: ", ")) (continuing anyway)")
+                }
+
+                // ENHANCEMENT: Signal quality tracking
+                let signalQuality = SignalQualityTracker.shared.getVisitConfidence(from: entryTime, to: exitTime)
+                visit.signalDrops = signalQuality.signalDrops
+
+                if signalQuality.confidence < 0.6 {
+                    print("⚠️ Signal quality poor: \(signalQuality.signalDrops) drops, confidence: \(String(format: "%.0f%%", signalQuality.confidence * 100))")
+                }
+
+                // ENHANCEMENT: Commute detection
+                let commuteAnalysis = await CommuteDetectionService.shared.detectCommuteStop(
+                    visit: LocationVisitRow(
+                        id: visit.id,
+                        userId: visit.userId,
+                        placeId: placeId,
+                        entryTime: entryTime,
+                        exitTime: exitTime,
+                        durationMinutes: durationMinutes,
+                        sessionId: visit.sessionId,
+                        dayOfWeek: visit.dayOfWeek,
+                        timeOfDay: visit.timeOfDay,
+                        month: visit.month,
+                        year: visit.year,
+                        confidenceScore: visit.confidenceScore,
+                        mergeReason: visit.mergeReason
+                    ),
+                    category: category
+                )
+
+                visit.isCommuteStop = commuteAnalysis.isCommuteStop
+
+                if commuteAnalysis.isCommuteStop && commuteAnalysis.confidence >= 0.8 {
+                    print("🚗 COMMUTE STOP DETECTED: \(commuteAnalysis.reason) (confidence: \(String(format: "%.0f%%", commuteAnalysis.confidence * 100)))")
+                    print("⏭️ VISIT FILTERED OUT: Brief stop during commute")
                     await self.deleteVisitFromSupabase(visit)
                     return
                 }
@@ -625,9 +753,40 @@ class GeofenceManager: NSObject, ObservableObject {
                     for visitPart in visitsToSave {
                         print("  - \(visitPart.dayOfWeek): \(visitPart.entryTime) to \(visitPart.exitTime?.description ?? "nil") (\(visitPart.durationMinutes ?? 0) min)")
                         await self.saveVisitToSupabase(visitPart)
+
+                        // ENHANCEMENT: Check if visit is an outlier
+                        if let duration = visitPart.durationMinutes {
+                            let outlierAnalysis = await OutlierDetectionService.shared.detectOutlier(
+                                placeId: placeId,
+                                duration: duration,
+                                entryTime: visitPart.entryTime
+                            )
+
+                            if outlierAnalysis.isOutlier {
+                                print("📊 OUTLIER DETECTED: z-score=\(String(format: "%.2f", outlierAnalysis.zScore)), reason=\(outlierAnalysis.reason)")
+                                // Flag in database
+                                visit.isOutlier = true
+                            }
+                        }
                     }
                 } else {
                     print("✅ Finished tracking visit for place: \(placeId), duration: \(visit.durationMinutes ?? 0) min")
+
+                    // ENHANCEMENT: Check if visit is an outlier
+                    if let duration = visit.durationMinutes {
+                        let outlierAnalysis = await OutlierDetectionService.shared.detectOutlier(
+                            placeId: placeId,
+                            duration: duration,
+                            entryTime: visit.entryTime
+                        )
+
+                        visit.isOutlier = outlierAnalysis.isOutlier
+
+                        if outlierAnalysis.isOutlier {
+                            print("📊 OUTLIER DETECTED: z-score=\(String(format: "%.2f", outlierAnalysis.zScore)), reason=\(outlierAnalysis.reason)")
+                        }
+                    }
+
                     await self.updateVisitInSupabase(visit)
                 }
 
@@ -1020,7 +1179,40 @@ class GeofenceManager: NSObject, ObservableObject {
                 .execute()
 
             let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            // Custom date decoder to handle both ISO8601 and PostgreSQL timestamp formats
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let dateString = try container.decode(String.self)
+
+                // Try ISO8601 with fractional seconds first
+                let iso8601Formatter = ISO8601DateFormatter()
+                iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = iso8601Formatter.date(from: dateString) {
+                    return date
+                }
+
+                // Try ISO8601 without fractional seconds
+                iso8601Formatter.formatOptions = [.withInternetDateTime]
+                if let date = iso8601Formatter.date(from: dateString) {
+                    return date
+                }
+
+                // Try PostgreSQL timestamp format: "YYYY-MM-DD HH:MM:SS"
+                let postgresFormatter = DateFormatter()
+                postgresFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                postgresFormatter.timeZone = TimeZone(identifier: "UTC")
+                if let date = postgresFormatter.date(from: dateString) {
+                    return date
+                }
+
+                // Try PostgreSQL timestamp with fractional seconds: "YYYY-MM-DD HH:MM:SS.ffffff"
+                postgresFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS"
+                if let date = postgresFormatter.date(from: dateString) {
+                    return date
+                }
+
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date string: \(dateString)")
+            }
 
             let allOldVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
@@ -1249,5 +1441,34 @@ class GeofenceManager: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - Arrival Notifications
+
+    /// Send arrival notification with contextual information
+    private func sendArrivalNotification(for place: SavedPlace) async {
+        // Get unread email count
+        let emailService = EmailService.shared
+        let unreadEmailCount = emailService.inboxEmails.filter { !$0.isRead }.count
+
+        // Get today's events count
+        let calendarService = CalendarSyncService.shared
+        let todaysEvents = await calendarService.fetchCalendarEventsFromCurrentMonthOnwards()
+        let calendar = Calendar.current
+        let eventsToday = todaysEvents.filter { event in
+            calendar.isDateInToday(event.startDate)
+        }.count
+
+        // Get weather info (optional - if weather service is available)
+        var weatherInfo: String? = nil
+        // TODO: Integrate with WeatherService if needed
+
+        // Send the notification
+        await notificationService.scheduleArrivalNotification(
+            locationName: place.displayName,
+            unreadEmailCount: unreadEmailCount,
+            upcomingEventsCount: eventsToday,
+            weatherInfo: weatherInfo
+        )
     }
 }

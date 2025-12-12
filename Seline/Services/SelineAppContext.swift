@@ -181,6 +181,10 @@ class SelineAppContext {
         // Collect all locations
         self.locations = locationsManager.savedPlaces
 
+        // Fetch visit stats for ALL locations to ensure complete data for queries
+        await LocationVisitAnalytics.shared.fetchAllStats(for: self.locations)
+        print("📍 Fetched visit stats for \(self.locations.count) locations")
+
         // Fetch weather data
         do {
             // Try to get current location, otherwise use default (Toronto)
@@ -534,16 +538,27 @@ class SelineAppContext {
             print("✅ Using cached data (valid for \(Int(cacheValidityDuration - Date().timeIntervalSince(lastRefreshTime))) more seconds)")
         }
 
-        // CRITICAL: Fetch geofence visit stats for all locations before building context (PARALLEL)
-        print("📊 Fetching geofence visit stats for context building...")
-        await withTaskGroup(of: Void.self) { group in
-            for place in locations {
-                group.addTask {
-                    await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        // OPTIMIZATION: Only fetch geofence stats if query is location-related
+        let isLocationQuery = userQuery.lowercased().contains("location") ||
+                              userQuery.lowercased().contains("place") ||
+                              userQuery.lowercased().contains("restaurant") ||
+                              userQuery.lowercased().contains("visit") ||
+                              userQuery.lowercased().contains("where") ||
+                              userQuery.lowercased().contains("been")
+
+        if isLocationQuery {
+            print("📊 Location query detected - fetching visit stats...")
+            await withTaskGroup(of: Void.self) { group in
+                for place in locations.prefix(20) {  // Limit to 20 most recent locations
+                    group.addTask {
+                        await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                    }
                 }
             }
+            print("✅ Visit stats loaded for top locations")
+        } else {
+            print("⚡ Skipping visit stats - not a location query")
         }
-        print("✅ Visit stats loaded for \(LocationVisitAnalytics.shared.visitStats.count) locations")
 
         // Filter events based on extracted intent
         var filteredEvents = events
@@ -747,9 +762,9 @@ class SelineAppContext {
                 }
             }
 
-            // UPCOMING (future beyond this week) - LIMITED to first 10 for context size
+            // UPCOMING (future beyond this week) - LIMITED to first 5 for context size
             if !upcoming.isEmpty {
-                let upcomingToShow = Array(upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }).prefix(10))
+                let upcomingToShow = Array(upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }).prefix(5))
                 context += "\n**UPCOMING** (\(upcomingToShow.count) of \(upcoming.count) events):\n"
                 for event in upcomingToShow {
                     let categoryName = getCategoryName(for: event.tagId)
@@ -803,11 +818,11 @@ class SelineAppContext {
                     context += "  ... and \(olderPastEvents.count - 5) more older past events\n"
                 }
             }
-            // RECURRING EVENTS SUMMARY with completion stats
+            // RECURRING EVENTS SUMMARY - CONDENSED (removed monthly breakdown to save tokens)
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
-                for event in recurringEvents {
+                for event in recurringEvents.prefix(10) {  // Limit to 10 recurring events
                     let currentMonth = calendar.dateComponents([.month, .year], from: currentDate)
 
                     let thisMonthCompletions = event.completedDates.filter { date in
@@ -816,41 +831,10 @@ class SelineAppContext {
                     }
 
                     let categoryName = getCategoryName(for: event.tagId)
-                    context += "  • \(event.title) [\(categoryName)]\n"
-                    context += "    All-time: \(event.completedDates.count) completions\n"
-                    context += "    This month: \(thisMonthCompletions.count) completions\n"
-
-                    // Monthly breakdown
-                    let monthlyStats = Dictionary(grouping: event.completedDates) { date in
-                        let formatter = DateFormatter()
-                        formatter.dateFormat = "MMMM yyyy"
-                        return formatter.string(from: date)
-                    }
-
-                    if !monthlyStats.isEmpty {
-                        // Sort months by date (most recent first)
-                        let sortedMonths = monthlyStats.keys.sorted { month1, month2 in
-                            // Create dummy dates from the month strings for comparison
-                            let formatter = DateFormatter()
-                            formatter.dateFormat = "MMMM yyyy"
-                            let date1 = formatter.date(from: month1) ?? Date.distantPast
-                            let date2 = formatter.date(from: month2) ?? Date.distantPast
-                            return date1 > date2
-                        }
-
-                        context += "    Monthly stats:\n"
-                        for month in sortedMonths.prefix(6) {
-                            let count = monthlyStats[month]?.count ?? 0
-                            context += "      \(month): \(count) completions\n"
-                        }
-                    }
-
-                    if !thisMonthCompletions.isEmpty {
-                        let dateStrings = thisMonthCompletions.sorted().map { formatDate($0) }
-                        context += "    Dates completed this month: \(dateStrings.joined(separator: ", "))\n"
-                    } else {
-                        context += "    No completions this month\n"
-                    }
+                    context += "  • \(event.title) [\(categoryName)] - All-time: \(event.completedDates.count) | This month: \(thisMonthCompletions.count)\n"
+                }
+                if recurringEvents.count > 10 {
+                    context += "  ... and \(recurringEvents.count - 10) more recurring events\n"
                 }
             }
         } else {
@@ -886,7 +870,9 @@ class SelineAppContext {
                     return month1 > month2  // Most recent first
                 }
 
-                for month in sortedMonths.prefix(3) {
+                // Show ALL months with receipts to ensure complete data for comparisons
+                // This allows LLM to properly compare spending across any months user asks about
+                for month in sortedMonths {
                     guard let items = receiptsByMonth[month] else { continue }
 
                     let total = items.reduce(0.0) { $0 + $1.amount }
@@ -1001,7 +987,7 @@ class SelineAppContext {
                 // Show favorites first
                 if !favorites.isEmpty {
                     context += "\n**FAVORITES** (\(favorites.count) locations):\n"
-                    for place in favorites.sorted(by: { $0.displayName < $1.displayName }).prefix(10) {  // Limit to 10 favorites
+                    for place in favorites.sorted(by: { $0.displayName < $1.displayName }).prefix(5) {  // Limit to 5 favorites
                         context += "  ★ \(place.displayName)\n"
                         context += "    Address: \(place.address)\n"
 
@@ -1236,10 +1222,29 @@ class SelineAppContext {
         context += "NOTE: Notes are filtered by relevance to your query. Most relevant notes shown first.\n\n"
 
         if !notes.isEmpty {
+            // Filter out calendar event notes and receipts
+            let calendarEventTitles = Set(events.filter { $0.isFromCalendar }.map { $0.title.lowercased() })
+            let actualNotes = notes.filter { note in
+                let noteTitle = note.title.lowercased()
+                let folderName = getCachedFolderName(for: note.folderId).lowercased()
+
+                // Exclude if it's a calendar event note
+                if calendarEventTitles.contains(noteTitle) {
+                    return false
+                }
+
+                // Exclude if it's in a receipts folder
+                if folderName.contains("receipt") {
+                    return false
+                }
+
+                return true
+            }
+
             // Filter notes by query relevance (smart multi-source search)
             let filteredNotes = !userQuery.isEmpty ?
-                Array(filterNotesByRelevance(notes: notes, query: userQuery).prefix(12)) :  // Limit to 12 most relevant
-                Array(notes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
+                Array(filterNotesByRelevance(notes: actualNotes, query: userQuery).prefix(12)) :  // Limit to 12 most relevant
+                Array(actualNotes.sorted { $0.dateModified > $1.dateModified }.prefix(10))
 
             if !filteredNotes.isEmpty {
                 // Group filtered notes by folder
@@ -1247,19 +1252,10 @@ class SelineAppContext {
                     getCachedFolderName(for: note.folderId)
                 }
 
-                let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
-                    if folder1.lowercased().contains("receipt") { return false }
-                    if folder2.lowercased().contains("receipt") { return false }
-                    return folder1 < folder2
-                }
+                let sortedFolders = notesByFolder.keys.sorted()
 
                 for folder in sortedFolders {
                     guard let folderNotes = notesByFolder[folder] else { continue }
-
-                    // Skip Receipts folder - shown in expenses section
-                    if folder.lowercased().contains("receipt") {
-                        continue
-                    }
 
                     context += "**\(folder)**:\n"
 
@@ -1288,9 +1284,8 @@ class SelineAppContext {
                 }
 
                 // Show how many notes were filtered out
-                let totalNotes = notes.filter { !getCachedFolderName(for: $0.folderId).lowercased().contains("receipt") }.count
-                if filteredNotes.count < totalNotes {
-                    context += "\n(Showing \(filteredNotes.count) most relevant notes out of \(totalNotes) total)\n"
+                if filteredNotes.count < actualNotes.count {
+                    context += "\n(Showing \(filteredNotes.count) most relevant notes out of \(actualNotes.count) total)\n"
                 }
             } else {
                 context += "  No relevant notes found for your query. Try a broader search.\n"
@@ -1436,16 +1431,9 @@ class SelineAppContext {
             print("✅ Using cached data (valid for \(Int(cacheValidityDuration - Date().timeIntervalSince(lastRefreshTime))) more seconds)")
         }
 
-        // CRITICAL: Fetch geofence visit stats for all locations before building context (PARALLEL)
-        print("📊 Fetching geofence visit stats for context building...")
-        await withTaskGroup(of: Void.self) { group in
-            for place in locations {
-                group.addTask {
-                    await LocationVisitAnalytics.shared.fetchStats(for: place.id)
-                }
-            }
-        }
-        print("✅ Visit stats loaded for \(LocationVisitAnalytics.shared.visitStats.count) locations")
+        // OPTIMIZATION: Skip geofence stats when no specific query (saves time)
+        // Location stats are only fetched in buildContextPrompt(forQuery:) when needed
+        print("⚡ Skipping visit stats - no specific query")
 
         var context = ""
 
@@ -1593,9 +1581,9 @@ class SelineAppContext {
                 }
             }
 
-            // UPCOMING (future beyond this week) - LIMITED to first 10 for context size
+            // UPCOMING (future beyond this week) - LIMITED to first 5 for context size
             if !upcoming.isEmpty {
-                let upcomingToShow = Array(upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }).prefix(10))
+                let upcomingToShow = Array(upcoming.sorted(by: { ($0.targetDate ?? Date.distantFuture) < ($1.targetDate ?? Date.distantFuture) }).prefix(5))
                 context += "\n**UPCOMING** (\(upcomingToShow.count) of \(upcoming.count) events):\n"
                 for event in upcomingToShow {
                     let categoryName = getCategoryName(for: event.tagId)
@@ -1724,7 +1712,8 @@ class SelineAppContext {
                 return month1 > month2  // Most recent first
             }
 
-            for (index, month) in sortedMonths.prefix(7).enumerated() {
+            // Show ALL months with receipts (not just 7) to ensure complete data
+            for (index, month) in sortedMonths.enumerated() {
                 guard let items = receiptsByMonth[month] else { continue }
 
                 let total = items.reduce(0.0) { $0 + $1.amount }
@@ -1740,11 +1729,9 @@ class SelineAppContext {
                     let categoryTotal = receiptsInCategory.reduce(0.0) { $0 + $1.amount }
                     context += "  **\(category)**: $\(String(format: "%.2f", categoryTotal)) (\(receiptsInCategory.count) items)\n"
 
-                    // Show all items for current month, summary for previous months
-                    if isCurrentMonth {
-                        for receipt in receiptsInCategory.sorted(by: { $0.date > $1.date }) {
-                            context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
-                        }
+                    // Show all items for every month (not just current) to ensure complete data
+                    for receipt in receiptsInCategory.sorted(by: { $0.date > $1.date }) {
+                        context += "    • \(receipt.title): $\(String(format: "%.2f", receipt.amount)) - \(formatDate(receipt.date))\n"
                     }
                 }
             }
@@ -2026,38 +2013,47 @@ class SelineAppContext {
         // Notes detail - Comprehensive with folder, dates, and full content
         context += "\n=== NOTES ===\n"
         if !notes.isEmpty {
+            // Filter out calendar event notes and receipts
+            let calendarEventTitles = Set(events.filter { $0.isFromCalendar }.map { $0.title.lowercased() })
+            let actualNotes = notes.filter { note in
+                let noteTitle = note.title.lowercased()
+                let folderName = getCachedFolderName(for: note.folderId).lowercased()
+
+                // Exclude if it's a calendar event note
+                if calendarEventTitles.contains(noteTitle) {
+                    return false
+                }
+
+                // Exclude if it's in a receipts folder
+                if folderName.contains("receipt") {
+                    return false
+                }
+
+                return true
+            }
+
             // Group notes by folder
-            let notesByFolder = Dictionary(grouping: notes) { note in
+            let notesByFolder = Dictionary(grouping: actualNotes) { note in
                 getCachedFolderName(for: note.folderId)
             }
 
-            // Sort folders with "Receipts" last (since it's for receipts, not general notes)
-            let sortedFolders = notesByFolder.keys.sorted { folder1, folder2 in
-                if folder1.lowercased().contains("receipt") { return false }
-                if folder2.lowercased().contains("receipt") { return false }
-                return folder1 < folder2
-            }
+            // Sort folders alphabetically
+            let sortedFolders = notesByFolder.keys.sorted()
 
             for folder in sortedFolders {
                 guard let folderNotes = notesByFolder[folder] else { continue }
 
-                // Skip Receipts folder - already shown in expenses section
-                if folder.lowercased().contains("receipt") {
-                    continue
-                }
-
                 let folderLabel = folder == "Notes" ? "**Uncategorized Notes**" : "**\(folder)**"
                 context += "\n\(folderLabel) (\(folderNotes.count) notes):\n"
 
-                // Show most recently modified notes first, max 15 per folder
-                for note in folderNotes.sorted(by: { $0.dateModified > $1.dateModified }).prefix(15) {
+                // Show most recently modified notes first, max 10 per folder
+                for note in folderNotes.sorted(by: { $0.dateModified > $1.dateModified }).prefix(10) {
                     let lastModified = formatDate(note.dateModified)
                     context += "  • **\(note.title)** (Updated: \(lastModified))\n"
-                    context += "    Content:\n"
 
-                    // Include full note content, formatted nicely
+                    // Include note content preview - limited to save tokens
                     let contentLines = note.content.split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
-                    let lineLimit = 1000  // Show up to 1000 lines per note (covers long statements and detailed notes)
+                    let lineLimit = 30  // Reduced from 1000 to 30 lines per note
 
                     for line in contentLines.prefix(lineLimit) {
                         let trimmedLine = line.trimmingCharacters(in: CharacterSet.whitespaces)
@@ -2072,13 +2068,12 @@ class SelineAppContext {
                     context += "\n"
                 }
 
-                if folderNotes.count > 15 {
-                    context += "  ... and \(folderNotes.count - 15) more notes in this folder\n"
+                if folderNotes.count > 10 {
+                    context += "  ... and \(folderNotes.count - 10) more notes in this folder\n"
                 }
             }
 
-            let totalNotes = notes.count
-            context += "\n**Total Notes**: \(totalNotes)\n"
+            context += "\n**Total Notes**: \(actualNotes.count)\n"
         } else {
             context += "  No notes\n"
         }

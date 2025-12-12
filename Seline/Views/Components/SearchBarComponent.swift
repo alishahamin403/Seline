@@ -12,15 +12,15 @@ struct SearchBarComponent: View {
     var body: some View {
         VStack(spacing: 0) {
             // Search input
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 // Search icon
                 Image(systemName: "magnifyingglass")
-                    .font(FontManager.geist(size: .title3, weight: .regular))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.gray)
 
                 // Search text field
                 TextField("Search emails, events, notes, maps...", text: $searchService.searchQuery)
-                    .font(FontManager.geist(size: .title3, weight: .regular))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 // Clear button
@@ -29,15 +29,16 @@ struct SearchBarComponent: View {
                         searchService.clearSearch()
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(FontManager.geist(size: .title3, weight: .regular))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.gray)
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 20)
                     .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
             )
             .padding(.horizontal, 20)

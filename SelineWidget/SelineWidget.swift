@@ -238,8 +238,7 @@ struct SelineWidgetEntryView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
-                .background(badgeBackgroundColor)
-                .cornerRadius(10)
+                .background(Capsule().fill(badgeBackgroundColor))
 
                 // Visited location card
                 if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
@@ -261,8 +260,7 @@ struct SelineWidgetEntryView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(10)
+                    .background(Capsule().fill(badgeBackgroundColor))
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Not at saved location")
@@ -272,8 +270,7 @@ struct SelineWidgetEntryView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(10)
+                    .background(Capsule().fill(badgeBackgroundColor))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -338,8 +335,7 @@ struct SelineWidgetEntryView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(10)
+                    .background(Capsule().fill(badgeBackgroundColor))
 
                     // Visited location card
                     if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
@@ -361,8 +357,7 @@ struct SelineWidgetEntryView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
-                        .background(badgeBackgroundColor)
-                        .cornerRadius(10)
+                        .background(Capsule().fill(badgeBackgroundColor))
                     } else {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Not at saved location")
@@ -372,8 +367,7 @@ struct SelineWidgetEntryView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
-                        .background(badgeBackgroundColor)
-                        .cornerRadius(10)
+                        .background(Capsule().fill(badgeBackgroundColor))
                     }
                 }
                 .frame(maxWidth: .infinity)

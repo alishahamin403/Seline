@@ -118,10 +118,25 @@ serve(async (req) => {
     // 4. Call DeepSeek API directly (no pooling, no rate limiting!)
     const startTime = Date.now()
     const response = await callDeepSeekAPI(deepseekRequest)
+
+    // Handle streaming responses
+    if (deepseekRequest.stream && response instanceof ReadableStream) {
+      return new Response(response, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      })
+    }
+
+    // Non-streaming response (existing logic)
     const latency = Date.now() - startTime
+    const deepseekResponse = response as DeepSeekResponse
 
     // 5. Extract usage metrics
-    const usage = response.usage
+    const usage = deepseekResponse.usage
     const inputTokens = usage.prompt_tokens
     const outputTokens = usage.completion_tokens
     const cacheHitTokens = usage.prompt_cache_hit_tokens || 0
@@ -150,7 +165,7 @@ serve(async (req) => {
     })
 
     // 9. Return response
-    return new Response(JSON.stringify(response), {
+    return new Response(JSON.stringify(deepseekResponse), {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -172,10 +187,10 @@ serve(async (req) => {
 // ============================================================
 
 /**
- * Call DeepSeek API
+ * Call DeepSeek API with streaming support
  * Docs: https://api-docs.deepseek.com/
  */
-async function callDeepSeekAPI(request: DeepSeekRequest): Promise<DeepSeekResponse> {
+async function callDeepSeekAPI(request: DeepSeekRequest): Promise<DeepSeekResponse | ReadableStream> {
   const apiKey = Deno.env.get('DEEPSEEK_API_KEY')
   if (!apiKey) {
     throw new Error('DEEPSEEK_API_KEY not configured')
@@ -197,7 +212,7 @@ async function callDeepSeekAPI(request: DeepSeekRequest): Promise<DeepSeekRespon
         messages: request.messages,
         temperature: request.temperature ?? 0.7,
         max_tokens: request.max_tokens ?? 2048,
-        stream: false,  // Non-streaming for now
+        stream: request.stream ?? false,
       }),
       signal: controller.signal,
     })
@@ -208,6 +223,11 @@ async function callDeepSeekAPI(request: DeepSeekRequest): Promise<DeepSeekRespon
       const error = await response.text()
       console.error('DeepSeek API error:', error)
       throw new Error(`DeepSeek API error: ${response.status} - ${error}`)
+    }
+
+    // Return stream if requested, otherwise parse JSON
+    if (request.stream) {
+      return response.body!
     }
 
     return await response.json()

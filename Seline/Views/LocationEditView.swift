@@ -152,13 +152,14 @@ struct LocationEditView: View {
                         .padding(.horizontal, 20)
 
                     VStack(spacing: 0) {
-                        HStack {
+                        HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 14))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.gray)
 
                             TextField("Enter \(title.lowercased()) address", text: $searchQuery)
-                                .font(.system(size: 14))
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .onChange(of: searchQuery) { newValue in
                                     // Debounce search
                                     searchTask?.cancel()
@@ -175,9 +176,12 @@ struct LocationEditView: View {
                                     .scaleEffect(0.8)
                             }
                         }
-                        .padding(12)
-                        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        .cornerRadius(10)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                        )
 
                         // Search Results
                         if !searchResults.isEmpty {

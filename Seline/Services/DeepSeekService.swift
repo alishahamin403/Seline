@@ -21,9 +21,19 @@ class DeepSeekService: ObservableObject {
     @Published var cacheSavings: Double = 0.0
     @Published var lastSearchAnswer: SearchAnswer?
 
+    // Daily usage tracking
+    @Published var dailyTokensUsed: Int = 0
+    @Published var dailyQueryCount: Int = 0
+    private var lastResetDate: Date = Date()
+    private let dailyTokenLimit: Int = 2_000_000 // 2M tokens per day
+
+    // Average tokens per query (updated dynamically)
+    private var averageTokensPerQuery: Int = 15_000 // Conservative estimate
+
     private init() {
         Task {
             await loadQuotaStatus()
+            await loadDailyUsage()
         }
     }
 
@@ -63,7 +73,8 @@ class DeepSeekService: ObservableObject {
             messages: messages,
             temperature: temperature,
             max_tokens: maxTokens,
-            operation_type: operationType
+            operation_type: operationType,
+            stream: false
         )
 
         let response = try await makeProxyRequest(request)
@@ -76,26 +87,55 @@ class DeepSeekService: ObservableObject {
 
     /// Summarize email (drop-in replacement for OpenAI method)
     func summarizeEmail(subject: String, body: String) async throws -> String {
+        // Debug: Log first 1000 chars of email body to verify content
+        let bodyPreview = String(body.prefix(1000))
+        print("📧 ===========================================")
+        print("📧 Summarizing email - Subject: \(subject)")
+        print("📧 Body preview (first 1000 chars):")
+        print(bodyPreview)
+        print("📧 ===========================================")
+
         let prompt = """
-        Summarize this email into exactly 4 key facts. Be concise and specific.
+        You must analyze the email below and create exactly 4 bullet points summarizing ONLY the information found in this specific email.
 
         Subject: \(subject)
 
         Body:
         \(body.prefix(8000))
 
-        Format: Return only the 4 key facts, separated by periods. No numbering, no extra formatting.
+        CRITICAL RULES - NEVER HALLUCINATE:
+        1. Extract information ONLY from the email content above - NEVER make up or assume any details
+        2. If you cannot find specific information (stock symbols, amounts, account types) in the email, DO NOT mention them
+        3. Create exactly 4 bullet points using the • symbol
+        4. Each bullet point must be 15 words or less
+        5. Include ONLY the specific numbers, dates, amounts, stock symbols, account names that are explicitly stated in the email
+        6. Be direct - no prefixes like "Main purpose:" or "Action:"
+        7. For financial emails: Include ONLY the exact account type, stock symbol, and dollar amount FROM THE EMAIL TEXT
+        8. If the email is too short or lacks detail, summarize what IS there - don't add details
+
+        EXAMPLE - If the email says "You earned $1.44 from MSFT in your TFSA account":
+        • You earned a dividend from your investment in MSFT (Microsoft).
+        • The dividend amount is $1.44.
+        • The dividend will be deposited into your TFSA account.
+        • The email is from Wealthsimple regarding your investment activity.
+
+        Return only the 4 bullet points, nothing else.
         """
 
         let messages = [Message(role: "user", content: prompt)]
         let response = try await chat(
             messages: messages,
-            temperature: 0.3,
-            maxTokens: 200,
+            temperature: 0.0,  // Zero temperature for maximum consistency
+            maxTokens: 400,    // Increased from 200 to avoid cutoffs
             operationType: "email_summary"
         )
 
-        return response.choices.first?.message.content ?? ""
+        let summary = response.choices.first?.message.content ?? ""
+        print("✅ Generated summary:")
+        print(summary)
+        print("📧 ===========================================")
+
+        return summary
     }
 
     // MARK: - Quota Management
@@ -136,6 +176,101 @@ class DeepSeekService: ObservableObject {
     /// Get cache savings string for UI
     var cacheSavingsString: String {
         return "Saved $\(String(format: "%.4f", cacheSavings)) from caching"
+    }
+
+    // MARK: - Daily Usage Tracking
+
+    /// Get user-specific keys for UserDefaults
+    private func getUserKey(_ key: String) -> String {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id.uuidString else {
+            return key // Fallback to global key if no user
+        }
+        return "\(key)_\(userId)"
+    }
+
+    /// Load daily usage from UserDefaults
+    func loadDailyUsage() async {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // Get user-specific keys
+        let tokensKey = getUserKey("dailyTokensUsed")
+        let queryCountKey = getUserKey("dailyQueryCount")
+        let dateKey = getUserKey("lastResetDate")
+
+        // Load saved date
+        if let savedDate = UserDefaults.standard.object(forKey: dateKey) as? Date {
+            lastResetDate = savedDate
+        }
+
+        // Check if we need to reset (new day)
+        if !calendar.isDate(lastResetDate, inSameDayAs: today) {
+            // New day - reset counters
+            dailyTokensUsed = 0
+            dailyQueryCount = 0
+            lastResetDate = today
+            saveDailyUsage()
+        } else {
+            // Load from storage
+            dailyTokensUsed = UserDefaults.standard.integer(forKey: tokensKey)
+            dailyQueryCount = UserDefaults.standard.integer(forKey: queryCountKey)
+        }
+
+        print("📊 Daily Usage Loaded: \(dailyTokensUsed) tokens, \(dailyQueryCount) queries")
+    }
+
+    /// Save daily usage to UserDefaults
+    private func saveDailyUsage() {
+        let tokensKey = getUserKey("dailyTokensUsed")
+        let queryCountKey = getUserKey("dailyQueryCount")
+        let dateKey = getUserKey("lastResetDate")
+
+        UserDefaults.standard.set(dailyTokensUsed, forKey: tokensKey)
+        UserDefaults.standard.set(dailyQueryCount, forKey: queryCountKey)
+        UserDefaults.standard.set(lastResetDate, forKey: dateKey)
+
+        print("💾 Daily Usage Saved: \(dailyTokensUsed) tokens, \(dailyQueryCount) queries")
+    }
+
+    /// Track tokens used in a request
+    func trackTokenUsage(tokens: Int) async {
+        await loadDailyUsage() // Ensure we have current data
+        dailyTokensUsed += tokens
+        dailyQueryCount += 1
+
+        // Update average tokens per query
+        averageTokensPerQuery = dailyTokensUsed / max(dailyQueryCount, 1)
+
+        saveDailyUsage()
+    }
+
+    /// Get remaining tokens for today
+    var dailyTokensRemaining: Int {
+        max(0, dailyTokenLimit - dailyTokensUsed)
+    }
+
+    /// Get estimated queries remaining
+    var estimatedQueriesRemaining: Int {
+        let remaining = dailyTokensRemaining
+        return max(0, remaining / averageTokensPerQuery)
+    }
+
+    /// Get formatted daily usage string for UI
+    var dailyUsageString: String {
+        let usedFormatted = formatTokenCount(dailyTokensUsed)
+        let limitFormatted = formatTokenCount(dailyTokenLimit)
+        return "\(usedFormatted) / \(limitFormatted) tokens"
+    }
+
+    /// Format token count for display (e.g., "1.2M", "500K")
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000.0)
+        } else if count >= 1_000 {
+            return String(format: "%.0fK", Double(count) / 1_000.0)
+        } else {
+            return "\(count)"
+        }
     }
 
     // MARK: - Private Methods
@@ -193,6 +328,10 @@ class DeepSeekService: ObservableObject {
         let decoder = JSONDecoder()
         let deepseekResponse = try decoder.decode(Response.self, from: data)
 
+        // Track token usage
+        let totalTokens = deepseekResponse.usage.total_tokens
+        await trackTokenUsage(tokens: totalTokens)
+
         // Log metrics (from headers)
         if let tokensUsed = httpResponse.value(forHTTPHeaderField: "X-Tokens-Used"),
            let cacheHits = httpResponse.value(forHTTPHeaderField: "X-Cache-Hit-Tokens"),
@@ -202,6 +341,117 @@ class DeepSeekService: ObservableObject {
         }
 
         return deepseekResponse
+    }
+
+    private func makeStreamingProxyRequest(_ request: Request, onChunk: @escaping (String) -> Void) async throws {
+        // Get Supabase Edge Function URL
+        let functionURL = "\(SupabaseManager.shared.url)/functions/v1/deepseek-proxy"
+
+        guard let url = URL(string: functionURL) else {
+            throw DeepSeekError.invalidURL
+        }
+
+        // Get auth token
+        guard let session = try? await SupabaseManager.shared.authClient.session else {
+            throw DeepSeekError.notAuthenticated
+        }
+        let accessToken = session.accessToken
+
+        // Create request
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(SupabaseManager.shared.anonKey, forHTTPHeaderField: "apikey")
+        urlRequest.timeoutInterval = 90
+
+        // Encode body
+        let encoder = JSONEncoder()
+        urlRequest.httpBody = try encoder.encode(request)
+
+        // Make streaming request
+        let (asyncBytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+
+        // Check response
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DeepSeekError.invalidResponse
+        }
+
+        if httpResponse.statusCode != 200 {
+            throw DeepSeekError.apiError("HTTP \(httpResponse.statusCode)")
+        }
+
+        // Track token usage from headers (estimate for streaming)
+        var totalTokens = 0
+        if let tokensUsed = httpResponse.value(forHTTPHeaderField: "X-Tokens-Used"),
+           let tokens = Int(tokensUsed) {
+            totalTokens = tokens
+        }
+
+        // Parse SSE stream
+        var buffer = ""
+        var usageTracked = false
+        for try await line in asyncBytes.lines {
+            // SSE format: "data: {...}"
+            if line.hasPrefix("data: ") {
+                let jsonStr = String(line.dropFirst(6))
+
+                // Skip [DONE] marker
+                if jsonStr == "[DONE]" {
+                    continue
+                }
+
+                // Parse chunk
+                if let data = jsonStr.data(using: .utf8),
+                   let chunk = try? JSONDecoder().decode(StreamChunk.self, from: data) {
+
+                    // Get content if available
+                    if let content = chunk.choices.first?.delta.content {
+                        onChunk(content)
+                    }
+
+                    // Check for usage data in the final chunk
+                    if let usage = chunk.usage, !usageTracked {
+                        totalTokens = usage.total_tokens
+                        await trackTokenUsage(tokens: totalTokens)
+                        usageTracked = true
+                        print("📊 Streaming tokens tracked: \(totalTokens)")
+                    }
+                }
+            }
+        }
+
+        // If usage wasn't tracked from chunks and we have header data, track it now
+        if !usageTracked && totalTokens > 0 {
+            await trackTokenUsage(tokens: totalTokens)
+            print("📊 Streaming tokens tracked from headers: \(totalTokens)")
+        } else if !usageTracked {
+            // Fallback: estimate based on average
+            let estimatedTokens = averageTokensPerQuery
+            await trackTokenUsage(tokens: estimatedTokens)
+            print("⚠️ Streaming tokens estimated: \(estimatedTokens)")
+        }
+    }
+
+    // MARK: - Streaming Models
+
+    struct StreamChunk: Codable {
+        struct Choice: Codable {
+            struct Delta: Codable {
+                let content: String?
+            }
+            let delta: Delta
+        }
+        let choices: [Choice]
+        let usage: Usage? // Optional usage data in final chunk
+
+        struct Usage: Codable {
+            let prompt_tokens: Int
+            let completion_tokens: Int
+            let total_tokens: Int
+            let prompt_cache_hit_tokens: Int?
+            let prompt_cache_miss_tokens: Int?
+        }
     }
 
     // MARK: - Additional Methods (for compatibility with OpenAIService)
@@ -226,19 +476,46 @@ class DeepSeekService: ObservableObject {
         )
     }
 
-    /// Answer question with streaming (simplified - returns full response for now)
+    /// Answer question with streaming (now with real streaming!)
     func answerQuestionWithStreaming(
         query: String,
         conversationHistory: [Message] = [],
         onChunk: @escaping (String) -> Void
     ) async throws {
-        let response = try await answerQuestion(
-            query: query,
-            conversationHistory: conversationHistory,
-            operationType: "streaming_chat"
+        // Convert conversation history to messages
+        var messages: [Message] = conversationHistory
+        messages.append(Message(role: "user", content: query))
+
+        // Make streaming request
+        try await chatStreaming(
+            messages: messages,
+            operationType: "streaming_chat",
+            onChunk: onChunk
         )
-        // Send full response as one chunk
-        onChunk(response)
+    }
+
+    /// Low-level streaming chat method
+    private func chatStreaming(
+        messages: [Message],
+        model: String = "deepseek-chat",
+        temperature: Double = 0.6,
+        maxTokens: Int = 1024,
+        operationType: String? = nil,
+        onChunk: @escaping (String) -> Void
+    ) async throws {
+        let request = Request(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            max_tokens: maxTokens,
+            operation_type: operationType,
+            stream: true  // Enable streaming
+        )
+
+        try await makeStreamingProxyRequest(request, onChunk: onChunk)
+
+        // Update quota after successful request
+        await loadQuotaStatus()
     }
 
     /// Get semantic similarity scores (stub - returns empty for now)
@@ -296,12 +573,13 @@ class DeepSeekService: ObservableObject {
             onChunk(chunk)
         }
 
-        try await answerQuestionWithStreaming(
-            query: allMessages.last?.content ?? "",
-            conversationHistory: Array(allMessages.dropLast()),
+        // Use real streaming
+        try await chatStreaming(
+            messages: allMessages,
+            operationType: "simple_chat",
             onChunk: chunkHandler
         )
-        
+
         return fullResponse
     }
 
@@ -543,6 +821,7 @@ extension DeepSeekService {
         let temperature: Double?
         let max_tokens: Int?
         let operation_type: String?
+        let stream: Bool?
     }
 
     struct Response: Codable {

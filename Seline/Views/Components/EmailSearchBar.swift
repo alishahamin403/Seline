@@ -8,16 +8,16 @@ struct EmailSearchBar: View {
     var onSearchChanged: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             // Search icon
             Image(systemName: "magnifyingglass")
-                .font(FontManager.geist(size: .title3, weight: .regular))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.gray)
 
             // Search text field
             TextField("Search emails...", text: $searchText)
-                .font(FontManager.geist(size: .title3, weight: .regular))
-                .foregroundColor(Color.shadcnForeground(colorScheme))
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
                 .focused($isSearchFocused)
                 .onChange(of: searchText, perform: onSearchChanged)
                 .submitLabel(.search)
@@ -30,16 +30,16 @@ struct EmailSearchBar: View {
                     isSearchFocused = false
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(FontManager.geist(size: .title3, weight: .regular))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.horizontal, ShadcnSpacing.md)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 20)
                 .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
         )
         .animation(.easeInOut(duration: 0.2), value: isSearchFocused)

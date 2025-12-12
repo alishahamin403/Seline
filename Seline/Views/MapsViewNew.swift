@@ -33,6 +33,7 @@ struct MapsViewNew: View, Searchable {
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
+    @State private var isFavoritesExpanded = true  // Controls expand/collapse of favourites section
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
@@ -88,7 +89,7 @@ struct MapsViewNew: View, Searchable {
                             // Location search bar at the top
                             LocationSearchBar(searchText: $locationSearchText, colorScheme: colorScheme, placeholder: "Search by location...")
                                 .padding(.horizontal, 16)
-                                .padding(.top, 8)
+                                .padding(.top, 0)
                                 .padding(.bottom, 12)
 
                             locationsTabContent
@@ -293,67 +294,83 @@ struct MapsViewNew: View, Searchable {
 
     @ViewBuilder
     private var favoritesSection: some View {
-        let favourites = locationsManager.getFavourites()
+        let allFavourites = locationsManager.getFavourites()
+        let favourites = allFavourites.filter { place in
+            if locationSearchText.isEmpty {
+                return true
+            }
+            let searchLower = locationSearchText.lowercased()
+            return (place.country?.lowercased().contains(searchLower) ?? false) ||
+                   (place.province?.lowercased().contains(searchLower) ?? false) ||
+                   (place.city?.lowercased().contains(searchLower) ?? false) ||
+                   place.address.lowercased().contains(searchLower) ||
+                   place.displayName.lowercased().contains(searchLower)
+        }
         if !favourites.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text("Favorites").font(.system(size: 17, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
-                    Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                // Header with expand/collapse button
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        isFavoritesExpanded.toggle()
+                    }
+                    HapticManager.shared.light()
+                }) {
+                    HStack(spacing: 8) {
+                        Text("Favorites").font(.system(size: 17, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                        Spacer()
+                        Image(systemName: isFavoritesExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, isFavoritesExpanded ? 4 : 10)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
+                .buttonStyle(PlainButtonStyle())
 
-                VStack(spacing: 12) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                        ForEach(favourites, id: \.id) { place in
-                            Button(action: { selectedPlace = place; showingPlaceDetail = true }) {
-                                VStack(spacing: 6) {
-                                    ZStack(alignment: .topTrailing) {
-                                        PlaceImageView(place: place, size: 80, cornerRadius: 16)
-                                        Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
-                                            Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                .font(.system(size: 12, weight: .semibold))
-                                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                .padding(6)
-                                                .background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
+                // Collapsible content
+                if isFavoritesExpanded {
+                    VStack(spacing: 8) {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            ForEach(favourites, id: \.id) { place in
+                                Button(action: { selectedPlace = place; showingPlaceDetail = true }) {
+                                    VStack(spacing: 4) {
+                                        ZStack(alignment: .topTrailing) {
+                                            PlaceImageView(place: place, size: 60, cornerRadius: 12)
+                                            Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
+                                                Image(systemName: place.isFavourite ? "star.fill" : "star")
+                                                    .font(.system(size: 10, weight: .semibold))
+                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                                    .padding(4)
+                                                    .background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
+                                            }
+                                            .offset(x: 4, y: -4)
                                         }
-                                        .offset(x: 6, y: -6)
-                                    }
 
-                                    VStack(spacing: 2) {
                                         Text(place.displayName)
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(.system(size: 10, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                             .lineLimit(2)
                                             .multilineTextAlignment(.center)
                                             .minimumScaleFactor(0.8)
-                                            .frame(height: 28)
-
-                                        if let rating = place.rating {
-                                            HStack(spacing: 2) {
-                                                Image(systemName: "star.fill")
-                                                    .font(.system(size: 8))
-                                                    .foregroundColor(.yellow)
-                                                Text(String(format: "%.1f", rating))
-                                                    .font(.system(size: 9, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                                            }
-                                        }
+                                            .frame(height: 24)
                                     }
                                 }
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .contextMenu {
-                                Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
-                                    Label("Delete", systemImage: "trash")
+                                .buttonStyle(PlainButtonStyle())
+                                .contextMenu {
+                                    Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
                             }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
-                .padding(.horizontal, 12)
             }
-            .padding(.bottom, 12)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
@@ -365,7 +382,7 @@ struct MapsViewNew: View, Searchable {
                     )
             )
             .padding(.horizontal, 8)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
         }
     }
 

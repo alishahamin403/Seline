@@ -410,10 +410,10 @@ struct AllLocationsEditView: View {
 
                             VStack(spacing: 0) {
                                 // Search Field
-                                HStack(spacing: 10) {
+                                HStack(spacing: 8) {
                                     Image(systemName: "magnifyingglass")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.gray)
 
                                     TextField("Search and select an address", text: .init(
                                         get: { getCurrentSearchQuery() },
@@ -421,7 +421,8 @@ struct AllLocationsEditView: View {
                                             setCurrentSearchQuery(newValue)
                                         }
                                     ))
-                                    .font(.system(size: 15, weight: .regular))
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .onSubmit {
                                         performSearch(index: selectedLocationIndex + 1)
                                     }
@@ -433,14 +434,18 @@ struct AllLocationsEditView: View {
                                             setCurrentSearchResults([])
                                         }) {
                                             Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(.gray)
                                         }
+                                        .buttonStyle(PlainButtonStyle())
                                     }
                                 }
                                 .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+                                )
 
                                 // Selected Address
                                 if !getCurrentAddress().isEmpty {

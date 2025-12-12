@@ -93,9 +93,10 @@ class LocationVisitAnalytics: ObservableObject {
         isLoading = false
     }
 
-    /// Fetch all visit stats for all favorite locations
+    /// Fetch all visit stats for all locations (not just favorites)
     func fetchAllStats(for places: [SavedPlace]) async {
-        for place in places where place.isFavourite {
+        // Fetch stats for ALL locations to ensure complete data for LLM queries
+        for place in places {
             await fetchStats(for: place.id)
         }
     }
@@ -411,7 +412,7 @@ class LocationVisitAnalytics: ObservableObject {
 
                                     let updateData: [String: PostgREST.AnyJSON] = [
                                         "exit_time": .string(formatter.string(from: nextExit)),
-                                        "duration_minutes": .int(newDuration),
+                                        "duration_minutes": .double(Double(newDuration)),
                                         "updated_at": .string(formatter.string(from: Date()))
                                     ]
 

@@ -17,10 +17,17 @@ struct AISummaryCard: View {
     private var summaryBullets: [String] {
         switch summaryState {
         case .loaded(let summary):
-            // Split the summary into bullet points
+            // Split the summary into bullet points by newlines
             return summary
-                .components(separatedBy: ". ")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .components(separatedBy: .newlines)
+                .map { line in
+                    // Remove bullet point characters (•, *, -, etc.) since UI adds its own
+                    var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if cleaned.hasPrefix("•") || cleaned.hasPrefix("*") || cleaned.hasPrefix("-") {
+                        cleaned = String(cleaned.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    return cleaned
+                }
                 .filter { !$0.isEmpty }
         default:
             return []

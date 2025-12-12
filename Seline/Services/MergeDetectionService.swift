@@ -29,7 +29,7 @@ class MergeDetectionService {
     ) async -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
 
         // First check: In-memory cache (fastest, handles app backgrounding scenario)
-        if let result = checkInMemoryClosed(placeId: placeId) {
+        if let result = await checkInMemoryClosed(placeId: placeId) {
             return result
         }
 
@@ -68,9 +68,10 @@ class MergeDetectionService {
     /// SCENARIO B: Recently closed visit with exit < 10 minutes ago
     /// Confidence: 95% for 0-3 min, 90% for 3-10 min - User exited and came back quickly
     /// Example: User stepped out of cafe, came back within 10 minutes
+    /// ENHANCED: Uses smart gap analysis with adaptive thresholds
     private func checkScenarioB_QuickReturn(
         _ visit: LocationVisitRecord
-    ) -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
+    ) async -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
         guard let exitTime = visit.exitTime else { return nil }
 
         let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
@@ -82,15 +83,71 @@ class MergeDetectionService {
             return nil
         }
 
-        // Closed visit < 10 minutes ago (extended from 3 minutes)
-        if minutesSinceExit <= 10 && minutesSinceExit >= 0 {
-            // Higher confidence for very quick returns (0-3 min), slightly lower for 3-10 min
-            let confidence = minutesSinceExit <= 3 ? 0.95 : 0.90
-            print("✅ MERGE SCENARIO B: Quick return (\(minutesSinceExit) min ago, confidence: \(String(format: "%.0f%%", confidence * 100)))")
-            return (visit, confidence, "quick_return")
+        // Smart gap analysis: Calculate merge confidence using multiple factors
+        let mergeScore = await calculateSmartMergeScore(
+            visit: visit,
+            gapMinutes: minutesSinceExit,
+            avgDuration: durationMinutes
+        )
+
+        // Merge if score >= 0.6 (60% confidence)
+        if mergeScore.shouldMerge {
+            print("✅ MERGE SCENARIO B: Quick return (\(minutesSinceExit) min ago, smart confidence: \(String(format: "%.0f%%", mergeScore.confidence * 100)))")
+            return (visit, mergeScore.confidence, mergeScore.reason)
         }
 
         return nil
+    }
+
+    // MARK: - Smart Gap Analysis
+
+    /// Calculate smart merge score based on multiple factors
+    /// Returns (shouldMerge, confidence, reason)
+    private func calculateSmartMergeScore(
+        visit: LocationVisitRecord,
+        gapMinutes: Int,
+        avgDuration: Int
+    ) async -> (shouldMerge: Bool, confidence: Double, reason: String) {
+        var score = 0.0
+        var reasons: [String] = []
+
+        // Factor 1: Gap relative to typical visit length (40% weight)
+        let gapRatio = Double(gapMinutes) / Double(max(1, avgDuration))
+        if gapRatio < 0.1 { // Gap < 10% of average duration
+            score += 0.4
+            reasons.append("gap_tiny")
+        } else if gapRatio < 0.25 { // Gap < 25% of average
+            score += 0.2
+            reasons.append("gap_small")
+        }
+
+        // Factor 2: Absolute gap threshold (30% weight)
+        if gapMinutes < 3 {
+            score += 0.3
+            reasons.append("gap_immediate")
+        } else if gapMinutes < 10 {
+            score += 0.15
+            reasons.append("gap_quick")
+        }
+
+        // Factor 3: Same session ID (30% weight)
+        if visit.sessionId != nil {
+            score += 0.3
+            reasons.append("same_session")
+        }
+
+        // Bonus: Very recent exit (<1 min) is almost certainly continuous
+        if gapMinutes == 0 {
+            score += 0.2
+            reasons.append("instant_return")
+        }
+
+        // Determine merge decision and confidence
+        let shouldMerge = score >= 0.6
+        let confidence = min(1.0, max(0.5, score))
+        let reason = reasons.isEmpty ? "quick_return" : reasons.joined(separator: "_")
+
+        return (shouldMerge, confidence, reason)
     }
 
     // MARK: - Scenario C: GPS Reconnect (GPS Loss Recovery)
@@ -138,7 +195,7 @@ class MergeDetectionService {
     /// Check in-memory cache of recently closed visits (fastest path)
     private func checkInMemoryClosed(
         placeId: UUID
-    ) -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
+    ) async -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
         guard let recentVisit = recentlyClosedVisits[placeId],
               let exitTime = recentVisit.exitTime else {
             return nil
@@ -156,9 +213,15 @@ class MergeDetectionService {
         if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
             print("✅ Found recent closed visit in memory (\(minutesSinceExit) min ago)")
             if minutesSinceExit <= 10 {
-                // 0-10 minutes: Quick return scenario
-                let confidence = minutesSinceExit <= 3 ? 0.95 : 0.90
-                return (recentVisit, confidence, "quick_return")
+                // 0-10 minutes: Use smart gap analysis
+                let mergeScore = await calculateSmartMergeScore(
+                    visit: recentVisit,
+                    gapMinutes: minutesSinceExit,
+                    avgDuration: durationMinutes
+                )
+                if mergeScore.shouldMerge {
+                    return (recentVisit, mergeScore.confidence, mergeScore.reason)
+                }
             } else if minutesSinceExit <= 20 {
                 // 10-20 minutes: GPS reconnect scenario
                 return (recentVisit, 0.85, "gps_reconnect")
@@ -210,7 +273,7 @@ class MergeDetectionService {
             }
 
             // Try Scenario B (medium-high confidence)
-            if let result = checkScenarioB_QuickReturn(visit) {
+            if let result = await checkScenarioB_QuickReturn(visit) {
                 return result
             }
 

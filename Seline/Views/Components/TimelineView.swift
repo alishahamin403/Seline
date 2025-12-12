@@ -642,7 +642,11 @@ struct TimelineView: View {
                             Text("Create")
                                 .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(newEventTitle.isEmpty ? Color.gray : (colorScheme == .dark ? Color.white : Color.black))
+                        .foregroundColor(
+                            newEventTitle.isEmpty
+                                ? (colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3))
+                                : (colorScheme == .dark ? Color.black : Color.white)
+                        )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
@@ -650,8 +654,12 @@ struct TimelineView: View {
                                 .fill(
                                     LinearGradient(
                                         gradient: Gradient(colors: [
-                                            newEventTitle.isEmpty ? Color.gray : accentColor,
-                                            newEventTitle.isEmpty ? Color.gray.opacity(0.7) : accentColor.opacity(0.8)
+                                            newEventTitle.isEmpty
+                                                ? (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                                                : accentColor,
+                                            newEventTitle.isEmpty
+                                                ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                                                : accentColor.opacity(0.8)
                                         ]),
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
@@ -683,7 +691,7 @@ struct TimelineView: View {
         VStack(spacing: 0) {
             Image(systemName: "plus")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(colorScheme == .dark ? .black : .white)
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()

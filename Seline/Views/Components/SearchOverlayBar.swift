@@ -22,27 +22,17 @@ struct SearchOverlayBar: View {
     var body: some View {
         VStack(spacing: 0) {
             // Search bar
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 // Search icon
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.gray)
 
                 // Text field
                 TextField("Search emails, events, notes, locations...", text: $searchText)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
                     .focused($isSearchFocused)
-
-                // Microphone button
-                Button(action: {
-                    // TODO: Implement voice search
-                    HapticManager.shared.selection()
-                }) {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                }
 
                 // Clear button
                 if !searchText.isEmpty {
@@ -50,9 +40,10 @@ struct SearchOverlayBar: View {
                         searchText = ""
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
 
                 // Cancel button
@@ -62,21 +53,18 @@ struct SearchOverlayBar: View {
                     onDismiss()
                 }) {
                     Text("Cancel")
-                        .font(.system(size: 15, weight: .regular))
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(
-                colorScheme == .dark ?
-                    Color(red: 0.15, green: 0.15, blue: 0.15) :
-                    Color(red: 0.95, green: 0.95, blue: 0.95)
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
             )
-            .cornerRadius(12)
             .padding(.horizontal, 12)
             .padding(.top, 8)
-            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
 
             // Search results
             if isPresented && !searchText.isEmpty {

@@ -935,3 +935,85 @@ struct UserProfileSupabaseData: Codable {
         return prefs
     }
 }
+
+// MARK: - Database Row Models for Advanced Tracking
+
+/// Database row model for location_visits table
+struct LocationVisitRow: Codable {
+    let id: UUID
+    let userId: UUID
+    let placeId: UUID
+    let entryTime: Date
+    let exitTime: Date?
+    let durationMinutes: Int?
+    let sessionId: UUID?
+    let dayOfWeek: String
+    let timeOfDay: String
+    let month: Int
+    let year: Int
+    let confidenceScore: Double?
+    let mergeReason: String?
+
+    // Advanced tracking fields
+    let signalDrops: Int?
+    let motionValidated: Bool?
+    let stationaryPercentage: Double?
+    let wifiMatched: Bool?
+    let isOutlier: Bool?
+    let isCommuteStop: Bool?
+    let semanticValid: Bool?
+
+    let createdAt: Date?
+    let updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case placeId = "place_id"
+        case entryTime = "entry_time"
+        case exitTime = "exit_time"
+        case durationMinutes = "duration_minutes"
+        case sessionId = "session_id"
+        case dayOfWeek = "day_of_week"
+        case timeOfDay = "time_of_day"
+        case month, year
+        case confidenceScore = "confidence_score"
+        case mergeReason = "merge_reason"
+
+        case signalDrops = "signal_drops"
+        case motionValidated = "motion_validated"
+        case stationaryPercentage = "stationary_percentage"
+        case wifiMatched = "wifi_matched"
+        case isOutlier = "is_outlier"
+        case isCommuteStop = "is_commute_stop"
+        case semanticValid = "semantic_valid"
+
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+/// Database row model for places table
+struct PlaceRow: Codable {
+    let id: UUID
+    let userId: UUID
+    let name: String
+    let address: String?
+    let latitude: Double
+    let longitude: Double
+    let category: String?
+    let customGeofenceRadius: Double?
+    let createdAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case name
+        case address
+        case latitude
+        case longitude
+        case category
+        case customGeofenceRadius = "custom_geofence_radius"
+        case createdAt = "created_at"
+    }
+}

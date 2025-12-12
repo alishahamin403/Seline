@@ -12,10 +12,10 @@ struct LocationSearchBar: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                .foregroundColor(.gray)
 
             TextField(placeholder, text: $searchText)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
@@ -27,30 +27,17 @@ struct LocationSearchBar: View {
                     }
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(
-                    colorScheme == .dark ?
-                        Color.white.opacity(0.08) :
-                        Color.black.opacity(0.05)
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(
-                    colorScheme == .dark ?
-                        Color.white.opacity(0.12) :
-                        Color.black.opacity(0.08),
-                    lineWidth: 1
-                )
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
         )
     }
 }

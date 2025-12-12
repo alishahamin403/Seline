@@ -1474,10 +1474,10 @@ struct MainAppView: View {
     // MARK: - Search Bar Components
 
     private var searchBarView: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                .foregroundColor(.gray)
 
             TextField("Search or ask for actions...", text: $searchText)
                 .font(.system(size: 14, weight: .regular))
@@ -1500,17 +1500,17 @@ struct MainAppView: View {
                     searchText = ""
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
                 }
+                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
-            colorScheme == .dark ?
-                Color(red: 0.15, green: 0.15, blue: 0.15) :
-                Color(red: 0.95, green: 0.95, blue: 0.95)
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
         )
     }
 

@@ -19,14 +19,14 @@ struct LocationSearchModal: View {
         NavigationView {
             VStack(spacing: 0) {
                 // Search Bar
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
 
                     TextField("Search for a place...", text: $searchText)
-                        .font(.shadcnTextBase)
-                        .foregroundColor(Color.shadcnForeground(colorScheme))
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
                         .focused($isSearchFieldFocused)
                         .onChange(of: searchText) { newValue in
                             // Cancel previous search task
@@ -61,27 +61,17 @@ struct LocationSearchModal: View {
                             searchResults = []
                         }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.gray)
                         }
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(
-                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
-                        .fill(
-                            colorScheme == .dark ?
-                                Color.black.opacity(0.3) : Color.gray.opacity(0.1)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: ShadcnRadius.lg)
-                                .stroke(
-                                    colorScheme == .dark ?
-                                        Color.white.opacity(0.1) : Color.black.opacity(0.1),
-                                    lineWidth: 1
-                                )
-                        )
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
                 )
                 .padding(.horizontal, 20)
                 .padding(.top, 8)

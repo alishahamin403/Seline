@@ -8,7 +8,6 @@ struct SpendingAndETAWidget: View {
     var isVisible: Bool = true
 
     @State private var showReceiptStats = false
-    @State private var upcomingRecurringExpenses: [(title: String, amount: Double, date: Date)] = []
 
     private var currentYearStats: YearlyReceiptSummary? {
         let year = Calendar.current.component(.year, from: Date())
@@ -149,11 +148,9 @@ struct SpendingAndETAWidget: View {
         spendingCard()
         .onAppear {
             updateCategoryBreakdown()
-            loadUpcomingRecurringExpenses()
         }
         .onChange(of: notesManager.notes.count) { _ in
             updateCategoryBreakdown()
-            loadUpcomingRecurringExpenses()
         }
         .sheet(isPresented: $showReceiptStats) {
             ReceiptStatsView(isPopup: true)
@@ -167,7 +164,7 @@ struct SpendingAndETAWidget: View {
                 // Monthly spending amount and % on same line
                 HStack(alignment: .bottom, spacing: 8) {
                     Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
 
                     // Month over month percentage
@@ -187,10 +184,9 @@ struct SpendingAndETAWidget: View {
         .buttonStyle(PlainButtonStyle())
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
         )
-        .cornerRadius(12)
         .shadow(
             color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
             radius: 8,
@@ -216,61 +212,6 @@ struct SpendingAndETAWidget: View {
         return formatter.string(from: nextMonth)
     }
 
-    private func formatExpenseDate(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let expenseDay = calendar.startOfDay(for: date)
-
-        if expenseDay == today {
-            return "Today"
-        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: today), expenseDay == tomorrow {
-            return "Tomorrow"
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMM d"
-            return formatter.string(from: date)
-        }
-    }
-
-    private func loadUpcomingRecurringExpenses() {
-        Task {
-            do {
-                let recurringExpenses = try await RecurringExpenseService.shared.fetchActiveRecurringExpenses()
-                let calendar = Calendar.current
-                let now = Date()
-                var expenses: [(title: String, amount: Double, date: Date)] = []
-
-                // Get next 7 days
-                let sevenDaysFromNow = calendar.date(byAdding: .day, value: 7, to: now)!
-
-                for expense in recurringExpenses {
-                    let instances = try await RecurringExpenseService.shared.fetchInstances(for: expense.id)
-
-                    for instance in instances {
-                        let instanceDay = calendar.startOfDay(for: instance.occurrenceDate)
-                        let nowStart = calendar.startOfDay(for: now)
-                        let sevenDaysStart = calendar.startOfDay(for: sevenDaysFromNow)
-
-                        // Check if instance is within next 7 days and is pending
-                        if instanceDay >= nowStart && instanceDay <= sevenDaysStart {
-                            if instance.status == .pending {
-                                expenses.append((title: expense.title, amount: Double(truncating: expense.amount as NSDecimalNumber), date: instance.occurrenceDate))
-                            }
-                        }
-                    }
-                }
-
-                // Sort by date ascending (earliest first)
-                expenses.sort { $0.date < $1.date }
-
-                await MainActor.run {
-                    upcomingRecurringExpenses = expenses
-                }
-            } catch {
-                print("Error loading recurring expenses: \(error)")
-            }
-        }
-    }
 
     private var topCategoryView: some View {
         Group {
@@ -339,6 +280,24 @@ struct SpendingAndETAWidget: View {
             }
         }
         .padding(.top, 10)
+    }
+
+    private func formatExpenseDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let dateDay = calendar.startOfDay(for: date)
+        
+        if dateDay == today {
+            // For today's expenses, show time
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        } else {
+            // For other dates, show short date format
+            formatter.dateStyle = .short
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        }
     }
 
     private func extractAmount(from text: String) -> Double? {

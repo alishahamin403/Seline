@@ -3,6 +3,7 @@ import QuickLook
 
 struct AttachmentRow: View {
     let attachment: EmailAttachment
+    let emailMessageId: String? // Gmail message ID for downloading attachment
     @Environment(\.colorScheme) var colorScheme
     @State private var downloadedURL: URL?
     @State private var isDownloading = false
@@ -17,11 +18,7 @@ struct AttachmentRow: View {
                 // File icon
                 Image(systemName: attachment.systemIcon)
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(
-                        colorScheme == .dark ?
-                            Color(red: 0.518, green: 0.792, blue: 0.914) :
-                            Color.black
-                    )
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
                     .frame(width: 24, height: 24)
 
                 // File info
@@ -34,7 +31,7 @@ struct AttachmentRow: View {
 
                     Text(attachment.formattedSize)
                         .font(FontManager.geist(size: .small, weight: .regular))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(Color.gray.opacity(0.6))
                 }
 
                 Spacer()
@@ -46,7 +43,7 @@ struct AttachmentRow: View {
                 } else {
                     Image(systemName: "eye")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Color.shadcnMutedForeground(colorScheme))
+                        .foregroundColor(Color.gray.opacity(0.6))
                 }
             }
             .padding(.horizontal, 16)
@@ -55,13 +52,18 @@ struct AttachmentRow: View {
                 RoundedRectangle(cornerRadius: ShadcnRadius.lg)
                     .fill(
                         colorScheme == .dark ?
-                            Color.shadcnMuted(colorScheme).opacity(0.2) :
-                            Color.shadcnBackground(colorScheme)
+                            Color(white: 0.15) :
+                            Color(white: 0.95)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: ShadcnRadius.lg)
-                    .stroke(Color.shadcnBorder(colorScheme), lineWidth: 1)
+                    .stroke(
+                        colorScheme == .dark ?
+                            Color(white: 0.25) :
+                            Color(white: 0.85),
+                        lineWidth: 1
+                    )
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -119,9 +121,8 @@ struct AttachmentRow: View {
     }
 
     private func downloadAttachment() async -> URL? {
-        guard let urlString = attachment.url,
-              let downloadURL = URL(string: urlString) else {
-            print("❌ Invalid attachment URL")
+        guard let messageId = emailMessageId else {
+            print("❌ No email message ID provided for attachment download")
             return nil
         }
 
@@ -130,8 +131,17 @@ struct AttachmentRow: View {
         }
 
         do {
-            // Download the file
-            let (data, _) = try await URLSession.shared.data(from: downloadURL)
+            // Download attachment from Gmail API
+            guard let data = try await GmailAPIClient.shared.downloadAttachment(
+                messageId: messageId,
+                attachmentId: attachment.id
+            ) else {
+                print("❌ Failed to download attachment from Gmail: no data returned")
+                await MainActor.run {
+                    isDownloading = false
+                }
+                return nil
+            }
 
             // Save to temporary directory
             let tempDir = FileManager.default.temporaryDirectory
@@ -199,7 +209,8 @@ struct QuickLookView: UIViewControllerRepresentable {
                 size: 2048576,
                 mimeType: "application/pdf",
                 url: nil
-            )
+            ),
+            emailMessageId: nil
         )
 
         AttachmentRow(
@@ -209,7 +220,8 @@ struct QuickLookView: UIViewControllerRepresentable {
                 size: 512000,
                 mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 url: nil
-            )
+            ),
+            emailMessageId: nil
         )
 
         AttachmentRow(
@@ -219,7 +231,8 @@ struct QuickLookView: UIViewControllerRepresentable {
                 size: 1024000,
                 mimeType: "image/png",
                 url: nil
-            )
+            ),
+            emailMessageId: nil
         )
     }
     .padding()
