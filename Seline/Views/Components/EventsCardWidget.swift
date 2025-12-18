@@ -155,22 +155,22 @@ struct EventsCardWidget: View {
             let badgeColor = filterAccentColor(badgeFilterType, colorIndex)
 
             // Title row with checkmark and time
-            HStack(spacing: 4) {
+            HStack(spacing: 10) {
                 // Completion status icon - tappable
                 Button(action: {
                     HapticManager.shared.selection()
                     taskManager.toggleTaskCompletion(task, forDate: selectedDate)
                 }) {
                     Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 12))
-                        .foregroundColor(circleColor)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(isTaskCompleted ? circleColor : circleColor.opacity(0.4))
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 // Event title
                 Text(task.title)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
                     .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -180,31 +180,23 @@ struct EventsCardWidget: View {
                 // Event time
                 if let scheduledTime = task.scheduledTime {
                     Text(formatTime(scheduledTime))
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45)) : (colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65)))
                         .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }
             }
+            .padding(.vertical, 4)
         }
         .buttonStyle(PlainButtonStyle())
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header with "Todos" and tag color indicators
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header with "Todos"
+            HStack(spacing: 12) {
                 Text("Todos")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                // Tag color indicators
-                if !uniqueEventTypes.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(uniqueEventTypes, id: \.filterType) { type, colorIndex in
-                            tagColorIndicatorRow(type, colorIndex: colorIndex)
-                        }
-                    }
-                }
 
                 Spacer()
 
@@ -215,7 +207,7 @@ struct EventsCardWidget: View {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 32, height: 32)
                         .background(
                             Circle()
                                 .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
@@ -223,41 +215,39 @@ struct EventsCardWidget: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 0)
+            
+            // Tag color indicators - moved to separate line
+            if !uniqueEventTypes.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(uniqueEventTypes, id: \.filterType) { type, colorIndex in
+                        tagColorIndicatorRow(type, colorIndex: colorIndex)
+                    }
+                    Spacer()
+                }
+            }
 
             // Events list for selected date
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     if sortedEvents.isEmpty {
                         Text("No events")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                            .padding(.vertical, 4)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                            .padding(.vertical, 8)
                     } else {
                         ForEach(sortedEvents, id: \.id) { task in
                             eventRow(task)
                         }
                     }
                 }
-                .padding(.horizontal, 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: .infinity)
-            .padding(.top, 8)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-        )
-        .cornerRadius(12)
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-            radius: 8,
-            x: 0,
-            y: 2
-        )
+        .padding(16)
+        .shadcnTileStyle(colorScheme: colorScheme)
         .sheet(item: $selectedTask) { task in
             if showingEditTask {
                 NavigationView {

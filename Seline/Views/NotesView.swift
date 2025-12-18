@@ -18,6 +18,9 @@ struct NotesView: View, Searchable {
     @State private var showReceiptStats = false
     @State private var showingRecurringExpenseForm = false
     @State private var selectedTab = "notes" // "notes", "receipts", "recurring"
+    @State private var showingReceiptImagePicker = false
+    @State private var showingReceiptCameraPicker = false
+    @StateObject private var openAIService = DeepSeekService.shared
     @Namespace private var tabAnimation
 
     var filteredPinnedNotes: [Note] {
@@ -323,6 +326,83 @@ struct NotesView: View, Searchable {
             }
             .presentationBg()
         }
+        .sheet(isPresented: $showingReceiptImagePicker) {
+            ImagePicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        processReceiptImageDirectly(image)
+                    }
+                }
+            ))
+        }
+        .sheet(isPresented: $showingReceiptCameraPicker) {
+            CameraPicker(selectedImage: Binding(
+                get: { nil },
+                set: { newImage in
+                    if let image = newImage {
+                        processReceiptImageDirectly(image)
+                    }
+                }
+            ))
+        }
+    }
+    
+    // MARK: - Receipt Processing Helper
+    
+    private func processReceiptImageDirectly(_ image: UIImage) {
+        Task {
+            do {
+                let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
+                
+                // Clean up the extracted content
+                let cleanedContent = receiptContent
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                
+                // Extract month and year from receipt title for automatic folder organization
+                var folderIdForReceipt: UUID?
+                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
+                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
+                } else {
+                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+                    folderIdForReceipt = receiptsFolderId
+                }
+                
+                await MainActor.run {
+                    // Create note with receipt content
+                    var newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
+                    
+                    // Save note first, then upload image
+                    Task {
+                        let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+                        
+                        if syncSuccess {
+                            // Upload image
+                            let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
+                            
+                            // Update note with image URL
+                            var updatedNote = newNote
+                            updatedNote.imageUrls = imageUrls
+                            updatedNote.dateModified = Date()
+                            let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+                            
+                            await MainActor.run {
+                                HapticManager.shared.success()
+                                print("✅ Receipt processed and saved directly")
+                            }
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    print("❌ Error processing receipt: \(error.localizedDescription)")
+                    HapticManager.shared.error()
+                }
+            }
+        }
     }
 
     // MARK: - Tab Content Views
@@ -504,28 +584,59 @@ struct NotesView: View, Searchable {
             HStack {
                 Spacer()
 
-                // Show button on notes and recurring tabs only
-                if selectedTab == "notes" || selectedTab == "recurring" {
-                    Button(action: {
-                        HapticManager.shared.buttonTap()
-                        if selectedTab == "notes" {
-                            showingNewNoteSheet = true
-                        } else {
-                            showingRecurringExpenseForm = true
+                // Show button on notes, receipts, and recurring tabs
+                if selectedTab == "notes" || selectedTab == "receipts" || selectedTab == "recurring" {
+                    if selectedTab == "receipts" {
+                        // For receipts tab, show menu with gallery/camera options
+                        Menu {
+                            Button(action: {
+                                HapticManager.shared.buttonTap()
+                                showingReceiptCameraPicker = true
+                            }) {
+                                Label("Camera", systemImage: "camera.fill")
+                            }
+                            Button(action: {
+                                HapticManager.shared.buttonTap()
+                                showingReceiptImagePicker = true
+                            }) {
+                                Label("Gallery", systemImage: "photo.fill")
+                            }
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(
+                                    Circle()
+                                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                )
+                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                         }
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 56, height: 56)
-                            .background(
-                                Circle()
-                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
-                            )
-                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 30)
+                    } else {
+                        // For notes and recurring tabs, show regular button
+                        Button(action: {
+                            HapticManager.shared.buttonTap()
+                            if selectedTab == "notes" {
+                                showingNewNoteSheet = true
+                            } else {
+                                showingRecurringExpenseForm = true
+                            }
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(
+                                    Circle()
+                                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                )
+                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 30)
                     }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 30)
                 }
             }
         }
@@ -720,6 +831,10 @@ struct NoteEditView: View {
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
     @State private var isProcessingCleanup = false
+    @State private var isProcessingSummarize = false
+    @State private var isProcessingAddMore = false
+    @State private var showingAddMorePrompt = false
+    @State private var addMorePromptText = ""
     @State private var showingShareSheet = false
     @StateObject private var openAIService = DeepSeekService.shared
     @State private var selectedTextRange: NSRange = NSRange(location: 0, length: 0)
@@ -749,7 +864,7 @@ struct NoteEditView: View {
     @State private var createdRecurringExpense: RecurringExpense?
 
     var isAnyProcessing: Bool {
-        isProcessingCleanup || isProcessingReceipt || isGeneratingTitle || isProcessingFile
+        isProcessingCleanup || isProcessingSummarize || isProcessingAddMore || isProcessingReceipt || isGeneratingTitle || isProcessingFile
     }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
@@ -890,6 +1005,21 @@ struct NoteEditView: View {
                 print("Created recurring expense: \(expense.title)")
             }
             .presentationBg()
+        }
+        .alert("Add More Information", isPresented: $showingAddMorePrompt) {
+            TextField("What would you like to add?", text: $addMorePromptText)
+            Button("Cancel", role: .cancel) {
+                addMorePromptText = ""
+            }
+            Button("Add") {
+                if !addMorePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Task {
+                        await addMoreToNoteWithAI(userRequest: addMorePromptText)
+                    }
+                }
+            }
+        } message: {
+            Text("Describe what additional information you'd like to add to your note.")
         }
         .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
             Button("Cancel", role: .cancel) { }
@@ -1272,14 +1402,37 @@ struct NoteEditView: View {
     private var bottomActionButtons: some View {
         // Bottom action buttons - 5 buttons in a row
         HStack(spacing: 8) {
-            // Clean up button - uses AI
-            Button(action: {
-                HapticManager.shared.aiActionStart()
-                Task {
-                    await cleanUpNoteWithAI()
+            // AI button - Menu with 3 options
+            Menu {
+                Button(action: {
+                    HapticManager.shared.aiActionStart()
+                    Task {
+                        await cleanUpNoteWithAI()
+                    }
+                }) {
+                    Label("Clean up", systemImage: "sparkles")
                 }
-            }) {
-                if isProcessingCleanup {
+                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                
+                Button(action: {
+                    HapticManager.shared.aiActionStart()
+                    Task {
+                        await summarizeNoteWithAI()
+                    }
+                }) {
+                    Label("Summarize", systemImage: "text.bubble")
+                }
+                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                
+                Button(action: {
+                    HapticManager.shared.aiActionStart()
+                    showingAddMorePrompt = true
+                }) {
+                    Label("Add More", systemImage: "plus.circle")
+                }
+                .disabled(isAnyProcessing || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } label: {
+                if isProcessingCleanup || isProcessingSummarize || isProcessingAddMore {
                     ShadcnSpinner(size: .small)
                         .frame(height: 36)
                 } else {
@@ -1297,29 +1450,6 @@ struct NoteEditView: View {
 
             // Spacer
             Spacer()
-
-            // Receipt icon button
-            Menu {
-                Button(action: {
-                    showingReceiptCameraPicker = true
-                }) {
-                    Label("Camera", systemImage: "camera.fill")
-                }
-                Button(action: {
-                    showingReceiptImagePicker = true
-                }) {
-                    Label("Gallery", systemImage: "photo.fill")
-                }
-            } label: {
-                Image(systemName: "receipt.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .frame(width: 40, height: 36)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
 
             // File icon button
             Button(action: {
@@ -1516,18 +1646,18 @@ struct NoteEditView: View {
             Task {
                 do {
                     let generatedTitle = try await openAIService.generateNoteTitle(from: trimmedContent.isEmpty ? "Image attachment" : trimmedContent)
+                    await performSave(title: generatedTitle, content: contentToSave)
                     await MainActor.run {
                         self.title = generatedTitle
-                        performSave(title: generatedTitle, content: contentToSave)
                         isGeneratingTitle = false
                         dismiss()
                     }
                 } catch {
                     // If AI fails, use timestamp as fallback
+                    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short)
+                    await performSave(title: timestamp, content: contentToSave)
                     await MainActor.run {
-                        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .short)
                         self.title = "Note \(timestamp)"
-                        performSave(title: self.title, content: contentToSave)
                         isGeneratingTitle = false
                         dismiss()
                     }
@@ -1536,56 +1666,56 @@ struct NoteEditView: View {
             return
         }
 
-        performSave(title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle, content: contentToSave)
-        dismiss()
+        // CRITICAL: Wait for save to complete before dismissing
+        Task {
+            await performSave(title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle, content: contentToSave)
+            dismiss()
+        }
     }
 
-    private func performSave(title: String, content: String) {
+    private func performSave(title: String, content: String) async {
         if let existingNote = editingNote {
             // Updating an existing note
-            Task {
-                var updatedNote = existingNote
-                updatedNote.title = title
-                updatedNote.content = content
-                updatedNote.isLocked = noteIsLocked
-                updatedNote.folderId = selectedFolderId
+            var updatedNote = existingNote
+            updatedNote.title = title
+            updatedNote.content = content
+            updatedNote.isLocked = noteIsLocked
+            updatedNote.folderId = selectedFolderId
 
-                // Check if there are new images to upload (compare count)
-                if imageAttachments.count > existingNote.imageUrls.count {
-                    // Upload only new images
-                    let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
-                    let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
-                    updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
-                }
-
-                // CRITICAL: Wait for sync to complete to ensure changes are persisted
-                updatedNote.dateModified = Date()
-                let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+            // Check if there are new images to upload (compare count)
+            if imageAttachments.count > existingNote.imageUrls.count {
+                // Upload only new images
+                let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
+                let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
+                updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
             }
+
+            // CRITICAL: Wait for sync to complete to ensure changes are persisted
+            updatedNote.dateModified = Date()
+            let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
         } else {
             // Create new note - MUST save to database first, then upload images
-            Task {
-                var newNote = Note(title: title, content: content, folderId: selectedFolderId)
-                newNote.isLocked = noteIsLocked
+            var newNote = Note(title: title, content: content, folderId: selectedFolderId)
+            newNote.isLocked = noteIsLocked
 
-                // 1. Add note to database and WAIT for sync
-                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+            // 1. Add note to database and WAIT for sync
+            let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
 
-                if !syncSuccess {
-                    print("❌ Failed to sync note to Supabase before uploading images")
-                    return
-                }
+            if !syncSuccess {
+                print("❌ Failed to sync note to Supabase before uploading images")
+                return
+            }
 
-                // 2. NOW upload images (RLS policy requires note to exist first)
-                if !imageAttachments.isEmpty {
-                    let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
+            // 2. NOW upload images (RLS policy requires note to exist first)
+            if !imageAttachments.isEmpty {
+                let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
 
-                    // 3. Update note with image URLs
-                    var updatedNote = newNote
-                    updatedNote.imageUrls = imageUrls
-                    updatedNote.dateModified = Date()
-                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-                }
+                // 3. Update note with image URLs
+                var updatedNote = newNote
+                updatedNote.imageUrls = imageUrls
+                updatedNote.dateModified = Date()
+                let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+                print("✅ Note saved with \(imageUrls.count) images")
             }
         }
     }
@@ -1771,6 +1901,70 @@ struct NoteEditView: View {
         }
     }
 
+    private func summarizeNoteWithAI() async {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        isProcessingSummarize = true
+        saveToUndoHistory()
+
+        do {
+            // Get summarized text
+            let summarizedText = try await openAIService.summarizeNoteText(content)
+
+            // Apply local cleanup to remove any remaining markdown/formatting
+            let cleanedText = cleanMarkdownSymbols(summarizedText)
+
+            await MainActor.run {
+                content = cleanedText
+                // Parse markdown formatting (bold, italic, headings, etc)
+                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+                attributedContent = MarkdownParser.shared.parseMarkdown(cleanedText, fontSize: 14, textColor: textColor)
+                isProcessingSummarize = false
+                HapticManager.shared.aiActionComplete()
+                saveToUndoHistory()
+            }
+        } catch {
+            await MainActor.run {
+                isProcessingSummarize = false
+                HapticManager.shared.error()
+                print("Error summarizing text: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func addMoreToNoteWithAI(userRequest: String) async {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !userRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        isProcessingAddMore = true
+        saveToUndoHistory()
+
+        do {
+            // Get expanded text
+            let expandedText = try await openAIService.addMoreToNoteText(content, userRequest: userRequest)
+
+            // Apply local cleanup to remove any remaining markdown/formatting
+            let cleanedText = cleanMarkdownSymbols(expandedText)
+
+            await MainActor.run {
+                content = cleanedText
+                // Parse markdown formatting (bold, italic, headings, etc)
+                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
+                attributedContent = MarkdownParser.shared.parseMarkdown(cleanedText, fontSize: 14, textColor: textColor)
+                isProcessingAddMore = false
+                addMorePromptText = ""
+                HapticManager.shared.aiActionComplete()
+                saveToUndoHistory()
+            }
+        } catch {
+            await MainActor.run {
+                isProcessingAddMore = false
+                HapticManager.shared.error()
+                print("Error adding more to text: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func processReceiptImage(_ image: UIImage) {
         // Process with AI
         Task {
@@ -1828,12 +2022,10 @@ struct NoteEditView: View {
                     saveToUndoHistory()
 
                     // Auto-save the note with the receipt image and cleaned content
-                    saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
+                    await saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
 
-                    // Auto-dismiss after saving
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.isPresented = false
-                    }
+                    // Auto-dismiss after saving completes
+                    self.isPresented = false
                 }
             } catch {
                 await MainActor.run {
@@ -1844,54 +2036,50 @@ struct NoteEditView: View {
         }
     }
 
-    private func saveReceiptNoteWithImage(title: String, content: String) {
+    private func saveReceiptNoteWithImage(title: String, content: String) async {
         if let existingNote = note {
             // Updating an existing note
-            Task {
-                var updatedNote = existingNote
-                updatedNote.title = title
-                updatedNote.content = content
-                updatedNote.isLocked = noteIsLocked
-                updatedNote.folderId = selectedFolderId
+            var updatedNote = existingNote
+            updatedNote.title = title
+            updatedNote.content = content
+            updatedNote.isLocked = noteIsLocked
+            updatedNote.folderId = selectedFolderId
 
-                // Upload new receipt images (compare count to find new ones)
-                if imageAttachments.count > existingNote.imageUrls.count {
-                    let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
-                    let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
-                    updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
-                    print("✅ Receipt images uploaded and saved to Supabase")
-                }
-
-                updatedNote.dateModified = Date()
-                let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+            // Upload new receipt images (compare count to find new ones)
+            if imageAttachments.count > existingNote.imageUrls.count {
+                let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
+                let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
+                updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
+                print("✅ Receipt images uploaded and saved to Supabase")
             }
+
+            updatedNote.dateModified = Date()
+            let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
         } else {
             // Create new receipt note - MUST save to database first, then upload images
-            Task {
-                var newNote = Note(title: title, content: content, folderId: selectedFolderId)
-                newNote.isLocked = noteIsLocked
+            var newNote = Note(title: title, content: content, folderId: selectedFolderId)
+            newNote.isLocked = noteIsLocked
 
-                // 1. Add note to database and WAIT for sync
-                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+            // 1. Add note to database and WAIT for sync
+            let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
 
-                if !syncSuccess {
-                    print("❌ Failed to sync receipt note to Supabase before uploading images")
-                    return
-                }
+            if !syncSuccess {
+                print("❌ Failed to sync receipt note to Supabase before uploading images")
+                return
+            }
 
-                // 2. NOW upload images (RLS policy requires note to exist first)
-                if !imageAttachments.isEmpty {
-                    let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
+            // 2. NOW upload images (RLS policy requires note to exist first)
+            if !imageAttachments.isEmpty {
+                let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
 
-                    // 3. Update note with image URLs
-                    var updatedNote = newNote
-                    updatedNote.imageUrls = imageUrls
-                    updatedNote.dateModified = Date()
-                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-                    print("✅ Receipt images uploaded to Supabase for new note")
-                } else {
-                    print("✅ Receipt note saved without images")
-                }
+                // 3. Update note with image URLs
+                var updatedNote = newNote
+                updatedNote.imageUrls = imageUrls
+                updatedNote.dateModified = Date()
+                let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+                print("✅ Receipt images uploaded to Supabase for new note")
+            } else {
+                print("✅ Receipt note saved without images")
             }
         }
     }
