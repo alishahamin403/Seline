@@ -39,25 +39,47 @@ class AttributedStringToMarkdown {
             return ""
         }
 
-        // Check for heading at start (first character has bold font at specific sizes)
-        // Only treat truly larger bold fonts as headings, not body text with bold applied
+        // Check for heading - check the font at the start of the actual text content
+        // (after any leading whitespace) to determine if it's a heading
         if trimmedText.count > 0 {
-            if let firstFont = lineAttrString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
-                let fontSize = firstFont.pointSize
-                let isBold = firstFont.fontDescriptor.symbolicTraits.contains(.traitBold)
-
-                if isBold {
-                    // Detect headings by font size - only H1 (19pt) and H2 (17pt)
-                    // DO NOT treat 15pt bold as heading - that's just bold body text
-                    if fontSize >= 18.5 {
-                        // >= 18.5: H1 (19pt)
-                        return "# " + trimmedText
-                    } else if fontSize >= 16.5 && fontSize < 18.5 {
-                        // 16.5-18.5: H2 (17pt)
-                        return "## " + trimmedText
-                    }
-                    // Skip H3 and below - they're just regular formatting
+            // Find the first non-whitespace character position
+            var firstNonWhitespaceOffset = 0
+            for (index, char) in text.enumerated() {
+                if !char.isWhitespace && !char.isNewline {
+                    firstNonWhitespaceOffset = index
+                    break
                 }
+            }
+            
+            // Check if we found a non-whitespace character and it's within bounds
+            if firstNonWhitespaceOffset < text.count {
+                if let firstFont = lineAttrString.attribute(.font, at: firstNonWhitespaceOffset, effectiveRange: nil) as? UIFont {
+                    let fontSize = firstFont.pointSize
+                    let isBold = firstFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+
+                    if isBold {
+                        // Detect headings by font size - H1 (19pt) and H2 (17pt) from RichTextEditor
+                        // Use ranges that match RichTextEditor's actual sizes with some tolerance
+                        if fontSize >= 18.5 {
+                            // >= 18.5: H1 (19pt from RichTextEditor)
+                            return "# " + trimmedText
+                        } else if fontSize >= 16.5 && fontSize < 18.5 {
+                            // 16.5-18.5: H2 (17pt from RichTextEditor)
+                            return "## " + trimmedText
+                        }
+                        // Skip H3 and below - they're just regular formatting
+                    }
+                }
+            }
+        }
+
+        // Check for numbered list (starts with number followed by period)
+        if let numberMatch = trimmedText.range(of: "^(\\d+)\\.\\s*", options: .regularExpression) {
+            // Extract the number and content
+            let numberPart = String(trimmedText[numberMatch])
+            let content = String(trimmedText[numberMatch.upperBound...])
+            if !content.isEmpty {
+                return numberPart + content
             }
         }
 

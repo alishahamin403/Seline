@@ -10,8 +10,7 @@ struct ReceiptStatsView: View {
     @State private var showRecurringExpenses = false
     @Environment(\.colorScheme) var colorScheme
     @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
-    @State private var showingNewReceiptSheet = false
-    
+
     var searchText: String? = nil
 
     var isPopup: Bool = false
@@ -99,13 +98,6 @@ struct ReceiptStatsView: View {
                         }
 
                         Spacer()
-
-                        Button(action: { showingNewReceiptSheet = true }) {
-                            Image(systemName: "receipt.fill")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .frame(width: 32, height: 32)
-                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -136,7 +128,7 @@ struct ReceiptStatsView: View {
 
                     // Monthly breakdown
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 0) {
+                        VStack(spacing: 20) {
                             if let stats = currentYearStats {
                                 if stats.monthlySummaries.isEmpty {
                                     VStack(spacing: 8) {
@@ -166,6 +158,7 @@ struct ReceiptStatsView: View {
                                             },
                                             categorizedReceipts: categorizedReceiptsForMonth
                                         )
+                                        .padding(.horizontal, 16)
 
                                     }
                                 }
@@ -183,6 +176,7 @@ struct ReceiptStatsView: View {
                                 .padding(.vertical, 40)
                             }
                         }
+                        .padding(.vertical, 8)
                     }
                     }
                 }
@@ -235,9 +229,6 @@ struct ReceiptStatsView: View {
                 )
                 .presentationDetents([.medium, .large])
             }
-        }
-        .fullScreenCover(isPresented: $showingNewReceiptSheet) {
-            NoteEditView(note: nil, isPresented: $showingNewReceiptSheet)
         }
     }
 
@@ -586,6 +577,10 @@ struct RecurringExpenseStatsContent: View {
             yearlyAmount = amountDouble * 12
         case .yearly:
             yearlyAmount = amountDouble
+        case .custom:
+            // For custom frequency, assume weekly as a reasonable default
+            // TODO: Add customRecurrenceDays to RecurringExpense model for accurate calculation
+            yearlyAmount = amountDouble * 52
         }
 
         return CurrencyParser.formatAmountNoDecimals(yearlyAmount)

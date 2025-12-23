@@ -26,22 +26,7 @@ struct MetricTile: View {
         .frame(maxWidth: .infinity)
         .frame(height: 80)
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .fill(colorScheme == .dark ? Color.black : Color.white)
-        )
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.2) : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 4 : 12,
-            x: 0,
-            y: colorScheme == .dark ? 2 : 4
-        )
-        .shadow(
-            color: colorScheme == .dark ? .black.opacity(0.1) : .gray.opacity(0.08),
-            radius: colorScheme == .dark ? 2 : 6,
-            x: 0,
-            y: colorScheme == .dark ? 1 : 2
-        )
+        .shadcnTileStyle(colorScheme: colorScheme)
     }
 }
 

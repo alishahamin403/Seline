@@ -4,16 +4,16 @@ import PostgREST
 
 // MARK: - MergeDetectionService
 //
-// Handles three-scenario merge detection for location visits:
-// 1. App Restart: Open visit within 5 minutes (user didn't actually exit)
-// 2. Quick Return: Closed visit within 10 minutes (user stepped out briefly or continuous visit)
-// 3. GPS Reconnect: Closed visit 10-20 min ago + still within geofence (GPS loss recovery)
+// Simple instant merge for location visits:
+// - Any visit (open or closed) with gap < 10 minutes is automatically merged
+// - Happens instantly and invisibly before creating new visit
+// - No complicated scoring, just simple time-based merge
 
 @MainActor
 class MergeDetectionService {
     static let shared = MergeDetectionService()
 
-    // In-memory cache of recently closed visits (5 minute TTL)
+    // In-memory cache of recently closed visits (10 minute TTL)
     private var recentlyClosedVisits: [UUID: LocationVisitRecord] = [:]
 
     private init() {}
@@ -41,153 +41,45 @@ class MergeDetectionService {
         )
     }
 
-    // MARK: - Scenario A: App Restart (Open Visit)
+    // MARK: - Simple Merge Check
 
-    /// SCENARIO A: Open visit with entry < 5 minutes ago
-    /// Confidence: 100% - User didn't actually leave, just app lost geofence event
-    /// Example: Force close app → GPS reconnects within 2 minutes
-    private func checkScenarioA_OpenVisit(
+    /// Simple merge logic: If gap < 10 minutes, always merge
+    /// No complicated scoring - just instant merge for quick returns
+    /// CRITICAL: Never merge visits on different calendar days (preserves midnight splits)
+    private func checkForMerge(
         _ visit: LocationVisitRecord
     ) -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
-        // Visit is open (no exit_time)
-        guard visit.exitTime == nil else { return nil }
 
-        let minutesSinceEntry = Int(Date().timeIntervalSince(visit.entryTime) / 60)
-
-        // Open visit < 5 minutes ago
-        if minutesSinceEntry <= 5 && minutesSinceEntry >= 0 {
-            print("✅ MERGE SCENARIO A: Open visit from app restart (\(minutesSinceEntry) min ago)")
-            return (visit, 1.0, "app_restart")
+        // Check open visits (no exit time) - always continue an open visit
+        if visit.exitTime == nil {
+            print("✅ MERGE: Continuing open visit (started \(visit.entryTime))")
+            return (visit, 1.0, "open_visit")
         }
 
-        return nil
-    }
-
-    // MARK: - Scenario B: Quick Return (Closed Visit)
-
-    /// SCENARIO B: Recently closed visit with exit < 10 minutes ago
-    /// Confidence: 95% for 0-3 min, 90% for 3-10 min - User exited and came back quickly
-    /// Example: User stepped out of cafe, came back within 10 minutes
-    /// ENHANCED: Uses smart gap analysis with adaptive thresholds
-    private func checkScenarioB_QuickReturn(
-        _ visit: LocationVisitRecord
-    ) async -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
+        // Check closed visits
         guard let exitTime = visit.exitTime else { return nil }
 
         let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
-        let durationMinutes = visit.durationMinutes ?? 0
 
-        // Filter: Must be at least 5 minute visit (not noise), UNLESS exit is within 1 minute (likely continuous visit)
-        if durationMinutes < 5 && minutesSinceExit > 1 {
-            print("⏭️ Scenario B filtered: Visit too short (\(durationMinutes) min)")
+        // CRITICAL: Don't merge visits that are on different calendar days
+        // This preserves midnight splits - even if gap is tiny (e.g., 11:59:59 PM → 12:00:00 AM)
+        let calendar = Calendar.current
+        let exitDay = calendar.dateComponents([.year, .month, .day], from: exitTime)
+        let currentDay = calendar.dateComponents([.year, .month, .day], from: Date())
+
+        if exitDay != currentDay {
+            print("🚫 MERGE BLOCKED: Exit was on different calendar day")
+            print("   Exit: \(exitTime), Current: \(Date())")
             return nil
         }
 
-        // Smart gap analysis: Calculate merge confidence using multiple factors
-        let mergeScore = await calculateSmartMergeScore(
-            visit: visit,
-            gapMinutes: minutesSinceExit,
-            avgDuration: durationMinutes
-        )
-
-        // Merge if score >= 0.6 (60% confidence)
-        if mergeScore.shouldMerge {
-            print("✅ MERGE SCENARIO B: Quick return (\(minutesSinceExit) min ago, smart confidence: \(String(format: "%.0f%%", mergeScore.confidence * 100)))")
-            return (visit, mergeScore.confidence, mergeScore.reason)
+        // Simple rule: Gap < 10 minutes = always merge (only within same calendar day)
+        if minutesSinceExit < 10 && minutesSinceExit >= 0 {
+            print("✅ MERGE: Gap is \(minutesSinceExit) min (< 10 min threshold)")
+            return (visit, 1.0, "quick_return")
         }
 
         return nil
-    }
-
-    // MARK: - Smart Gap Analysis
-
-    /// Calculate smart merge score based on multiple factors
-    /// Returns (shouldMerge, confidence, reason)
-    private func calculateSmartMergeScore(
-        visit: LocationVisitRecord,
-        gapMinutes: Int,
-        avgDuration: Int
-    ) async -> (shouldMerge: Bool, confidence: Double, reason: String) {
-        var score = 0.0
-        var reasons: [String] = []
-
-        // Factor 1: Gap relative to typical visit length (40% weight)
-        let gapRatio = Double(gapMinutes) / Double(max(1, avgDuration))
-        if gapRatio < 0.1 { // Gap < 10% of average duration
-            score += 0.4
-            reasons.append("gap_tiny")
-        } else if gapRatio < 0.25 { // Gap < 25% of average
-            score += 0.2
-            reasons.append("gap_small")
-        }
-
-        // Factor 2: Absolute gap threshold (30% weight)
-        if gapMinutes < 3 {
-            score += 0.3
-            reasons.append("gap_immediate")
-        } else if gapMinutes < 10 {
-            score += 0.15
-            reasons.append("gap_quick")
-        }
-
-        // Factor 3: Same session ID (30% weight)
-        if visit.sessionId != nil {
-            score += 0.3
-            reasons.append("same_session")
-        }
-
-        // Bonus: Very recent exit (<1 min) is almost certainly continuous
-        if gapMinutes == 0 {
-            score += 0.2
-            reasons.append("instant_return")
-        }
-
-        // Determine merge decision and confidence
-        let shouldMerge = score >= 0.6
-        let confidence = min(1.0, max(0.5, score))
-        let reason = reasons.isEmpty ? "quick_return" : reasons.joined(separator: "_")
-
-        return (shouldMerge, confidence, reason)
-    }
-
-    // MARK: - Scenario C: GPS Reconnect (GPS Loss Recovery)
-
-    /// SCENARIO C: Recently closed visit (10-20 min ago) + still within geofence
-    /// Confidence: 85% - GPS signal was lost for extended period, user stayed at location
-    /// Example: GPS lost for 15 minutes due to building/tunnel, user is still there
-    private func checkScenarioC_GPSReconnect(
-        _ visit: LocationVisitRecord,
-        currentLocation: CLLocationCoordinate2D,
-        geofenceRadius: CLLocationDistance
-    ) -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
-        guard let exitTime = visit.exitTime else { return nil }
-
-        let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
-        let durationMinutes = visit.durationMinutes ?? 0
-
-        // Filter: Must be at least 5 minute visit (not noise)
-        if durationMinutes < 5 {
-            print("⏭️ Scenario C filtered: Visit too short (\(durationMinutes) min)")
-            return nil
-        }
-
-        // Closed visit 10-20 minutes ago (updated to avoid overlap with Scenario B)
-        guard minutesSinceExit > 10 && minutesSinceExit <= 20 else {
-            if minutesSinceExit > 20 {
-                print("ℹ️ Visit too old for Scenario C (\(minutesSinceExit) min > 20 min window)")
-            }
-            return nil
-        }
-
-        // Check if current location is still within geofence
-        // (SavedPlace location comes from GeofenceManager)
-        let currentLocationObj = CLLocation(latitude: currentLocation.latitude, longitude: currentLocation.longitude)
-        let visitLocation = CLLocation(latitude: visit.savedPlaceId.uuidString.hash as! Double, longitude: 0)
-        // Note: This is simplified - actual implementation uses SavedPlace coordinate
-
-        // For now, we trust that if geofence entry fired, we're in bounds
-        print("✅ MERGE SCENARIO C: GPS reconnect (\(minutesSinceExit) min ago, still in geofence)")
-        return (visit, 0.85, "gps_reconnect")
     }
 
     // MARK: - In-Memory Cache Check
@@ -196,39 +88,12 @@ class MergeDetectionService {
     private func checkInMemoryClosed(
         placeId: UUID
     ) async -> (visit: LocationVisitRecord, confidence: Double, reason: String)? {
-        guard let recentVisit = recentlyClosedVisits[placeId],
-              let exitTime = recentVisit.exitTime else {
+        guard let recentVisit = recentlyClosedVisits[placeId] else {
             return nil
         }
 
-        let minutesSinceExit = Int(Date().timeIntervalSince(exitTime) / 60)
-        let durationMinutes = recentVisit.durationMinutes ?? 0
-
-        // Must be at least 5 minute visit, UNLESS exit is within 1 minute (likely continuous visit)
-        if durationMinutes < 5 && minutesSinceExit > 1 {
-            return nil
-        }
-
-        // Within 30 minute merge window
-        if minutesSinceExit <= 30 && minutesSinceExit >= 0 {
-            print("✅ Found recent closed visit in memory (\(minutesSinceExit) min ago)")
-            if minutesSinceExit <= 10 {
-                // 0-10 minutes: Use smart gap analysis
-                let mergeScore = await calculateSmartMergeScore(
-                    visit: recentVisit,
-                    gapMinutes: minutesSinceExit,
-                    avgDuration: durationMinutes
-                )
-                if mergeScore.shouldMerge {
-                    return (recentVisit, mergeScore.confidence, mergeScore.reason)
-                }
-            } else if minutesSinceExit <= 20 {
-                // 10-20 minutes: GPS reconnect scenario
-                return (recentVisit, 0.85, "gps_reconnect")
-            }
-        }
-
-        return nil
+        // Use simplified merge check
+        return checkForMerge(recentVisit)
     }
 
     // MARK: - Supabase Query
@@ -257,8 +122,9 @@ class MergeDetectionService {
                 .limit(1)
                 .execute()
 
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            // CRITICAL FIX: Use supabaseDecoder to handle PostgreSQL timestamp format
+            // Standard .iso8601 fails on "2025-12-17 18:13:00.948" format
+            let decoder = JSONDecoder.supabaseDecoder()
 
             let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
 
@@ -267,26 +133,12 @@ class MergeDetectionService {
                 return nil
             }
 
-            // Try Scenario A first (highest confidence)
-            if let result = checkScenarioA_OpenVisit(visit) {
+            // Use simplified merge check
+            if let result = checkForMerge(visit) {
                 return result
             }
 
-            // Try Scenario B (medium-high confidence)
-            if let result = await checkScenarioB_QuickReturn(visit) {
-                return result
-            }
-
-            // Try Scenario C (medium confidence)
-            if let result = checkScenarioC_GPSReconnect(
-                visit,
-                currentLocation: currentLocation,
-                geofenceRadius: geofenceRadius
-            ) {
-                return result
-            }
-
-            print("ℹ️ Most recent visit doesn't meet merge criteria")
+            print("ℹ️ Most recent visit doesn't meet merge criteria (gap >= 10 min)")
             return nil
 
         } catch {
@@ -370,12 +222,12 @@ class MergeDetectionService {
 
     // MARK: - Cache Management
 
-    /// Add a closed visit to the in-memory cache (5-minute TTL)
+    /// Add a closed visit to the in-memory cache (10-minute TTL)
     func cacheClosedVisit(_ visit: LocationVisitRecord) {
         recentlyClosedVisits[visit.savedPlaceId] = visit
 
-        // Auto-remove after 5 minutes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+        // Auto-remove after 10 minutes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 600) { [weak self] in
             self?.recentlyClosedVisits.removeValue(forKey: visit.savedPlaceId)
         }
     }

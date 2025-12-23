@@ -88,7 +88,8 @@ struct SelineWidgetProvider: TimelineProvider {
 
         entries.append(entry)
 
-        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 300)))
+        // Update timeline more frequently (every minute) to keep time display current
+        let timeline = Timeline(entries: entries, policy: .after(Date(timeIntervalSinceNow: 60)))
         completion(timeline)
     }
 
@@ -171,223 +172,155 @@ struct SelineWidgetEntryView: View {
     }
 
     var smallWidgetView: some View {
-        VStack(spacing: 0) {
-            // Chat bar - pill-shaped (matching medium widget style)
-            Link(destination: URL(string: "seline://action/chat")!) {
-                Text("Chat")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(badgeContentColor.opacity(0.7))
-                    .frame(height: 44)
-                    .frame(maxWidth: 120)
-                    .background(badgeBackgroundColor)
-                    .cornerRadius(22)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, 14)
-
+        VStack(spacing: 10) {
             Spacer()
 
-            // Centered action buttons
-            HStack(spacing: 12) {
-                Spacer()
+            // Location card with pill background
+            Link(destination: URL(string: "seline://action/timeline")!) {
+                if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
+                    VStack(alignment: .center, spacing: 6) {
+                        Text(location)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(badgeContentColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
 
-                // Note button
-                Link(destination: URL(string: "seline://action/createNote")!) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(badgeContentColor)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(badgeBackgroundColor))
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 6, height: 6)
+                            Text(elapsed)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(badgeContentColor.opacity(0.7))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 10)
+                    .background(Capsule().fill(badgeBackgroundColor))
+                } else {
+                    VStack(alignment: .center, spacing: 4) {
+                        Text("Not at saved location")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(badgeContentColor.opacity(0.6))
+                            .lineLimit(2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(10)
+                    .background(Capsule().fill(badgeBackgroundColor))
                 }
-                .buttonStyle(.plain)
-
-                // Event button
-                Link(destination: URL(string: "seline://action/createEvent")!) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(badgeContentColor)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(badgeBackgroundColor))
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
             }
+            .buttonStyle(.plain)
+
+            // Spending card with pill background
+            Link(destination: URL(string: "seline://action/receipts")!) {
+                VStack(alignment: .center, spacing: 4) {
+                    Text(String(format: "$%.2f", entry.dailySpending))
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(badgeContentColor)
+
+                    Text("TODAY")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(badgeContentColor.opacity(0.6))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 10)
+                .background(Capsule().fill(badgeBackgroundColor))
+            }
+            .buttonStyle(.plain)
 
             Spacer()
         }
+        .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(0)
+        .widgetURL(URL(string: "seline://action/home"))
     }
 
 
     var mediumWidgetView: some View {
         HStack(alignment: .center, spacing: 12) {
-            // LEFT HALF - Daily spending and visited location
-            VStack(spacing: 10) {
-                // Daily spending card
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Today")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(badgeContentColor.opacity(0.6))
-
-                    Text(String(format: "$%.2f", entry.dailySpending))
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(badgeContentColor)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Capsule().fill(badgeBackgroundColor))
-
-                // Visited location card
-                if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(location)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(Color.green)
-                                .frame(width: 6, height: 6)
-                            Text(elapsed)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(badgeContentColor.opacity(0.7))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Capsule().fill(badgeBackgroundColor))
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Not at saved location")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(badgeContentColor.opacity(0.6))
-                            .lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Capsule().fill(badgeBackgroundColor))
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            // RIGHT HALF - Action buttons and chat
-            VStack(spacing: 10) {
-                // Note and Event buttons side by side
-                HStack(spacing: 10) {
-                    // Note button
-                    Link(destination: URL(string: "seline://action/createNote")!) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-                            .frame(width: 55, height: 55)
-                            .background(Circle().fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Event button
-                    Link(destination: URL(string: "seline://action/createEvent")!) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(badgeContentColor)
-                            .frame(width: 55, height: 55)
-                            .background(Circle().fill(badgeBackgroundColor))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Chat bar - pill-shaped
-                Link(destination: URL(string: "seline://action/chat")!) {
-                    Text("Chat")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(badgeContentColor.opacity(0.7))
-                        .frame(height: 44)
-                        .frame(maxWidth: 120)
-                        .background(badgeBackgroundColor)
-                        .cornerRadius(22)
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-        }
-        .padding(14)
-    }
-
-    var largeWidgetView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // TOP SECTION - Spending and action buttons
-            HStack(alignment: .center, spacing: 12) {
-                // LEFT HALF - Daily spending and visited location
+                // LEFT HALF - Location and Spending
                 VStack(spacing: 10) {
-                    // Daily spending card
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Today")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(badgeContentColor.opacity(0.6))
+                    // Location card (keeping existing colors)
+                    Link(destination: URL(string: "seline://action/timeline")!) {
+                        if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
+                            VStack(alignment: .center, spacing: 6) {
+                                Text(location)
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(badgeContentColor)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
 
-                        Text(String(format: "$%.2f", entry.dailySpending))
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(badgeContentColor)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Capsule().fill(badgeBackgroundColor))
-
-                    // Visited location card
-                    if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(location)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(badgeContentColor)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 6, height: 6)
-                                Text(elapsed)
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(badgeContentColor.opacity(0.7))
+                                HStack(spacing: 5) {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 6, height: 6)
+                                    Text(elapsed)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(badgeContentColor.opacity(0.7))
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 10)
+                            .background(Capsule().fill(badgeBackgroundColor))
+                        } else {
+                            VStack(alignment: .center, spacing: 4) {
+                                Text("Not at saved location")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(badgeContentColor.opacity(0.6))
+                                    .lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(10)
+                            .background(Capsule().fill(badgeBackgroundColor))
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(Capsule().fill(badgeBackgroundColor))
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Not at saved location")
-                                .font(.system(size: 10, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+
+                    // Spending card
+                    Link(destination: URL(string: "seline://action/receipts")!) {
+                        VStack(alignment: .center, spacing: 4) {
+                            Text(String(format: "$%.2f", entry.dailySpending))
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(badgeContentColor)
+
+                            Text("TODAY")
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(badgeContentColor.opacity(0.6))
-                                .lineLimit(2)
+                                .textCase(.uppercase)
+                                .tracking(0.5)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 10)
                         .background(Capsule().fill(badgeBackgroundColor))
                     }
+                    .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity)
 
                 // RIGHT HALF - Action buttons and chat
                 VStack(spacing: 10) {
-                    // Note and Event buttons
+                    // Note and Event buttons side by side
                     HStack(spacing: 10) {
+                        // Note button
                         Link(destination: URL(string: "seline://action/createNote")!) {
                             Image(systemName: "square.and.pencil")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
                                 .frame(width: 55, height: 55)
                                 .background(Circle().fill(badgeBackgroundColor))
                         }
                         .buttonStyle(.plain)
 
+                        // Event button
                         Link(destination: URL(string: "seline://action/createEvent")!) {
                             Image(systemName: "calendar")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(badgeContentColor)
                                 .frame(width: 55, height: 55)
                                 .background(Circle().fill(badgeBackgroundColor))
@@ -395,7 +328,7 @@ struct SelineWidgetEntryView: View {
                         .buttonStyle(.plain)
                     }
 
-                    // Chat bar
+                    // Chat bar - pill-shaped
                     Link(destination: URL(string: "seline://action/chat")!) {
                         Text("Chat")
                             .font(.system(size: 13, weight: .semibold))
@@ -408,6 +341,129 @@ struct SelineWidgetEntryView: View {
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
+            }
+        .padding(14)
+        .widgetURL(URL(string: "seline://action/home"))
+    }
+
+    var largeWidgetView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // TOP SECTION - Location and Spending side by side
+            HStack(alignment: .center, spacing: 12) {
+                // Location card (keeping existing colors)
+                Link(destination: URL(string: "seline://action/timeline")!) {
+                    if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
+                        VStack(alignment: .center, spacing: 6) {
+                            Text(location)
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(badgeContentColor)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 6, height: 6)
+                                Text(elapsed)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(badgeContentColor.opacity(0.7))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 10)
+                        .background(Capsule().fill(badgeBackgroundColor))
+                    } else {
+                        VStack(alignment: .center, spacing: 4) {
+                            Text("Not at saved location")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(badgeContentColor.opacity(0.6))
+                                .lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(10)
+                        .background(Capsule().fill(badgeBackgroundColor))
+                    }
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+
+                // Spending card with value context
+                Link(destination: URL(string: "seline://action/receipts")!) {
+                    VStack(alignment: .center, spacing: 6) {
+                        Text(String(format: "$%.2f", entry.dailySpending))
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(badgeContentColor)
+
+                        Text("TODAY")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(badgeContentColor.opacity(0.6))
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        Divider()
+                            .opacity(0.3)
+                            .padding(.vertical, 2)
+
+                        VStack(alignment: .center, spacing: 3) {
+                            Text(String(format: "$%.0f", entry.monthlySpending))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(badgeContentColor.opacity(0.8))
+
+                            HStack(spacing: 4) {
+                                Image(systemName: entry.isSpendingIncreasing ? "arrow.up" : "arrow.down")
+                                    .font(.system(size: 8, weight: .semibold))
+                                Text(String(format: "%.0f%%", entry.monthOverMonthPercentage))
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .foregroundColor(entry.isSpendingIncreasing ? Color.red.opacity(0.85) : Color.green.opacity(0.85))
+
+                            Text("vs last month")
+                                .font(.system(size: 9, weight: .regular))
+                                .foregroundColor(badgeContentColor.opacity(0.6))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 10)
+                    .background(Capsule().fill(badgeBackgroundColor))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+            }
+
+            // Action buttons row
+            HStack(spacing: 10) {
+                Link(destination: URL(string: "seline://action/createNote")!) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(badgeContentColor)
+                        .frame(width: 55, height: 55)
+                        .background(Circle().fill(badgeBackgroundColor))
+                }
+                .buttonStyle(.plain)
+
+                Link(destination: URL(string: "seline://action/createEvent")!) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(badgeContentColor)
+                        .frame(width: 55, height: 55)
+                        .background(Circle().fill(badgeBackgroundColor))
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Link(destination: URL(string: "seline://action/chat")!) {
+                    Text("Chat")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(badgeContentColor.opacity(0.7))
+                        .frame(height: 44)
+                        .frame(maxWidth: 120)
+                        .background(badgeBackgroundColor)
+                        .cornerRadius(22)
+                }
+                .buttonStyle(.plain)
             }
 
             Divider()
@@ -473,9 +529,16 @@ struct SelineWidgetEntryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(14)
+        .widgetURL(URL(string: "seline://action/home"))
     }
 
     private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    private func formatCurrentTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: date)

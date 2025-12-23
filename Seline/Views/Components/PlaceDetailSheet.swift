@@ -32,6 +32,9 @@ struct PlaceDetailSheet: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        // Top padding
+                        Spacer()
+                            .frame(height: 8)
                         // Photos carousel
                         if !place.photos.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -193,7 +196,6 @@ struct PlaceDetailSheet: View {
                     Spacer()
                         .frame(height: 40)
                 }
-                .padding(.top, 8)
             }
             .background(
                 (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)

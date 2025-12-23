@@ -26,22 +26,7 @@ struct SettingsTile<Trailing: View>: View {
             trailing()
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .fill(isDarkMode ? Color.black : Color.white)
-        )
-        .shadow(
-            color: .gray.opacity(0.15),
-            radius: 12,
-            x: 0,
-            y: 4
-        )
-        .shadow(
-            color: .gray.opacity(0.08),
-            radius: 6,
-            x: 0,
-            y: 2
-        )
+        .shadcnTileStyle(colorScheme: themeManager.effectiveColorScheme ?? .light)
     }
 }
 

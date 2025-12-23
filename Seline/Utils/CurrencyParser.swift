@@ -48,8 +48,38 @@ struct CurrencyParser {
             return maxAmount.value
         }
 
-        // Pattern 3: Standalone numbers (lower priority, only if no currency found)
-        // Matches: 50, 50.00, 123.45, etc. (but not dates like 2024 or times)
+        // Pattern 3: Contextual amounts (amounts with keywords but no currency symbol)
+        // Look for amounts after keywords like "total", "paid", "amount", etc.
+        // This is more reliable than matching any standalone number
+        let contextKeywords = ["total:?\\s*", "paid:?\\s*", "amount:?\\s*", "bill:?\\s*", "cost:?\\s*", "price:?\\s*", "subtotal:?\\s*"]
+        for keyword in contextKeywords {
+            let pattern = keyword + "([0-9]+(?:[.,][0-9]{1,2})?)"
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let nsString = text as NSString
+                let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+
+                for match in results {
+                    let range = match.range(at: 1)
+                    if range.location != NSNotFound {
+                        let numberString = nsString.substring(with: range)
+                        let normalized = numberString.replacingOccurrences(of: ",", with: ".")
+                        if let amount = Double(normalized), amount > 0 && amount < 100000 {
+                            // Give these higher priority by marking them as having context
+                            amounts.append((value: amount, hasCurrency: true))  // Treat as high priority
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we found contextual amounts, return the largest one
+        if let maxAmount = amounts.filter({ $0.hasCurrency }).max(by: { $0.value < $1.value }) {
+            return maxAmount.value
+        }
+
+        // Pattern 4: Standalone numbers (LAST RESORT - very low priority)
+        // Only use if no currency symbol AND no context keywords found
+        // Filter out common date patterns to avoid false matches
         if let regex = try? NSRegularExpression(pattern: "\\b([0-9]{1,3}(?:[.,][0-9]{2})?)(?:\\s|$|[^0-9])", options: []) {
             let nsString = text as NSString
             let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
@@ -60,7 +90,23 @@ struct CurrencyParser {
                     let numberString = nsString.substring(with: range)
                     let normalized = numberString.replacingOccurrences(of: ",", with: ".")
                     if let amount = Double(normalized), amount > 0 && amount < 100000 {
-                        amounts.append((value: amount, hasCurrency: false))
+                        // Check if this number appears to be a date
+                        let fullRange = match.range(at: 0)
+                        let fullMatch = nsString.substring(with: fullRange)
+
+                        // Skip if this looks like a date (1-31, or appears near date context)
+                        let looksLikeDate = amount <= 31 && (
+                            text.lowercased().contains("november") ||
+                            text.lowercased().contains("october") ||
+                            text.lowercased().contains("september") ||
+                            text.lowercased().contains("date:") ||
+                            text.contains("/") ||
+                            fullMatch.contains("/")
+                        )
+
+                        if !looksLikeDate {
+                            amounts.append((value: amount, hasCurrency: false))
+                        }
                     }
                 }
             }

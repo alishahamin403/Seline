@@ -5,8 +5,8 @@ struct MonthlySummaryReceiptCard: View {
     let isLast: Bool
     let onReceiptTap: (UUID) -> Void
     let categorizedReceipts: [ReceiptStat]
-    @State private var isExpanded = false
     @State private var showCategoryBreakdown = false
+    @State private var isExpanded = false
     @Environment(\.colorScheme) var colorScheme
 
     private var dailyAverage: Double {
@@ -34,64 +34,91 @@ struct MonthlySummaryReceiptCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(monthlySummary.month)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.primary)
-
-                    HStack(spacing: 8) {
-                        Text("\(monthlySummary.receipts.count) receipt\(monthlySummary.receipts.count == 1 ? "" : "s")")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-
-                        Text("•")
-                            .foregroundColor(.gray)
-
-                        Text(String(format: "Avg $%.2f/day", dailyAverage))
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-                    }
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-
-                // Category breakdown button
-                Button(action: { showCategoryBreakdown = true }) {
-                    Image(systemName: "chart.pie.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
-                        .opacity(0.6)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
+            // Month Header - Prominent (Tappable to expand/collapse)
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     isExpanded.toggle()
                 }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            }) {
+                VStack(spacing: 4) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Text(monthlySummary.month)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(Color.shadcnForeground(colorScheme))
 
-            // Content (Daily Breakdowns)
+                                Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                            }
+
+                            HStack(spacing: 6) {
+                                Text("\(monthlySummary.receipts.count) receipt\(monthlySummary.receipts.count == 1 ? "" : "s")")
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+
+                                Text("•")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+
+                                Text(String(format: "Avg $%.0f/day", dailyAverage))
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            }
+                        }
+
+                        Spacer()
+
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
+
+                            // Category breakdown button
+                            Button(action: {
+                                showCategoryBreakdown = true
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chart.pie.fill")
+                                        .font(.system(size: 11))
+                                    Text("Categories")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+            }
+            .buttonStyle(PlainButtonStyle())
+
             if isExpanded {
-                VStack(spacing: 6) {
+                Divider()
+                    .padding(.horizontal, 16)
+
+                // Daily Groups - Shown when expanded
+                VStack(spacing: 0) {
                     ForEach(monthlySummary.dailySummaries, id: \.id) { daily in
                         DailyReceiptCard(dailySummary: daily, onReceiptTap: onReceiptTap)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.top, 8)
                 .padding(.bottom, 12)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .background(Color.shadcnTileBackground(colorScheme))
+        .cornerRadius(ShadcnRadius.xl)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                .stroke(
+                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.clear,
+                    lineWidth: 1
+                )
+        )
         .sheet(isPresented: $showCategoryBreakdown) {
             CategoryBreakdownModal(
                 monthlyReceipts: categorizedReceipts,

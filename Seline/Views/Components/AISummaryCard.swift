@@ -71,22 +71,7 @@ struct AISummaryCard: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
         }
-        .background(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-        )
-        .shadow(
-            color: colorScheme == .dark ? .clear : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 0 : 12,
-            x: 0,
-            y: colorScheme == .dark ? 0 : 4
-        )
-        .shadow(
-            color: colorScheme == .dark ? .clear : .gray.opacity(0.08),
-            radius: colorScheme == .dark ? 0 : 6,
-            x: 0,
-            y: colorScheme == .dark ? 0 : 2
-        )
+        .shadcnTileStyle(colorScheme: colorScheme)
         .onAppear {
             // If we already have a summary, check if it's valid
             if let existingSummary = email.aiSummary {

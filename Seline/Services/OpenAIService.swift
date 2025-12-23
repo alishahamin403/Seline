@@ -3638,6 +3638,7 @@ class OpenAIService: ObservableObject {
 
     /// Build smart expense context with filtered receipts and detailed analysis
     /// Uses LLM to extract product intent + semantic embeddings to find matches
+    @MainActor
     private func buildSmartExpenseContext(
         query: String,
         notesManager: NotesManager,
@@ -4483,50 +4484,59 @@ class OpenAIService: ObservableObject {
         notes: [Note],
         emails: [Email]
     ) {
-        var receipts: [Note] = []
-        var events: [TaskItem] = []
-        var locations: [SavedPlace] = []
-        var notes: [Note] = []
-        var emails: [Email] = []
+        // OPTIMIZATION: Move heavy filtering operations to background thread
+        // Capture data needed for filtering
+        let allNotes = notesManager.notes
+        let allTasks = taskManager.tasks
+        let allPlaces = locationsManager.savedPlaces
+        let allEmails = emailService.inboxEmails + emailService.sentEmails
+        
+        // Perform filtering on background thread
+        return await Task.detached(priority: .userInitiated) {
+            var receipts: [Note] = []
+            var events: [TaskItem] = []
+            var locations: [SavedPlace] = []
+            var notes: [Note] = []
+            var emails: [Email] = []
 
-        // Fetch receipts (deduplicate IDs first to avoid duplicates)
-        if let receiptIds = relevantItemIds.receiptIds, !receiptIds.isEmpty {
-            let uniqueIds = Array(Set(receiptIds))  // Remove duplicates
-            print("📦 Fetch: LLM selected \(receiptIds.count) receipt IDs (\(uniqueIds.count) unique)")
-            receipts = notesManager.notes.filter { uniqueIds.contains($0.id) }
-            print("📦 Fetch: Found \(receipts.count) matching notes in notesManager")
-        }
-
-        // Fetch events
-        if let eventIds = relevantItemIds.eventIds, !eventIds.isEmpty {
-            for (_, tasks) in taskManager.tasks {
-                let matching = tasks.filter { eventIds.contains($0.id) }
-                events.append(contentsOf: matching)
+            // Fetch receipts (deduplicate IDs first to avoid duplicates)
+            if let receiptIds = relevantItemIds.receiptIds, !receiptIds.isEmpty {
+                let uniqueIds = Array(Set(receiptIds))  // Remove duplicates
+                print("📦 Fetch: LLM selected \(receiptIds.count) receipt IDs (\(uniqueIds.count) unique)")
+                receipts = allNotes.filter { uniqueIds.contains($0.id) }
+                print("📦 Fetch: Found \(receipts.count) matching notes in notesManager")
             }
-        }
 
-        // Fetch locations
-        if let locationIds = relevantItemIds.locationIds, !locationIds.isEmpty {
-            locations = locationsManager.savedPlaces.filter { locationIds.contains($0.id) }
-        }
+            // Fetch events
+            if let eventIds = relevantItemIds.eventIds, !eventIds.isEmpty {
+                for (_, tasks) in allTasks {
+                    let matching = tasks.filter { eventIds.contains($0.id) }
+                    events.append(contentsOf: matching)
+                }
+            }
 
-        // Fetch notes
-        if let noteIds = relevantItemIds.noteIds, !noteIds.isEmpty {
-            notes = notesManager.notes.filter { noteIds.contains($0.id) }
-        }
+            // Fetch locations
+            if let locationIds = relevantItemIds.locationIds, !locationIds.isEmpty {
+                locations = allPlaces.filter { locationIds.contains($0.id) }
+            }
 
-        // Fetch emails
-        if let emailIds = relevantItemIds.emailIds, !emailIds.isEmpty {
-            print("📧 Looking for email IDs: \(emailIds)")
-            let allEmails = emailService.inboxEmails + emailService.sentEmails
-            print("📧 Total emails available: \(allEmails.count)")
-            let allEmailIds = allEmails.map { $0.id }
-            print("📧 Available email IDs: \(allEmailIds)")
-            emails = allEmails.filter { emailIds.contains($0.id) }
-            print("📧 Matched emails: \(emails.count)")
-        }
+            // Fetch notes
+            if let noteIds = relevantItemIds.noteIds, !noteIds.isEmpty {
+                notes = allNotes.filter { noteIds.contains($0.id) }
+            }
 
-        return (receipts, events, locations, notes, emails)
+            // Fetch emails
+            if let emailIds = relevantItemIds.emailIds, !emailIds.isEmpty {
+                print("📧 Looking for email IDs: \(emailIds)")
+                print("📧 Total emails available: \(allEmails.count)")
+                let allEmailIds = allEmails.map { $0.id }
+                print("📧 Available email IDs: \(allEmailIds)")
+                emails = allEmails.filter { emailIds.contains($0.id) }
+                print("📧 Matched emails: \(emails.count)")
+            }
+
+            return (receipts, events, locations, notes, emails)
+        }.value
     }
 
     /// Filter emails to only those within the requested date range
@@ -5280,6 +5290,10 @@ class OpenAIService: ObservableObject {
             let eventDay = calendar.component(.day, from: event.createdAt)
             let targetMonth = calendar.component(.month, from: Date().addingTimeInterval(TimeInterval(targetDay * 86400)))
             return eventMonth == targetMonth && eventDay == targetDay
+
+        case .custom:
+            // For custom recurrence, check if it matches the weekday (similar to weekly)
+            return eventWeekday == targetWeekday
 
         case .none:
             return false

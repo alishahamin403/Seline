@@ -43,6 +43,25 @@ struct FolderSidebarView: View {
         return notesManager.folders.contains { $0.parentFolderId == folder.id }
     }
 
+    // Count non-receipt notes only
+    private var nonReceiptNotesCount: Int {
+        let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+
+        return notesManager.notes.filter { note in
+            // Check if note is in Receipts folder (or a subfolder of Receipts)
+            if let folderId = note.folderId, let receiptsFolderId = receiptsFolder?.id {
+                var currentFolderId: UUID? = folderId
+                while let currentId = currentFolderId {
+                    if currentId == receiptsFolderId {
+                        return false // This is a receipt, exclude it
+                    }
+                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+                }
+            }
+            return true
+        }.count
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Scrollable content
@@ -68,7 +87,7 @@ struct FolderSidebarView: View {
 
                             Spacer()
 
-                            Text("\(notesManager.notes.count)")
+                            Text("\(nonReceiptNotesCount)")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.white.opacity(0.8))
                         }

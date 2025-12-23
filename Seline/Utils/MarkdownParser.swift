@@ -4,32 +4,35 @@ import UIKit
 class MarkdownParser {
     static let shared = MarkdownParser()
 
+    // Cache for parsed markdown results
+    private var parseCache: [String: NSAttributedString] = [:]
+    private let maxCacheSize = 100
+    private var cacheAccessOrder: [String] = []
+
     private init() {}
 
     /// Converts markdown text to NSAttributedString with proper formatting
     /// Supports: **bold**, *italic*, bullet points, numbered lists, headings
     /// Tables are converted to bullet points. No syntax symbols are shown to user.
     func parseMarkdown(_ text: String, fontSize: CGFloat = 15, textColor: UIColor = .label) -> NSAttributedString {
+        // Create a cache key that includes text, fontSize, and textColor
+        let cacheKey = "\(text)|\(fontSize)|\(textColor.hashValue)"
+
+        // Check if we have a cached result
+        if let cachedResult = parseCache[cacheKey] {
+            // Update access order for LRU eviction
+            if let index = cacheAccessOrder.firstIndex(of: cacheKey) {
+                cacheAccessOrder.remove(at: index)
+            }
+            cacheAccessOrder.append(cacheKey)
+            return cachedResult
+        }
         let attributedString = NSMutableAttributedString()
 
-        // First, clean up all markdown syntax symbols
-        var cleanedText = text
+        // Process each line individually to handle headings, bullets, and inline formatting
+        let originalLines = text.components(separatedBy: .newlines)
 
-        // Remove markdown heading symbols (#) at the beginning of lines
-        cleanedText = cleanedText.replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
-
-        // Convert table pipes to bullet points
-        cleanedText = convertTablesToBulletPoints(cleanedText)
-
-        // Remove table separator dashes (---)
-        cleanedText = cleanedText.replacingOccurrences(of: "^[-|\\s]+$", with: "", options: .regularExpression)
-
-        // Remove any remaining # symbols that appear with markdown syntax (e.g., # at start of inline content)
-        cleanedText = cleanedText.replacingOccurrences(of: "(\\n|^)#+\\s+", with: "$1", options: .regularExpression)
-
-        let lines = cleanedText.components(separatedBy: .newlines)
-
-        for line in lines {
+        for line in originalLines {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
 
             // Skip empty lines between elements
@@ -38,18 +41,32 @@ class MarkdownParser {
                 continue
             }
 
+            // Check for headings first (before cleaning markdown symbols)
+            if trimmedLine.range(of: "^#{1,6}\\s+", options: .regularExpression) != nil {
+                let headingAttr = parseHeading(trimmedLine, fontSize: fontSize, textColor: textColor)
+                attributedString.append(headingAttr)
+                attributedString.append(NSAttributedString(string: "\n"))
+                continue
+            }
+
+            // Clean markdown syntax for non-heading lines
+            var cleanedLine = trimmedLine
+
+            // Convert table pipes to bullet points
+            cleanedLine = convertTableLineToBulletPoints(cleanedLine)
+
             // Handle bullet points (•, -, *)
-            if trimmedLine.hasPrefix("• ") || trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("* ") {
-                let bulletAttr = parseBulletPoint(trimmedLine, fontSize: fontSize, textColor: textColor)
+            if cleanedLine.hasPrefix("• ") || cleanedLine.hasPrefix("- ") || cleanedLine.hasPrefix("* ") {
+                let bulletAttr = parseBulletPoint(cleanedLine, fontSize: fontSize, textColor: textColor)
                 attributedString.append(bulletAttr)
                 attributedString.append(NSAttributedString(string: "\n"))
                 continue
             }
 
             // Handle numbered items (1., 2., etc.)
-            if let range = trimmedLine.range(of: "^(\\d+)\\.\\s+", options: .regularExpression) {
-                let number = String(trimmedLine[range])
-                let content = String(trimmedLine[range.upperBound...])
+            if let range = cleanedLine.range(of: "^(\\d+)\\.\\s+", options: .regularExpression) {
+                let number = String(cleanedLine[range])
+                let content = String(cleanedLine[range.upperBound...])
                 let numberedAttr = parseNumberedItem(number: number, content: content, fontSize: fontSize, textColor: textColor)
                 attributedString.append(numberedAttr)
                 attributedString.append(NSAttributedString(string: "\n"))
@@ -57,40 +74,48 @@ class MarkdownParser {
             }
 
             // Regular paragraph with inline formatting
-            let paragraphAttr = parseInlineFormatting(trimmedLine, fontSize: fontSize, textColor: textColor)
+            let paragraphAttr = parseInlineFormatting(cleanedLine, fontSize: fontSize, textColor: textColor)
             attributedString.append(paragraphAttr)
             attributedString.append(NSAttributedString(string: "\n"))
+        }
+
+        // Store result in cache
+        parseCache[cacheKey] = attributedString
+        cacheAccessOrder.append(cacheKey)
+
+        // Evict oldest entries if cache is too large (LRU)
+        if cacheAccessOrder.count > maxCacheSize {
+            let oldestKey = cacheAccessOrder.removeFirst()
+            parseCache.removeValue(forKey: oldestKey)
         }
 
         return attributedString
     }
 
+    /// Clears the parsing cache (useful when memory pressure occurs)
+    func clearCache() {
+        parseCache.removeAll()
+        cacheAccessOrder.removeAll()
+    }
+
     // MARK: - Table to Bullet Points Converter
 
-    private func convertTablesToBulletPoints(_ text: String) -> String {
-        var result = ""
-        let lines = text.components(separatedBy: .newlines)
+    private func convertTableLineToBulletPoints(_ line: String) -> String {
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
 
-        for (index, line) in lines.enumerated() {
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+        // Check if this is a table line (contains pipes)
+        if trimmedLine.contains("|") && !trimmedLine.contains("||") {
+            // Skip header row and separator rows, convert data rows to bullets
+            let cells = trimmedLine.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespaces) }
+            let cellsClean = cells.filter { !$0.isEmpty && !$0.contains("-") }
 
-            // Check if this is a table line (contains pipes)
-            if trimmedLine.contains("|") && !trimmedLine.contains("||") {
-                // Skip header row and separator rows, convert data rows to bullets
-                let cells = trimmedLine.split(separator: "|").map { String($0).trimmingCharacters(in: .whitespaces) }
-                let cellsClean = cells.filter { !$0.isEmpty && !$0.contains("-") }
-
-                // Add each cell as a bullet point
-                for cell in cellsClean {
-                    result += "• \(cell)\n"
-                }
-            } else {
-                // Regular line, keep as is
-                result += line + "\n"
+            // Convert to bullet point format
+            if !cellsClean.isEmpty {
+                return "- " + cellsClean.joined(separator: " | ")
             }
         }
 
-        return result
+        return line
     }
 
     // MARK: - Heading Parser
@@ -108,11 +133,11 @@ class MarkdownParser {
         text = text.trimmingCharacters(in: .whitespaces)
 
         // Calculate font size based on heading level
-        // Sizes should not exceed title font (24pt)
+        // Use exact sizes to match RichTextEditor's heading sizes for consistency
         let headingSize: CGFloat
         switch level {
-        case 1: headingSize = fontSize * 1.27  // H1 ≈ 19pt (RichTextEditor compatibility)
-        case 2: headingSize = fontSize * 1.13  // H2 ≈ 17pt (RichTextEditor compatibility)
+        case 1: headingSize = 19.0  // H1: 19pt (matches RichTextEditor exactly)
+        case 2: headingSize = 17.0  // H2: 17pt (matches RichTextEditor exactly)
         case 3: headingSize = fontSize * 1.0   // H3 ≈ 15pt (body size)
         default: headingSize = fontSize        // H4+ same as body
         }
@@ -147,10 +172,10 @@ class MarkdownParser {
 
         // Add bullet symbol
         let bulletAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .regular),
             .foregroundColor: textColor
         ]
-        attributedString.append(NSAttributedString(string: "  •  ", attributes: bulletAttrs))
+        attributedString.append(NSAttributedString(string: "• ", attributes: bulletAttrs))
 
         // Add content with inline formatting
         let contentAttr = parseInlineFormatting(content, fontSize: fontSize, textColor: textColor)
@@ -166,10 +191,10 @@ class MarkdownParser {
 
         // Add number
         let numberAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .regular),
             .foregroundColor: textColor
         ]
-        attributedString.append(NSAttributedString(string: "  \(number) ", attributes: numberAttrs))
+        attributedString.append(NSAttributedString(string: "\(number)", attributes: numberAttrs))
 
         // Add content with inline formatting
         let contentAttr = parseInlineFormatting(content, fontSize: fontSize, textColor: textColor)

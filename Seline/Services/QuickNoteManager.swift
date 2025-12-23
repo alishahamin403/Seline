@@ -1,6 +1,7 @@
 import Foundation
 import PostgREST
 
+@MainActor
 class QuickNoteManager: ObservableObject {
     static let shared = QuickNoteManager()
 
@@ -80,31 +81,38 @@ class QuickNoteManager: ObservableObject {
 
     // MARK: - Create Quick Note
 
+    /// Optimistic quick note creation: update UI immediately, then sync to Supabase in background.
     func createQuickNote(content: String) async throws {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
             throw NSError(domain: "QuickNoteManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user session"])
         }
 
         let newNote = QuickNote(content: content, userId: userId)
-        let client = await SupabaseManager.shared.getPostgrestClient()
 
-        let formatter = ISO8601DateFormatter()
-        let noteData: [String: AnyJSON] = [
-            "id": .string(newNote.id.uuidString),
-            "user_id": .string(userId.uuidString),
-            "content": .string(newNote.content),
-            "date_created": .string(formatter.string(from: newNote.dateCreated)),
-            "date_modified": .string(formatter.string(from: newNote.dateModified))
-        ]
+        // 1. Update local state immediately so UI reflects the new note without waiting for network
+        quickNotes.insert(newNote, at: 0)
 
-        try await client
-            .from("quick_notes")
-            .insert(noteData)
-            .execute()
+        // 2. Fire-and-forget Supabase sync on a background task
+        Task.detached(priority: .background) {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let formatter = ISO8601DateFormatter()
+            let noteData: [String: AnyJSON] = [
+                "id": .string(newNote.id.uuidString),
+                "user_id": .string(userId.uuidString),
+                "content": .string(newNote.content),
+                "date_created": .string(formatter.string(from: newNote.dateCreated)),
+                "date_modified": .string(formatter.string(from: newNote.dateModified))
+            ]
 
-        // Use the newNote we already created instead of trying to decode the response
-        await MainActor.run {
-            self.quickNotes.insert(newNote, at: 0)
+            do {
+                try await client
+                    .from("quick_notes")
+                    .insert(noteData)
+                    .execute()
+            } catch {
+                // TODO: Optionally mark this note as "unsynced" and retry later
+                print("❌ QuickNotes: Failed to sync new note: \(error)")
+            }
         }
     }
 

@@ -122,6 +122,10 @@ struct RecurringExpense: Identifiable, Codable, Hashable {
             multiplier = 12
         case .yearly:
             multiplier = 1
+        case .custom:
+            // Custom frequency typically means specific days per week
+            // Using weekly multiplier (52) as a reasonable approximation
+            multiplier = 52
         }
         return amount * multiplier
     }
@@ -236,6 +240,10 @@ extension RecurringExpense {
             components.month = 1
         case .yearly:
             components.year = 1
+        case .custom:
+            // For custom frequency, advance by 1 week as a fallback
+            // Note: This is an approximation; full implementation would require customRecurrenceDays
+            components.day = 7
         }
 
         while calendar.startOfDay(for: nextOccurrence) < today {

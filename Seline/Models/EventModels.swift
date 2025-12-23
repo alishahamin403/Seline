@@ -90,6 +90,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
     case biweekly = "biweekly"
     case monthly = "monthly"
     case yearly = "yearly"
+    case custom = "custom"
 
     var displayName: String {
         switch self {
@@ -98,6 +99,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
         case .biweekly: return "Bi-weekly"
         case .monthly: return "Monthly"
         case .yearly: return "Yearly"
+        case .custom: return "Custom"
         }
     }
 
@@ -108,6 +110,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
         case .biweekly: return "Repeats every 2 weeks"
         case .monthly: return "Repeats every month"
         case .yearly: return "Repeats every year"
+        case .custom: return "Custom days of the week"
         }
     }
 
@@ -118,6 +121,7 @@ enum RecurrenceFrequency: String, CaseIterable, Codable {
         case .biweekly: return "calendar.badge.plus"
         case .monthly: return "calendar.circle"
         case .yearly: return "calendar.badge.clock"
+        case .custom: return "calendar.badge.checkmark"
         }
     }
 }
@@ -142,6 +146,30 @@ enum WeekDay: String, CaseIterable, Identifiable, Codable {
         case .friday: return "FRIDAY"
         case .saturday: return "SATURDAY"
         case .sunday: return "SUNDAY"
+        }
+    }
+
+    var shortDisplayName: String {
+        switch self {
+        case .monday: return "Mon"
+        case .tuesday: return "Tue"
+        case .wednesday: return "Wed"
+        case .thursday: return "Thu"
+        case .friday: return "Fri"
+        case .saturday: return "Sat"
+        case .sunday: return "Sun"
+        }
+    }
+
+    var sortOrder: Int {
+        switch self {
+        case .monday: return 0
+        case .tuesday: return 1
+        case .wednesday: return 2
+        case .thursday: return 3
+        case .friday: return 4
+        case .saturday: return 5
+        case .sunday: return 6
         }
     }
 
@@ -235,6 +263,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var isRecurring: Bool
     var recurrenceFrequency: RecurrenceFrequency?
     var recurrenceEndDate: Date?
+    var customRecurrenceDays: [WeekDay]? // For custom frequency: specific days of week to repeat
     var parentRecurringTaskId: String? // For tracking which recurring task this belongs to
     var scheduledTime: Date? // Start time of the event
     var endTime: Date? // End time of the event
@@ -274,7 +303,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         }
     }
 
-    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, parentRecurringTaskId: String? = nil) {
+    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, customRecurrenceDays: [WeekDay]? = nil, parentRecurringTaskId: String? = nil) {
         self.id = UUID().uuidString
         self.title = title
         self.description = description
@@ -288,6 +317,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         self.reminderTime = reminderTime
         self.isRecurring = isRecurring
         self.recurrenceFrequency = recurrenceFrequency
+        self.customRecurrenceDays = customRecurrenceDays
         self.recurrenceEndDate = isRecurring ? Calendar.current.date(byAdding: .year, value: 10, to: Date()) : nil
         self.parentRecurringTaskId = parentRecurringTaskId
     }
@@ -423,6 +453,7 @@ class TaskManager: ObservableObject {
     private let tasksKey = "SavedTasks"
     private let supabaseManager = SupabaseManager.shared
     private let authManager = AuthenticationManager.shared
+    private let cacheManager = CacheManager.shared
 
     private init() {
         // CRITICAL: Clear corrupted cache BEFORE loading tasks to prevent slowdown
@@ -483,7 +514,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, tagId: String? = nil) {
+    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, customRecurrenceDays: [WeekDay]? = nil, tagId: String? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // Use provided target date, or default to the current week's date for this weekday
@@ -516,6 +547,7 @@ class TaskManager: ObservableObject {
             reminderTime: reminderTime,
             isRecurring: isRecurring,
             recurrenceFrequency: recurrenceFrequency,
+            customRecurrenceDays: customRecurrenceDays,
             parentRecurringTaskId: nil
         )
         var newTaskWithTag = newTask
@@ -706,8 +738,11 @@ class TaskManager: ObservableObject {
             let newTask = TaskItem(
                 title: newTitle,
                 weekday: newWeekday,
+                description: task.description,
                 scheduledTime: newTime,
+                endTime: task.endTime,
                 targetDate: newDate,
+                reminderTime: task.reminderTime,
                 isRecurring: false,
                 recurrenceFrequency: nil,
                 parentRecurringTaskId: nil
@@ -718,6 +753,10 @@ class TaskManager: ObservableObject {
             finalTask.completedDate = task.completedDate
             finalTask.createdAt = task.createdAt
             finalTask.isDeleted = task.isDeleted
+            finalTask.tagId = task.tagId
+            finalTask.completedDates = task.completedDates
+            finalTask.recurrenceEndDate = task.recurrenceEndDate
+            finalTask.isFromCalendar = task.isFromCalendar
 
             // Ensure the weekday array exists
             if tasks[newWeekday] == nil {
@@ -802,8 +841,11 @@ class TaskManager: ObservableObject {
                 let newTask = TaskItem(
                     title: updatedTask.title,
                     weekday: newWeekday,
+                    description: updatedTask.description,
                     scheduledTime: updatedTask.scheduledTime,
+                    endTime: updatedTask.endTime,
                     targetDate: updatedTask.targetDate,
+                    reminderTime: updatedTask.reminderTime,
                     isRecurring: updatedTask.isRecurring,
                     recurrenceFrequency: updatedTask.recurrenceFrequency,
                     parentRecurringTaskId: updatedTask.parentRecurringTaskId
@@ -814,6 +856,10 @@ class TaskManager: ObservableObject {
                 finalTaskCopy.completedDate = updatedTask.completedDate
                 finalTaskCopy.createdAt = updatedTask.createdAt
                 finalTaskCopy.isDeleted = updatedTask.isDeleted
+                finalTaskCopy.tagId = updatedTask.tagId
+                finalTaskCopy.completedDates = updatedTask.completedDates
+                finalTaskCopy.recurrenceEndDate = updatedTask.recurrenceEndDate
+                finalTaskCopy.isFromCalendar = updatedTask.isFromCalendar
 
                 // CRITICAL: Preserve email data when moving task to different weekday
                 finalTaskCopy.emailId = updatedTask.emailId
@@ -975,6 +1021,23 @@ class TaskManager: ObservableObject {
                 currentDate = calendar.date(byAdding: .month, value: 1, to: currentDate) ?? currentDate
             case .yearly:
                 currentDate = calendar.date(byAdding: .year, value: 1, to: currentDate) ?? currentDate
+            case .custom:
+                // For custom, advance to next selected day
+                if let customDays = task.customRecurrenceDays, !customDays.isEmpty {
+                    // Find next occurrence of a selected day
+                    var daysToAdd = 1
+                    while daysToAdd <= 7 {
+                        if let nextDate = calendar.date(byAdding: .day, value: daysToAdd, to: currentDate),
+                           let nextWeekday = weekdayFromCalendarComponent(calendar.component(.weekday, from: nextDate)),
+                           customDays.contains(nextWeekday) {
+                            currentDate = nextDate
+                            break
+                        }
+                        daysToAdd += 1
+                    }
+                } else {
+                    currentDate = calendar.date(byAdding: .weekOfYear, value: 1, to: currentDate) ?? currentDate
+                }
             }
 
             let newWeekday = weekdayFromCalendarComponent(calendar.component(.weekday, from: currentDate)) ?? task.weekday
@@ -1022,6 +1085,12 @@ class TaskManager: ObservableObject {
     /// Results are cached to avoid repeated flatMap operations
     /// Only returns active/incomplete tasks and recent completed ones (performance optimization)
     func getAllFlattenedTasks() -> [TaskItem] {
+        // Try to get from TTL-based cache first (5 minute expiration)
+        if let cached: [TaskItem] = cacheManager.get(forKey: CacheManager.CacheKey.allFlattenedTasks) {
+            return cached
+        }
+
+        // Fall back to in-memory cache (for immediate subsequent calls)
         if let cached = cachedFlattenedTasks {
             return cached
         }
@@ -1044,7 +1113,10 @@ class TaskManager: ObservableObject {
             return false
         }
 
+        // Cache in both locations
         cachedFlattenedTasks = flattened
+        cacheManager.set(flattened, forKey: CacheManager.CacheKey.allFlattenedTasks, ttl: CacheManager.TTL.medium)
+
         return flattened
     }
 
@@ -1057,12 +1129,17 @@ class TaskManager: ObservableObject {
     /// Invalidate the flattened tasks cache when tasks are modified
     private func invalidateFlattenedTasksCache() {
         cachedFlattenedTasks = nil
+        cacheManager.invalidate(forKey: CacheManager.CacheKey.allFlattenedTasks)
     }
 
     /// Invalidate all caches when tasks are modified
     private func invalidateAllCaches() {
         invalidateFlattenedTasksCache()
         dateTaskCache.removeAll()
+
+        // OPTIMIZATION: Invalidate related caches that depend on tasks
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.birthdaysThisWeek)
+        CacheManager.shared.invalidate(keysWithPrefix: "cache.search") // Clear all search caches
     }
 
     func getTasksForDate(_ date: Date) -> [TaskItem] {
@@ -1363,6 +1440,13 @@ class TaskManager: ObservableObject {
 
             // Check if the month and day match
             return daysDifference >= 0 && startMonth == targetMonth && startDay == targetDay
+        case .custom:
+            // Custom tasks appear on specific days of the week
+            guard let customDays = task.customRecurrenceDays, !customDays.isEmpty else { return false }
+            let taskWeekdayComponent = calendar.component(.weekday, from: date)
+            guard let dateWeekday = weekdayFromCalendarComponent(taskWeekdayComponent) else { return false }
+            // Check if this weekday is in the custom days list
+            return daysDifference >= 0 && customDays.contains(dateWeekday)
         }
     }
 
@@ -1481,6 +1565,8 @@ class TaskManager: ObservableObject {
             generateMonthlyTasks(for: task, parentTaskId: parentTaskId, from: startDate, to: endDate)
         case .yearly:
             generateYearlyTasks(for: task, parentTaskId: parentTaskId, from: startDate, to: endDate)
+        case .custom:
+            generateCustomTasks(for: task, parentTaskId: parentTaskId, from: startDate, to: endDate)
         }
     }
 
@@ -1510,6 +1596,12 @@ class TaskManager: ObservableObject {
 
     private func generateYearlyTasks(for task: TaskItem, parentTaskId: String, from startDate: Date, to endDate: Date) {
         // For yearly tasks, we don't need to create individual instances
+        // The logic will be handled dynamically in shouldRecurringTaskAppearOn
+        // This prevents duplicate tasks from being created
+    }
+
+    private func generateCustomTasks(for task: TaskItem, parentTaskId: String, from startDate: Date, to endDate: Date) {
+        // For custom tasks, we don't need to create individual instances
         // The logic will be handled dynamically in shouldRecurringTaskAppearOn
         // This prevents duplicate tasks from being created
     }
@@ -1897,6 +1989,15 @@ class TaskManager: ObservableObject {
             taskItem.reminderTime = ReminderTime(rawValue: reminderTimeString)
         }
 
+        // CRITICAL FIX: Parse custom recurrence days for custom recurring events
+        if let customDaysJson = taskDict["custom_recurrence_days"] as? String,
+           !customDaysJson.isEmpty,
+           let jsonData = customDaysJson.data(using: .utf8),
+           let dayStrings = try? JSONDecoder().decode([String].self, from: jsonData) {
+            taskItem.customRecurrenceDays = dayStrings.compactMap { WeekDay(rawValue: $0) }
+            print("📥 Restored \(taskItem.customRecurrenceDays?.count ?? 0) custom recurrence days for task '\(taskItem.title)' from Supabase")
+        }
+
         if let tagId = taskDict["tag_id"] as? String {
             taskItem.tagId = tagId
         }
@@ -2165,6 +2266,20 @@ class TaskManager: ObservableObject {
             taskData["reminder_time"] = AnyJSON.string(reminderTime.rawValue)
         } else {
             taskData["reminder_time"] = AnyJSON.null
+        }
+
+        // CRITICAL FIX: Save custom recurrence days for custom recurring events
+        if let customDays = task.customRecurrenceDays, !customDays.isEmpty {
+            // Convert array of WeekDay enums to JSON array of strings
+            let customDaysStrings = customDays.map { $0.rawValue }
+            if let jsonData = try? JSONEncoder().encode(customDaysStrings),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                taskData["custom_recurrence_days"] = AnyJSON.string(jsonString)
+            } else {
+                taskData["custom_recurrence_days"] = AnyJSON.null
+            }
+        } else {
+            taskData["custom_recurrence_days"] = AnyJSON.null
         }
 
         // Add email attachment fields
@@ -2562,6 +2677,11 @@ class TaskManager: ObservableObject {
         case .yearly:
             let yearsDifference = calendar.dateComponents([.year], from: startDate, to: endDate).year ?? 0
             return yearsDifference + 1
+        case .custom:
+            // For custom, count how many times the selected days occur in the date range
+            guard let customDays = task.customRecurrenceDays, !customDays.isEmpty else { return 0 }
+            let weeksDifference = daysDifference / 7
+            return (weeksDifference * customDays.count) + customDays.count // Approximate
         }
     }
 

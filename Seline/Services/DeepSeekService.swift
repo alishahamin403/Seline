@@ -728,6 +728,16 @@ class DeepSeekService: ObservableObject {
         )
     }
 
+    /// Generate follow-up questions based on conversation context
+    func generateFollowUpQuestions(prompt: String) async throws -> String {
+        return try await generateText(
+            systemPrompt: nil,
+            userPrompt: prompt,
+            maxTokens: 100,
+            temperature: 0.7
+        )
+    }
+
     /// Clean up note text
     func cleanUpNoteText(_ text: String) async throws -> String {
         let maxContentLength = 48000
@@ -744,13 +754,23 @@ class DeepSeekService: ObservableObject {
         You are an expert text cleanup and formatting assistant. Your ONLY job is to clean up and professionally format messy text while preserving ALL information.
 
         CRITICAL CLEANUP TASKS - YOU MUST DO ALL OF THESE:
-        ✓ Remove all markdown formatting symbols (**, #, *, _, ~, `, |)
         ✓ Fix grammar, spelling, and punctuation errors
         ✓ Remove extra whitespace, blank lines, and formatting clutter
         ✓ Remove duplicate content or repeated text
         ✓ Clean up inconsistent spacing and formatting
         ✓ Fix malformed tables and convert to clean pipe-delimited format if needed
         ✓ Remove unwanted characters, emojis, or symbols
+        ✓ Use markdown formatting for structure and emphasis
+
+        MARKDOWN FORMATTING REQUIREMENTS:
+        ✓ Use # Heading for main sections (H1)
+        ✓ Use ## Subheading for subsections (H2)
+        ✓ Use **bold** for emphasis on important terms
+        ✓ Use *italic* for subtle emphasis
+        ✓ Use - item for bullet lists
+        ✓ Use 1. item for numbered lists
+        ✓ Use | column1 | column2 | for tables (pipe-delimited)
+        ✓ Add blank lines between major sections for readability
 
         DO NOT:
         ✗ Summarize, condense, or omit any information
@@ -758,7 +778,7 @@ class DeepSeekService: ObservableObject {
         ✗ Change the meaning or structure of content
         ✗ Add explanations or commentary
 
-        Return ONLY the cleaned text, nothing else.
+        Return the cleaned text with proper markdown formatting, nothing else.
         """
 
         return try await generateText(
@@ -766,6 +786,120 @@ class DeepSeekService: ObservableObject {
             userPrompt: processedText,
             maxTokens: 4000,
             temperature: 0.1
+        )
+    }
+
+    /// Summarize note text
+    func summarizeNoteText(_ text: String) async throws -> String {
+        let maxContentLength = 48000
+        let processedText: String
+
+        if text.count > maxContentLength {
+            let truncated = String(text.prefix(maxContentLength))
+            processedText = truncated + "\n\n[... text truncated due to length, remaining content not shown ...]"
+        } else {
+            processedText = text
+        }
+
+        let systemPrompt = """
+        You are an expert summarization assistant. Your job is to create a concise, well-structured summary of the provided text.
+
+        SUMMARY REQUIREMENTS:
+        ✓ Capture the main points and key information
+        ✓ Maintain important details like dates, numbers, names, and facts
+        ✓ Organize information logically with clear structure
+        ✓ Use clear, professional language
+        ✓ Keep the summary comprehensive but concise
+        ✓ Preserve the tone and context of the original
+
+        MARKDOWN FORMATTING REQUIREMENTS:
+        ✓ Use # Summary or # Main Points for main heading (H1)
+        ✓ Use ## Section Name for subsections (H2)
+        ✓ Use **bold** for emphasis on key terms or important facts
+        ✓ Use *italic* for subtle emphasis
+        ✓ Use - item for bullet lists of key points
+        ✓ Use 1. item for numbered lists when order matters
+        ✓ Add blank lines between major sections for readability
+
+        DO NOT:
+        ✗ Add information not present in the original text
+        ✗ Change facts or numbers
+        ✗ Use HTML or other formatting (only markdown)
+
+        Return the summary text with proper markdown formatting for structure, nothing else.
+        """
+
+        let userPrompt = """
+        Summarize the following text, capturing all key information and main points:
+
+        \(processedText)
+        """
+
+        return try await generateText(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            maxTokens: 4000,
+            temperature: 0.3
+        )
+    }
+
+    /// Add more content to note based on user request
+    func addMoreToNoteText(_ text: String, userRequest: String) async throws -> String {
+        let maxContentLength = 48000
+        let processedText: String
+
+        if text.count > maxContentLength {
+            let truncated = String(text.prefix(maxContentLength))
+            processedText = truncated + "\n\n[... text truncated due to length, remaining content not shown ...]"
+        } else {
+            processedText = text
+        }
+
+        let systemPrompt = """
+        You are a helpful writing assistant. Your job is to expand and enhance the provided text based on the user's specific request.
+
+        TASKS:
+        ✓ Add the requested information to the existing text
+        ✓ Maintain the original content and structure
+        ✓ Preserve existing markdown formatting in the original text
+        ✓ Integrate new content naturally and coherently
+        ✓ Use clear, professional language
+        ✓ Only add text-based content (no images)
+        ✓ Ensure the new content flows well with the existing text
+
+        MARKDOWN FORMATTING REQUIREMENTS:
+        ✓ Preserve any existing markdown formatting in the original text
+        ✓ Use # Heading for new main sections (H1)
+        ✓ Use ## Subheading for new subsections (H2)
+        ✓ Use **bold** for emphasis on important terms
+        ✓ Use *italic* for subtle emphasis
+        ✓ Use - item for bullet lists
+        ✓ Use 1. item for numbered lists
+        ✓ Add blank lines between major sections for readability
+
+        IMPORTANT CONSTRAINTS:
+        ✗ Do NOT mention images, photos, or visual content
+        ✗ Do NOT add placeholders for images
+        ✗ Only add text-based information
+        ✗ Preserve all original content and formatting
+
+        Return the complete text (original + additions) with proper markdown formatting, nothing else.
+        """
+
+        let userPrompt = """
+        Current text:
+        \(processedText)
+
+        User request: \(userRequest)
+
+        Add the requested information to the text above. Only add text-based content, no images or visual elements.
+        """
+
+        return try await generateText(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            maxTokens: 4000,
+            temperature: 0.5
         )
     }
 

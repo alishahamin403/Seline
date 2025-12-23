@@ -20,17 +20,6 @@ struct VisitHistoryItem {
 
 // MARK: - LocationVisitAnalytics Service
 
-// MARK: - Cache Models
-
-struct CachedStats {
-    let stats: LocationVisitStats
-    let timestamp: Date
-
-    func isExpired(ttlSeconds: TimeInterval = 3600) -> Bool {
-        return Date().timeIntervalSince(timestamp) > ttlSeconds
-    }
-}
-
 @MainActor
 class LocationVisitAnalytics: ObservableObject {
     static let shared = LocationVisitAnalytics()
@@ -39,22 +28,19 @@ class LocationVisitAnalytics: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    // OPTIMIZATION: Cache stats with TTL (time-to-live)
-    // Avoids redundant Supabase queries for the same location within 1 hour
-    private var statsCache: [UUID: CachedStats] = [:]
-    private let statscacheTTL: TimeInterval = 3600 // 1 hour
-
     private let authManager = AuthenticationManager.shared
 
     // MARK: - Public Methods
 
     /// Fetch and calculate stats for a specific saved place
     func fetchStats(for placeId: UUID) async {
-        // OPTIMIZATION: Check cache first before querying Supabase
-        if let cachedStats = statsCache[placeId], !cachedStats.isExpired(ttlSeconds: statscacheTTL) {
-            // DEBUG: Commented out to reduce console spam
-            // print("📊 Using cached stats for place \(placeId) (age: \(Int(Date().timeIntervalSince(cachedStats.timestamp)))s)")
-            self.visitStats[placeId] = cachedStats.stats
+        let cacheKey = CacheManager.CacheKey.locationStats(placeId.uuidString)
+
+        // OPTIMIZATION: Check CacheManager first before querying Supabase
+        if let cachedStats: LocationVisitStats = CacheManager.shared.get(forKey: cacheKey) {
+            await MainActor.run {
+                self.visitStats[placeId] = cachedStats
+            }
             return
         }
 
@@ -68,7 +54,6 @@ class LocationVisitAnalytics: ObservableObject {
             return
         }
 
-        // Removed excessive logging
         do {
             let visits = try await fetchVisits(for: placeId, userId: userId)
 
@@ -78,12 +63,9 @@ class LocationVisitAnalytics: ObservableObject {
 
             await MainActor.run {
                 self.visitStats[placeId] = stats
-                // OPTIMIZATION: Cache the stats with current timestamp
-                self.statsCache[placeId] = CachedStats(stats: stats, timestamp: Date())
+                // OPTIMIZATION: Cache using CacheManager with 5-minute TTL for faster updates
+                CacheManager.shared.set(stats, forKey: cacheKey, ttl: CacheManager.TTL.medium)
             }
-
-            // DEBUG: Commented out to reduce console spam
-            // print("📊 Fetched stats for place \(placeId): \(stats.totalVisits) visits, Peak time: \(stats.mostCommonTimeOfDay ?? "N/A")")
         } catch {
             errorMessage = "Failed to fetch visit stats: \(error.localizedDescription)"
             print("❌ Error fetching stats for place \(placeId): \(error.localizedDescription)")
@@ -218,6 +200,12 @@ class LocationVisitAnalytics: ObservableObject {
             return []
         }
 
+        // OPTIMIZATION: Cache today's visits with 1-minute TTL for fast refresh
+        let cacheKey = CacheManager.CacheKey.todaysVisits
+        if let cached: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] = CacheManager.shared.get(forKey: cacheKey) {
+            return cached
+        }
+
         let calendar = Calendar.current
         let today = Date()
         let startOfDay = calendar.startOfDay(for: today)
@@ -299,20 +287,28 @@ class LocationVisitAnalytics: ObservableObject {
         let sorted = results.sorted { $0.lastVisitTime > $1.lastVisitTime }
 
         // Return without the lastVisitTime (internal sorting field)
-        return sorted.map { (id: $0.id, displayName: $0.displayName, totalDurationMinutes: $0.totalDurationMinutes, isActive: $0.isActive) }
+        let resultData = sorted.map { (id: $0.id, displayName: $0.displayName, totalDurationMinutes: $0.totalDurationMinutes, isActive: $0.isActive) }
+
+        // OPTIMIZATION: Cache for 1 minute
+        CacheManager.shared.set(resultData, forKey: cacheKey, ttl: CacheManager.TTL.short)
+
+        return resultData
     }
 
     // MARK: - Cache Management
 
     /// Invalidate cache for a specific place (call when visit is recorded/updated)
     func invalidateCache(for placeId: UUID) {
-        statsCache.removeValue(forKey: placeId)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.locationStats(placeId.uuidString))
+        // Also invalidate today's visits since it aggregates all locations
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
         print("🔄 Invalidated stats cache for place \(placeId)")
     }
 
     /// Invalidate all cached stats
     func invalidateAllCache() {
-        statsCache.removeAll()
+        CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
         print("🔄 Invalidated all stats caches")
     }
 
@@ -345,8 +341,7 @@ class LocationVisitAnalytics: ObservableObject {
         }
     }
 
-    /// Clean up all visits shorter than 10 minutes (false positives from GPS glitches, passing by, etc.)
-    /// Merge consecutive visits and cleanup short visits
+    /// Merge consecutive visits with gaps <= 10 minutes
     /// Returns (mergedCount, deletedCount)
     func mergeAndCleanupVisits() async -> (merged: Int, deleted: Int) {
         guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
@@ -399,7 +394,36 @@ class LocationVisitAnalytics: ObservableObject {
                         if let currentExit = currentVisit.exitTime {
                             let gapMinutes = Int(nextVisit.entryTime.timeIntervalSince(currentExit) / 60)
 
-                            // Merge if gap is 10 minutes or less
+                            // CRITICAL: Never merge visits on different calendar days
+                            // This preserves midnight splits (e.g., 11:59:59 PM → 12:00:00 AM)
+                            let calendar = Calendar.current
+                            let currentExitDay = calendar.dateComponents([.year, .month, .day], from: currentExit)
+                            let nextEntryDay = calendar.dateComponents([.year, .month, .day], from: nextVisit.entryTime)
+                            
+                            let areDifferentDays = currentExitDay != nextEntryDay
+                            
+                            // Also check if either visit was split at midnight (indicated by merge_reason)
+                            // Split visits have merge_reason containing "midnight_split"
+                            let isMidnightSplit = (currentVisit.mergeReason?.contains("midnight_split") == true) ||
+                                                  (nextVisit.mergeReason?.contains("midnight_split") == true)
+
+                            // BLOCK merge if on different days OR if it's a midnight split
+                            if areDifferentDays || isMidnightSplit {
+                                if areDifferentDays {
+                                    print("🚫 MERGE BLOCKED: Visits are on different calendar days")
+                                    print("   Current exit: \(currentExit) (day: \(currentExitDay.year ?? 0)-\(currentExitDay.month ?? 0)-\(currentExitDay.day ?? 0))")
+                                    print("   Next entry: \(nextVisit.entryTime) (day: \(nextEntryDay.year ?? 0)-\(nextEntryDay.month ?? 0)-\(nextEntryDay.day ?? 0))")
+                                }
+                                if isMidnightSplit {
+                                    print("🚫 MERGE BLOCKED: One or both visits were split at midnight")
+                                    print("   Current merge_reason: \(currentVisit.mergeReason ?? "nil")")
+                                    print("   Next merge_reason: \(nextVisit.mergeReason ?? "nil")")
+                                }
+                                i += 1
+                                continue
+                            }
+
+                            // Merge if gap is 10 minutes or less AND on same day
                             if gapMinutes <= 10 && gapMinutes >= 0 {
                                 print("🔄 Merging visits: \(currentVisit.id) and \(nextVisit.id) (gap: \(gapMinutes) min)")
 
@@ -434,13 +458,7 @@ class LocationVisitAnalytics: ObservableObject {
                         }
                     }
 
-                    // If visit is < 10 minutes and wasn't merged, mark for deletion
-                    if let duration = currentVisit.durationMinutes, duration < 10 {
-                        print("🗑️ Marking short visit for deletion: \(currentVisit.id) (duration: \(duration) min)")
-                        visitsToDelete.insert(currentVisit.id)
-                        totalDeleted += 1
-                    }
-
+                    // Keep all visits regardless of duration
                     i += 1
                 }
             }
@@ -474,6 +492,339 @@ class LocationVisitAnalytics: ObservableObject {
         // Deprecated: Use mergeAndCleanupVisits() instead
         let (_, deleted) = await mergeAndCleanupVisits()
         return deleted
+    }
+
+    /// Fix all visits that span midnight by splitting them into separate day records
+    /// This cleans up any existing visits that weren't split at midnight
+    /// Returns (fixed count, error count, skipped count)
+    /// CRITICAL: This function MUST be called to fix historical visits
+    func fixMidnightSpanningVisits() async -> (fixed: Int, errors: Int, skipped: Int) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("❌ LocationVisitAnalytics: User not authenticated - cannot fix visits")
+            return (0, 0, 0)
+        }
+
+        let client = await SupabaseManager.shared.getPostgrestClient()
+
+        do {
+            print("\n🌙 ===== FIXING MIDNIGHT-SPANNING VISITS =====")
+            print("🌙 User ID: \(userId.uuidString)")
+
+            // Fetch all visits
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            print("🌙 Total visits fetched: \(allVisits.count)")
+
+            // Filter for completed visits (with exit_time set)
+            let completedVisits = allVisits.filter { $0.exitTime != nil }
+            print("🌙 Completed visits: \(completedVisits.count)")
+            
+            // Find visits that span midnight (entry and exit on different days)
+            let midnightSpanningVisits = completedVisits.filter { visit in
+                guard let exitTime = visit.exitTime else { return false }
+                let calendar = Calendar.current
+                let entryDay = calendar.component(.day, from: visit.entryTime)
+                let exitDay = calendar.component(.day, from: exitTime)
+                let entryMonth = calendar.component(.month, from: visit.entryTime)
+                let exitMonth = calendar.component(.month, from: exitTime)
+                return entryDay != exitDay || entryMonth != exitMonth
+            }
+            
+            print("🌙 Found \(midnightSpanningVisits.count) visits that span midnight!")
+            
+            if midnightSpanningVisits.isEmpty {
+                print("🌙 No midnight-spanning visits to fix")
+                return (0, 0, 0)
+            }
+
+            var fixedCount = 0
+            var errorCount = 0
+            var skippedCount = 0
+            
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            for visit in midnightSpanningVisits {
+                let calendar = Calendar.current
+                
+                print("\n🌙 Processing visit:")
+                print("   ID: \(visit.id)")
+                print("   Entry: \(visit.entryTime)")
+                print("   Exit: \(visit.exitTime!)")
+                print("   Duration: \(visit.durationMinutes ?? 0) min")
+
+                // Calculate the split times
+                // Visit 1: entry_time to 11:59:59 PM of entry day
+                var endOfEntryDayComponents = calendar.dateComponents([.year, .month, .day], from: visit.entryTime)
+                endOfEntryDayComponents.hour = 23
+                endOfEntryDayComponents.minute = 59
+                endOfEntryDayComponents.second = 59
+                
+                guard let endOfEntryDay = calendar.date(from: endOfEntryDayComponents) else {
+                    print("   ❌ Failed to calculate end of entry day")
+                    errorCount += 1
+                    continue
+                }
+                
+                // Visit 2: 12:00:00 AM of exit day to exit_time
+                let startOfExitDay = calendar.startOfDay(for: visit.exitTime!)
+                
+                let duration1 = Int(endOfEntryDay.timeIntervalSince(visit.entryTime) / 60)
+                let duration2 = Int(visit.exitTime!.timeIntervalSince(startOfExitDay) / 60)
+                
+                print("   Split 1: \(visit.entryTime) to \(endOfEntryDay) (\(duration1) min)")
+                print("   Split 2: \(startOfExitDay) to \(visit.exitTime!) (\(duration2) min)")
+
+                do {
+                    // Step 1: Delete the original visit
+                    try await client
+                        .from("location_visits")
+                        .delete()
+                        .eq("id", value: visit.id.uuidString)
+                        .execute()
+                    
+                    print("   ✅ Deleted original visit")
+
+                    // Step 2: Create visit 1 (entry day, ends at 11:59:59 PM)
+                    let visit1Id = UUID()
+                    let visit1Data: [String: PostgREST.AnyJSON] = [
+                        "id": .string(visit1Id.uuidString),
+                        "user_id": .string(visit.userId.uuidString),
+                        "saved_place_id": .string(visit.savedPlaceId.uuidString),
+                        "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
+                        "entry_time": .string(formatter.string(from: visit.entryTime)),
+                        "exit_time": .string(formatter.string(from: endOfEntryDay)),
+                        "duration_minutes": .double(Double(max(duration1, 1))),
+                        "day_of_week": .string(visit.dayOfWeek),
+                        "time_of_day": .string(visit.timeOfDay),
+                        "month": .double(Double(visit.month)),
+                        "year": .double(Double(visit.year)),
+                        "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
+                        "merge_reason": .string("midnight_split_part1"),
+                        "created_at": .string(formatter.string(from: visit.createdAt)),
+                        "updated_at": .string(formatter.string(from: Date()))
+                    ]
+
+                    try await client
+                        .from("location_visits")
+                        .insert(visit1Data)
+                        .execute()
+                    
+                    print("   ✅ Created split visit 1: ends at 11:59:59 PM")
+
+                    // Step 3: Create visit 2 (exit day, starts at 12:00:00 AM)
+                    let visit2Id = UUID()
+                    let exitDayComponents = calendar.dateComponents([.weekday, .month, .year], from: startOfExitDay)
+                    let exitDayOfWeek = Self.dayOfWeekNameStatic(for: exitDayComponents.weekday ?? 1)
+                    
+                    let visit2Data: [String: PostgREST.AnyJSON] = [
+                        "id": .string(visit2Id.uuidString),
+                        "user_id": .string(visit.userId.uuidString),
+                        "saved_place_id": .string(visit.savedPlaceId.uuidString),
+                        "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
+                        "entry_time": .string(formatter.string(from: startOfExitDay)),
+                        "exit_time": .string(formatter.string(from: visit.exitTime!)),
+                        "duration_minutes": .double(Double(max(duration2, 1))),
+                        "day_of_week": .string(exitDayOfWeek),
+                        "time_of_day": .string("Night"),
+                        "month": .double(Double(exitDayComponents.month ?? 12)),
+                        "year": .double(Double(exitDayComponents.year ?? 2025)),
+                        "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
+                        "merge_reason": .string("midnight_split_part2"),
+                        "created_at": .string(formatter.string(from: visit.createdAt)),
+                        "updated_at": .string(formatter.string(from: Date()))
+                    ]
+
+                    try await client
+                        .from("location_visits")
+                        .insert(visit2Data)
+                        .execute()
+                    
+                    print("   ✅ Created split visit 2: starts at 12:00:00 AM")
+                    
+                    fixedCount += 1
+                    
+                    // Invalidate cache for this location
+                    invalidateCache(for: visit.savedPlaceId)
+                    
+                } catch {
+                    print("   ❌ Error fixing visit: \(error)")
+                    errorCount += 1
+                }
+            }
+
+            print("\n🌙 ===== MIDNIGHT SPLIT FIX COMPLETE =====")
+            print("🌙 Fixed: \(fixedCount) visits")
+            print("🌙 Errors: \(errorCount)")
+            print("🌙 Skipped: \(skippedCount)")
+            print("🌙 ==========================================\n")
+
+            // Invalidate all caches to force refresh
+            invalidateAllCache()
+
+            return (fixedCount, errorCount, skippedCount)
+        } catch {
+            print("❌ LocationVisitAnalytics: Failed to fix midnight-spanning visits: \(error)")
+            print("❌ Error details: \(error.localizedDescription)")
+            return (0, 1, 0)
+        }
+    }
+    
+    /// Static helper to get day of week name
+    private static func dayOfWeekNameStatic(for dayIndex: Int) -> String {
+        let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        if dayIndex >= 1 && dayIndex <= 7 {
+            return days[dayIndex - 1]
+        }
+        return "Unknown"
+    }
+
+    /// ONE-TIME CLEANUP: Remove duplicate visits created by the midnight split bug
+    /// This finds and removes duplicate visits that have overlapping time periods
+    func removeDuplicateVisits() async -> (removed: Int, errors: Int) {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            print("❌ LocationVisitAnalytics: User not authenticated")
+            return (0, 0)
+        }
+
+        let client = await SupabaseManager.shared.getPostgrestClient()
+
+        do {
+            print("\n🧹 ===== REMOVING DUPLICATE VISITS =====")
+
+            // Fetch all visits
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("entry_time", ascending: false)
+                .execute()
+
+            let decoder = JSONDecoder.supabaseDecoder()
+            let allVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+
+            print("🧹 Checking \(allVisits.count) total visits for duplicates...")
+
+            var removedCount = 0
+            var errorCount = 0
+            var processedIds = Set<UUID>()
+            var idsToDelete = Set<UUID>()
+
+            // Group visits by place
+            let visitsByPlace = Dictionary(grouping: allVisits) { $0.savedPlaceId }
+
+            for (placeId, visits) in visitsByPlace {
+                // Sort by entry time
+                let sortedVisits = visits.sorted { $0.entryTime < $1.entryTime }
+
+                for i in 0..<sortedVisits.count {
+                    let visit1 = sortedVisits[i]
+
+                    // Skip if already marked for deletion
+                    if idsToDelete.contains(visit1.id) || processedIds.contains(visit1.id) {
+                        continue
+                    }
+
+                    // Check for duplicates with overlapping times
+                    for j in (i+1)..<sortedVisits.count {
+                        let visit2 = sortedVisits[j]
+
+                        // Skip if already marked for deletion
+                        if idsToDelete.contains(visit2.id) {
+                            continue
+                        }
+
+                        // Check if these visits overlap significantly
+                        let overlap = visitsOverlap(visit1, visit2)
+
+                        if overlap {
+                            print("\n🧹 Found duplicate visits:")
+                            print("   Visit 1: \(visit1.entryTime) to \(visit1.exitTime?.description ?? "nil") (\(visit1.durationMinutes ?? 0) min)")
+                            print("   Visit 2: \(visit2.entryTime) to \(visit2.exitTime?.description ?? "nil") (\(visit2.durationMinutes ?? 0) min)")
+
+                            // Keep the one with earlier creation date (original), delete the duplicate
+                            let toDelete = visit1.createdAt > visit2.createdAt ? visit1 : visit2
+                            idsToDelete.insert(toDelete.id)
+
+                            print("   → Marking for deletion: \(toDelete.id)")
+                        }
+                    }
+
+                    processedIds.insert(visit1.id)
+                }
+            }
+
+            // Delete all marked duplicates
+            for visitId in idsToDelete {
+                do {
+                    try await client
+                        .from("location_visits")
+                        .delete()
+                        .eq("id", value: visitId.uuidString)
+                        .execute()
+
+                    removedCount += 1
+                    print("   ✅ Deleted duplicate visit: \(visitId)")
+                } catch {
+                    errorCount += 1
+                    print("   ❌ Failed to delete visit \(visitId): \(error)")
+                }
+            }
+
+            print("\n🧹 ===== DUPLICATE REMOVAL COMPLETE =====")
+            print("🧹 Removed: \(removedCount) visits")
+            print("🧹 Errors: \(errorCount)")
+            print("🧹 ==========================================\n")
+
+            // Invalidate all caches to force refresh
+            invalidateAllCache()
+
+            return (removedCount, errorCount)
+        } catch {
+            print("❌ LocationVisitAnalytics: Failed to remove duplicates: \(error)")
+            return (0, 1)
+        }
+    }
+
+    /// Helper function to check if two visits overlap significantly
+    private func visitsOverlap(_ visit1: LocationVisitRecord, _ visit2: LocationVisitRecord) -> Bool {
+        // Both visits must have exit times to check overlap
+        guard let exit1 = visit1.exitTime, let exit2 = visit2.exitTime else {
+            return false
+        }
+
+        // Check if the time ranges overlap by at least 80%
+        let start1 = visit1.entryTime
+        let start2 = visit2.entryTime
+        let end1 = exit1
+        let end2 = exit2
+
+        // Calculate overlap
+        let overlapStart = max(start1, start2)
+        let overlapEnd = min(end1, end2)
+
+        // If overlap is negative, there's no overlap
+        guard overlapEnd > overlapStart else {
+            return false
+        }
+
+        let overlapDuration = overlapEnd.timeIntervalSince(overlapStart)
+        let duration1 = end1.timeIntervalSince(start1)
+        let duration2 = end2.timeIntervalSince(start2)
+        let shorterDuration = min(duration1, duration2)
+
+        // Consider it a duplicate if overlap is 80% or more of the shorter visit
+        let overlapPercentage = overlapDuration / shorterDuration
+
+        return overlapPercentage >= 0.8
     }
 
     // MARK: - Private Methods

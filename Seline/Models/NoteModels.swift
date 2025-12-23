@@ -15,6 +15,7 @@ struct Note: Identifiable, Codable, Hashable {
     var isLocked: Bool
     var imageUrls: [String] // Store image URLs from Supabase Storage
     var attachmentId: UUID? // Single file attachment per note (for documents like bank statements, invoices)
+    var blocksData: String? // JSON string of blocks for block-based editor
 
     // Temporary compatibility - will be removed after migration
     var imageAttachments: [Data] {
@@ -57,6 +58,36 @@ struct Note: Identifiable, Codable, Hashable {
             return "No additional text"
         }
         return String(trimmed.prefix(100))
+    }
+}
+
+// MARK: - Block Editor Support
+
+extension Note {
+    /// Get blocks from blocksData or parse from content
+    var blocks: [AnyBlock] {
+        get {
+            // Try to load from blocksData first
+            if let jsonString = blocksData,
+               let data = jsonString.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode([AnyBlock].self, from: data) {
+                return decoded
+            }
+
+            // Fallback: parse from old content (markdown)
+            return BlockDocumentController.parseMarkdown(content)
+        }
+        set {
+            // Save as JSON string
+            if let encoded = try? JSONEncoder().encode(newValue),
+               let jsonString = String(data: encoded, encoding: .utf8) {
+                blocksData = jsonString
+            }
+
+            // Also update content field for backward compatibility
+            let controller = BlockDocumentController(blocks: newValue)
+            content = controller.toMarkdown()
+        }
     }
 }
 
@@ -155,6 +186,7 @@ struct DeletedFolder: Identifiable, Codable, Hashable {
 
 // MARK: - Notes Manager
 
+@MainActor
 class NotesManager: ObservableObject {
     static let shared = NotesManager()
 
@@ -168,6 +200,7 @@ class NotesManager: ObservableObject {
     private let notesKey = "SavedNotes"
     private let foldersKey = "SavedNoteFolders"
     private let authManager = AuthenticationManager.shared
+    private let cacheManager = CacheManager.shared
 
     private init() {
         // CRITICAL FIX: Clear old UserDefaults data (was 89MB!)
@@ -225,6 +258,9 @@ class NotesManager: ObservableObject {
         notes.append(note)
         saveNotes()
 
+        // Invalidate receipt cache if this is a receipt note
+        invalidateReceiptCache()
+
         // Sync with Supabase with retry logic
         Task {
             await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
@@ -234,8 +270,15 @@ class NotesManager: ObservableObject {
     /// Async version that waits for Supabase sync to complete
     /// Use this when the note creation must be persisted before continuing (e.g., before uploading images)
     func addNoteAndWaitForSync(_ note: Note) async -> Bool {
-        notes.append(note)
-        saveNotes()
+        // CRITICAL FIX: Check if note already exists to prevent duplicates
+        // This can happen if addNote() was called before addNoteAndWaitForSync()
+        if !notes.contains(where: { $0.id == note.id }) {
+            notes.append(note)
+            saveNotes()
+
+            // Invalidate receipt cache if this is a receipt note
+            invalidateReceiptCache()
+        }
 
         // Wait for Supabase save to complete with retry logic
         let result = await saveNoteToSupabaseWithRetry(note, maxRetries: 3)
@@ -349,6 +392,9 @@ class NotesManager: ObservableObject {
             notes[index] = updatedNote
             saveNotes()
 
+            // Invalidate receipt cache if this is a receipt note
+            invalidateReceiptCache()
+
             // Sync with Supabase with retry logic (fire-and-forget for UI responsiveness)
             Task {
                 await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
@@ -364,6 +410,9 @@ class NotesManager: ObservableObject {
             updatedNote.dateModified = Date()
             notes[index] = updatedNote
             saveNotes()
+
+            // Invalidate receipt cache if this is a receipt note
+            invalidateReceiptCache()
 
             // Wait for Supabase update to complete with retry logic
             let result = await updateNoteInSupabaseWithRetry(updatedNote, maxRetries: 3)
@@ -445,6 +494,9 @@ class NotesManager: ObservableObject {
         deletedNotes.append(deletedNote)
         notes.removeAll { $0.id == note.id }
         saveNotes()
+
+        // Invalidate receipt cache if this is a receipt note
+        invalidateReceiptCache()
 
         // Sync with Supabase
         Task {
@@ -1259,6 +1311,12 @@ class NotesManager: ObservableObject {
     /// - Parameter year: Optional year to filter by. If nil, returns all years.
     /// - Returns: Array of YearlyReceiptSummary sorted by year (most recent first)
     func getReceiptStatistics(year: Int? = nil) -> [YearlyReceiptSummary] {
+        // Check cache first
+        let cacheKey = year != nil ? CacheManager.CacheKey.receiptStats(year: year!) : "cache.receipts.stats.all"
+        if let cached: [YearlyReceiptSummary] = cacheManager.get(forKey: cacheKey) {
+            return cached
+        }
+
         guard let receiptsFolderId = folders.first(where: { $0.name == "Receipts" })?.id else {
             return []
         }
@@ -1347,7 +1405,14 @@ class NotesManager: ObservableObject {
         }
 
         // Sort by year (most recent first)
-        return yearlySummaries.sorted { $0.year > $1.year }
+        let result = yearlySummaries.sorted { $0.year > $1.year }
+
+        // Only cache non-empty results (prevents caching empty state during app initialization)
+        if !result.isEmpty {
+            cacheManager.set(result, forKey: cacheKey, ttl: CacheManager.TTL.persistent)
+        }
+
+        return result
     }
 
     /// Get all available years with receipts
@@ -1361,6 +1426,14 @@ class NotesManager: ObservableObject {
     /// - Parameter year: The year to get category breakdown for
     /// - Returns: YearlyCategoryBreakdown with categorized receipts
     func getCategoryBreakdown(for year: Int) async -> YearlyCategoryBreakdown {
+        // Check cache first
+        let calendar = Calendar.current
+        let currentMonth = calendar.component(.month, from: Date())
+        let cacheKey = CacheManager.CacheKey.categoryBreakdown(year: year, month: currentMonth)
+        if let cached: YearlyCategoryBreakdown = cacheManager.get(forKey: cacheKey) {
+            return cached
+        }
+
         let yearStats = getReceiptStatistics(year: year)
         guard let stats = yearStats.first else {
             // Return empty breakdown if no receipts found
@@ -1372,6 +1445,12 @@ class NotesManager: ObservableObject {
 
         // Use ReceiptCategorizationService to get the breakdown
         let breakdown = await ReceiptCategorizationService.shared.getCategoryBreakdown(for: allReceipts)
+
+        // Only cache non-empty results (prevents caching empty state during app initialization)
+        if !breakdown.categories.isEmpty {
+            cacheManager.set(breakdown, forKey: cacheKey, ttl: CacheManager.TTL.persistent)
+        }
+
         return breakdown
     }
 
@@ -1541,6 +1620,8 @@ class NotesManager: ObservableObject {
                     if !parsedNotes.isEmpty {
                         self.notes = parsedNotes
                         saveNotes()
+                        // Clear receipt cache to refresh stats with newly loaded data
+                        self.invalidateReceiptCache()
                     } else {
                         print("⚠️ Failed to parse any notes from Supabase, keeping \(self.notes.count) local notes")
                     }
@@ -1823,6 +1904,8 @@ class NotesManager: ObservableObject {
                 if !parsedFolders.isEmpty {
                     self.folders = parsedFolders
                     saveFolders()
+                    // Clear receipt cache since folder structure affects receipt organization
+                    self.invalidateReceiptCache()
                 } else {
                     print("⚠️ Failed to parse any folders from Supabase, keeping \(self.folders.count) local folders")
                 }
@@ -2098,6 +2181,28 @@ class NotesManager: ObservableObject {
             print("❌ Error during bulk re-encryption: \(error)")
             print("   Please try again later")
         }
+    }
+
+    // MARK: - Cache Invalidation
+
+    /// Invalidate all receipt-related caches when notes change
+    private func invalidateReceiptCache() {
+        // Invalidate all receipt stats caches
+        cacheManager.invalidate(keysWithPrefix: "cache.receipts.stats.")
+        // Invalidate all category breakdown caches
+        cacheManager.invalidate(keysWithPrefix: "cache.receipts.categoryBreakdown.")
+        // Invalidate today's receipts and spending
+        cacheManager.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
+        cacheManager.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
+
+        // OPTIMIZATION: Also invalidate search cache since notes are searchable
+        cacheManager.invalidate(keysWithPrefix: "cache.search")
+    }
+
+    /// Public method to force clear all receipt caches (useful for debugging or fixing bad cached state)
+    public func clearReceiptCache() {
+        invalidateReceiptCache()
+        print("🗑️ Cleared all receipt caches")
     }
 }
 

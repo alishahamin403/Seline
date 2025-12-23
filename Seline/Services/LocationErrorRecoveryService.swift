@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import PostgREST
 
 // MARK: - Custom Date Decoder for Flexible Date Formats
@@ -75,37 +76,29 @@ class LocationErrorRecoveryService {
         geofenceManager: GeofenceManager,
         sessionManager: LocationSessionManager
     ) async {
-        // DEBUG: Commented out to reduce console spam
-        // print("\n🚀 ===== APP LAUNCH RECOVERY =====")
+        print("\n🚀 ===== APP LAUNCH RECOVERY =====")
 
-        // 0. CRITICAL: First close ALL stuck visits in Supabase to ensure clean slate
-        // This fixes the issue where visits never left active state
-        await closeAllStuckVisitsInSupabase(userId: userId)
+        // FIXED: Smart recovery - restore visits if user still at location, close if not
+        await smartRecoverIncompleteVisits(userId: userId, geofenceManager: geofenceManager)
 
         // 1. Recover sessions from Supabase
         await sessionManager.recoverSessionsOnAppLaunch(for: userId)
 
-        // 2. Restore incomplete visits to activeVisits (only recent ones)
-        await restoreIncompleteVisits(geofenceManager: geofenceManager)
-
-        // 3. Clean up stale sessions
+        // 2. Clean up stale sessions
         await sessionManager.cleanupStaleSessions(olderThanHours: 4)
 
-        // DEBUG: Commented out to reduce console spam
-        // print("🚀 ===== RECOVERY COMPLETE =====\n")
+        print("🚀 ===== RECOVERY COMPLETE =====\n")
     }
 
-    /// CRITICAL FIX: Close all stuck visits that have been open for too long
-    /// This runs on every app launch to clean up any visits that got stuck
-    private func closeAllStuckVisitsInSupabase(userId: UUID) async {
-        // DEBUG: Commented out to reduce console spam
-        // print("🧹 Checking for stuck visits to close...")
+    /// SMART RECOVERY: Restore visits if user still at location, close if not
+    /// This fixes the issue where visits disappear on force close
+    private func smartRecoverIncompleteVisits(userId: UUID, geofenceManager: GeofenceManager) async {
+        print("🔍 Smart recovery: Checking incomplete visits...")
 
         do {
             let client = await SupabaseManager.shared.getPostgrestClient()
 
-            // Fetch all visits and filter for incomplete ones (exit_time IS NULL) in Swift
-            // This approach is more reliable than PostgREST NULL filtering
+            // Fetch all incomplete visits
             let response = try await client
                 .from("location_visits")
                 .select()
@@ -120,50 +113,143 @@ class LocationErrorRecoveryService {
             let incompleteVisits = allVisits.filter { $0.exitTime == nil }
 
             if incompleteVisits.isEmpty {
-                print("✅ No stuck visits found")
+                print("✅ No incomplete visits found")
                 return
             }
 
-            print("⚠️ Found \(incompleteVisits.count) incomplete visit(s) - CLOSING ALL OF THEM")
+            print("📋 Found \(incompleteVisits.count) incomplete visit(s)")
 
+            // Get current location
+            guard let currentLocation = SharedLocationManager.shared.currentLocation else {
+                print("⚠️ No current location - will close all incomplete visits")
+                // If we can't get location, close all old visits to be safe
+                for visit in incompleteVisits {
+                    await closeVisitInSupabase(visit)
+                }
+                return
+            }
+
+            let savedPlaces = LocationsManager.shared.savedPlaces
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
             let now = Date()
+
+            var restoredCount = 0
             var closedCount = 0
 
-            // AGGRESSIVE FIX: Close ALL incomplete visits on app launch
-            // New visits will be created when geofence entry is detected
             for visit in incompleteVisits {
+                // Check if visit location exists
+                guard let place = savedPlaces.first(where: { $0.id == visit.savedPlaceId }) else {
+                    print("⚠️ Location not found for visit: \(visit.id.uuidString) - closing")
+                    await closeVisitInSupabase(visit)
+                    closedCount += 1
+                    continue
+                }
+
                 let timeSinceEntry = now.timeIntervalSince(visit.entryTime)
                 let hoursSinceEntry = timeSinceEntry / 3600
-                let durationMinutes = Int(timeSinceEntry / 60)
 
-                print("🧹 Closing visit: \(visit.id.uuidString) (was open \(String(format: "%.1f", hoursSinceEntry))h)")
+                // Calculate distance to location
+                let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                let distance = currentLocation.distance(from: placeLocation)
+                let radius = GeofenceRadiusManager.shared.getRadius(for: place)
 
-                let updateData: [String: PostgREST.AnyJSON] = [
-                    "exit_time": .string(formatter.string(from: now)),
-                    "duration_minutes": .double(Double(durationMinutes)),
-                    "updated_at": .string(formatter.string(from: now))
-                ]
+                print("\n📍 Visit: \(place.displayName)")
+                print("   Open for: \(String(format: "%.1f", hoursSinceEntry))h")
+                print("   Distance: \(String(format: "%.0f", distance))m, Radius: \(String(format: "%.0f", radius))m")
 
-                do {
-                    try await client
-                        .from("location_visits")
-                        .update(updateData)
-                        .eq("id", value: visit.id.uuidString)
-                        .execute()
-
+                // Decision logic:
+                if distance <= radius {
+                    // User is STILL at location - restore visit
+                    print("   ✅ RESTORING: User still at location")
+                    geofenceManager.activeVisits[visit.savedPlaceId] = visit
+                    restoredCount += 1
+                } else if hoursSinceEntry >= 12 {
+                    // Visit is very old - definitely close it
+                    print("   🗑️ CLOSING: Visit too old (>12h)")
+                    await closeVisitInSupabase(visit)
                     closedCount += 1
-                    print("✅ Successfully closed visit: \(visit.id.uuidString)")
-                } catch {
-                    print("❌ Failed to close visit \(visit.id.uuidString): \(error)")
+                } else if distance > radius * 2 {
+                    // User is far away - close visit
+                    print("   🗑️ CLOSING: User far from location (\(String(format: "%.0f", distance))m > \(String(format: "%.0f", radius * 2))m)")
+                    await closeVisitInSupabase(visit)
+                    closedCount += 1
+                } else {
+                    // User nearby but not inside - close visit (probably left)
+                    print("   🗑️ CLOSING: User left location")
+                    await closeVisitInSupabase(visit)
+                    closedCount += 1
                 }
             }
 
-            print("🧹 Closed \(closedCount)/\(incompleteVisits.count) stuck visit(s)")
+            print("\n📊 Recovery Summary:")
+            print("   ✅ Restored: \(restoredCount)")
+            print("   🗑️ Closed: \(closedCount)")
+
+            // CRITICAL: Start validation timer if we restored any visits
+            if restoredCount > 0 {
+                print("🔄 Starting validation timer for restored visit(s)")
+                if !LocationBackgroundValidationService.shared.isValidationRunning() {
+                    LocationBackgroundValidationService.shared.startValidationTimer(
+                        geofenceManager: geofenceManager,
+                        locationManager: SharedLocationManager.shared,
+                        savedPlaces: savedPlaces
+                    )
+                }
+            }
         } catch {
-            print("❌ Error closing stuck visits: \(error)")
+            print("❌ Error in smart recovery: \(error)")
+        }
+    }
+
+    /// Helper method to close a visit in Supabase
+    /// Uses CLVisit departure data if available for accurate exit times
+    private func closeVisitInSupabase(_ visit: LocationVisitRecord) async {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        // Get the saved place to check for CLVisit departure time
+        let savedPlaces = LocationsManager.shared.savedPlaces
+        guard let place = savedPlaces.first(where: { $0.id == visit.savedPlaceId }) else {
+            print("⚠️ Cannot find saved place for visit - using current time")
+            return
+        }
+
+        let placeCoordinate = CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
+        let radius = GeofenceRadiusManager.shared.getRadius(for: place)
+
+        // Try to get cached CLVisit departure time (search within 2x radius for safety)
+        let exitTime: Date
+        if let cachedDeparture = SharedLocationManager.shared.getCachedDepartureTime(near: placeCoordinate, within: radius * 2) {
+            // Use CLVisit departure time (accurate!)
+            exitTime = cachedDeparture
+            print("✅ Using CLVisit departure time: \(cachedDeparture)")
+        } else {
+            // Fallback to current time (less accurate)
+            exitTime = Date()
+            print("⚠️ No CLVisit data - using app reopen time (may be inaccurate)")
+        }
+
+        let timeSinceEntry = exitTime.timeIntervalSince(visit.entryTime)
+        let durationMinutes = Int(timeSinceEntry / 60)
+
+        let updateData: [String: PostgREST.AnyJSON] = [
+            "exit_time": .string(formatter.string(from: exitTime)),
+            "duration_minutes": .double(Double(durationMinutes)),
+            "updated_at": .string(formatter.string(from: Date()))
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("location_visits")
+                .update(updateData)
+                .eq("id", value: visit.id.uuidString)
+                .execute()
+
+            print("✅ Visit closed with exit time: \(exitTime)")
+        } catch {
+            print("❌ Failed to close visit \(visit.id.uuidString): \(error)")
         }
     }
 
@@ -209,73 +295,7 @@ class LocationErrorRecoveryService {
     }
 
     // MARK: - Incomplete Visit Recovery
-
-    /// Restore incomplete visits from Supabase to activeVisits
-    /// SOLUTION 1: Only restore the most recent visit and auto-close all others
-    private func restoreIncompleteVisits(geofenceManager: GeofenceManager) async {
-        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
-            print("⚠️ No user ID")
-            return
-        }
-
-        do {
-            let client = await SupabaseManager.shared.getPostgrestClient()
-            let response = try await client
-                .from("location_visits")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .order("entry_time", ascending: false)
-                .execute()
-
-            let decoder = JSONDecoder.supabaseDecoder()
-            let fetchedVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
-
-            // Filter for incomplete visits (exit_time = nil)
-            let allVisits = fetchedVisits.filter { $0.exitTime == nil }
-
-            if allVisits.isEmpty {
-                print("✅ No incomplete visits to restore")
-                return
-            }
-
-            print("📋 Found \(allVisits.count) incomplete visit(s)")
-
-            var hasRestoredOneVisit = false
-
-            for visit in allVisits {
-                // Deduplicate: Don't process if already in activeVisits
-                if geofenceManager.activeVisits[visit.savedPlaceId] != nil {
-                    print("ℹ️ Visit already in activeVisits: \(visit.savedPlaceId.uuidString)")
-                    continue
-                }
-
-                let hoursSinceEntry = Date().timeIntervalSince(visit.entryTime) / 3600
-
-                // SOLUTION 1: Auto-close all visits except the single most recent one
-                if hasRestoredOneVisit {
-                    // Auto-close all older visits
-                    print("🔴 SOLUTION 1 - Auto-closing older incomplete visit: \(visit.id.uuidString) (started \(String(format: "%.1f", hoursSinceEntry))h ago)")
-                    await autoCloseVisit(visit)
-                } else if hoursSinceEntry > 24 {
-                    // Auto-close very old visits (>24h)
-                    print("⚠️ Visit open >24h, auto-closing: \(visit.id.uuidString)")
-                    await autoCloseVisit(visit)
-                } else if hoursSinceEntry > 4 {
-                    // Log long visits but restore the most recent one
-                    print("⚠️ Visit open \(String(format: "%.1f", hoursSinceEntry))h: \(visit.id.uuidString) - RESTORING as most recent")
-                    geofenceManager.activeVisits[visit.savedPlaceId] = visit
-                    hasRestoredOneVisit = true
-                } else {
-                    // Restore only the single most recent short-duration visit
-                    print("✅ Restored visit (most recent): \(visit.savedPlaceId.uuidString)")
-                    geofenceManager.activeVisits[visit.savedPlaceId] = visit
-                    hasRestoredOneVisit = true
-                }
-            }
-        } catch {
-            print("❌ Error restoring incomplete visits: \(error)")
-        }
-    }
+    // DEPRECATED: Replaced by smartRecoverIncompleteVisits() which checks if user is still at location
 
     // MARK: - Stale Visit Auto-Close
 
@@ -285,8 +305,15 @@ class LocationErrorRecoveryService {
         closedVisit.recordExit(exitTime: Date())
 
         let visitsToSave = closedVisit.splitAtMidnightIfNeeded()
-        for part in visitsToSave {
-            await updateVisitInSupabase(part)
+        if visitsToSave.count > 1 {
+            print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+            // Delete the original visit before saving split visits
+            await deleteVisitFromSupabase(visit)
+            for part in visitsToSave {
+                await saveVisitToSupabase(part)
+            }
+        } else {
+            await updateVisitInSupabase(closedVisit)
         }
 
         print("🔴 SOLUTION 2 - Auto-closed unresolved visit: \(visit.id.uuidString)")
@@ -323,13 +350,21 @@ class LocationErrorRecoveryService {
             print("Found \(staleVisits.count) stale visit(s)")
 
             for i in 0..<staleVisits.count {
+                let originalVisit = staleVisits[i]
                 staleVisits[i].recordExit(exitTime: Date())
 
                 // Split at midnight if needed
                 let visitsToSave = staleVisits[i].splitAtMidnightIfNeeded()
 
-                for part in visitsToSave {
-                    await updateVisitInSupabase(part)
+                if visitsToSave.count > 1 {
+                    print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+                    // Delete the original visit before saving split visits
+                    await deleteVisitFromSupabase(originalVisit)
+                    for part in visitsToSave {
+                        await saveVisitToSupabase(part)
+                    }
+                } else {
+                    await updateVisitInSupabase(staleVisits[i])
                 }
 
                 // Remove from active visits
@@ -391,8 +426,15 @@ class LocationErrorRecoveryService {
         closedVisit.recordExit(exitTime: Date())
 
         let visitsToSave = closedVisit.splitAtMidnightIfNeeded()
-        for part in visitsToSave {
-            await updateVisitInSupabase(part)
+        if visitsToSave.count > 1 {
+            print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+            // Delete the original visit before saving split visits
+            await deleteVisitFromSupabase(visit)
+            for part in visitsToSave {
+                await saveVisitToSupabase(part)
+            }
+        } else {
+            await updateVisitInSupabase(closedVisit)
         }
     }
 
@@ -436,6 +478,23 @@ class LocationErrorRecoveryService {
             return
         }
 
+        // CRITICAL: Check if visit spans midnight and needs to be split
+        let spansMidnight = visit.spansMidnight()
+        print("🕐 Checking midnight span (ErrorRecovery update): Entry=\(visit.entryTime), Exit=\(visit.exitTime?.description ?? "nil"), Spans=\(spansMidnight)")
+
+        let visitsToSave = visit.splitAtMidnightIfNeeded()
+
+        if visitsToSave.count > 1 {
+            print("🌙 MIDNIGHT SPLIT in ErrorRecovery updateVisit: Splitting into \(visitsToSave.count) records")
+            // Delete the original visit and save the split parts
+            await deleteVisitFromSupabase(visit)
+            for part in visitsToSave {
+                await saveVisitToSupabase(part)
+            }
+            return
+        }
+
+        // No split needed - proceed with normal update
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
@@ -456,6 +515,100 @@ class LocationErrorRecoveryService {
             LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
         } catch {
             print("❌ Error updating visit: \(error)")
+        }
+    }
+
+    private func deleteVisitFromSupabase(_ visit: LocationVisitRecord) async {
+        guard SupabaseManager.shared.getCurrentUser() != nil else {
+            print("⚠️ No user")
+            return
+        }
+
+        do {
+            print("🗑️ Deleting visit from Supabase before split - ID: \(visit.id.uuidString)")
+
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("location_visits")
+                .delete()
+                .eq("id", value: visit.id.uuidString)
+                .execute()
+
+            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+        } catch {
+            print("❌ Error deleting visit: \(error)")
+        }
+    }
+
+    private func saveVisitToSupabase(_ visit: LocationVisitRecord) async {
+        guard let user = SupabaseManager.shared.getCurrentUser() else {
+            print("⚠️ No user")
+            return
+        }
+
+        // CRITICAL: Check if visit spans midnight BEFORE saving
+        if let exitTime = visit.exitTime, visit.spansMidnight() {
+            print("🌙 MIDNIGHT SPLIT in ErrorRecovery saveVisitToSupabase: Visit spans midnight, splitting before save")
+            let visitsToSave = visit.splitAtMidnightIfNeeded()
+            
+            if visitsToSave.count > 1 {
+                for (index, splitVisit) in visitsToSave.enumerated() {
+                    print("  - Saving split visit \(index + 1): \(splitVisit.entryTime) to \(splitVisit.exitTime?.description ?? "nil")")
+                    await saveVisitToSupabaseDirectly(splitVisit)
+                }
+                return
+            }
+        }
+
+        // No split needed - save directly
+        await saveVisitToSupabaseDirectly(visit)
+    }
+    
+    /// Internal method that actually saves to Supabase (without midnight check)
+    private func saveVisitToSupabaseDirectly(_ visit: LocationVisitRecord) async {
+        guard let user = SupabaseManager.shared.getCurrentUser() else {
+            print("⚠️ No user")
+            return
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let visitData: [String: PostgREST.AnyJSON] = [
+            "id": .string(visit.id.uuidString),
+            "user_id": .string(user.id.uuidString),
+            "saved_place_id": .string(visit.savedPlaceId.uuidString),
+            "entry_time": .string(formatter.string(from: visit.entryTime)),
+            "exit_time": visit.exitTime != nil ? .string(formatter.string(from: visit.exitTime!)) : .null,
+            "duration_minutes": visit.durationMinutes != nil ? .double(Double(visit.durationMinutes!)) : .null,
+            "day_of_week": .string(visit.dayOfWeek),
+            "time_of_day": .string(visit.timeOfDay),
+            "month": .double(Double(visit.month)),
+            "year": .double(Double(visit.year)),
+            "session_id": visit.sessionId != nil ? .string(visit.sessionId!.uuidString) : .null,
+            "confidence_score": visit.confidenceScore != nil ? .double(visit.confidenceScore!) : .null,
+            "merge_reason": visit.mergeReason != nil ? .string(visit.mergeReason!) : .null,
+            "signal_drops": visit.signalDrops != nil ? .double(Double(visit.signalDrops!)) : .null,
+            "motion_validated": visit.motionValidated != nil ? .bool(visit.motionValidated!) : .null,
+            "stationary_percentage": visit.stationaryPercentage != nil ? .double(visit.stationaryPercentage!) : .null,
+            "wifi_matched": visit.wifiMatched != nil ? .bool(visit.wifiMatched!) : .null,
+            "is_outlier": visit.isOutlier != nil ? .bool(visit.isOutlier!) : .null,
+            "is_commute_stop": visit.isCommuteStop != nil ? .bool(visit.isCommuteStop!) : .null,
+            "semantic_valid": visit.semanticValid != nil ? .bool(visit.semanticValid!) : .null,
+            "created_at": .string(formatter.string(from: visit.createdAt)),
+            "updated_at": .string(formatter.string(from: visit.updatedAt))
+        ]
+
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            try await client
+                .from("location_visits")
+                .insert(visitData)
+                .execute()
+
+            LocationVisitAnalytics.shared.invalidateCache(for: visit.savedPlaceId)
+        } catch {
+            print("❌ Error saving visit: \(error)")
         }
     }
 

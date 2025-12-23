@@ -65,6 +65,12 @@ extension Color {
 
     // Focus Ring
     static let shadcnRing = Color(red: 0.518, green: 0.792, blue: 0.914).opacity(0.3) // #84cae9 with opacity
+    
+    // MARK: - Tile Background Colors
+    // Standardized tile background color for consistent rounded square design
+    static func shadcnTileBackground(_ colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+    }
 }
 
 // MARK: - Shadcn Shadows
@@ -86,6 +92,27 @@ extension View {
     func shadcnShadowLg() -> some View {
         self.shadow(color: Color.black.opacity(0.1), radius: 15, x: 0, y: 10)
             .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 4)
+    }
+    
+    // MARK: - Standardized Tile Design
+    // Applies consistent rounded square design with standardized corner radius and fill color
+    func shadcnTileStyle(colorScheme: ColorScheme) -> some View {
+        self.background(
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                .fill(Color.shadcnTileBackground(colorScheme))
+        )
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.2) : .gray.opacity(0.15),
+            radius: colorScheme == .dark ? 4 : 12,
+            x: 0,
+            y: colorScheme == .dark ? 2 : 4
+        )
+        .shadow(
+            color: colorScheme == .dark ? .black.opacity(0.1) : .gray.opacity(0.08),
+            radius: colorScheme == .dark ? 2 : 6,
+            x: 0,
+            y: colorScheme == .dark ? 1 : 2
+        )
     }
 }
 

@@ -6,6 +6,8 @@ struct SpendingAndETAWidget: View {
     @Environment(\.colorScheme) var colorScheme
 
     var isVisible: Bool = true
+    var onAddReceipt: (() -> Void)? = nil
+    var onAddReceiptFromGallery: (() -> Void)? = nil
 
     @State private var showReceiptStats = false
 
@@ -94,37 +96,51 @@ struct SpendingAndETAWidget: View {
 
     private func updateCategoryBreakdown() {
         Task {
-            guard let stats = currentYearStats else { return }
             let calendar = Calendar.current
             let now = Date()
-            let currentMonth = calendar.component(.month, from: now)
             let currentYear = calendar.component(.year, from: now)
+            let currentMonth = calendar.component(.month, from: now)
 
-            // Get all receipts for current month and year
-            var monthReceipts: [ReceiptStat] = []
-            for monthlySummary in stats.monthlySummaries {
-                let month = calendar.component(.month, from: monthlySummary.monthDate)
-                let year = calendar.component(.year, from: monthlySummary.monthDate)
-                if month == currentMonth && year == currentYear {
-                    monthReceipts.append(contentsOf: monthlySummary.receipts)
+            // Get receipts for the current month only
+            guard let stats = currentYearStats else {
+                DispatchQueue.main.async {
+                    self.categoryBreakdownCache = []
                 }
+                return
             }
 
-            // Categorize receipts using the service
-            var categoryTotals: [String: Double] = [:]
-            for receipt in monthReceipts {
-                let category = await ReceiptCategorizationService.shared.categorizeReceipt(receipt.title)
-                let current = categoryTotals[category] ?? 0
-                categoryTotals[category] = current + receipt.amount
+            // Filter to get only current month's receipts
+            let currentMonthReceipts = stats.monthlySummaries
+                .filter { summary in
+                    let month = calendar.component(.month, from: summary.monthDate)
+                    let year = calendar.component(.year, from: summary.monthDate)
+                    return month == currentMonth && year == currentYear
+                }
+                .flatMap { $0.receipts }
+
+            // If no receipts for current month, return empty
+            guard !currentMonthReceipts.isEmpty else {
+                DispatchQueue.main.async {
+                    self.categoryBreakdownCache = []
+                }
+                return
             }
 
-            // Convert to sorted array with percentages
-            let total = categoryTotals.values.reduce(0, +)
-            let result = categoryTotals
-                .map { (category: $0.key, amount: $0.value, percentage: total > 0 ? ($0.value / total) * 100 : 0) }
-                .sorted { $0.amount > $1.amount }
-                .prefix(5)
-                .map { $0 }
+            // Calculate category breakdown for current month only
+            let breakdown = await ReceiptCategorizationService.shared.getCategoryBreakdown(for: currentMonthReceipts)
+
+            // Calculate month total from current month's receipts
+            let monthTotal = breakdown.yearlyTotal // This is actually the month total since we filtered receipts
+
+            // Map to tuple format with percentages based on current month's total
+            let categoryTuples = breakdown.categories.map { categoryStat -> (category: String, amount: Double, percentage: Double) in
+                let percentage = monthTotal > 0 ? (categoryStat.total / monthTotal) * 100 : 0
+                return (category: categoryStat.category, amount: categoryStat.total, percentage: percentage)
+            }
+
+            // Sort by amount and take top 5
+            let sorted = categoryTuples.sorted { $0.amount > $1.amount }
+            let result = Array(sorted.prefix(5))
 
             DispatchQueue.main.async {
                 self.categoryBreakdownCache = result
@@ -159,40 +175,78 @@ struct SpendingAndETAWidget: View {
     }
 
     private func spendingCard() -> some View {
-        Button(action: { showReceiptStats = true }) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Monthly spending amount and % on same line
-                HStack(alignment: .bottom, spacing: 8) {
-                    Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.25))
+        ZStack(alignment: .topTrailing) {
+            Button(action: { showReceiptStats = true }) {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Monthly spending amount and % on same line
+                    HStack(alignment: .bottom, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("This Month")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                                .textCase(.uppercase)
+                                .tracking(0.5)
 
-                    // Month over month percentage
-                    Text(String(format: "%.0f%% %@ than last month", monthOverMonthPercentage.percentage, monthOverMonthPercentage.isIncrease ? "more" : "less"))
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                        .offset(y: -3)
+                            Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
 
-                    Spacer()
+                        // Month over month percentage
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up" : "arrow.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color.red.opacity(0.85) : Color.green.opacity(0.85))
+
+                            Text("vs last month")
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                        }
+                        .padding(.leading, 8)
+
+                        Spacer()
+                    }
+
+                    // Categories - below % text
+                    topCategoryView
                 }
-
-                // Categories - below % text
-                topCategoryView
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(PlainButtonStyle())
+
+            // Add receipt button (camera/gallery) - Menu with options
+            Menu {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    onAddReceipt?()
+                }) {
+                    Label("Camera", systemImage: "camera.fill")
+                }
+                
+                Button(action: {
+                    HapticManager.shared.selection()
+                    onAddReceiptFromGallery?()
+                }) {
+                    Label("Gallery", systemImage: "photo.fill")
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                    )
+            }
+            .buttonStyle(PlainButtonStyle())
         }
-        .buttonStyle(PlainButtonStyle())
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-            radius: 8,
-            x: 0,
-            y: 2
-        )
+        .padding(16)
+        .shadcnTileStyle(colorScheme: colorScheme)
     }
 
     private var daysLeftInMonth: Int {
@@ -216,31 +270,44 @@ struct SpendingAndETAWidget: View {
     private var topCategoryView: some View {
         Group {
             if !categoryBreakdown.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(categoryBreakdown.prefix(3), id: \.category) { category in
-                        HStack(spacing: 2) {
-                            Text(categoryIcon(category.category))
-                                .font(.system(size: 11))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Top Categories")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    
+                    HStack(spacing: 8) {
+                        ForEach(categoryBreakdown.prefix(3), id: \.category) { category in
+                            // Compact category pill
+                            HStack(spacing: 6) {
+                                // Category icon with background
+                                ZStack {
+                                    Circle()
+                                        .fill(categoryColor(category.category).opacity(0.2))
+                                        .frame(width: 20, height: 20)
+                                    
+                                    Text(categoryIcon(category.category))
+                                        .font(.system(size: 10))
+                                }
 
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(category.category)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(category.category)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.85)
 
-                                Text(String(format: "%.0f%%", category.percentage))
-                                    .font(.system(size: 9, weight: .regular))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                    Text(String(format: "%.0f%%", category.percentage))
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                                }
                             }
-
-                            Spacer()
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 5)
+                            .background(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+                            .cornerRadius(8)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 3)
-                        .background(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
-                        .cornerRadius(4)
                     }
                 }
             }

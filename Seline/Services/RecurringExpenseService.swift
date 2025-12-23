@@ -6,6 +6,7 @@ class RecurringExpenseService {
 
     private let supabaseManager = SupabaseManager.shared
     private let taskManager = TaskManager.shared
+    private let cacheManager = CacheManager.shared
 
     // MARK: - Create
 
@@ -53,6 +54,9 @@ class RecurringExpenseService {
         // Refresh calendar view with new events
         await taskManager.refreshTasksFromSupabase()
 
+        // Invalidate cache since we created a new expense
+        invalidateRecurringExpenseCache()
+
         return mutableExpense
     }
 
@@ -60,6 +64,11 @@ class RecurringExpenseService {
 
     /// Fetch all active recurring expenses for the current user
     func fetchActiveRecurringExpenses() async throws -> [RecurringExpense] {
+        // Check cache first
+        if let cached: [RecurringExpense] = cacheManager.get(forKey: CacheManager.CacheKey.activeRecurringExpenses) {
+            return cached
+        }
+
         guard let userId = supabaseManager.getCurrentUser()?.id else {
             return []
         }
@@ -92,6 +101,11 @@ class RecurringExpenseService {
             return updatedExpense
         }
 
+        // Only cache non-empty results (prevents caching empty state during app initialization)
+        if !expenses.isEmpty {
+            cacheManager.set(expenses, forKey: CacheManager.CacheKey.activeRecurringExpenses, ttl: CacheManager.TTL.persistent)
+        }
+
         // DEBUG: Commented out to reduce console spam
         // print("✅ Fetched \(expenses.count) active recurring expenses")
         return expenses
@@ -99,6 +113,11 @@ class RecurringExpenseService {
 
     /// Fetch all recurring expenses (including inactive)
     func fetchAllRecurringExpenses() async throws -> [RecurringExpense] {
+        // Check cache first
+        if let cached: [RecurringExpense] = cacheManager.get(forKey: CacheManager.CacheKey.allRecurringExpenses) {
+            return cached
+        }
+
         guard let userId = supabaseManager.getCurrentUser()?.id else {
             return []
         }
@@ -127,6 +146,11 @@ class RecurringExpenseService {
                 )
             }
             return updatedExpense
+        }
+
+        // Only cache non-empty results (prevents caching empty state during app initialization)
+        if !expenses.isEmpty {
+            cacheManager.set(expenses, forKey: CacheManager.CacheKey.allRecurringExpenses, ttl: CacheManager.TTL.persistent)
         }
 
         print("✅ Fetched \(expenses.count) recurring expenses")
@@ -174,6 +198,10 @@ class RecurringExpenseService {
             .execute()
 
         print("💾 Updated recurring expense in Supabase")
+
+        // Invalidate cache since we updated an expense
+        invalidateRecurringExpenseCache(expenseId: expense.id)
+
         return expense
     }
 
@@ -208,6 +236,9 @@ class RecurringExpenseService {
 
         // Refresh calendar view to reflect pause/resume changes
         await taskManager.refreshTasksFromSupabase()
+
+        // Invalidate cache since we toggled active status
+        invalidateRecurringExpenseCache(expenseId: id)
     }
 
     // MARK: - Delete
@@ -244,12 +275,21 @@ class RecurringExpenseService {
 
         // Refresh calendar view to remove deleted events
         await taskManager.refreshTasksFromSupabase()
+
+        // Invalidate cache since we deleted an expense
+        invalidateRecurringExpenseCache(expenseId: id)
     }
 
     // MARK: - Instances
 
     /// Fetch instances for a recurring expense
     func fetchInstances(for recurringExpenseId: UUID) async throws -> [RecurringInstance] {
+        // Check cache first
+        let cacheKey = CacheManager.CacheKey.recurringExpenseInstances(expenseId: recurringExpenseId)
+        if let cached: [RecurringInstance] = cacheManager.get(forKey: cacheKey) {
+            return cached
+        }
+
         // DEBUG: Commented out to reduce console spam
         // print("📅 Fetching instances for recurring expense...")
 
@@ -264,6 +304,10 @@ class RecurringExpenseService {
             .execute()
 
         let instances = try decoder.decode([RecurringInstance].self, from: response.data)
+
+        // Cache the result with persistent TTL
+        cacheManager.set(instances, forKey: cacheKey, ttl: CacheManager.TTL.persistent)
+
         // DEBUG: Commented out to reduce console spam
         // print("✅ Fetched \(instances.count) instances")
         return instances
@@ -400,6 +444,10 @@ class RecurringExpenseService {
             components.month = 1
         case .yearly:
             components.year = 1
+        case .custom:
+            // For custom frequency, advance by 1 week as a fallback
+            // Note: This is an approximation; full implementation would require customRecurrenceDays
+            components.day = 7
         }
 
         // Keep advancing until we reach a future date
@@ -408,5 +456,23 @@ class RecurringExpenseService {
         }
 
         return nextDate
+    }
+
+    // MARK: - Cache Invalidation
+
+    /// Invalidate all recurring expense caches
+    private func invalidateRecurringExpenseCache(expenseId: UUID? = nil) {
+        // Invalidate the main expense lists
+        cacheManager.invalidate(forKey: CacheManager.CacheKey.activeRecurringExpenses)
+        cacheManager.invalidate(forKey: CacheManager.CacheKey.allRecurringExpenses)
+
+        // If a specific expense ID is provided, invalidate its instances cache
+        if let expenseId = expenseId {
+            let instancesCacheKey = CacheManager.CacheKey.recurringExpenseInstances(expenseId: expenseId)
+            cacheManager.invalidate(forKey: instancesCacheKey)
+        } else {
+            // If no specific ID, invalidate all instance caches
+            cacheManager.invalidate(keysWithPrefix: "cache.recurringExpenses.instances.")
+        }
     }
 }

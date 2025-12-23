@@ -10,6 +10,9 @@ class DeepLinkHandler: NSObject, ObservableObject {
     @Published var shouldShowSearch = false
     @Published var shouldShowChat = false
     @Published var shouldOpenMaps = false
+    @Published var shouldOpenReceipts = false
+    @Published var shouldOpenTimeline = false
+    @Published var shouldOpenHome = false
     @Published var mapsLatitude: Double? = nil
     @Published var mapsLongitude: Double? = nil
     @Published var pendingAction: String? = nil
@@ -95,6 +98,24 @@ class DeepLinkHandler: NSObject, ObservableObject {
                 self.pendingAction = "chat"
             }
 
+        case "receipts":
+            DispatchQueue.main.async {
+                self.shouldOpenReceipts = true
+                self.pendingAction = "receipts"
+            }
+
+        case "timeline":
+            DispatchQueue.main.async {
+                self.shouldOpenTimeline = true
+                self.pendingAction = "timeline"
+            }
+
+        case "home":
+            DispatchQueue.main.async {
+                self.shouldOpenHome = true
+                self.pendingAction = "home"
+            }
+
         default:
             print("⚠️ Unknown action: \(pathWithoutSlash)")
         }
@@ -129,6 +150,18 @@ class DeepLinkHandler: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self.shouldOpenMaps = true
             }
+        case "receipts":
+            DispatchQueue.main.async {
+                self.shouldOpenReceipts = true
+            }
+        case "timeline":
+            DispatchQueue.main.async {
+                self.shouldOpenTimeline = true
+            }
+        case "home":
+            DispatchQueue.main.async {
+                self.shouldOpenHome = true
+            }
         default:
             break
         }
@@ -142,6 +175,9 @@ class DeepLinkHandler: NSObject, ObservableObject {
         shouldShowSearch = false
         shouldShowChat = false
         shouldOpenMaps = false
+        shouldOpenReceipts = false
+        shouldOpenTimeline = false
+        shouldOpenHome = false
         mapsLatitude = nil
         mapsLongitude = nil
         pendingAction = nil

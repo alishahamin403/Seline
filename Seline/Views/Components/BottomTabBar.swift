@@ -31,20 +31,40 @@ enum TabSelection: String, CaseIterable {
 struct BottomTabBar: View {
     @Binding var selectedTab: TabSelection
     @Environment(\.colorScheme) var colorScheme
-
+    @Namespace private var tabIndicator
+    
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(TabSelection.allCases, id: \.self) { tab in
-                TabButton(
-                    tab: tab,
-                    selectedTab: $selectedTab,
-                    colorScheme: colorScheme
-                )
+        ZStack(alignment: .bottom) {
+            // Sliding indicator
+            GeometryReader { geometry in
+                let tabWidth = geometry.size.width / CGFloat(TabSelection.allCases.count)
+                let currentIndex = CGFloat(TabSelection.allCases.firstIndex(of: selectedTab) ?? 0)
+                let indicatorOffset = (currentIndex * tabWidth) + (tabWidth / 2) - 20
+                
+                Capsule()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.15))
+                    .frame(width: 40, height: 3)
+                    .matchedGeometryEffect(id: "tabIndicator", in: tabIndicator)
+                    .offset(x: indicatorOffset)
+                    .animation(.smoothTabTransition, value: selectedTab)
             }
+            .frame(height: 3)
+            .padding(.bottom, 44)
+            
+            HStack(spacing: 0) {
+                ForEach(TabSelection.allCases, id: \.self) { tab in
+                    TabButton(
+                        tab: tab,
+                        selectedTab: $selectedTab,
+                        colorScheme: colorScheme,
+                        namespace: tabIndicator
+                    )
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 4)
-        .padding(.bottom, 2)
         .background(
             colorScheme == .dark ? Color.black : Color.white
         )
@@ -56,6 +76,7 @@ struct TabButton: View {
     let tab: TabSelection
     @Binding var selectedTab: TabSelection
     let colorScheme: ColorScheme
+    var namespace: Namespace.ID
 
     private var isSelected: Bool {
         selectedTab == tab
@@ -75,7 +96,7 @@ struct TabButton: View {
     var body: some View {
         Button(action: {
             HapticManager.shared.tabChange()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            withAnimation(.smoothTabTransition) {
                 selectedTab = tab
             }
         }) {
@@ -89,7 +110,7 @@ struct TabButton: View {
                 .padding(.vertical, 4)
         }
         .buttonStyle(PlainButtonStyle())
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        .animation(.smoothTabTransition, value: isSelected)
     }
 }
 

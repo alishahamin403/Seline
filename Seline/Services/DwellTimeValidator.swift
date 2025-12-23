@@ -19,12 +19,14 @@ class DwellTimeValidator: ObservableObject {
 
     // MARK: - Configuration
 
-    /// Required dwell time in seconds (default: 3 minutes)
+    /// Required dwell time in seconds (default: 30 seconds)
     /// User must be continuously present for this duration before visit is recorded
-    private let requiredDwellTimeSeconds: TimeInterval = 180 // 3 minutes
+    /// REDUCED from 180s (3min) to 30s for faster geofence triggering while still preventing false positives
+    private let requiredDwellTimeSeconds: TimeInterval = 30 // 30 seconds
 
     /// Validation check interval (how often to check if user is still inside)
-    private let validationIntervalSeconds: TimeInterval = 30 // Check every 30 seconds
+    /// REDUCED from 30s to 10s for more responsive validation
+    private let validationIntervalSeconds: TimeInterval = 10 // Check every 10 seconds
 
     // MARK: - Models
 
@@ -247,5 +249,27 @@ class DwellTimeValidator: ObservableObject {
     /// Get required dwell time in minutes (for UI)
     var requiredDwellTimeMinutes: Int {
         return Int(requiredDwellTimeSeconds / 60)
+    }
+
+    // MARK: - PERFORMANCE FIX: Skip Dwell Validation for Trusted Locations
+
+    /// Categories that should skip dwell time validation (instant entry)
+    /// These are frequent, trusted locations where false positives are unlikely
+    private let skipDwellCategories: Set<String> = [
+        "Home", "Residence", "Apartment", "House",
+        "Work", "Office", "Workplace", "Corporate Office"
+    ]
+
+    /// Check if a location should skip dwell time validation
+    /// Returns true for frequently visited, trusted locations (Home, Work)
+    func shouldSkipDwellValidation(for category: String) -> Bool {
+        // Check if category matches any skip categories (case-insensitive)
+        let lowerCategory = category.lowercased()
+        for skipCategory in skipDwellCategories {
+            if lowerCategory.contains(skipCategory.lowercased()) {
+                return true
+            }
+        }
+        return false
     }
 }

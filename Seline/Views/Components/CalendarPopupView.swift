@@ -60,7 +60,6 @@ struct CalendarPopupView: View {
                         updateTasksForDate(for: newDate)
                     }
                 )
-                .padding(.horizontal, 8)
                 .padding(.top, 12)
                 .padding(.bottom, 16)
 
@@ -74,14 +73,23 @@ struct CalendarPopupView: View {
                         }) {
                             Text("All")
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(localSelectedTagId == nil ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .foregroundColor(localSelectedTagId == nil ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6)
+                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
                                         .fill(localSelectedTagId == nil ?
-                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme).opacity(0.2) :
-                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme).opacity(colorScheme == .dark ? 0.15 : 0.12) :
+                                            Color.shadcnTileBackground(colorScheme).opacity(0.5)
+                                        )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
+                                        .stroke(
+                                            localSelectedTagId == nil ?
+                                                TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme).opacity(0.3) :
+                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1)),
+                                            lineWidth: 1
                                         )
                                 )
                         }
@@ -94,14 +102,23 @@ struct CalendarPopupView: View {
                         }) {
                             Text("Personal")
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(localSelectedTagId == "" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .foregroundColor(localSelectedTagId == "" ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6)
+                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
                                         .fill(localSelectedTagId == "" ?
-                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme).opacity(0.2) :
-                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme).opacity(colorScheme == .dark ? 0.15 : 0.12) :
+                                            Color.shadcnTileBackground(colorScheme).opacity(0.5)
+                                        )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
+                                        .stroke(
+                                            localSelectedTagId == "" ?
+                                                TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme).opacity(0.3) :
+                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1)),
+                                            lineWidth: 1
                                         )
                                 )
                         }
@@ -114,14 +131,23 @@ struct CalendarPopupView: View {
                         }) {
                             Text("Personal - Sync")
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(localSelectedTagId == "cal_sync" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .foregroundColor(localSelectedTagId == "cal_sync" ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6)
+                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
                                         .fill(localSelectedTagId == "cal_sync" ?
-                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(0.2) :
-                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(colorScheme == .dark ? 0.15 : 0.12) :
+                                            Color.shadcnTileBackground(colorScheme).opacity(0.5)
+                                        )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: ShadcnRadius.lg)
+                                        .stroke(
+                                            localSelectedTagId == "cal_sync" ?
+                                                TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(0.3) :
+                                                (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1)),
+                                            lineWidth: 1
                                         )
                                 )
                         }
@@ -135,14 +161,23 @@ struct CalendarPopupView: View {
                             }) {
                                 Text(tag.name)
                                     .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(localSelectedTagId == tag.id ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                    .foregroundColor(localSelectedTagId == tag.id ? Color.shadcnForeground(colorScheme) : Color.shadcnForeground(colorScheme).opacity(0.7))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 6)
+                                        RoundedRectangle(cornerRadius: ShadcnRadius.lg)
                                             .fill(localSelectedTagId == tag.id ?
-                                                TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex).opacity(0.2) :
-                                                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                                TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex).opacity(colorScheme == .dark ? 0.15 : 0.12) :
+                                                Color.shadcnTileBackground(colorScheme).opacity(0.5)
+                                            )
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: ShadcnRadius.lg)
+                                            .stroke(
+                                                localSelectedTagId == tag.id ?
+                                                    TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex).opacity(0.3) :
+                                                    (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1)),
+                                                lineWidth: 1
                                             )
                                     )
                             }
@@ -204,7 +239,7 @@ struct CalendarPopupView: View {
             }
             .background(
                 colorScheme == .dark ?
-                    Color.gmailDarkBackground : Color.white
+                    Color.black : Color.white
             )
         }
         .onAppear {
@@ -676,6 +711,11 @@ struct ShadcnCalendar: View {
                     }
             )
         }
+        .background(
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                .fill(Color.shadcnTileBackground(colorScheme))
+        )
+        .padding(.horizontal, 12)
     }
 
     private func previousMonth() {

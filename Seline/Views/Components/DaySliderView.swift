@@ -34,10 +34,6 @@ struct DaySliderView: View {
         Calendar.current.isDate(date, inSameDayAs: selectedDate)
     }
 
-    private var accentColor: Color {
-        Color(red: 0.2, green: 0.2, blue: 0.2)
-    }
-
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
@@ -108,6 +104,10 @@ struct DaySliderView: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+    
+    private var accentColor: Color {
+        Color(red: 0.2, green: 0.2, blue: 0.2)
     }
 }
 

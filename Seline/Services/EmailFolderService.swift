@@ -228,7 +228,36 @@ actor EmailFolderService {
             .single()
             .execute()
 
-        let decodedEmail = try decoder.decode(SavedEmail.self, from: response.data)
+        var decodedEmail = try decoder.decode(SavedEmail.self, from: response.data)
+
+        // CRITICAL FIX: Save attachments to the database
+        // The attachments property is not a database column, so we need to insert them separately
+        if !attachments.isEmpty {
+            print("📎 Saving \(attachments.count) attachment(s) for email \(decodedEmail.id)")
+            var savedAttachments: [SavedEmailAttachment] = []
+
+            for attachment in attachments {
+                do {
+                    // Save each attachment to the saved_email_attachments table
+                    let savedAttachment = try await saveAttachment(
+                        emailId: decodedEmail.id,
+                        fileName: attachment.fileName,
+                        fileSize: attachment.fileSize,
+                        mimeType: attachment.mimeType,
+                        storagePath: attachment.storagePath
+                    )
+                    savedAttachments.append(savedAttachment)
+                    print("✅ Saved attachment: \(attachment.fileName)")
+                } catch {
+                    print("❌ Failed to save attachment \(attachment.fileName): \(error)")
+                    // Continue with other attachments even if one fails
+                }
+            }
+
+            // Update the decodedEmail with the actual saved attachments
+            decodedEmail.attachments = savedAttachments
+        }
+
         return decodedEmail
     }
 
@@ -303,11 +332,46 @@ actor EmailFolderService {
     /// Delete a saved email from a folder
     func deleteSavedEmail(id: UUID) async throws {
         let client = await supabaseManager.getPostgrestClient()
+
+        // CRITICAL FIX: Fetch and delete attachment files from storage before deleting email
+        do {
+            let attachments = try await fetchAttachments(for: id)
+
+            if !attachments.isEmpty {
+                print("🗑️ Deleting \(attachments.count) attachment(s) from storage for email \(id)")
+
+                // Delete attachment files from Supabase Storage
+                let storage = await supabaseManager.getStorageClient()
+                for attachment in attachments {
+                    do {
+                        try await storage
+                            .from("email-attachments")
+                            .remove(paths: [attachment.storagePath])
+                        print("✅ Deleted attachment file: \(attachment.fileName)")
+                    } catch {
+                        // Log but continue - file might already be deleted
+                        print("⚠️ Failed to delete attachment file \(attachment.fileName): \(error)")
+                    }
+                }
+            }
+        } catch {
+            // Log but continue with email deletion even if attachment cleanup fails
+            print("⚠️ Failed to fetch attachments for cleanup: \(error)")
+        }
+
+        // Delete the email (this will cascade delete attachment records via database foreign key constraint)
         try await client
             .from("saved_emails")
             .delete()
             .eq("id", value: id.uuidString)
             .execute()
+
+        print("✅ Deleted saved email \(id.uuidString) from database")
+
+        // Clear email service cache to ensure UI refreshes properly
+        await MainActor.run {
+            EmailService.shared.clearFolderCache()
+        }
     }
 
     /// Search for saved emails in a folder

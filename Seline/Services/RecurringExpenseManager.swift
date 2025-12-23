@@ -50,6 +50,10 @@ class RecurringExpenseManager {
             components.month = 1
         case .yearly:
             components.year = 1
+        case .custom:
+            // For custom frequency, advance by 1 week as a fallback
+            // Note: This is an approximation; full implementation would require customRecurrenceDays
+            components.day = 7
         }
 
         return Calendar.current.date(byAdding: components, to: date) ?? date

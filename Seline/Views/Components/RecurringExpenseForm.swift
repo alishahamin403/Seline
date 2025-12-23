@@ -89,7 +89,6 @@ struct RecurringExpenseForm: View {
                                     .frame(height: 80, alignment: .topLeading)
                             }
                         }
-                        .padding(.bottom, 8)
 
                         // DETAILS Section
                         VStack(alignment: .leading, spacing: 16) {
@@ -102,9 +101,10 @@ struct RecurringExpenseForm: View {
                                 Text("Amount")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                HStack(spacing: 0) {
+                                HStack(spacing: 4) {
                                     Text("$")
                                         .font(.title3)
+                                        .foregroundColor(Color.gray.opacity(0.5))
                                         .padding(.leading, 12)
                                     TextField("0.00", text: $amount)
                                         .keyboardType(.decimalPad)

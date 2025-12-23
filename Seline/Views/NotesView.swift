@@ -22,6 +22,7 @@ struct NotesView: View, Searchable {
     @State private var showingReceiptCameraPicker = false
     @StateObject private var openAIService = DeepSeekService.shared
     @Namespace private var tabAnimation
+    @State private var receiptProcessingState: ReceiptProcessingState = .idle
 
     var filteredPinnedNotes: [Note] {
         var notes: [Note]
@@ -315,6 +316,17 @@ struct NotesView: View, Searchable {
             .navigationDestination(for: Note.self) { note in
                 NoteEditView(note: note, isPresented: .constant(true))
             }
+            .overlay(alignment: .top) {
+                // Receipt processing toast indicator (only show on receipts tab)
+                if selectedTab == "receipts" && receiptProcessingState != .idle {
+                    VStack {
+                        ReceiptProcessingToast(state: receiptProcessingState)
+                            .padding(.top, 8)
+                        Spacer()
+                    }
+                    .zIndex(1000)
+                }
+            }
         }
         .fullScreenCover(isPresented: $showingNewNoteSheet) {
             NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
@@ -352,6 +364,11 @@ struct NotesView: View, Searchable {
     
     private func processReceiptImageDirectly(_ image: UIImage) {
         Task {
+            // Show processing indicator
+            await MainActor.run {
+                receiptProcessingState = .processing
+            }
+            
             do {
                 let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
                 
@@ -391,15 +408,46 @@ struct NotesView: View, Searchable {
                             
                             await MainActor.run {
                                 HapticManager.shared.success()
+                                receiptProcessingState = .success
                                 print("✅ Receipt processed and saved directly")
+                                
+                                // Hide success message after 2 seconds
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    await MainActor.run {
+                                        receiptProcessingState = .idle
+                                    }
+                                }
+                            }
+                        } else {
+                            await MainActor.run {
+                                receiptProcessingState = .error("Failed to save receipt")
+                                HapticManager.shared.error()
+                                
+                                // Hide error message after 3 seconds
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                                    await MainActor.run {
+                                        receiptProcessingState = .idle
+                                    }
+                                }
                             }
                         }
                     }
                 }
             } catch {
                 await MainActor.run {
-                    print("❌ Error processing receipt: \(error.localizedDescription)")
+                    receiptProcessingState = .error(error.localizedDescription)
                     HapticManager.shared.error()
+                    print("❌ Error processing receipt: \(error.localizedDescription)")
+                    
+                    // Hide error message after 3 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        await MainActor.run {
+                            receiptProcessingState = .idle
+                        }
+                    }
                 }
             }
         }
@@ -849,6 +897,7 @@ struct NoteEditView: View {
     @State private var selectedImageIndex: Int = 0
     @State private var isKeyboardVisible = false
     @State private var isProcessingReceipt = false
+    @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var isGeneratingTitle = false
 
     // File attachment states
@@ -862,6 +911,9 @@ struct NoteEditView: View {
     // Recurring expense states
     @State private var showingRecurringExpenseForm = false
     @State private var createdRecurringExpense: RecurringExpense?
+    
+    // OPTIMIZATION: Debounced auto-save for text changes
+    @State private var autoSaveTask: Task<Void, Never>?
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingSummarize || isProcessingAddMore || isProcessingReceipt || isGeneratingTitle || isProcessingFile
@@ -1029,6 +1081,17 @@ struct NoteEditView: View {
         } message: {
             Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
         }
+        .overlay(alignment: .top) {
+            // Receipt processing toast indicator
+            if receiptProcessingState != .idle {
+                VStack {
+                    ReceiptProcessingToast(state: receiptProcessingState)
+                        .padding(.top, 8)
+                    Spacer()
+                }
+                .zIndex(1000)
+            }
+        }
     }
 
     private var mainContentView: some View {
@@ -1047,8 +1110,8 @@ struct NoteEditView: View {
                     .padding(.bottom, 4)
                     .zIndex(2)
 
-                // Scrollable content area
-                ScrollView(.vertical, showsIndicators: true) {
+                // Scrollable content area - takes available space
+                ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
                         // Note content
                         if !isLockedInSession {
@@ -1056,6 +1119,29 @@ struct NoteEditView: View {
                         } else {
                             lockedStateView
                         }
+                        
+                        // Processing indicator - inside scroll view
+                        if isProcessingReceipt || isProcessingFile {
+                            HStack {
+                                ShadcnSpinner(size: .small)
+                                if isProcessingFile {
+                                    Text("Analyzing file...")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                } else {
+                                    Text("Analyzing receipt...")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 16)
+                            .padding(.bottom, 8)
+                        }
+                        
+                        // Bottom padding to ensure content is scrollable above keyboard
+                        Color.clear
+                            .frame(height: 200)
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.horizontal, 4)
@@ -1070,35 +1156,14 @@ struct NoteEditView: View {
                         }
                 )
 
-                Spacer()
-
-                // Processing indicator - fixed above bottom buttons
-                if isProcessingReceipt || isProcessingFile {
-                    HStack {
-                        ShadcnSpinner(size: .small)
-                        if isProcessingFile {
-                            Text("Analyzing file...")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                        } else {
-                            Text("Analyzing receipt...")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                        }
-                    }
-                    .background(colorScheme == .dark ? Color.black : Color.white)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 2)
-                    .padding(.bottom, 0)
-                    .zIndex(1)
+                // Bottom buttons - fixed at bottom, outside scroll view
+                VStack(spacing: 0) {
+                    bottomActionButtons
+                        .background(colorScheme == .dark ? Color.black : Color.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
                 }
-
-                // Bottom buttons - fixed at bottom
-                bottomActionButtons
-                    .background(colorScheme == .dark ? Color.black : Color.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .zIndex(2)
+                .zIndex(2)
             }
         }
     }
@@ -1241,9 +1306,18 @@ struct NoteEditView: View {
                 onTextChange: { newAttributedText in
                     attributedContent = newAttributedText
                     content = newAttributedText.string
+                    
+                    // OPTIMIZATION: Debounced auto-save (1.5 seconds after typing stops)
+                    autoSaveTask?.cancel()
+                    autoSaveTask = Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 second debounce
+                        if !Task.isCancelled, let existingNote = editingNote {
+                            await performAutoSave()
+                        }
+                    }
                 }
             )
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
             .padding(.horizontal, 0)
             .padding(.top, 8)
 
@@ -1269,6 +1343,7 @@ struct NoteEditView: View {
                     // Dismiss keyboard is now handled by scroll gesture
                 }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var imageAttachmentsView: some View {
@@ -1570,8 +1645,10 @@ struct NoteEditView: View {
             title = note.title
             content = note.content
 
-            // Parse content and load images
-            attributedContent = parseContentWithImages(note.content)
+            // Parse content and load images - defer to avoid layout glitches
+            DispatchQueue.main.async {
+                self.attributedContent = self.parseContentWithImages(note.content)
+            }
 
             // Load images from URLs using ImageCacheManager (lazy loading)
             Task {
@@ -1669,7 +1746,9 @@ struct NoteEditView: View {
         // CRITICAL: Wait for save to complete before dismissing
         Task {
             await performSave(title: trimmedTitle.isEmpty ? "Untitled" : trimmedTitle, content: contentToSave)
-            dismiss()
+            await MainActor.run {
+                dismiss()
+            }
         }
     }
 
@@ -1681,43 +1760,59 @@ struct NoteEditView: View {
             updatedNote.content = content
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
+            updatedNote.dateModified = Date()
 
             // Check if there are new images to upload (compare count)
             if imageAttachments.count > existingNote.imageUrls.count {
-                // Upload only new images
+                // Upload images first, then update note with image URLs
                 let newImages = Array(imageAttachments.suffix(imageAttachments.count - existingNote.imageUrls.count))
                 let newImageUrls = await notesManager.uploadNoteImages(newImages, noteId: existingNote.id)
                 updatedNote.imageUrls = existingNote.imageUrls + newImageUrls
+                updatedNote.dateModified = Date()
             }
 
-            // CRITICAL: Wait for sync to complete to ensure changes are persisted
-            updatedNote.dateModified = Date()
-            let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+            // CRITICAL FIX: Call updateNote ONLY ONCE (it handles both UI update and background sync)
+            // The duplicate call was causing race conditions and save failures
+            notesManager.updateNote(updatedNote)
+            editingNote = updatedNote
         } else {
-            // Create new note - MUST save to database first, then upload images
+            // Create new note - Use addNoteAndWaitForSync which handles both UI update and sync
             var newNote = Note(title: title, content: content, folderId: selectedFolderId)
             newNote.isLocked = noteIsLocked
-
-            // 1. Add note to database and WAIT for sync
+            
+            // CRITICAL FIX: Use ONLY addNoteAndWaitForSync (it adds to UI AND syncs)
+            // Do NOT call addNote() separately - that causes duplicates!
             let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
-
-            if !syncSuccess {
-                print("❌ Failed to sync note to Supabase before uploading images")
-                return
-            }
-
-            // 2. NOW upload images (RLS policy requires note to exist first)
-            if !imageAttachments.isEmpty {
+            editingNote = newNote
+            
+            if syncSuccess && !imageAttachments.isEmpty {
+                // Upload images after note is synced (RLS policy requires note to exist first)
                 let imageUrls = await notesManager.uploadNoteImages(imageAttachments, noteId: newNote.id)
-
-                // 3. Update note with image URLs
                 var updatedNote = newNote
                 updatedNote.imageUrls = imageUrls
                 updatedNote.dateModified = Date()
+                // CRITICAL FIX: Use updateNoteAndWaitForSync to ensure images are saved
                 let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
-                print("✅ Note saved with \(imageUrls.count) images")
+            } else if !syncSuccess {
+                print("⚠️ Failed to sync note to Supabase, will retry on next save")
             }
         }
+    }
+    
+    // OPTIMIZATION: Auto-save function for debounced text changes
+    @MainActor
+    private func performAutoSave() async {
+        guard let existingNote = editingNote else { return }
+        
+        var updatedNote = existingNote
+        updatedNote.title = title
+        updatedNote.content = content
+        updatedNote.dateModified = Date()
+        
+        // CRITICAL FIX: Call updateNote ONLY ONCE (it handles both UI update and background sync)
+        // The duplicate call was causing race conditions
+        notesManager.updateNote(updatedNote)
+        editingNote = updatedNote
     }
 
     // Save note immediately when tables are updated (without dismissing)
@@ -1742,7 +1837,8 @@ struct NoteEditView: View {
         // Convert NSAttributedString to Markdown to preserve formatting (bold, italic, headings)
         // Table and todo markers are also preserved in the conversion
         // The markers will be hidden in the UI by the RichTextEditor's hideMarkers() function
-        let markdown = AttributedStringToMarkdown.shared.convertToMarkdown(attributedContent)
+        // Use baseFontSize of 14 to match what parseContentWithImages uses (fontSize: 14)
+        let markdown = AttributedStringToMarkdown.shared.convertToMarkdown(attributedContent, baseFontSize: 14)
         return markdown
     }
 
@@ -1877,17 +1973,14 @@ struct NoteEditView: View {
         saveToUndoHistory()
 
         do {
-            // Get cleaned text from OpenAI
+            // Get cleaned text from AI (now returns markdown-formatted text)
             let aiCleanedText = try await openAIService.cleanUpNoteText(content)
 
-            // Apply aggressive local cleanup to remove any remaining markdown/formatting
-            let fullyCleanedText = cleanMarkdownSymbols(aiCleanedText)
-
             await MainActor.run {
-                content = fullyCleanedText
+                content = aiCleanedText
                 // Parse markdown formatting (bold, italic, headings, etc)
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(fullyCleanedText, fontSize: 14, textColor: textColor)
+                attributedContent = MarkdownParser.shared.parseMarkdown(aiCleanedText, fontSize: 14, textColor: textColor)
                 isProcessingCleanup = false
                 HapticManager.shared.aiActionComplete()
                 saveToUndoHistory()
@@ -1908,17 +2001,14 @@ struct NoteEditView: View {
         saveToUndoHistory()
 
         do {
-            // Get summarized text
+            // Get summarized text (now returns markdown-formatted text)
             let summarizedText = try await openAIService.summarizeNoteText(content)
 
-            // Apply local cleanup to remove any remaining markdown/formatting
-            let cleanedText = cleanMarkdownSymbols(summarizedText)
-
             await MainActor.run {
-                content = cleanedText
+                content = summarizedText
                 // Parse markdown formatting (bold, italic, headings, etc)
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(cleanedText, fontSize: 14, textColor: textColor)
+                attributedContent = MarkdownParser.shared.parseMarkdown(summarizedText, fontSize: 14, textColor: textColor)
                 isProcessingSummarize = false
                 HapticManager.shared.aiActionComplete()
                 saveToUndoHistory()
@@ -1940,17 +2030,14 @@ struct NoteEditView: View {
         saveToUndoHistory()
 
         do {
-            // Get expanded text
+            // Get expanded text (now returns markdown-formatted text)
             let expandedText = try await openAIService.addMoreToNoteText(content, userRequest: userRequest)
 
-            // Apply local cleanup to remove any remaining markdown/formatting
-            let cleanedText = cleanMarkdownSymbols(expandedText)
-
             await MainActor.run {
-                content = cleanedText
+                content = expandedText
                 // Parse markdown formatting (bold, italic, headings, etc)
                 let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(cleanedText, fontSize: 14, textColor: textColor)
+                attributedContent = MarkdownParser.shared.parseMarkdown(expandedText, fontSize: 14, textColor: textColor)
                 isProcessingAddMore = false
                 addMorePromptText = ""
                 HapticManager.shared.aiActionComplete()
@@ -1969,6 +2056,11 @@ struct NoteEditView: View {
         // Process with AI
         Task {
             isProcessingReceipt = true
+            
+            // Show processing indicator
+            await MainActor.run {
+                receiptProcessingState = .processing
+            }
 
             do {
                 let (receiptTitle, receiptContent) = try await openAIService.analyzeReceiptImage(image)
@@ -1993,7 +2085,8 @@ struct NoteEditView: View {
                     print("⚠️ No date found in receipt title, using main Receipts folder")
                 }
 
-                await MainActor.run {
+                // Update UI state on main actor and capture values for saving
+                let (finalTitle, finalContent) = await MainActor.run {
                     // Add the receipt image to attachments so it shows in the eye icon
                     imageAttachments.append(image)
                     print("✅ Receipt image added to attachments (total: \(imageAttachments.count))")
@@ -2020,17 +2113,43 @@ struct NoteEditView: View {
 
                     isProcessingReceipt = false
                     saveToUndoHistory()
+                    
+                    // Return values for saving
+                    return (title.isEmpty ? receiptTitle : title, newContent)
+                }
 
-                    // Auto-save the note with the receipt image and cleaned content
-                    await saveReceiptNoteWithImage(title: title.isEmpty ? receiptTitle : title, content: newContent)
+                // Auto-save the note with the receipt image and cleaned content (async operation)
+                await saveReceiptNoteWithImage(title: finalTitle, content: finalContent)
 
-                    // Auto-dismiss after saving completes
+                // Auto-dismiss after saving completes
+                await MainActor.run {
+                    HapticManager.shared.success()
+                    receiptProcessingState = .success
+                    isProcessingReceipt = false
                     self.isPresented = false
+                    
+                    // Hide success message after 2 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        await MainActor.run {
+                            receiptProcessingState = .idle
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {
                     isProcessingReceipt = false
                     print("Error analyzing receipt: \(error.localizedDescription)")
+                    receiptProcessingState = .error(error.localizedDescription)
+                    HapticManager.shared.error()
+                    
+                    // Hide error message after 3 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        await MainActor.run {
+                            receiptProcessingState = .idle
+                        }
+                    }
                 }
             }
         }

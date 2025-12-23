@@ -38,6 +38,8 @@ struct SavedEmailsListView: View {
                 } else {
                     List {
                         ForEach(viewModel.emails) { email in
+                            let isDeleting = viewModel.deletingEmailIds.contains(email.id)
+
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
                                     Text(email.senderName ?? email.senderEmail)
@@ -47,9 +49,14 @@ struct SavedEmailsListView: View {
 
                                     Spacer()
 
-                                    Text(email.formattedTime)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
+                                    if isDeleting {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                    } else {
+                                        Text(email.formattedTime)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.gray)
+                                    }
                                 }
 
                                 Text(email.subject)
@@ -58,8 +65,12 @@ struct SavedEmailsListView: View {
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black)
                             }
                             .padding(.vertical, 4)
+                            .opacity(isDeleting ? 0.5 : 1.0) // Show deletion in progress
                             .onTapGesture {
-                                selectedEmail = email
+                                // Don't allow tapping while deleting
+                                if !isDeleting {
+                                    selectedEmail = email
+                                }
                             }
                             .contextMenu {
                                 Button(role: .destructive) {
@@ -68,6 +79,7 @@ struct SavedEmailsListView: View {
                                     Label("Delete", systemImage: "trash")
                                 }
                             }
+                            .disabled(isDeleting) // Disable interaction while deleting
                             .listRowSeparator(.hidden)
                         }
                     }
@@ -95,6 +107,7 @@ class SavedEmailsListViewModel: ObservableObject {
     @Published var emails: [SavedEmail] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var deletingEmailIds: Set<UUID> = [] // Track emails being deleted
 
     private let emailService = EmailService.shared
 
@@ -102,7 +115,7 @@ class SavedEmailsListViewModel: ObservableObject {
         isLoading = true
         Task {
             do {
-                emails = try await emailService.fetchSavedEmails(in: folderId)
+                emails = try await emailService.fetchSavedEmails(in: folderId, forceRefresh: true)
                 isLoading = false
             } catch {
                 errorMessage = error.localizedDescription
@@ -112,12 +125,24 @@ class SavedEmailsListViewModel: ObservableObject {
     }
 
     func deleteEmail(_ email: SavedEmail) {
+        // Add to deleting set to show loading state
+        deletingEmailIds.insert(email.id)
+
         Task {
             do {
+                // CRITICAL FIX: Wait for deletion to complete before removing from UI
                 try await emailService.deleteSavedEmail(id: email.id)
+
+                // Only remove from UI after successful deletion
                 emails.removeAll { $0.id == email.id }
+                deletingEmailIds.remove(email.id)
+
+                print("✅ Email deleted successfully: \(email.subject)")
             } catch {
-                errorMessage = error.localizedDescription
+                // Show error and keep email in list if deletion fails
+                deletingEmailIds.remove(email.id)
+                errorMessage = "Failed to delete email: \(error.localizedDescription)"
+                print("❌ Failed to delete email: \(error)")
             }
         }
     }
@@ -143,6 +168,8 @@ struct SavedEmailDetailView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
     @State private var isEmailBodyExpanded: Bool = false
+    @State private var isDeleting: Bool = false
+    @State private var showDeleteError: Bool = false
 
     var body: some View {
         NavigationView {
@@ -190,23 +217,46 @@ struct SavedEmailDetailView: View {
                     // Fixed delete button at bottom
                     VStack(spacing: 0) {
                         Button(role: .destructive) {
-                            viewModel.deleteEmail(email)
-                            dismiss()
+                            Task {
+                                isDeleting = true
+                                viewModel.deleteEmail(email)
+
+                                // Wait a moment to ensure deletion completes
+                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
+                                if viewModel.errorMessage == nil {
+                                    // Success - dismiss view
+                                    dismiss()
+                                } else {
+                                    // Error occurred
+                                    isDeleting = false
+                                    showDeleteError = true
+                                }
+                            }
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 16, weight: .semibold))
-                                Text("Delete Email")
-                                    .font(FontManager.geist(size: .body, weight: .medium))
+                                if isDeleting {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(0.9)
+                                    Text("Deleting...")
+                                        .font(FontManager.geist(size: .body, weight: .medium))
+                                } else {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    Text("Delete Email")
+                                        .font(FontManager.geist(size: .body, weight: .medium))
+                                }
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                             .foregroundColor(.white)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.red.opacity(0.8))
+                                    .fill(isDeleting ? Color.gray.opacity(0.6) : Color.red.opacity(0.8))
                             )
                         }
+                        .disabled(isDeleting)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 4)
                         .padding(.top, 4)
@@ -225,6 +275,13 @@ struct SavedEmailDetailView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .alert("Delete Failed", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) {
+                viewModel.errorMessage = nil
+            }
+        } message: {
+            Text(viewModel.errorMessage ?? "An error occurred while deleting the email.")
+        }
     }
 
     // MARK: - Header Section

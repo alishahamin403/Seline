@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct MapsView: View, Searchable {
     @StateObject private var locationsManager = LocationsManager.shared
@@ -209,6 +210,7 @@ struct MapsView: View, Searchable {
 struct PlaceSearchResultRow: View {
     let result: PlaceSearchResult
     let isSaved: Bool
+    let currentLocation: CLLocation?
     let onSave: () -> Void
     let onTap: () -> Void
     @Environment(\.colorScheme) var colorScheme
@@ -224,6 +226,22 @@ struct PlaceSearchResultRow: View {
             return String(firstWord.prefix(2)).uppercased()
         }
         return "?"
+    }
+    
+    // Calculate distance from current location
+    var distanceText: String? {
+        guard let currentLocation = currentLocation else { return nil }
+        let placeLocation = CLLocation(latitude: result.latitude, longitude: result.longitude)
+        let distanceInMeters = currentLocation.distance(from: placeLocation)
+        let distanceInKm = distanceInMeters / 1000.0
+        
+        if distanceInKm < 1.0 {
+            // Show in meters if less than 1km
+            return String(format: "%.0fm", distanceInMeters)
+        } else {
+            // Show in kilometers with 1 decimal place
+            return String(format: "%.1f km", distanceInKm)
+        }
     }
 
     var body: some View {
@@ -248,10 +266,18 @@ struct PlaceSearchResultRow: View {
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
 
-                    Text(result.address)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(result.address)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                            .lineLimit(1)
+                        
+                        if let distance = distanceText {
+                            Text("• \(distance)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                        }
+                    }
                 }
 
                 Spacer()

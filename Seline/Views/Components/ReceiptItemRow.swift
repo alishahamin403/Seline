@@ -12,31 +12,29 @@ struct ReceiptItemRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Button(action: { onTap(receipt.noteId) }) {
-                    Text(destinationName)
-                        .font(.system(size: 14, weight: .regular))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .foregroundColor(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
+        Button(action: { onTap(receipt.noteId) }) {
+            HStack(spacing: 12) {
+                Text(destinationName)
+                    .font(.system(size: 14, weight: .regular))
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+                Spacer()
 
-            VStack(alignment: .trailing, spacing: 0) {
                 Text(CurrencyParser.formatAmount(receipt.amount))
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
             }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+            )
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(colorScheme == .dark ? Color.white.opacity(0.03) : Color.gray.opacity(0.02))
-        .cornerRadius(6)
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

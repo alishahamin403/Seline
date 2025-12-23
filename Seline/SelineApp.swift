@@ -7,11 +7,20 @@ import BackgroundTasks
 
 @main
 struct SelineApp: App {
+    // OPTIMIZATION: Centralize all shared managers at app level
     @StateObject private var authManager = AuthenticationManager.shared
     @StateObject private var notificationService = NotificationService.shared
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var deepLinkHandler = DeepLinkHandler.shared
     @StateObject private var searchService = SearchService.shared
+    @StateObject private var geofenceManager = GeofenceManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
+    @StateObject private var emailService = EmailService.shared
+    @StateObject private var notesManager = NotesManager.shared
+    @StateObject private var locationService = LocationService.shared
+    @StateObject private var weatherService = WeatherService.shared
+    @StateObject private var navigationService = NavigationService.shared
+    @StateObject private var tagManager = TagManager.shared
     @State private var lastCalendarSyncTime: Date = Date.distantPast
     @State private var isCalendarSyncing: Bool = false
 
@@ -20,6 +29,7 @@ struct SelineApp: App {
         configureGoogleSignIn()
         configureNotifications()
         configureBackgroundRefresh()
+        configureLocationServices()
         // Sync calendar events on launch to ensure calendar permission is granted and events are fetched
         syncCalendarEventsOnFirstLaunch()
         migrateReceiptCategoriesIfNeeded()
@@ -38,7 +48,17 @@ struct SelineApp: App {
             RootView()
                 .environmentObject(authManager)
                 .environmentObject(notificationService)
+                .environmentObject(taskManager)
                 .environmentObject(deepLinkHandler)
+                .environmentObject(searchService)
+                .environmentObject(geofenceManager)
+                .environmentObject(locationsManager)
+                .environmentObject(emailService)
+                .environmentObject(notesManager)
+                .environmentObject(locationService)
+                .environmentObject(weatherService)
+                .environmentObject(navigationService)
+                .environmentObject(tagManager)
                 .onOpenURL { url in
                     print("🚀 SelineApp: .onOpenURL triggered with URL: \(url.absoluteString)")
                     print("🚀 SelineApp: Passing to deepLinkHandler")
@@ -64,6 +84,17 @@ struct SelineApp: App {
                             await taskManager.syncCalendarEvents()
 
                             isCalendarSyncing = false
+                        }
+
+                        // OPTIMIZATION: Background cache warming - preload commonly needed data
+                        Task.detached(priority: .utility) {
+                            // Warm up task caches
+                            _ = await taskManager.getAllFlattenedTasks()
+
+                            // Warm up today's visits cache
+                            _ = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
+
+                            print("🔥 Cache warming complete")
                         }
                     }
                 }
@@ -186,6 +217,40 @@ struct SelineApp: App {
         Task {
             print("📋 [SelineApp] Checking for receipt categories that need migration...")
             await ReceiptCategorizationService.shared.migrateOldServices()
+        }
+    }
+
+    private func configureLocationServices() {
+        // CRITICAL: Initialize location services at app launch for background geofencing
+        // This ensures GeofenceManager is ready to handle background location events
+        // even when the app is killed and iOS wakes it up for a geofence trigger
+
+        Task {
+            print("📍 [SelineApp] Configuring location services...")
+
+            // Request location permission and set up geofences
+            // If permission is already granted, this immediately sets up geofences
+            // If not granted yet, geofences will be set up when permission is granted
+            geofenceManager.requestLocationPermission()
+
+            // Load incomplete visits from Supabase to resume tracking
+            // This is important for cases where the app was killed mid-visit
+            await geofenceManager.loadIncompleteVisitsFromSupabase()
+
+            // Fix historical visits that span midnight
+            // CRITICAL: Run this fix on app launch to process any visits that span midnight
+            // This runs directly (not detached) to ensure it completes before user interacts with app
+            print("🌙 [SelineApp] Starting midnight-spanning visit fix...")
+            let result = await LocationVisitAnalytics.shared.fixMidnightSpanningVisits()
+            if result.fixed > 0 {
+                print("✅ [SelineApp] Fixed \(result.fixed) historical midnight-spanning visits!")
+            } else if result.errors > 0 {
+                print("❌ [SelineApp] \(result.errors) errors while fixing midnight visits")
+            } else {
+                print("✅ [SelineApp] No midnight-spanning visits to fix")
+            }
+
+            print("✅ [SelineApp] Location services configured")
         }
     }
 }

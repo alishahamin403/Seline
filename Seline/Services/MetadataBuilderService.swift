@@ -3,6 +3,14 @@ import Foundation
 /// Service that compiles lightweight metadata from all data sources
 /// This enables intelligent LLM filtering without pre-filtering in the backend
 class MetadataBuilderService {
+    // OPTIMIZATION: Cache metadata to avoid rebuilding on every query
+    private static var metadataCache: (data: AppDataMetadata, timestamp: Date)?
+    private static let cacheTTL: TimeInterval = 60 // 1 minute cache
+    
+    /// Invalidate the metadata cache (call when data changes)
+    static func invalidateCache() {
+        metadataCache = nil
+    }
 
     /// Build complete metadata context from all data sources
     @MainActor
@@ -12,22 +20,48 @@ class MetadataBuilderService {
         emailService: EmailService,
         locationsManager: LocationsManager
     ) async -> AppDataMetadata {
+        // Check cache first
+        if let cached = metadataCache,
+           Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            return cached.data
+        }
         let receipts = buildReceiptMetadata(from: notesManager)
         let events = buildEventMetadata(from: taskManager)
 
         // Preload visit stats for all saved places before building location metadata
+        // OPTIMIZATION: Load all stats in parallel instead of sequentially
         print("📊 Preloading geofence visit stats for \(locationsManager.savedPlaces.count) locations...")
         print("   Current user: \(SupabaseManager.shared.getCurrentUser()?.id.uuidString ?? "NOT AUTHENTICATED")")
 
-        for place in locationsManager.savedPlaces {
-            print("   📍 Fetching stats for \(place.name) (ID: \(place.id))...")
-            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+        // Load all location stats in parallel for better performance
+        await withTaskGroup(of: (UUID, Bool).self) { group in
+            for place in locationsManager.savedPlaces {
+                group.addTask {
+                    await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                    // Access MainActor-isolated property on main actor
+                    let success = await MainActor.run {
+                        LocationVisitAnalytics.shared.visitStats[place.id] != nil
+                    }
+                    return (place.id, success)
+                }
+            }
 
-            if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
-                print("   ✅ Loaded stats for \(place.name): \(stats.totalVisits) visits, Peak: \(stats.mostCommonTimeOfDay ?? "N/A"), Last visit: \(stats.lastVisitDate?.formatted(date: .abbreviated, time: .shortened) ?? "N/A")")
-            } else {
-                let errorMsg = LocationVisitAnalytics.shared.errorMessage ?? "Unknown error"
-                print("   ❌ Failed to load visit data for \(place.name): \(errorMsg)")
+            // Log results as they complete
+            for await (placeId, success) in group {
+                if let place = locationsManager.savedPlaces.first(where: { $0.id == placeId }) {
+                    // Access MainActor-isolated properties on main actor
+                    let (hasStats, stats, errorMsg) = await MainActor.run {
+                        let stats = LocationVisitAnalytics.shared.visitStats[placeId]
+                        let errorMsg = LocationVisitAnalytics.shared.errorMessage ?? "Unknown error"
+                        return (stats != nil, stats, errorMsg)
+                    }
+                    
+                    if success && hasStats, let stats = stats {
+                        print("   ✅ Loaded stats for \(place.name): \(stats.totalVisits) visits, Peak: \(stats.mostCommonTimeOfDay ?? "N/A"), Last visit: \(stats.lastVisitDate?.formatted(date: .abbreviated, time: .shortened) ?? "N/A")")
+                    } else {
+                        print("   ❌ Failed to load visit data for \(place.name): \(errorMsg)")
+                    }
+                }
             }
         }
 
@@ -36,7 +70,7 @@ class MetadataBuilderService {
         let emails = buildEmailMetadata(from: emailService)
         let recurringExpenses = await buildRecurringExpenseMetadata()
 
-        return AppDataMetadata(
+        let metadata = AppDataMetadata(
             receipts: receipts,
             events: events,
             locations: locations,
@@ -44,6 +78,11 @@ class MetadataBuilderService {
             emails: emails,
             recurringExpenses: recurringExpenses
         )
+        
+        // Cache the metadata
+        metadataCache = (metadata, Date())
+        
+        return metadata
     }
 
     // MARK: - Receipt Metadata Builder
@@ -472,6 +511,10 @@ class MetadataBuilderService {
                     frequencyDays = 30
                 case .yearly:
                     frequencyDays = 365
+                case .custom:
+                    // Custom frequency typically means specific days per week
+                    // Using weekly (7 days) as a reasonable approximation
+                    frequencyDays = 7
                 }
 
                 totalOccurrences = max(1, daysSinceStart / frequencyDays + 1)
@@ -491,6 +534,10 @@ class MetadataBuilderService {
                     monthlyEstimate = amountDouble
                 case .yearly:
                     monthlyEstimate = amountDouble / 12
+                case .custom:
+                    // Custom frequency typically means specific days per week
+                    // Using weekly multiplier (4.3) as a reasonable approximation
+                    monthlyEstimate = amountDouble * 4.3
                 }
 
                 let meta = RecurringExpenseMetadata(

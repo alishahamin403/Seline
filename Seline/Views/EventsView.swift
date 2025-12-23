@@ -229,7 +229,7 @@ struct EventsView: View {
                     }
                 } else {
                     // Fallback content to prevent blank screen
-                    NavigationView {
+                    NavigationStack {
                         VStack {
                             Text("Unable to load task for editing")
                                 .foregroundColor(.secondary)
@@ -295,6 +295,29 @@ struct EventsView: View {
         return Color.gray // Personal (default) color
     }
 
+    // Helper methods for filter button styling
+    private func filterButtonTextColor(isSelected: Bool) -> Color {
+        isSelected ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme)
+    }
+
+    private func filterButtonBackground(isSelected: Bool, accentColor: Color) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(isSelected ?
+                accentColor.opacity(0.2) :
+                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
+    }
+
+    private func filterButtonBorder(isSelected: Bool, accentColor: Color) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .stroke(
+                isSelected ?
+                    accentColor.opacity(0.3) :
+                    (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1)),
+                lineWidth: 1
+            )
+    }
+
     // MARK: - Events Content
 
     private var eventsContent: some View {
@@ -311,18 +334,16 @@ struct EventsView: View {
                             selectedTagId = nil
                         }
                     }) {
+                        let isSelected = selectedTagId == nil
+                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme)
+
                         Text("All")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == nil ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(filterButtonTextColor(isSelected: isSelected))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedTagId == nil ?
-                                        TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme).opacity(0.2) :
-                                        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                    )
-                            )
+                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                            .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
                     }
                     .buttonStyle(PlainButtonStyle())
 
@@ -332,18 +353,16 @@ struct EventsView: View {
                             selectedTagId = "" // Empty string to filter for personal events (nil tagId)
                         }
                     }) {
+                        let isSelected = selectedTagId == ""
+                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme)
+
                         Text("Personal")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == "" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(filterButtonTextColor(isSelected: isSelected))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedTagId == "" ?
-                                        TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme).opacity(0.2) :
-                                        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                    )
-                            )
+                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                            .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
                     }
                     .buttonStyle(PlainButtonStyle())
 
@@ -353,18 +372,16 @@ struct EventsView: View {
                             selectedTagId = "cal_sync" // Special marker for synced calendar events
                         }
                     }) {
+                        let isSelected = selectedTagId == "cal_sync"
+                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme)
+
                         Text("Personal - Sync")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(selectedTagId == "cal_sync" ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                            .foregroundColor(filterButtonTextColor(isSelected: isSelected))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedTagId == "cal_sync" ?
-                                        TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme).opacity(0.2) :
-                                        (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                    )
-                            )
+                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                            .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
                     }
                     .buttonStyle(PlainButtonStyle())
 
@@ -375,18 +392,16 @@ struct EventsView: View {
                                 selectedTagId = tag.id
                             }
                         }) {
+                            let isSelected = selectedTagId == tag.id
+                            let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex)
+
                             Text(tag.name)
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(selectedTagId == tag.id ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme))
+                                .foregroundColor(filterButtonTextColor(isSelected: isSelected))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(selectedTagId == tag.id ?
-                                            TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex).opacity(0.2) :
-                                            (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                                        )
-                                )
+                                .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                                .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
                         }
                         .buttonStyle(PlainButtonStyle())
                     }

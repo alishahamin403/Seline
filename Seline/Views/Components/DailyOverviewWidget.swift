@@ -76,49 +76,85 @@ struct DailyOverviewWidget: View {
     }
 
     private var birthdaysThisWeek: [TaskItem] {
-        // Look for birthday tag
-        let birthdayTag = tagManager.tags.first { $0.name.lowercased() == "birthday" }
+        // OPTIMIZATION: Use CacheManager with 5-minute TTL
+        return CacheManager.shared.getOrCompute(
+            forKey: CacheManager.CacheKey.birthdaysThisWeek,
+            ttl: CacheManager.TTL.medium
+        ) {
+            let birthdayTag = tagManager.tags.first { $0.name.lowercased() == "birthday" }
 
-        return taskManager.getAllFlattenedTasks().filter { task in
-            // Check if task has birthday tag or contains "birthday" in title
-            let isBirthdayEvent = (birthdayTag != nil && task.tagId == birthdayTag?.id) ||
-                                 task.title.lowercased().contains("birthday")
+            return taskManager.getAllFlattenedTasks().filter { task in
+                // Check if task has birthday tag or contains "birthday" in title
+                let isBirthdayEvent = (birthdayTag != nil && task.tagId == birthdayTag?.id) ||
+                                     task.title.lowercased().contains("birthday")
 
-            guard isBirthdayEvent, let targetDate = task.targetDate else { return false }
+                guard isBirthdayEvent, let targetDate = task.targetDate else { return false }
 
-            return targetDate >= today && targetDate < weekEnd
+                return targetDate >= today && targetDate < weekEnd
+            }
+            .sorted { ($0.targetDate ?? Date()) < ($1.targetDate ?? Date()) }
         }
-        .sorted { ($0.targetDate ?? Date()) < ($1.targetDate ?? Date()) }
     }
 
     private var todaysReceipts: [Note] {
-        let calendar = Calendar.current
-        return notesManager.notes.filter { note in
-            let content = note.content ?? ""
-            let amount = CurrencyParser.extractAmount(from: content)
-            guard amount > 0 else { return false }
+        // OPTIMIZATION: Use CacheManager with 5-minute TTL to avoid repeated currency parsing
+        return CacheManager.shared.getOrCompute(
+            forKey: CacheManager.CacheKey.todaysReceipts,
+            ttl: CacheManager.TTL.medium
+        ) {
+            let calendar = Calendar.current
+            let receiptsFolder = notesManager.folders.first { $0.name == "Receipts" }
 
-            // CRITICAL: Only include notes with bullet point structure (receipt format)
-            // Receipt notes must have bullet points (lines starting with "- ")
-            guard content.contains("- ") else { return false }
+            return notesManager.notes.filter { note in
+                // CRITICAL FIX: Only include notes that are in the Receipts folder hierarchy
+                guard let folderId = note.folderId,
+                      let receiptsFolderId = receiptsFolder?.id else {
+                    return false
+                }
 
-            // Try to extract date from title first (e.g., "Store - December 07, 2025")
-            if let receiptDate = notesManager.extractFullDateFromTitle(note.title) {
-                let receiptDay = calendar.startOfDay(for: receiptDate)
-                return receiptDay == today
-            } else {
-                // Fallback to dateCreated if no date in title
+                // Check if this note is in the Receipts folder or any of its subfolders
+                var currentFolderId: UUID? = folderId
+                var isInReceiptsFolder = false
+
+                while let currentId = currentFolderId {
+                    if currentId == receiptsFolderId {
+                        isInReceiptsFolder = true
+                        break
+                    }
+                    currentFolderId = notesManager.folders.first(where: { $0.id == currentId })?.parentFolderId
+                }
+
+                guard isInReceiptsFolder else { return false }
+
+                let content = note.content ?? ""
+                let amount = CurrencyParser.extractAmount(from: content)
+                guard amount > 0 else { return false }
+
+                // CRITICAL: Only include notes with bullet point structure (receipt format)
+                // Receipt notes must have bullet points (lines starting with "- ")
+                guard content.contains("- ") else { return false }
+
+                // FIXED: Always use dateCreated to determine if receipt was added today
+                // The title may contain the receipt's original date (which could be old),
+                // but we want to show receipts that were ADDED today, not DATED today
                 let noteDay = calendar.startOfDay(for: note.dateCreated)
                 return noteDay == today
-            }
-        }.sorted { $0.dateCreated > $1.dateCreated }
+            }.sorted { $0.dateCreated > $1.dateCreated }
+        }
     }
 
     private var todaysTotalSpending: Double {
-        todaysReceipts.compactMap { note in
-            let amount = CurrencyParser.extractAmount(from: note.content ?? "")
-            return amount > 0 ? amount : nil
-        }.reduce(0, +)
+        // OPTIMIZATION: Use CacheManager with 5-minute TTL (same as receipts)
+        return CacheManager.shared.getOrCompute(
+            forKey: CacheManager.CacheKey.todaysSpending,
+            ttl: CacheManager.TTL.medium
+        ) {
+            // Compute from cached receipts
+            return todaysReceipts.compactMap { note in
+                let amount = CurrencyParser.extractAmount(from: note.content ?? "")
+                return amount > 0 ? amount : nil
+            }.reduce(0.0, +)
+        }
     }
 
     // MARK: - Computed Properties
@@ -149,10 +185,10 @@ struct DailyOverviewWidget: View {
             parts.append("\(CurrencyParser.formatAmount(todaysTotalSpending)) today")
         }
         if !expensesDueToday.isEmpty {
-            parts.append("\(expensesDueToday.count) due today")
+            parts.append("\(expensesDueToday.count) today")
         }
         if !expensesDueTomorrow.isEmpty {
-            parts.append("\(expensesDueTomorrow.count) tomorrow")
+            parts.append("\(expensesDueTomorrow.count) tom")
         }
         if !upcomingExpenses.isEmpty {
             parts.append("\(upcomingExpenses.count) upcoming")
@@ -176,7 +212,8 @@ struct DailyOverviewWidget: View {
 
                 if isExpanded {
                     Divider()
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
+                        .opacity(0.3)
 
                     VStack(alignment: .leading, spacing: 16) {
                         if !todaysReceipts.isEmpty {
@@ -208,18 +245,8 @@ struct DailyOverviewWidget: View {
                     }
                 }
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-            )
-            .cornerRadius(12)
-            .shadow(
-                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05),
-                radius: 8,
-                x: 0,
-                y: 2
-            )
+            .padding(16)
+            .shadcnTileStyle(colorScheme: colorScheme)
             .onAppear {
                 loadData()
                 Task {
@@ -242,24 +269,24 @@ struct DailyOverviewWidget: View {
             }
             HapticManager.shared.light()
         }) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Quick Access")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     if !isExpanded {
                         Text(summaryText)
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                     }
                 }
 
                 Spacer()
 
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.gray)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
             }
             .contentShape(Rectangle())
         }
@@ -269,9 +296,9 @@ struct DailyOverviewWidget: View {
     // MARK: - Section Views
 
     private var todaysSpendingSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Total Spend Today: \(CurrencyParser.formatAmount(todaysTotalSpending))")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(todaysReceipts.prefix(5), id: \.id) { note in
@@ -281,9 +308,9 @@ struct DailyOverviewWidget: View {
     }
 
     private var expensesDueTodaySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Due Today")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(expensesDueToday.prefix(5), id: \.instance.id) { item in
@@ -293,9 +320,9 @@ struct DailyOverviewWidget: View {
     }
 
     private var expensesDueTomorrowSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Due Tomorrow")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(expensesDueTomorrow.prefix(5), id: \.instance.id) { item in
@@ -305,9 +332,9 @@ struct DailyOverviewWidget: View {
     }
 
     private var upcomingExpensesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Upcoming (Next 7 Days)")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(upcomingExpenses.prefix(10), id: \.instance.id) { item in
@@ -342,7 +369,8 @@ struct DailyOverviewWidget: View {
 
     private var quickNotesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            // Header with Quick Notes text and + button
+            HStack(spacing: 12) {
                 Text("Quick Notes")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
@@ -379,6 +407,7 @@ struct DailyOverviewWidget: View {
                 quickNoteRow(note)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 8)

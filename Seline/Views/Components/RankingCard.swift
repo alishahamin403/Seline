@@ -21,23 +21,13 @@ struct RankingCard: View {
                 expandedEditView
             }
         }
-        .background(cardBackground)
-        .overlay(cardBorder)
+        .shadcnTileStyle(colorScheme: colorScheme)
     }
 
     private var collapsedCardView: some View {
-        HStack(spacing: 12) {
-            restaurantInfoView
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            ratingColumnView
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
+        Button(action: {
+            HapticManager.shared.light()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 if isExpanded {
                     isExpanded = false
                 } else {
@@ -47,45 +37,108 @@ struct RankingCard: View {
                     isExpanded = true
                 }
             }
+        }) {
+            HStack(spacing: 12) {
+                // Place image/thumbnail
+                PlaceImageView(place: restaurant, size: 48, cornerRadius: 10)
+                
+                // Restaurant info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(restaurant.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    
+                    // Address
+                    Text(restaurant.formattedAddress)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                        .lineLimit(1)
+                    
+                    // Cuisine tag and Google rating
+                    HStack(spacing: 6) {
+                        if let cuisine = restaurant.userCuisine {
+                            cuisineTag(cuisine)
+                        }
+                        
+                        if let googleRating = restaurant.rating {
+                            HStack(spacing: 2) {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.orange)
+                                Text(String(format: "%.1f", googleRating))
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Spacer()
+                
+                // Rating badge
+                ratingBadge
+            }
+            .padding(12)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PlainButtonStyle())
     }
-
-    private var restaurantInfoView: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(restaurant.displayName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .lineLimit(1)
-
-            Text(restaurant.formattedAddress)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                .lineLimit(1)
-        }
-    }
-
-    private var ratingColumnView: some View {
-        VStack(alignment: .trailing, spacing: 2) {
+    
+    private var ratingBadge: some View {
+        Group {
             if let userRating = restaurant.userRating {
                 Text("\(userRating)/10")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(ratingColor(userRating))
+                    .frame(width: 50)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(ratingColor(userRating).opacity(0.15))
+                    )
             } else {
-                Text("—")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
-            }
-
-            if let rating = restaurant.rating {
-                HStack(spacing: 2) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.orange)
-                    Text(String(format: "%.1f", rating))
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                VStack(spacing: 3) {
+                    Image(systemName: "star")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+                    
+                    Text("Rate")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
                 }
+                .frame(width: 44)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
+                )
             }
+        }
+    }
+    
+    private func cuisineTag(_ cuisine: String) -> some View {
+        Text(cuisine)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+            )
+    }
+    
+    private func ratingColor(_ rating: Int) -> Color {
+        if rating >= 8 {
+            return Color.green
+        } else if rating >= 5 {
+            return Color.orange
+        } else {
+            return Color.red
         }
     }
 
@@ -93,6 +146,7 @@ struct RankingCard: View {
         VStack(spacing: 12) {
             Divider()
                 .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                .padding(.horizontal, 12)
 
             ratingSliderView
 
@@ -102,111 +156,127 @@ struct RankingCard: View {
 
             saveButtonView
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     private var ratingSliderView: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Your Rating")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
 
                 if let rating = tempRating {
-                    Text("\(rating)/10")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    HStack(spacing: 3) {
+                        Text("\(rating)")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(ratingColor(rating))
+                        Text("/10")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    }
                 } else {
                     Text("Not rated")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                 }
             }
 
+            // Star rating buttons
             HStack(spacing: 6) {
                 ForEach(1...10, id: \.self) { number in
                     Button(action: {
-                        tempRating = number
+                        HapticManager.shared.selection()
+                        withAnimation(.spring(response: 0.2)) {
+                            tempRating = number
+                        }
                     }) {
-                        if let rating = tempRating, number <= rating {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.yellow)
-                        } else {
-                            Image(systemName: "star")
-                                .font(.system(size: 12))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    tempRating == number 
+                                        ? ratingColor(number).opacity(0.2)
+                                        : (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
+                                )
+                                .frame(width: 28, height: 28)
+                            
+                            if let rating = tempRating, number <= rating {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(ratingColor(rating))
+                            } else {
+                                Image(systemName: "star")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                            }
                         }
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
         }
     }
 
     private var cuisineFieldView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Cuisine")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Cuisine")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                Spacer()
+            Menu {
+                Button(action: {
+                    tempCuisine = nil
+                }) {
+                    HStack {
+                        Text("Clear")
+                        if tempCuisine == nil {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
 
-                Menu {
+                ForEach(cuisineOptions, id: \.self) { cuisine in
                     Button(action: {
-                        tempCuisine = nil
+                        tempCuisine = cuisine
                     }) {
                         HStack {
-                            Text("Clear")
-                            if tempCuisine == nil {
+                            Text(cuisine)
+                            if tempCuisine == cuisine {
                                 Image(systemName: "checkmark")
                             }
                         }
                     }
-
-                    ForEach(cuisineOptions, id: \.self) { cuisine in
-                        Button(action: {
-                            tempCuisine = cuisine
-                        }) {
-                            HStack {
-                                Text(cuisine)
-                                if tempCuisine == cuisine {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
+                }
+            } label: {
+                    HStack(spacing: 6) {
                         Text(tempCuisine ?? "Select cuisine")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
 
+                        Spacer()
+
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                     }
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(
-                                colorScheme == .dark ?
-                                    Color.white.opacity(0.05) : Color.gray.opacity(0.05)
-                            )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(
-                                colorScheme == .dark ?
-                                    Color.white.opacity(0.1) : Color.gray.opacity(0.1),
-                                lineWidth: 1
-                            )
-                    )
-                }
+                    .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(
+                            colorScheme == .dark 
+                                ? Color.white.opacity(0.08)
+                                : Color.black.opacity(0.1),
+                            lineWidth: 1
+                        )
+                )
             }
         }
     }
@@ -215,25 +285,23 @@ struct RankingCard: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Notes")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
 
             TextEditor(text: $tempNotes)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
-                .frame(minHeight: 60)
+                .frame(minHeight: 70)
                 .padding(8)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(
-                            colorScheme == .dark ?
-                                Color.white.opacity(0.05) : Color.gray.opacity(0.05)
-                        )
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 10)
                         .stroke(
-                            colorScheme == .dark ?
-                                Color.white.opacity(0.1) : Color.gray.opacity(0.1),
+                            colorScheme == .dark 
+                                ? Color.white.opacity(0.08)
+                                : Color.black.opacity(0.1),
                             lineWidth: 1
                         )
                 )
@@ -242,8 +310,9 @@ struct RankingCard: View {
 
     private var saveButtonView: some View {
         Button(action: {
+            HapticManager.shared.selection()
             onRatingUpdate(tempRating, tempNotes.isEmpty ? nil : tempNotes, tempCuisine)
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 isExpanded = false
             }
         }) {
@@ -253,41 +322,28 @@ struct RankingCard: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black)
                 )
         }
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(
-                colorScheme == .dark ?
-                    Color.white.opacity(0.05) : Color.gray.opacity(0.05)
-            )
-    }
-
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .stroke(
-                colorScheme == .dark ?
-                    Color.white.opacity(0.1) : Color.gray.opacity(0.1),
-                lineWidth: 1
-            )
     }
 }
 
 #Preview {
-    RankingCard(
-        restaurant: SavedPlace(
-            googlePlaceId: "test",
-            name: "Test Restaurant",
-            address: "123 Main St, Toronto, Ontario, Canada",
-            latitude: 43.6532,
-            longitude: -79.3832,
-            rating: 4.5
-        ),
-        colorScheme: .dark,
-        onRatingUpdate: { _, _, _ in }
-    )
+    VStack(spacing: 16) {
+        RankingCard(
+            restaurant: SavedPlace(
+                googlePlaceId: "test",
+                name: "Test Restaurant",
+                address: "123 Main St, Toronto, Ontario, Canada",
+                latitude: 43.6532,
+                longitude: -79.3832,
+                rating: 4.5
+            ),
+            colorScheme: .dark,
+            onRatingUpdate: { _, _, _ in }
+        )
+        .padding()
+    }
+    .background(Color.black)
 }

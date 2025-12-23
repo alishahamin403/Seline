@@ -1,10 +1,12 @@
 import SwiftUI
+import CoreLocation
 
 struct LocationSearchModal: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var mapsService = GoogleMapsService.shared
     @StateObject private var locationsManager = LocationsManager.shared
+    @StateObject private var locationService = LocationService.shared
 
     @State private var searchText = ""
     @State private var searchResults: [PlaceSearchResult] = []
@@ -125,6 +127,7 @@ struct LocationSearchModal: View {
                                 PlaceSearchResultRow(
                                     result: result,
                                     isSaved: locationsManager.isPlaceSaved(googlePlaceId: result.id),
+                                    currentLocation: locationService.currentLocation,
                                     onSave: {
                                         // Save handled in detail view
                                     },

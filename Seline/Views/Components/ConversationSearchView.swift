@@ -14,6 +14,8 @@ struct ConversationSearchView: View {
     @State private var isStreamingResponse = false
     @State private var streamingStartTime: Date?
     @State private var elapsedTimeUpdateTrigger = UUID() // Triggers elapsed time updates
+    @State private var generatedFollowUpQuestions: [String] = []
+    @State private var isGeneratingFollowUps = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,26 +74,39 @@ struct ConversationSearchView: View {
         ScrollView {
             VStack(spacing: 0) {
                 Spacer()
-                    .frame(height: 60)
+                    .frame(height: 40)
 
-                // Modern greeting section with subtle animation
-                VStack(spacing: 12) {
-                    Text(userFirstName.isEmpty ? greetingText : "\(greetingText), \(userFirstName)")
-                        .font(.system(size: 28, weight: .semibold, design: .rounded))
-                        .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.15))
+                // Modern greeting section with icon badge
+                VStack(spacing: 16) {
+                    // Icon badge
+                    ZStack {
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                            .frame(width: 64, height: 64)
+                        
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.8))
+                    }
+                    
+                    VStack(spacing: 8) {
+                        Text(userFirstName.isEmpty ? greetingText : "\(greetingText), \(userFirstName)")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                    Text("How can I help you today?")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+                        Text("How can I help you today?")
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                    }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, 48)
+                .padding(.bottom, 32)
 
                 // Only show default suggestions when input is empty
                 // When typing, suggestions appear above input box instead
                 if messageText.isEmpty {
                     defaultSuggestionsView
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 12)
                         .padding(.bottom, 32)
                 }
 
@@ -121,25 +136,38 @@ struct ConversationSearchView: View {
     }
     
     private var defaultSuggestionsView: some View {
-        // Quick action chips only
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Quick actions")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
-                .textCase(.uppercase)
-                .tracking(0.5)
-                .padding(.horizontal, 4)
-            
+        VStack(alignment: .leading, spacing: 16) {
+            // Modern card-based suggestions
             LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10)
-            ], spacing: 10) {
-                suggestionChip(icon: "chart.line.uptrend.xyaxis", title: "Spending")
-                suggestionChip(icon: "calendar", title: "Schedule")
-                suggestionChip(icon: "note.text", title: "Notes")
-                suggestionChip(icon: "mappin.circle", title: "Locations")
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12)
+            ], spacing: 12) {
+                suggestionChip(icon: "chart.line.uptrend.xyaxis", title: "Spending", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+                suggestionChip(icon: "calendar", title: "Schedule", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+                suggestionChip(icon: "note.text", title: "Notes", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
+                suggestionChip(icon: "mappin.circle", title: "Locations", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
             }
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(
+                    colorScheme == .dark 
+                        ? Color.white.opacity(0.08)
+                        : Color.clear,
+                    lineWidth: 1
+                )
+        )
+        .shadow(
+            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+            radius: 20,
+            x: 0,
+            y: 4
+        )
     }
     
     private var contextualSuggestionsView: some View {
@@ -177,7 +205,7 @@ struct ConversationSearchView: View {
         }
     }
     
-    private func suggestionChip(icon: String, title: String) -> some View {
+    private func suggestionChip(icon: String, title: String, color: Color) -> some View {
         Button(action: {
             HapticManager.shared.light()
             // Set contextual message based on category
@@ -195,28 +223,38 @@ struct ConversationSearchView: View {
             }
             isInputFocused = true
         }) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
-                    .frame(width: 24, height: 24)
+            VStack(spacing: 10) {
+                // Icon with colored background
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.15))
+                        .frame(width: 40, height: 40)
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(color)
+                }
                 
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(
-                                colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08),
-                                lineWidth: 1
-                            )
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(
+                        colorScheme == .dark 
+                            ? Color.white.opacity(0.08)
+                            : Color.black.opacity(0.05),
+                        lineWidth: 1
                     )
             )
         }
@@ -272,7 +310,7 @@ struct ConversationSearchView: View {
     private func generateContextualSuggestions() -> [String] {
         // Generate smart suggestions based on current input
         let lowercased = messageText.lowercased()
-        
+
         if lowercased.contains("spend") || lowercased.contains("money") || lowercased.contains("expense") {
             return [
                 "How much did I spend this month?",
@@ -298,7 +336,7 @@ struct ConversationSearchView: View {
                 "What places did I visit this week?"
             ]
         }
-        
+
         // Default suggestions
         return [
             "How much did I spend this month?",
@@ -306,6 +344,85 @@ struct ConversationSearchView: View {
             "Show my recent notes",
             "Where have I been?"
         ]
+    }
+
+    private func generateFollowUpQuestions() -> [String] {
+        return generatedFollowUpQuestions
+    }
+
+    private func generateFollowUpQuestionsFromLLM() async {
+        // Only generate if we have conversation history
+        guard !searchService.conversationHistory.isEmpty,
+              let lastMessage = searchService.conversationHistory.last,
+              !lastMessage.isUser else {
+            generatedFollowUpQuestions = []
+            return
+        }
+
+        isGeneratingFollowUps = true
+
+        // Build context from last 2-3 messages
+        let recentMessages = Array(searchService.conversationHistory.suffix(4))
+        var conversationContext = ""
+        for message in recentMessages {
+            let role = message.isUser ? "User" : "Assistant"
+            conversationContext += "\(role): \(message.text)\n\n"
+        }
+
+        // Create prompt for generating follow-up questions
+        let prompt = """
+        Based on the following conversation, generate exactly 3 short, natural follow-up questions that the user might want to ask next. These should be relevant, specific, and help the user explore their data deeper.
+
+        Conversation:
+        \(conversationContext)
+
+        Requirements:
+        - Exactly 3 questions
+        - Each question should be short and natural (max 6 words)
+        - Questions should be relevant to what was just discussed
+        - Focus on deeper insights, comparisons, or related data
+        - Don't repeat information already covered
+        - Format: One question per line, no numbers or bullets
+
+        Example good questions:
+        - Show me spending trends
+        - Compare to last month
+        - Any location streaks?
+        - What are my habits?
+        - Break down by category
+
+        Generate 3 follow-up questions now:
+        """
+
+        do {
+            // Call LLM to generate questions
+            let response = try await deepSeekService.generateFollowUpQuestions(prompt: prompt)
+
+            // Parse the response into individual questions
+            let questions = response
+                .components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && $0.count > 5 } // Filter out empty lines and very short ones
+                .map { question in
+                    // Remove leading numbers, bullets, or dashes
+                    var cleaned = question
+                    cleaned = cleaned.replacingOccurrences(of: "^[0-9]+\\.\\s*", with: "", options: .regularExpression)
+                    cleaned = cleaned.replacingOccurrences(of: "^[-•*]\\s*", with: "", options: .regularExpression)
+                    return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                .prefix(3)
+
+            await MainActor.run {
+                generatedFollowUpQuestions = Array(questions)
+                isGeneratingFollowUps = false
+            }
+        } catch {
+            print("❌ Error generating follow-up questions: \(error)")
+            await MainActor.run {
+                generatedFollowUpQuestions = []
+                isGeneratingFollowUps = false
+            }
+        }
     }
 
 
@@ -478,6 +595,14 @@ struct ConversationSearchView: View {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
+
+                    // Generate follow-up questions after assistant responds
+                    if let lastMessage = searchService.conversationHistory.last,
+                       !lastMessage.isUser {
+                        Task {
+                            await generateFollowUpQuestionsFromLLM()
+                        }
+                    }
                 }
             }
         }
@@ -486,7 +611,15 @@ struct ConversationSearchView: View {
 
     private var inputAreaView: some View {
         VStack(spacing: 0) {
-            // Smart suggestions bar above input (only when typing)
+            // Follow-up question suggestions (based on conversation context)
+            if !searchService.conversationHistory.isEmpty && messageText.isEmpty {
+                followUpQuestionBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+
+            // Smart suggestions bar above input (only when typing in empty state)
             if isInputFocused && !messageText.isEmpty && searchService.conversationHistory.isEmpty {
                 smartSuggestionsBar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -499,8 +632,47 @@ struct ConversationSearchView: View {
         .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isInputFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: messageText.isEmpty)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: searchService.conversationHistory.count)
     }
     
+    private var followUpQuestionBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(generateFollowUpQuestions(), id: \.self) { question in
+                    Button(action: {
+                        HapticManager.shared.light()
+                        messageText = question
+                        sendMessage()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bubble.left")
+                                .font(.system(size: 10, weight: .medium))
+                            Text(question)
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundColor(colorScheme == .dark ? .white : Color(white: 0.2))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(
+                                            colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1),
+                                            lineWidth: 1
+                                        )
+                                )
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
     private var smartSuggestionsBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -1198,9 +1370,7 @@ struct DataTypeCardView: View {
     @State private var isPressed = false
 
     private var backgroundColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(isPressed ? 0.1 : 0.05)
-            : Color.black.opacity(isPressed ? 0.08 : 0.03)
+        Color.shadcnTileBackground(colorScheme)
     }
 
     private var borderColor: Color {
@@ -1240,11 +1410,11 @@ struct DataTypeCardView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
                 .fill(backgroundColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
                 .stroke(borderColor, lineWidth: 0.5)
         )
         .contentShape(Rectangle())
@@ -1446,8 +1616,8 @@ struct AlignedTextEditor: UIViewRepresentable {
         textView.textContainerInset = UIEdgeInsets(top: 11, left: 16, bottom: 11, right: 16)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
-        
-        textView.isScrollEnabled = false
+
+        textView.isScrollEnabled = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
         return textView

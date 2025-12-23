@@ -95,12 +95,8 @@ struct EventCardCompact: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(backgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(accentColor.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                .fill(Color.shadcnTileBackground(colorScheme))
         )
         .onTapGesture {
             onTap()

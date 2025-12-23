@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CurrentLocationCardWidget: View {
     @Environment(\.colorScheme) var colorScheme
+    @State private var isPressed = false
 
     let currentLocationName: String
     let nearbyLocation: String?
@@ -12,105 +13,183 @@ struct CurrentLocationCardWidget: View {
     let todaysVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)]
 
     @Binding var selectedPlace: SavedPlace?
-    @Binding var showingPlaceDetail: Bool
     @Binding var showAllLocationsSheet: Bool
 
+    // Modern color scheme helpers
+    private var cardBackground: Color {
+        Color.shadcnTileBackground(colorScheme)
+    }
+    
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? Color.white : Color.black
+    }
+    
+    private var secondaryTextColor: Color {
+        colorScheme == .dark 
+            ? Color.white.opacity(0.65)
+            : Color.black.opacity(0.65)
+    }
+    
+    private var tertiaryTextColor: Color {
+        colorScheme == .dark 
+            ? Color.white.opacity(0.45)
+            : Color.black.opacity(0.45)
+    }
+    
+    private var activeIndicatorColor: Color {
+        Color.green.opacity(0.85)
+    }
+    
+    private var cardShadow: Color {
+        colorScheme == .dark 
+            ? Color.clear
+            : Color.black.opacity(0.04)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Current Location Section
+        VStack(alignment: .leading, spacing: 0) {
+            // Primary Location Section
             Button(action: {
                 if let place = nearbyLocationPlace {
                     selectedPlace = place
-                    showingPlaceDetail = true
                 }
             }) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(currentLocationName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .lineLimit(1)
-
-                        // Status text - simplified
-                        if let nearby = nearbyLocation {
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 6, height: 6)
-                                Text(elapsedTimeString.isEmpty ? "Just arrived" : elapsedTimeString)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
-                            }
-                        } else if let distance = distanceToNearest {
-                            Text(String(format: "%.1f km away", distance / 1000))
-                                .font(.system(size: 13))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        } else {
-                            Text("No saved locations nearby")
-                                .font(.system(size: 13))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                        }
+                HStack(spacing: 16) {
+                    // Location Icon/Indicator
+                    ZStack {
+                        Circle()
+                            .fill(activeIndicatorColor.opacity(0.15))
+                            .frame(width: 38, height: 38)
+                        
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(activeIndicatorColor)
                     }
-
+                    
+                    // Location Info
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(currentLocationName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        
+                        // Status indicator - more subtle
+                        statusIndicatorView
+                    }
+                    
                     Spacer()
+                    
+                    // Chevron indicator
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(tertiaryTextColor)
                 }
+                .padding(.vertical, 4)
             }
             .buttonStyle(PlainButtonStyle())
-
-            // Today's Visits Section - minimalist
+            .scaleEffect(isPressed ? 0.98 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isPressed = true }
+                    .onEnded { _ in isPressed = false }
+            )
+            
+            // Today's Visits Section - Collapsible
             if !todaysVisits.isEmpty {
                 Divider()
-
+                    .padding(.vertical, 10)
+                    .opacity(0.3)
+                
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Today")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(secondaryTextColor)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+                        
                         Spacer()
-
+                        
                         Button(action: {
                             showAllLocationsSheet = true
                         }) {
                             Text("See All")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(secondaryTextColor)
                         }
                     }
-
-                    ForEach(todaysVisits, id: \.id) { visit in
-                        HStack(spacing: 8) {
-                            // Active indicator dot
-                            Circle()
-                                .fill(visit.isActive ? Color.green : (colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2)))
-                                .frame(width: 6, height: 6)
-
-                            Text(visit.displayName)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .lineLimit(1)
-
-                            Spacer()
-
-                            Text(formatDuration(visit.totalDurationMinutes))
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(visit.isActive ? .green : (colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6)))
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(todaysVisits.prefix(3), id: \.id) { visit in
+                            visitRowView(visit: visit)
                         }
                     }
                 }
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
-        )
+        .padding(16)
+        .shadcnTileStyle(colorScheme: colorScheme)
         .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
-            radius: 12,
+            color: cardShadow,
+            radius: 20,
             x: 0,
-            y: 2
+            y: 4
         )
+    }
+    
+    // MARK: - Status Indicator View
+    @ViewBuilder
+    private var statusIndicatorView: some View {
+        if let nearby = nearbyLocation {
+            HStack(spacing: 6) {
+                // Subtle active indicator
+                Circle()
+                    .fill(activeIndicatorColor)
+                    .frame(width: 5, height: 5)
+                
+                Text(elapsedTimeString.isEmpty ? "Just arrived" : elapsedTimeString)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(secondaryTextColor)
+            }
+        } else if let distance = distanceToNearest {
+            HStack(spacing: 4) {
+                Image(systemName: "location")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(tertiaryTextColor)
+                
+                Text(String(format: "%.1f km away", distance / 1000))
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(tertiaryTextColor)
+            }
+        } else {
+            Text("No saved locations nearby")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(tertiaryTextColor)
+        }
+    }
+    
+    // MARK: - Visit Row View
+    private func visitRowView(visit: (id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)) -> some View {
+        HStack(spacing: 10) {
+            // Subtle indicator
+            RoundedRectangle(cornerRadius: 2)
+                .fill(visit.isActive ? activeIndicatorColor : tertiaryTextColor.opacity(0.3))
+                .frame(width: 3, height: 16)
+            
+            Text(visit.displayName)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(primaryTextColor)
+                .lineLimit(1)
+            
+            Spacer()
+            
+            Text(formatDuration(visit.totalDurationMinutes))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(visit.isActive ? activeIndicatorColor : secondaryTextColor)
+        }
+        .padding(.vertical, 2)
     }
 
     private func formatDuration(_ minutes: Int) -> String {

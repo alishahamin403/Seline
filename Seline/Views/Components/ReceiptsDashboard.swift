@@ -38,19 +38,18 @@ struct ReceiptsDashboard: View {
                         // Recurring Expenses Section
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Label("Active Recurring Expenses", systemImage: "repeat.circle.fill")
-                                    .font(.headline)
-                                    .fontWeight(.bold)
+                                Text("Active Recurring Expenses")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundColor(Color.shadcnForeground(colorScheme))
                                 Spacer()
                                 Text("\(activeRecurringExpenses.count)")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.blue)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 16)
 
-                            VStack(spacing: 8) {
+                            VStack(spacing: 12) {
                                 ForEach(activeRecurringExpenses) { expense in
                                     RecurringExpenseRow(
                                         expense: expense,
@@ -68,21 +67,25 @@ struct ReceiptsDashboard: View {
                                     )
                                 }
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
                         }
+                        .shadcnTileStyle(colorScheme: colorScheme)
+                        .padding(.horizontal, 12)
                     }
 
                     // Empty State
                     if recurringExpenses.isEmpty && !isLoading {
                         VStack(spacing: 12) {
                             Image(systemName: "repeat.circle.dashed")
-                                .font(.system(size: 48))
-                                .foregroundColor(.gray)
+                                .font(.system(size: 48, weight: .light))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
                             Text("No Recurring Expenses")
-                                .font(.headline)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             Text("Create your first recurring expense using the repeat icon")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                                 .multilineTextAlignment(.center)
                         }
                         .padding(32)
@@ -225,6 +228,8 @@ struct ReceiptsStatsView: View {
             )
         }
         .padding(16)
+        .shadcnTileStyle(colorScheme: colorScheme)
+        .padding(.horizontal, 12)
     }
 }
 
@@ -233,27 +238,28 @@ struct StatCard: View {
     let value: String
     let icon: String
     let backgroundColor: Color
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(.blue)
+                .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 Text(value)
-                    .font(.headline)
-                    .fontWeight(.bold)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
             }
 
             Spacer()
         }
         .padding(12)
-        .background(backgroundColor)
-        .cornerRadius(8)
+        .background(Color.shadcnTileBackground(colorScheme))
+        .cornerRadius(ShadcnRadius.xl)
     }
 }
 
@@ -268,29 +274,28 @@ struct RecurringExpenseRow: View {
     let onToggle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(expense.title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
                     HStack(spacing: 8) {
                         Image(systemName: "calendar")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         Text(formatDate(expense.nextOccurrence))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         Text("•")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         Text(expense.frequency.displayName)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                         Text("•")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
                         Text(expense.statusBadge)
-                            .font(.caption)
-                            .fontWeight(.semibold)
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(expense.isActive ? .green : .orange)
                     }
                 }
@@ -299,56 +304,57 @@ struct RecurringExpenseRow: View {
 
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(expense.formattedAmount)
-                        .font(.headline)
-                        .fontWeight(.bold)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Color.shadcnForeground(colorScheme))
                     Text(expense.formattedYearlyAmount)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                 }
             }
 
-            // Divider
-            Divider()
-
             // Action Buttons
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Button(action: onEdit) {
                     HStack(spacing: 4) {
-                        Image(systemName: "pencil.circle.fill")
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .medium))
                         Text("Edit")
+                            .font(.system(size: 11, weight: .medium))
                     }
-                    .font(.caption)
-                    .foregroundColor(.blue)
+                    .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
                 }
+                .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
                 Button(action: onToggle) {
                     HStack(spacing: 4) {
-                        Image(systemName: expense.isActive ? "pause.circle.fill" : "play.circle.fill")
+                        Image(systemName: expense.isActive ? "pause" : "play.fill")
+                            .font(.system(size: 11, weight: .medium))
                         Text(expense.isActive ? "Pause" : "Resume")
+                            .font(.system(size: 11, weight: .medium))
                     }
-                    .font(.caption)
-                    .foregroundColor(.orange)
+                    .foregroundColor(Color.shadcnForeground(colorScheme).opacity(0.7))
                 }
+                .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
                 Button(action: onDelete) {
                     HStack(spacing: 4) {
-                        Image(systemName: "trash.circle.fill")
+                        Image(systemName: "trash")
+                            .font(.system(size: 11, weight: .medium))
                         Text("Delete")
+                            .font(.system(size: 11, weight: .medium))
                     }
-                    .font(.caption)
-                    .foregroundColor(.red)
+                    .foregroundColor(.red.opacity(0.8))
                 }
+                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-        )
+        .background(Color.shadcnTileBackground(colorScheme))
+        .cornerRadius(ShadcnRadius.xl)
     }
 
     private func formatDate(_ date: Date) -> String {

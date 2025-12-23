@@ -3,58 +3,36 @@ import SwiftUI
 struct DailyReceiptCard: View {
     let dailySummary: DailyReceiptSummary
     let onReceiptTap: (UUID) -> Void
-    @State private var isExpanded = false
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(dailySummary.dayString)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.primary)
+        VStack(spacing: 8) {
+            // Date Header - Simple divider style
+            HStack(spacing: 8) {
+                Text(dailySummary.dayString)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
-                    HStack(spacing: 4) {
-                        Text("\(dailySummary.receipts.count)")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
+                Text("•")
+                    .font(.system(size: 13))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
 
-                        Text("receipt\(dailySummary.receipts.count == 1 ? "" : "s")")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(.gray)
-                    }
-                }
+                Text(CurrencyParser.formatAmount(dailySummary.dailyTotal))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
 
                 Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(CurrencyParser.formatAmount(dailySummary.dailyTotal))
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+            // Receipts - Always visible
+            VStack(spacing: 6) {
+                ForEach(dailySummary.receipts, id: \.id) { receipt in
+                    ReceiptItemRow(receipt: receipt, onTap: onReceiptTap)
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(colorScheme == .dark ? Color.white.opacity(0.02) : Color.gray.opacity(0.01))
-
-            // Content (Receipts)
-            if isExpanded {
-                VStack(spacing: 8) {
-                    ForEach(dailySummary.receipts, id: \.id) { receipt in
-                        ReceiptItemRow(receipt: receipt, onTap: onReceiptTap)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            .padding(.horizontal, 16)
         }
     }
 }

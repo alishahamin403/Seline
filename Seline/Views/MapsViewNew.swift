@@ -15,7 +15,6 @@ struct MapsViewNew: View, Searchable {
     @State private var selectedTab: String = "folders" // "folders", "ranking", or "timeline"
     @State private var selectedCategory: String? = nil
     @State private var showSearchModal = false
-    @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
     @State private var locationSearchText: String = ""
     @State private var isLocationSearchActive: Bool = false
@@ -27,7 +26,6 @@ struct MapsViewNew: View, Searchable {
     @State private var elapsedTimeString: String = ""
     @State private var updateTimer: Timer?
     @State private var lastLocationCheckCoordinate: CLLocationCoordinate2D?
-    @State private var cachedSortedCategories: [String] = []
     @State private var hasLoadedIncompleteVisits = false  // Prevents race condition on app launch
     @StateObject private var geofenceManager = GeofenceManager.shared
     @Binding var externalSelectedFolder: String?
@@ -41,312 +39,301 @@ struct MapsViewNew: View, Searchable {
     @State private var showFullMapView = false  // Controls full map view sheet
     @State private var showChangeFolderSheet = false  // Controls change folder sheet
     @State private var placeToMove: SavedPlace? = nil  // Place being moved to different folder
+    @State private var showingRenameAlert = false  // Controls rename alert
+    @State private var placeToRename: SavedPlace? = nil  // Place being renamed
+    @State private var newPlaceName = ""  // New name for the place
 
     init(externalSelectedFolder: Binding<String?> = .constant(nil)) {
         self._externalSelectedFolder = externalSelectedFolder
     }
 
     var body: some View {
+        mainContentView
+            .overlay(floatingAddButton)
+            .sheet(isPresented: $showSearchModal) {
+                LocationSearchModal()
+                    .presentationBg()
+            }
+            .sheet(item: $selectedPlace) { place in
+                PlaceDetailSheet(place: place, onDismiss: { 
+                    selectedPlace = nil
+                }, isFromRanking: selectedTab == "ranking")
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBg()
+            }
+            .sheet(isPresented: $showAllLocationsSheet) {
+                AllVisitsSheet(
+                    allLocations: $allLocations,
+                    isPresented: $showAllLocationsSheet,
+                    onLocationTap: { locationId in
+                        if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
+                            selectedPlace = place
+                        }
+                    },
+                    savedPlaces: locationsManager.savedPlaces
+                )
+                .presentationBg()
+            }
+            .sheet(isPresented: $showFullMapView) {
+                FullMapView(
+                    places: getFilteredPlaces(),
+                    currentLocation: locationService.currentLocation,
+                    colorScheme: colorScheme,
+                    onPlaceTap: { place in
+                        showFullMapView = false
+                        selectedPlace = place
+                    }
+                )
+                .presentationBg()
+            }
+            .sheet(isPresented: $showChangeFolderSheet) {
+                if let place = placeToMove {
+                    ChangeFolderSheet(
+                        place: place,
+                        currentCategory: place.category,
+                        allCategories: getAllCategories(),
+                        colorScheme: colorScheme,
+                        onFolderSelected: { newCategory in
+                            var updatedPlace = place
+                            updatedPlace.category = newCategory
+                            locationsManager.updatePlace(updatedPlace)
+                            showChangeFolderSheet = false
+                            placeToMove = nil
+                            HapticManager.shared.success()
+                        },
+                        onDismiss: {
+                            showChangeFolderSheet = false
+                            placeToMove = nil
+                        }
+                    )
+                    .presentationBg()
+                }
+            }
+            .alert("Rename Place", isPresented: $showingRenameAlert) {
+                TextField("Place name", text: $newPlaceName)
+                Button("Cancel", role: .cancel) {
+                    placeToRename = nil
+                    newPlaceName = ""
+                }
+                Button("Rename") {
+                    if let place = placeToRename {
+                        var updatedPlace = place
+                        updatedPlace.customName = newPlaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        locationsManager.updatePlace(updatedPlace)
+                        placeToRename = nil
+                        newPlaceName = ""
+                    }
+                }
+            } message: {
+                Text("Enter a new name for this place")
+            }
+            .onAppear {
+                setupOnAppear()
+            }
+            .onReceive(locationService.$currentLocation) { _ in
+                handleLocationUpdate()
+            }
+            .onChange(of: externalSelectedFolder) { newFolder in
+                handleExternalFolderSelection(newFolder)
+            }
+            .onChange(of: scenePhase) { newPhase in
+                handleScenePhaseChange(newPhase)
+            }
+            .onChange(of: locationsManager.savedPlaces) { _ in
+                loadTopLocations()
+            }
+            .onChange(of: colorScheme) { _ in
+                // Force view refresh when system theme changes
+            }
+            .id(colorScheme)
+            .onDisappear {
+                stopLocationTimer()
+            }
+            .overlay(folderOverlay)
+    }
+    
+    // MARK: - Main Content View
+    
+    private var mainContentView: some View {
         ZStack {
             // Main content layer
             VStack(spacing: 0) {
-                // Header section with search
-                VStack(spacing: 0) {
-                    // Tab bar with search button - Modern pill-based segmented control
-                    HStack(spacing: 12) {
-                        // Search button
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                if isLocationSearchActive {
-                                    isLocationSearchActive = false
-                                    locationSearchText = ""
-                                } else {
-                                    isLocationSearchActive = true
-                                }
-                            }
-                        }) {
-                            Image(systemName: isLocationSearchActive ? "xmark.circle.fill" : "magnifyingglass")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
+                headerSection
+                mainScrollContent
+            }
+        }
+    }
+    
+    // MARK: - Header Section
+    
+    private var headerSection: some View {
+        VStack(spacing: 0) {
+            // Tab bar with search button
+            HStack(spacing: 12) {
+                searchButton
+                Spacer()
+                tabBarView
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+            .background(
+                colorScheme == .dark ? Color.black : Color.white
+            )
 
-                        Spacer()
-
-                        // Tab bar - Modern pill-based segmented control
-                        HStack(spacing: 4) {
-                            ForEach(["folders", "ranking", "timeline"], id: \.self) { tab in
-                                let isSelected = selectedTab == tab
-                                let tabIcon = tab == "folders" ? "folder.fill" : (tab == "ranking" ? "chart.bar.fill" : "clock.fill")
-
-                                Button(action: {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        selectedTab = tab
-                                    }
-                                }) {
-                                    Image(systemName: tabIcon)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(tabForegroundColor(isSelected: isSelected))
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background {
-                                            if isSelected {
-                                                Capsule()
-                                                    .fill(tabBackgroundColor())
-                                                    .matchedGeometryEffect(id: "tab", in: tabAnimation)
-                                            }
-                                        }
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-                        .padding(4)
-                        .background(
-                            Capsule()
-                                .fill(tabContainerColor())
-                        )
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
-                    .background(
-                        colorScheme == .dark ? Color.black : Color.white
-                    )
-
-                    // Search bar - show when search is active
-                    if isLocationSearchActive {
-                        EmailSearchBar(searchText: $locationSearchText) { query in
-                            // Search is handled by filtering in locationsTabContent
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 0)
-                        .padding(.bottom, 12)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
+            // Search bar - show when search is active
+            if isLocationSearchActive {
+                EmailSearchBar(searchText: $locationSearchText) { query in
+                    // Search is handled by filtering in locationsTabContent
                 }
-
-                // Main content
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        if selectedTab == "folders" {
-                            locationsTabContent
-                        } else if selectedTab == "ranking" {
-                            rankingTabContent
-                        } else {
-                            timelineTabContent
-                        }
-                    }
+                .padding(.horizontal, 20)
+                .padding(.top, 0)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+    }
+    
+    // MARK: - Search Button
+    
+    private var searchButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isLocationSearchActive {
+                    isLocationSearchActive = false
+                    locationSearchText = ""
+                } else {
+                    isLocationSearchActive = true
                 }
+            }
+        }) {
+            Image(systemName: isLocationSearchActive ? "xmark.circle.fill" : "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(
-                    (colorScheme == .dark ? Color.black : Color.white)
-                        .ignoresSafeArea()
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
                 )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: - Tab Bar View
+    
+    private var tabBarView: some View {
+        HStack(spacing: 4) {
+            ForEach(["folders", "ranking", "timeline"], id: \.self) { tab in
+                tabButton(for: tab)
             }
         }
-        .overlay(
-            // Floating + button (hide when folder is open)
-            Group {
-                if selectedCategory == nil {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            Button(action: {
-                                showSearchModal = true
-                            }) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 56, height: 56)
-                                    .background(
-                                        Circle()
-                                            .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
-                                    )
-                                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                            }
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 30)
-                        }
-                    }
-                }
-            }
+        .padding(4)
+        .background(
+            Capsule()
+                .fill(tabContainerColor())
         )
-        .sheet(isPresented: $showSearchModal) {
-            LocationSearchModal()
-                .presentationBg()
-        }
-        .sheet(isPresented: $showingPlaceDetail) {
-            if let place = selectedPlace {
-                PlaceDetailSheet(place: place, onDismiss: { showingPlaceDetail = false }, isFromRanking: selectedTab == "ranking")
-                    .presentationBg()
+    }
+    
+    // MARK: - Tab Button
+    
+    private func tabButton(for tab: String) -> some View {
+        let isSelected = selectedTab == tab
+        let tabIcon = getTabIcon(for: tab)
+        
+        return Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                selectedTab = tab
             }
-        }
-        .sheet(isPresented: $showAllLocationsSheet) {
-            AllVisitsSheet(
-                allLocations: $allLocations,
-                isPresented: $showAllLocationsSheet,
-                onLocationTap: { locationId in
-                    // Find the SavedPlace with this UUID
-                    if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
-                        selectedPlace = place
-                        showingPlaceDetail = true
-                    }
-                },
-                savedPlaces: locationsManager.savedPlaces
-            )
-            .presentationBg()
-        }
-        .sheet(isPresented: $showFullMapView) {
-            FullMapView(
-                places: getFilteredPlaces(),
-                currentLocation: locationService.currentLocation,
-                colorScheme: colorScheme,
-                onPlaceTap: { place in
-                    showFullMapView = false
-                    selectedPlace = place
-                    showingPlaceDetail = true
-                }
-            )
-            .presentationBg()
-        }
-        .sheet(isPresented: $showChangeFolderSheet) {
-            if let place = placeToMove {
-                ChangeFolderSheet(
-                    place: place,
-                    currentCategory: place.category,
-                    allCategories: Array(Set(locationsManager.savedPlaces.map { $0.category })).sorted(),
-                    colorScheme: colorScheme,
-                    onFolderSelected: { newCategory in
-                        var updatedPlace = place
-                        updatedPlace.category = newCategory
-                        locationsManager.updatePlace(updatedPlace)
-                        showChangeFolderSheet = false
-                        placeToMove = nil
-                        HapticManager.shared.success()
-                    },
-                    onDismiss: {
-                        showChangeFolderSheet = false
-                        placeToMove = nil
-                    }
-                )
-                .presentationBg()
-            }
-        }
-        .onAppear {
-            SearchService.shared.registerSearchableProvider(self, for: .maps)
-
-            // Initialize cached categories
-            updateCachedCategories()
-
-            // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase
-            // This fixes visits that got stuck before the auto-cleanup code was added
-            Task {
-                await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
-            }
-
-            // Load incomplete visits from Supabase to resume tracking BEFORE checking location
-            // This prevents race condition where updateCurrentLocation() creates a new visit
-            // before the async load completes
-            Task {
-                await geofenceManager.loadIncompleteVisitsFromSupabase()
-                // Now that previous sessions are restored, check current location
-                await MainActor.run {
-                    updateCurrentLocation()
-                    // Signal that we've loaded incomplete visits and can now respond to location changes
-                    hasLoadedIncompleteVisits = true
-                }
-            }
-
-            // Load top 3 locations by visit count
-            loadTopLocations()
-
-            // Load recently visited places
-            loadRecentlyVisited()
-
-            locationService.requestLocationPermission()
-        }
-        .onReceive(locationService.$currentLocation) { _ in
-            // Only update location if we've finished loading incomplete visits
-            // This prevents creating duplicate sessions on app startup
-            if hasLoadedIncompleteVisits {
-                // TIME DEBOUNCE: Skip updates that occur within 2 seconds of last update
-                // This prevents excessive location processing and improves performance
-                let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
-                if timeSinceLastUpdate >= 2.0 {
-                    lastLocationUpdateTime = Date()
-                    updateCurrentLocation()
-                }
-            }
-        }
-        .onChange(of: externalSelectedFolder) { newFolder in
-            if let folder = newFolder {
-                withAnimation(.spring(response: 0.3)) {
-                    selectedCategory = folder
-                }
-                // Clear the external binding after handling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    externalSelectedFolder = nil
-                }
-            }
-        }
-        // Update cached categories when location search text changes
-        .onChange(of: locationSearchText) { _ in updateCachedCategories() }
-        // OPTIMIZATION: Stop timer when app goes to background, restart when it comes to foreground
-        // The timer only runs when user is actively looking at the screen
-        .onChange(of: scenePhase) { newPhase in
-            if newPhase == .active {
-                // FIX: Immediately check current location to update nearby location state
-                // This ensures UI updates right away when app comes to foreground
-                updateCurrentLocation()
-
-                // App came to foreground - restart timer if tracking a location
-                if nearbyLocation != nil {
-                    startLocationTimer()
-                }
-
-                // FALLBACK: Check if any visits have gone stale while app was backgrounded
-                // This handles case where geofence exit events didn't fire
-                if let currentLoc = locationService.currentLocation {
-                    Task {
-                        await geofenceManager.autoCompleteVisitsIfOutOfRange(
-                            currentLocation: currentLoc,
-                            savedPlaces: locationsManager.savedPlaces
-                        )
+        }) {
+            Image(systemName: tabIcon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(tabForegroundColor(isSelected: isSelected))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background {
+                    if isSelected {
+                        Capsule()
+                            .fill(tabBackgroundColor())
+                            .matchedGeometryEffect(id: "tab", in: tabAnimation)
                     }
                 }
-            } else {
-                // App went to background/inactive - pause timer
-                stopLocationTimer()
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: - Tab Icon Helper
+    
+    private func getTabIcon(for tab: String) -> String {
+        if tab == "folders" {
+            return "folder.fill"
+        } else if tab == "ranking" {
+            return "chart.bar.fill"
+        } else {
+            return "clock.fill"
+        }
+    }
+    
+    // MARK: - Main Scroll Content
+    
+    private var mainScrollContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                if selectedTab == "folders" {
+                    locationsTabContent
+                } else if selectedTab == "ranking" {
+                    rankingTabContent
+                } else {
+                    timelineTabContent
+                }
             }
         }
-        .onChange(of: locationsManager.savedPlaces) { _ in
-            // Reload top 3 locations when places are added/removed/updated
-            loadTopLocations()
+        .background(
+            (colorScheme == .dark ? Color.black : Color.white)
+                .ignoresSafeArea()
+        )
+    }
+    
+    // MARK: - Floating Add Button
+    
+    private var floatingAddButton: some View {
+        Group {
+            if selectedCategory == nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            showSearchModal = true
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(
+                                    Circle()
+                                        .fill(Color(red: 0.2, green: 0.2, blue: 0.2))
+                                )
+                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 30)
+                    }
+                }
+            }
         }
-        .onChange(of: colorScheme) { _ in
-            // FIX: Force view refresh when system theme changes
-            // This ensures the app immediately updates from light to dark mode
-            // The onChange itself triggers a view update cycle
-        }
-        .id(colorScheme) // Force complete view recreation on theme change
-        .onDisappear {
-            stopLocationTimer()
-        }
-
-        // iPhone-style folder overlay
-        if selectedCategory != nil {
-            let filteredPlaces = getFilteredPlaces()
-                .filter { $0.category == selectedCategory }
+    }
+    
+    // MARK: - Folder Overlay
+    
+    @ViewBuilder
+    private var folderOverlay: some View {
+        if let category = selectedCategory {
+            let filteredPlaces = getFilteredPlaces().filter { $0.category == category }
             FolderOverlayView(
-                category: selectedCategory!,
+                category: category,
                 places: filteredPlaces,
                 colorScheme: colorScheme,
                 onClose: {
@@ -359,6 +346,75 @@ struct MapsViewNew: View, Searchable {
             .transition(.opacity)
         }
     }
+    
+    // MARK: - Helper Functions
+    
+    private func getAllCategories() -> [String] {
+        let categorySet = Set(locationsManager.savedPlaces.map { $0.category })
+        return Array(categorySet).sorted()
+    }
+    
+    private func setupOnAppear() {
+        SearchService.shared.registerSearchableProvider(self, for: .maps)
+
+        // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase
+        Task {
+            await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
+        }
+
+        // Load incomplete visits from Supabase to resume tracking BEFORE checking location
+        Task {
+            await geofenceManager.loadIncompleteVisitsFromSupabase()
+            await MainActor.run {
+                updateCurrentLocation()
+                hasLoadedIncompleteVisits = true
+            }
+        }
+
+        loadTopLocations()
+        loadRecentlyVisited()
+        locationService.requestLocationPermission()
+    }
+    
+    private func handleLocationUpdate() {
+        if hasLoadedIncompleteVisits {
+            let timeSinceLastUpdate = Date().timeIntervalSince(lastLocationUpdateTime)
+            if timeSinceLastUpdate >= 2.0 {
+                lastLocationUpdateTime = Date()
+                updateCurrentLocation()
+            }
+        }
+    }
+    
+    private func handleExternalFolderSelection(_ newFolder: String?) {
+        if let folder = newFolder {
+            withAnimation(.spring(response: 0.3)) {
+                selectedCategory = folder
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                externalSelectedFolder = nil
+            }
+        }
+    }
+    
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        if newPhase == .active {
+            updateCurrentLocation()
+            if nearbyLocation != nil {
+                startLocationTimer()
+            }
+            if let currentLoc = locationService.currentLocation {
+                Task {
+                    await geofenceManager.autoCompleteVisitsIfOutOfRange(
+                        currentLocation: currentLoc,
+                        savedPlaces: locationsManager.savedPlaces
+                    )
+                }
+            }
+        } else {
+            stopLocationTimer()
+        }
+    }
 
     @ViewBuilder
     private var locationsTabContent: some View {
@@ -369,10 +425,12 @@ struct MapsViewNew: View, Searchable {
                 Text("Search for places and save them to categories").font(.system(size: 14, weight: .regular)).foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)).multilineTextAlignment(.center)
             }.padding(.top, 60)
         } else if selectedCategory == nil {
-            miniMapSection
-            recentlyVisitedSection
-            favoritesSection
-            expandableCategoriesSection
+            VStack(spacing: 16) {
+                miniMapSection
+                recentlyVisitedSection
+                favoritesSection
+                expandableCategoriesSection
+            }
         }
 
         Spacer().frame(height: 100)
@@ -381,19 +439,24 @@ struct MapsViewNew: View, Searchable {
     @ViewBuilder
     private var favoritesSection: some View {
         let allFavourites = locationsManager.getFavourites()
-        let favourites = allFavourites.filter { place in
+        let favourites: [SavedPlace] = {
             if locationSearchText.isEmpty {
-                return true
+                return allFavourites
+            } else {
+                let searchLower = locationSearchText.lowercased()
+                return allFavourites.filter { place in
+                    let countryMatch = place.country?.lowercased().contains(searchLower) ?? false
+                    let provinceMatch = place.province?.lowercased().contains(searchLower) ?? false
+                    let cityMatch = place.city?.lowercased().contains(searchLower) ?? false
+                    let addressMatch = place.address.lowercased().contains(searchLower)
+                    let nameMatch = place.displayName.lowercased().contains(searchLower)
+                    return countryMatch || provinceMatch || cityMatch || addressMatch || nameMatch
+                }
             }
-            let searchLower = locationSearchText.lowercased()
-            return (place.country?.lowercased().contains(searchLower) ?? false) ||
-                   (place.province?.lowercased().contains(searchLower) ?? false) ||
-                   (place.city?.lowercased().contains(searchLower) ?? false) ||
-                   place.address.lowercased().contains(searchLower) ||
-                   place.displayName.lowercased().contains(searchLower)
-        }
+        }()
+        
         if !favourites.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
                 // Header with expand/collapse button
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -401,50 +464,60 @@ struct MapsViewNew: View, Searchable {
                     }
                     HapticManager.shared.light()
                 }) {
-                    HStack(spacing: 8) {
-                        Text("Favorites").font(.system(size: 17, weight: .semibold)).foregroundColor(colorScheme == .dark ? .white : .black)
+                    HStack(spacing: 12) {
+                        Text("Favorites")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                         Spacer()
                         Image(systemName: isFavoritesExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, isFavoritesExpanded ? 0 : 10)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, isFavoritesExpanded ? 0 : 20)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 // Collapsible content
                 if isFavoritesExpanded {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                             ForEach(favourites, id: \.id) { place in
-                                Button(action: { selectedPlace = place; showingPlaceDetail = true }) {
-                                    VStack(spacing: 4) {
+                                Button(action: { selectedPlace = place }) {
+                                    VStack(spacing: 6) {
                                         ZStack(alignment: .topTrailing) {
-                                            PlaceImageView(place: place, size: 60, cornerRadius: 12)
+                                            PlaceImageView(place: place, size: 60, cornerRadius: 14)
                                             Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
                                                 Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                    .font(.system(size: 10, weight: .semibold))
+                                                    .font(.system(size: 11, weight: .semibold))
                                                     .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                    .padding(4)
+                                                    .padding(5)
                                                     .background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
                                             }
                                             .offset(x: 4, y: -4)
                                         }
 
                                         Text(place.displayName)
-                                            .font(.system(size: 10, weight: .medium))
+                                            .font(.system(size: 11, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                             .lineLimit(2)
                                             .multilineTextAlignment(.center)
                                             .minimumScaleFactor(0.8)
-                                            .frame(height: 24)
+                                            .frame(height: 28)
                                     }
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .contextMenu {
+                                    Button(action: {
+                                        placeToRename = place
+                                        newPlaceName = place.customName ?? place.name
+                                        showingRenameAlert = true
+                                    }) {
+                                        Label("Rename", systemImage: "pencil")
+                                    }
+
                                     Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
                                         Label("Delete", systemImage: "trash")
                                     }
@@ -452,23 +525,31 @@ struct MapsViewNew: View, Searchable {
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
-                    .shadow(
-                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
-                        radius: 12,
-                        x: 0,
-                        y: 2
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(
+                        colorScheme == .dark 
+                            ? Color.white.opacity(0.08)
+                            : Color.clear,
+                        lineWidth: 1
                     )
             )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .shadow(
+                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+                radius: 20,
+                x: 0,
+                y: 4
+            )
+            .padding(.horizontal, 12)
         }
     }
 
@@ -481,90 +562,95 @@ struct MapsViewNew: View, Searchable {
                 colorScheme: colorScheme,
                 onPlaceTap: { place in
                     selectedPlace = place
-                    showingPlaceDetail = true
                 },
                 onExpandTap: {
                     showFullMapView = true
                 }
             )
             .frame(height: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
     }
 
     @ViewBuilder
     private var recentlyVisitedSection: some View {
         if !recentlyVisitedPlaces.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
                     Text("Recently Visited")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                     Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(recentlyVisitedPlaces, id: \.id) { place in
                             Button(action: {
                                 selectedPlace = place
-                                showingPlaceDetail = true
                             }) {
-                                VStack(spacing: 6) {
-                                    PlaceImageView(place: place, size: 70, cornerRadius: 14)
+                                VStack(spacing: 8) {
+                                    PlaceImageView(place: place, size: 70, cornerRadius: 16)
 
                                     Text(place.displayName)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 12, weight: .medium))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
-                                        .frame(width: 70, height: 28)
+                                        .frame(width: 70, height: 32)
                                         .minimumScaleFactor(0.8)
                                 }
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
             }
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
-                    .shadow(
-                        color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
-                        radius: 12,
-                        x: 0,
-                        y: 2
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(
+                        colorScheme == .dark 
+                            ? Color.white.opacity(0.08)
+                            : Color.clear,
+                        lineWidth: 1
                     )
             )
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .shadow(
+                color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+                radius: 20,
+                x: 0,
+                y: 4
+            )
+            .padding(.horizontal, 12)
         }
     }
 
     @ViewBuilder
     private var expandableCategoriesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
                 Text("All Locations")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
 
-            VStack(spacing: 8) {
-                ForEach(cachedSortedCategories, id: \.self) { category in
+            VStack(spacing: 0) {
+                ForEach(locationsManager.categories, id: \.self) { category in
+                    let filteredPlaces = getFilteredPlaces()
+                    let categoryPlaces = filteredPlaces.filter { $0.category == category }
                     ExpandableCategoryRow(
                         category: category,
-                        places: getFilteredPlaces().filter { $0.category == category },
+                        places: categoryPlaces,
                         isExpanded: expandedCategories.contains(category),
                         currentLocation: locationService.currentLocation,
                         colorScheme: colorScheme,
@@ -580,7 +666,6 @@ struct MapsViewNew: View, Searchable {
                         },
                         onPlaceTap: { place in
                             selectedPlace = place
-                            showingPlaceDetail = true
                         },
                         onMoveToFolder: { place in
                             placeToMove = place
@@ -589,21 +674,29 @@ struct MapsViewNew: View, Searchable {
                     )
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
-                .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
-                    radius: 12,
-                    x: 0,
-                    y: 2
+            RoundedRectangle(cornerRadius: 22)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(
+                    colorScheme == .dark 
+                        ? Color.white.opacity(0.08)
+                        : Color.clear,
+                    lineWidth: 1
                 )
         )
-        .padding(.horizontal, 8)
-        .padding(.vertical, 12)
+        .shadow(
+            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
+            radius: 20,
+            x: 0,
+            y: 4
+        )
+        .padding(.horizontal, 12)
     }
 
     @ViewBuilder
@@ -834,23 +927,16 @@ struct MapsViewNew: View, Searchable {
 
         let searchLower = locationSearchText.lowercased()
         return locationsManager.savedPlaces.filter { place in
-            (place.country?.lowercased().contains(searchLower) ?? false) ||
-            (place.province?.lowercased().contains(searchLower) ?? false) ||
-            (place.city?.lowercased().contains(searchLower) ?? false) ||
-            place.address.lowercased().contains(searchLower) ||
-            place.displayName.lowercased().contains(searchLower)
+            let countryMatch = place.country?.lowercased().contains(searchLower) ?? false
+            let provinceMatch = place.province?.lowercased().contains(searchLower) ?? false
+            let cityMatch = place.city?.lowercased().contains(searchLower) ?? false
+            let addressMatch = place.address.lowercased().contains(searchLower)
+            let nameMatch = place.displayName.lowercased().contains(searchLower)
+            return countryMatch || provinceMatch || cityMatch || addressMatch || nameMatch
         }
     }
 
     // OPTIMIZATION: Cache sorted categories to avoid re-sorting on every render
-    private func updateCachedCategories() {
-        let filteredPlaces = getFilteredPlaces()
-        var categorySet = Set<String>()
-        for place in filteredPlaces {
-            categorySet.insert(place.category)
-        }
-        cachedSortedCategories = Array(categorySet).sorted()
-    }
 
     private func startLocationTimer() {
         stopLocationTimer()
@@ -1674,76 +1760,87 @@ struct ExpandableCategoryRow: View {
     let onMoveToFolder: ((SavedPlace) -> Void)?
 
     @StateObject private var locationsManager = LocationsManager.shared
+    @State private var showingRenameAlert = false
+    @State private var selectedPlace: SavedPlace? = nil
+    @State private var newPlaceName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Category header
             Button(action: onToggle) {
-                HStack(spacing: 8) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                        .frame(width: 20)
-
+                HStack(spacing: 12) {
                     Text(category)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
 
                     Text("(\(places.count))")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
 
                     Spacer()
+                    
+                    // Chevron indicator moved to the right
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                        .frame(width: 20)
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 8)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 0)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
+            
+            // Divider between categories
+            if !isExpanded && places.count > 0 {
+                Divider()
+                    .padding(.horizontal, 0)
+                    .opacity(0.3)
+            }
 
             // Places list
             if isExpanded {
                 VStack(spacing: 0) {
+                    Divider()
+                        .padding(.vertical, 8)
+                        .opacity(0.3)
+                    
                     ForEach(places) { place in
                         Button(action: {
                             onPlaceTap(place)
                         }) {
                             HStack(spacing: 12) {
-                                PlaceImageView(place: place, size: 50, cornerRadius: 10)
+                                PlaceImageView(place: place, size: 52, cornerRadius: 12)
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 6) {
                                         Text(place.displayName)
-                                            .font(.system(size: 14, weight: .medium))
+                                            .font(.system(size: 15, weight: .medium))
                                             .foregroundColor(colorScheme == .dark ? .white : .black)
                                             .lineLimit(1)
 
                                         if place.isFavourite {
                                             Image(systemName: "star.fill")
-                                                .font(.system(size: 10, weight: .semibold))
+                                                .font(.system(size: 11, weight: .semibold))
                                                 .foregroundColor(.yellow)
                                         }
                                     }
 
                                     if let distance = calculateDistance(to: place) {
                                         Text(formatDistance(distance))
-                                            .font(.system(size: 12, weight: .regular))
-                                            .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                            .font(.system(size: 13, weight: .regular))
+                                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
                                     }
                                 }
 
                                 Spacer()
 
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
                             }
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(colorScheme == .dark ? Color.white.opacity(0.02) : Color.black.opacity(0.02))
-                            )
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 0)
                         }
                         .buttonStyle(PlainButtonStyle())
                         .contextMenu {
@@ -1758,6 +1855,14 @@ struct ExpandableCategoryRow: View {
                             }
 
                             Button(action: {
+                                selectedPlace = place
+                                newPlaceName = place.customName ?? place.name
+                                showingRenameAlert = true
+                            }) {
+                                Label("Rename", systemImage: "pencil")
+                            }
+
+                            Button(action: {
                                 onMoveToFolder?(place)
                             }) {
                                 Label("Move to Folder", systemImage: "folder")
@@ -1769,12 +1874,37 @@ struct ExpandableCategoryRow: View {
                                 Label("Delete", systemImage: "trash")
                             }
                         }
+                        
+                        // Divider between places
+                        if place.id != places.last?.id {
+                            Divider()
+                                .padding(.horizontal, 0)
+                                .opacity(0.2)
+                        }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 0)
+                .padding(.bottom, 4)
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
+        }
+        .alert("Rename Place", isPresented: $showingRenameAlert) {
+            TextField("Place name", text: $newPlaceName)
+            Button("Cancel", role: .cancel) {
+                selectedPlace = nil
+                newPlaceName = ""
+            }
+            Button("Rename") {
+                if let place = selectedPlace {
+                    var updatedPlace = place
+                    updatedPlace.customName = newPlaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    locationsManager.updatePlace(updatedPlace)
+                    selectedPlace = nil
+                    newPlaceName = ""
+                }
+            }
+        } message: {
+            Text("Enter a new name for this place")
         }
     }
 
@@ -1889,7 +2019,8 @@ struct FullMapView: View {
     }
 
     private func initializeRegion() {
-        if let currentLoc = currentLocation {
+        // Use LocationService directly to get the actual current location
+        if let currentLoc = LocationService.shared.currentLocation {
             region = MKCoordinateRegion(
                 center: currentLoc.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
@@ -1922,7 +2053,8 @@ struct FullMapView: View {
     }
 
     private func centerOnCurrentLocation() {
-        guard let currentLoc = currentLocation else { return }
+        // Use LocationService directly to get the actual current location
+        guard let currentLoc = LocationService.shared.currentLocation else { return }
 
         withAnimation(.easeInOut(duration: 0.3)) {
             region = MKCoordinateRegion(

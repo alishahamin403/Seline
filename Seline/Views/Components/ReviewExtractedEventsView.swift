@@ -11,6 +11,7 @@ struct ReviewExtractedEventsView: View {
 
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
+    @Environment(\.colorScheme) var colorScheme
     @State private var selectedTagId: String? = nil // nil means Personal (default)
     @State private var showingTagOptions = false
     @State private var showingCreateTag = false
@@ -78,12 +79,18 @@ struct ReviewExtractedEventsView: View {
                                                 .font(.system(size: 10))
                                         }
                                         .font(.subheadline)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 8)
-                                        .background(Color(UIColor.systemGray6))
-                                        .cornerRadius(6)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
                                     }
                                     .foregroundColor(.primary)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1), lineWidth: 1)
+                                    )
 
                                     // Create new tag button
                                     Button(action: {

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct AddEventPopupView: View {
     @Binding var isPresented: Bool
-    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void
+    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, [WeekDay]?, String?) -> Void
 
     // Optional initial values
     let initialDate: Date?
@@ -16,13 +16,14 @@ struct AddEventPopupView: View {
     @State private var selectedEndTime: Date
     @State private var isRecurring: Bool = false
     @State private var recurrenceFrequency: RecurrenceFrequency = .weekly
+    @State private var customRecurrenceDays: Set<WeekDay> = []
     @State private var selectedReminder: ReminderTime = .none
     @State private var selectedTagId: String? = nil
     @Environment(\.colorScheme) var colorScheme
 
     init(
         isPresented: Binding<Bool>,
-        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void,
+        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, [WeekDay]?, String?) -> Void,
         initialDate: Date? = nil,
         initialTime: Date? = nil
     ) {
@@ -63,6 +64,8 @@ struct AddEventPopupView: View {
                 let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
                 let timeToSave = hasTime ? selectedTime : nil
                 let endTimeToSave = hasTime ? selectedEndTime : nil
+                let customDays = (isRecurring && recurrenceFrequency == .custom && !customRecurrenceDays.isEmpty) ?
+                    Array(customRecurrenceDays).sorted(by: { $0.sortOrder < $1.sortOrder }) : nil
 
                 onSave(
                     trimmedTitle,
@@ -73,6 +76,7 @@ struct AddEventPopupView: View {
                     selectedReminder == .none ? nil : selectedReminder,
                     isRecurring,
                     isRecurring ? recurrenceFrequency : nil,
+                    customDays,
                     selectedTagId
                 )
                 isPresented = false
@@ -103,6 +107,7 @@ struct AddEventPopupView: View {
                     selectedEndTime: $selectedEndTime,
                     isRecurring: $isRecurring,
                     recurrenceFrequency: $recurrenceFrequency,
+                    customRecurrenceDays: $customRecurrenceDays,
                     selectedReminder: $selectedReminder,
                     selectedTagId: $selectedTagId
                 )
@@ -129,8 +134,8 @@ struct AddEventPopupView: View {
 
         AddEventPopupView(
             isPresented: .constant(true),
-            onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
-                print("Created: \(title), Description: \(description ?? "None"), TagID: \(tagId ?? "Personal")")
+            onSave: { title, description, date, time, endTime, reminder, recurring, frequency, customDays, tagId in
+                print("Created: \(title), Description: \(description ?? "None"), Custom Days: \(customDays?.map { $0.shortDisplayName }.joined(separator: ", ") ?? "None"), TagID: \(tagId ?? "Personal")")
             }
         )
     }

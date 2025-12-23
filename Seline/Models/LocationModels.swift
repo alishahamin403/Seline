@@ -276,7 +276,9 @@ class LocationsManager: ObservableObject {
 
         // Update categories, countries, provinces, and cities
         // Keep categories as sorted array for consistent ordering
-        categories = Array(Set(savedPlaces.map { $0.category })).sorted()
+        // IMPORTANT: Only include categories that have at least one place (auto-delete empty folders)
+        let categoriesWithPlaces = Set(savedPlaces.map { $0.category })
+        categories = Array(categoriesWithPlaces).sorted()
         countries = Set(savedPlaces.compactMap { $0.country }.filter { !$0.isEmpty })
         provinces = Set(savedPlaces.compactMap { $0.province }.filter { !$0.isEmpty })
         cities = Set(savedPlaces.compactMap { $0.city }.filter { !$0.isEmpty })
@@ -317,8 +319,15 @@ class LocationsManager: ObservableObject {
     // MARK: - Place Operations
 
     func addPlace(_ place: SavedPlace) {
-        savedPlaces.append(place)
-        savePlacesToStorage()
+        // Update on main thread for immediate UI refresh
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.savedPlaces.append(place)
+            self.savePlacesToStorage()
+            
+            // OPTIMIZATION: Invalidate affected caches
+            self.invalidateLocationCaches(for: place.id)
+        }
 
         // Sync with Supabase
         Task {
@@ -327,25 +336,39 @@ class LocationsManager: ObservableObject {
     }
 
     func updatePlace(_ place: SavedPlace) {
-        if let index = savedPlaces.firstIndex(where: { $0.id == place.id }) {
-            var updatedPlace = place
-            updatedPlace.dateModified = Date()
-            savedPlaces[index] = updatedPlace
-            savePlacesToStorage()
-
-            // Sync with Supabase
-            Task {
-                await updatePlaceInSupabase(updatedPlace)
+        // Update on main thread for immediate UI refresh
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if let index = self.savedPlaces.firstIndex(where: { $0.id == place.id }) {
+                var updatedPlace = place
+                updatedPlace.dateModified = Date()
+                self.savedPlaces[index] = updatedPlace
+                self.savePlacesToStorage()
+                
+                // OPTIMIZATION: Invalidate affected caches
+                self.invalidateLocationCaches(for: place.id)
             }
+        }
+
+        // Sync with Supabase
+        Task {
+            await updatePlaceInSupabase(place)
         }
     }
 
     func deletePlace(_ place: SavedPlace) {
-        savedPlaces.removeAll { $0.id == place.id }
-        savePlacesToStorage()
-
-        // Clear from Google Maps cache
-        GoogleMapsService.shared.clearLocationCache(for: place.googlePlaceId)
+        // Update on main thread for immediate UI refresh
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.savedPlaces.removeAll { $0.id == place.id }
+            self.savePlacesToStorage()
+            
+            // OPTIMIZATION: Invalidate affected caches
+            self.invalidateLocationCaches(for: place.id)
+            
+            // Clear from Google Maps cache
+            GoogleMapsService.shared.clearLocationCache(for: place.googlePlaceId)
+        }
 
         // Sync with Supabase
         Task {
@@ -360,6 +383,9 @@ class LocationsManager: ObservableObject {
             savedPlaces[index].userCuisine = cuisine
             savedPlaces[index].dateModified = Date()
             savePlacesToStorage()
+
+            // OPTIMIZATION: Invalidate affected caches
+            invalidateLocationCaches(for: placeId)
 
             // Sync with Supabase
             Task {
@@ -648,6 +674,25 @@ class LocationsManager: ObservableObject {
                 .execute()
         } catch {
             print("❌ Error deleting place from Supabase: \(error)")
+        }
+    }
+
+    // MARK: - Cache Invalidation
+
+    /// Invalidate location-related caches when locations are modified
+    private func invalidateLocationCaches(for placeId: UUID? = nil) {
+        // Invalidate search cache since locations are searchable
+        CacheManager.shared.invalidate(keysWithPrefix: "cache.search")
+
+        // Invalidate today's visits cache
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+
+        // If specific place ID provided, invalidate its stats
+        if let placeId = placeId {
+            CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.locationStats(placeId.uuidString))
+        } else {
+            // Otherwise invalidate all location stats
+            CacheManager.shared.invalidate(keysWithPrefix: "cache.location")
         }
     }
 

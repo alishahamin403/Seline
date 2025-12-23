@@ -80,6 +80,19 @@ class ThemeManager: ObservableObject {
         return effectiveColorScheme
     }
 
+    // Get the preferred color scheme for SwiftUI
+    // Returns nil for auto mode to let iOS use system setting
+    func getPreferredColorScheme() -> ColorScheme? {
+        switch selectedTheme {
+        case .auto:
+            return nil // Let system handle it - matches widget behavior
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
     // Determine if it's currently day or night based on time
     private func isDaytime() -> Bool {
         let calendar = Calendar.current
@@ -116,6 +129,7 @@ class ThemeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.detectSystemTheme() // Re-detect system theme when app becomes active
             self?.updateEffectiveColorScheme()
             self?.startTimer()
         }
@@ -135,6 +149,7 @@ class ThemeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.detectSystemTheme() // Re-detect system theme on time changes
             self?.updateEffectiveColorScheme()
         }
 
@@ -173,12 +188,20 @@ class ThemeManager: ObservableObject {
     private func detectSystemTheme() {
         // Get the system appearance
         if #available(iOS 13.0, *) {
+            // Try to get from connected scenes first
             let window = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first { $0.isKeyWindow }
+
+            // If no key window, get any window
+            let fallbackWindow = UIApplication.shared.connectedScenes
                 .compactMap { $0 as? UIWindowScene }
                 .flatMap { $0.windows }
                 .first
 
-            let currentAppearance = window?.traitCollection.userInterfaceStyle ?? UITraitCollection().userInterfaceStyle
+            let effectiveWindow = window ?? fallbackWindow
+            let currentAppearance = effectiveWindow?.traitCollection.userInterfaceStyle ?? .unspecified
 
             switch currentAppearance {
             case .dark:
@@ -186,9 +209,11 @@ class ThemeManager: ObservableObject {
             case .light:
                 systemColorScheme = .light
             case .unspecified:
-                systemColorScheme = nil
+                // If unspecified, check user interface idiom
+                // Default to light for unspecified
+                systemColorScheme = .light
             @unknown default:
-                systemColorScheme = nil
+                systemColorScheme = .light
             }
         }
     }

@@ -13,7 +13,7 @@ struct SettingsView: View {
 
     // Settings states
     @AppStorage("notificationsEnabled") private var notificationsEnabled = false
-    @AppStorage("locationTrackingMode") private var locationTrackingMode = "active" // "active" or "background"
+    @AppStorage("locationTrackingEnabled") private var locationTrackingEnabled = true
     @State private var showingFeedback = false
     @State private var showingLocationInfo = false
 
@@ -114,58 +114,30 @@ struct SettingsView: View {
                         Divider()
                             .padding(.leading, 50)
 
-                        // Location Tracking Mode
+                        // Location Tracking Toggle
                         HStack(spacing: 16) {
                             Image(systemName: "location.fill")
                                 .font(.system(size: 16, weight: .regular))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .frame(width: 24)
 
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack(spacing: 8) {
-                                    Text("Location Tracking")
-                                        .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(isDarkMode ? .white : .black)
+                            HStack(spacing: 8) {
+                                Text("Location Tracking")
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(isDarkMode ? .white : .black)
 
-                                    Button(action: { showingLocationInfo = true }) {
-                                        Image(systemName: "info.circle")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(.gray)
-                                    }
-                                }
-
-                                HStack(spacing: 24) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: locationTrackingMode == "active" ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(locationTrackingMode == "active" ? (isDarkMode ? Color.white : Color.black) : .gray)
-
-                                        Text("Active")
-                                            .font(.system(size: 14, weight: .regular))
-                                            .foregroundColor(isDarkMode ? .white : .black)
-                                    }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        locationTrackingMode = "active"
-                                    }
-
-                                    HStack(spacing: 8) {
-                                        Image(systemName: locationTrackingMode == "background" ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(locationTrackingMode == "background" ? (isDarkMode ? Color.white : Color.black) : .gray)
-
-                                        Text("Background")
-                                            .font(.system(size: 14, weight: .regular))
-                                            .foregroundColor(isDarkMode ? .white : .black)
-                                    }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        locationTrackingMode = "background"
-                                    }
-
-                                    Spacer()
+                                Button(action: { showingLocationInfo = true }) {
+                                    Image(systemName: "info.circle")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.gray)
                                 }
                             }
+
+                            Spacer()
+
+                            Toggle("", isOn: $locationTrackingEnabled)
+                                .labelsHidden()
+                                .tint(isDarkMode ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
                         }
                         .padding(.horizontal, 20)
                         .padding(.vertical, 14)
@@ -231,39 +203,19 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Active Mode
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "iphone")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.blue)
-
-                                Text("Active Mode")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(isDarkMode ? .white : .black)
-                            }
-
-                            Text("App must be open for tracking. Minimal battery drain (1-3% per hour). Best for when you actively use the app.")
-                                .font(.system(size: 14))
-                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
-                                .lineSpacing(2)
-                        }
-
-                        Divider()
-
-                        // Background Mode
+                        // How it Works
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
                                 Image(systemName: "location.fill")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(.blue)
 
-                                Text("Background Mode")
+                                Text("How It Works")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .white : .black)
                             }
 
-                            Text("App can track in background. Higher battery drain (5-15% per hour). Best for comprehensive location tracking throughout the day.")
+                            Text("When enabled, Seline uses geofencing to automatically detect when you arrive and leave saved locations. This works in the background even when the app is closed.")
                                 .font(.system(size: 14))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .lineSpacing(2)
@@ -271,19 +223,39 @@ struct SettingsView: View {
 
                         Divider()
 
-                        // Tip
+                        // Battery Usage
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
-                                Image(systemName: "lightbulb.fill")
+                                Image(systemName: "battery.100")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.yellow)
+                                    .foregroundColor(.green)
 
-                                Text("Tip")
+                                Text("Battery Usage")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(isDarkMode ? .white : .black)
                             }
 
-                            Text("Keep the app running to ensure accurate tracking. Closing the app will stop background tracking.")
+                            Text("Geofencing is battery-efficient and only triggers when you cross location boundaries. Typical battery impact is minimal (1-2% per day).")
+                                .font(.system(size: 14))
+                                .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
+                                .lineSpacing(2)
+                        }
+
+                        Divider()
+
+                        // Privacy
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "lock.shield.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.orange)
+
+                                Text("Privacy")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(isDarkMode ? .white : .black)
+                            }
+
+                            Text("Your location data stays private and is only stored on your device and in your secure Supabase database. We never share or sell your location data.")
                                 .font(.system(size: 14))
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .lineSpacing(2)
@@ -299,8 +271,15 @@ struct SettingsView: View {
             await notificationService.checkAuthorizationStatus()
             notificationsEnabled = notificationService.isAuthorized
         }
-        .onChange(of: locationTrackingMode) { newMode in
-            geofenceManager.updateBackgroundLocationTracking(enabled: newMode == "background")
+        .onChange(of: locationTrackingEnabled) { isEnabled in
+            if isEnabled {
+                // Enable geofencing and background tracking
+                geofenceManager.updateBackgroundLocationTracking(enabled: true)
+                geofenceManager.setupGeofences(for: LocationsManager.shared.savedPlaces)
+            } else {
+                // Disable geofencing
+                geofenceManager.stopMonitoring()
+            }
         }
     }
 

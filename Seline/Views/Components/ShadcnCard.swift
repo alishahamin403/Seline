@@ -12,25 +12,7 @@ struct ShadcnCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             content
         }
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(
-                    colorScheme == .dark ?
-                        Color.white.opacity(0.1) :
-                        Color.black.opacity(0.05),
-                    lineWidth: 1
-                )
-        )
-        .shadow(
-            color: colorScheme == .dark ? .clear : .gray.opacity(0.15),
-            radius: colorScheme == .dark ? 0 : 12,
-            x: 0,
-            y: colorScheme == .dark ? 0 : 4
-        )
+        .shadcnTileStyle(colorScheme: colorScheme)
     }
 }
 

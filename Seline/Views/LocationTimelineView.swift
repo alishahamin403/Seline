@@ -11,7 +11,6 @@ struct LocationTimelineView: View {
     @State private var visitsForSelectedDay: [LocationVisitRecord] = []
     @State private var visitsForMonth: [Date: Int] = [:] // Date -> visit count
     @State private var isLoading = false
-    @State private var showingPlaceDetail = false
     @State private var selectedPlace: SavedPlace? = nil
 
     private let calendar = Calendar.current
@@ -42,11 +41,11 @@ struct LocationTimelineView: View {
             loadVisitsForMonth()
             loadVisitsForSelectedDay()
         }
-        .sheet(isPresented: $showingPlaceDetail) {
-            if let place = selectedPlace {
-                PlaceDetailSheet(place: place, onDismiss: { showingPlaceDetail = false })
-                    .presentationBg()
-            }
+        .sheet(item: $selectedPlace) { place in
+            PlaceDetailSheet(place: place, onDismiss: { 
+                selectedPlace = nil
+            })
+            .presentationBg()
         }
     }
 
@@ -150,17 +149,8 @@ struct LocationTimelineView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
-                .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
-                    radius: 12,
-                    x: 0,
-                    y: 2
-                )
-        )
-        .padding(.horizontal, 8)
+        .shadcnTileStyle(colorScheme: colorScheme)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
     }
 
@@ -220,11 +210,11 @@ struct LocationTimelineView: View {
     @ViewBuilder
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Day summary
+            // Day summary - cleaner header
             HStack {
                 Text(selectedDayString())
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(Color.shadcnForeground(colorScheme))
 
                 Spacer()
 
@@ -235,9 +225,9 @@ struct LocationTimelineView: View {
             .padding(.horizontal, 20)
             .padding(.top, 16)
 
-            // Vertical timeline
+            // Vertical timeline - cleaner spacing
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     ForEach(visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime })) { visit in
                         visitCard(for: visit)
                     }
@@ -246,17 +236,8 @@ struct LocationTimelineView: View {
                 .padding(.vertical, 12)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white)
-                .shadow(
-                    color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.03),
-                    radius: 12,
-                    x: 0,
-                    y: 2
-                )
-        )
-        .padding(.horizontal, 8)
+        .shadcnTileStyle(colorScheme: colorScheme)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
     }
 
@@ -265,78 +246,63 @@ struct LocationTimelineView: View {
         if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.savedPlaceId }) {
             Button(action: {
                 selectedPlace = place
-                showingPlaceDetail = true
             }) {
-                HStack(spacing: 0) {
-                    // Timeline indicator
+                HStack(spacing: 12) {
+                    // Simplified timeline indicator - smaller and cleaner
                     VStack(spacing: 0) {
                         Circle()
                             .fill(categoryColor(for: place.category))
-                            .frame(width: 10, height: 10)
+                            .frame(width: 8, height: 8)
 
                         if visit.id != visitsForSelectedDay.sorted(by: { $0.entryTime < $1.entryTime }).last?.id {
                             Rectangle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-                                .frame(width: 2)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                                .frame(width: 1.5)
                                 .frame(minHeight: 40)
                         }
                     }
-                    .frame(width: 30)
+                    .frame(width: 20)
 
-                    // Visit card
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            // Location icon/image
-                            PlaceImageView(place: place, size: 40, cornerRadius: 8)
+                    // Visit card - cleaner design without stroke overlay
+                    HStack(spacing: 12) {
+                        PlaceImageView(place: place, size: 40, cornerRadius: ShadcnRadius.lg)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(place.displayName)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                    .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(place.displayName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .lineLimit(1)
 
+                            HStack(spacing: 8) {
                                 Text(place.category)
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(categoryColor(for: place.category))
                                     .lineLimit(1)
-                            }
 
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
-                        }
-
-                        // Time and duration
-                        HStack(spacing: 12) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                                 Text(timeRangeString(from: visit))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                            }
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                    .lineLimit(1)
 
-                            if let duration = visit.durationMinutes {
-                                Text(durationString(minutes: duration))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+                                if let duration = visit.durationMinutes {
+                                    Text("•")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+
+                                    Text(durationString(minutes: duration))
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                                        .lineLimit(1)
+                                }
                             }
                         }
+
+                        Spacer()
                     }
                     .padding(12)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(
-                                colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05),
-                                lineWidth: 1
-                            )
+                        RoundedRectangle(cornerRadius: ShadcnRadius.xl)
+                            .fill(Color.shadcnTileBackground(colorScheme))
                     )
                 }
             }
@@ -469,6 +435,20 @@ struct LocationTimelineView: View {
             // Get first and last day of month
             guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth) else { return }
 
+            // OPTIMIZATION: Create cache key for this month
+            let monthFormatter = DateFormatter()
+            monthFormatter.dateFormat = "yyyy-MM"
+            let monthKey = monthFormatter.string(from: currentMonth)
+            let cacheKey = "cache.visits.month.\(monthKey)"
+
+            // Check cache first
+            if let cachedVisits: [Date: Int] = CacheManager.shared.get(forKey: cacheKey) {
+                await MainActor.run {
+                    visitsForMonth = cachedVisits
+                }
+                return
+            }
+
             do {
                 let client = await supabaseManager.getPostgrestClient()
                 let response = try await client
@@ -491,6 +471,8 @@ struct LocationTimelineView: View {
 
                 await MainActor.run {
                     visitsForMonth = visitsByDay
+                    // OPTIMIZATION: Cache for 5 minutes
+                    CacheManager.shared.set(visitsByDay, forKey: cacheKey, ttl: CacheManager.TTL.medium)
                 }
             } catch {
                 print("Error loading visits for month: \(error)")

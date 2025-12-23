@@ -35,8 +35,12 @@ struct MainAppView: View {
     @State private var notificationTaskId: String? = nil
     @FocusState private var isSearchFocused: Bool
     @State private var showConversationModal = false
+    @Namespace private var noteTransitionNamespace
     @State private var showReceiptStats = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil  // Track debounce task
+    // OPTIMIZATION: Cache flattened tasks to avoid recomputing on every search
+    @State private var cachedFlattenedTasks: [TaskItem] = []
+    @State private var lastCacheUpdate: Date = .distantPast
     @State private var currentLocationName: String = "Finding location..."
     @State private var nearbyLocation: String? = nil
     @State private var nearbyLocationFolder: String? = nil
@@ -50,8 +54,10 @@ struct MainAppView: View {
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast
-    @State private var showingLocationPlaceDetail = false
     @State private var selectedLocationPlace: SavedPlace? = nil
+    @State private var showingReceiptImagePicker = false
+    @State private var showingReceiptCameraPicker = false
+    @State private var receiptProcessingState: ReceiptProcessingState = .idle
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -68,7 +74,7 @@ struct MainAppView: View {
     private var isAnySheetPresented: Bool {
         showingNewNoteSheet || searchSelectedNote != nil || authManager.showLocationSetup ||
         authManager.showLabelSelection || searchSelectedEmail != nil || searchSelectedTask != nil ||
-        showingAddEventPopup || showReceiptStats || showAllLocationsSheet || showingLocationPlaceDetail
+        showingAddEventPopup || showReceiptStats || showAllLocationsSheet || selectedLocationPlace != nil
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -124,8 +130,16 @@ struct MainAppView: View {
         var results: [OverlaySearchResult] = []
         let lowercasedSearch = searchText.lowercased()
 
-        // Search tasks/events - use cached flattened tasks
-        let allTasks = taskManager.getAllFlattenedTasks()
+        // OPTIMIZATION: Use cached flattened tasks, refresh every 30 seconds
+        let cacheAge = Date().timeIntervalSince(lastCacheUpdate)
+        let allTasks: [TaskItem]
+        if cacheAge > 30 || cachedFlattenedTasks.isEmpty {
+            allTasks = taskManager.getAllFlattenedTasks()
+            cachedFlattenedTasks = allTasks
+            lastCacheUpdate = Date()
+        } else {
+            allTasks = cachedFlattenedTasks
+        }
         let matchingTasks = allTasks.filter {
             $0.title.lowercased().contains(lowercasedSearch)
         }
@@ -784,23 +798,27 @@ struct MainAppView: View {
             .fullScreenCover(item: $selectedNoteToOpen) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { selectedNoteToOpen != nil },
-                    set: { if !$0 { selectedNoteToOpen = nil } }
+                    set: { if !$0 { 
+                        selectedNoteToOpen = nil
+                    } }
                 ))
             }
             .sheet(isPresented: $showingNewNoteSheet) {
                 NoteEditView(note: nil, isPresented: $showingNewNoteSheet)
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.hidden)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .modifier(PresentationModifiers())
                     .presentationBg()
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showingNewNoteSheet)
+            .animation(.sheetPresentation, value: showingNewNoteSheet)
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { searchSelectedNote != nil },
                     set: { if !$0 { searchSelectedNote = nil } }
                 ))
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .modifier(PresentationModifiers())
                 .presentationBg()
             }
             .sheet(isPresented: $authManager.showLocationSetup) {
@@ -817,7 +835,7 @@ struct MainAppView: View {
             }
             .sheet(item: $searchSelectedTask) { task in
                 if showingEditTask {
-                    NavigationView {
+                    NavigationStack {
                         EditTaskView(
                             task: task,
                             onSave: { updatedTask in
@@ -842,7 +860,7 @@ struct MainAppView: View {
                         )
                     }
                 } else {
-                    NavigationView {
+                    NavigationStack {
                         ViewEventView(
                             task: task,
                             onEdit: {
@@ -870,7 +888,7 @@ struct MainAppView: View {
             .sheet(isPresented: $showingAddEventPopup) {
                 AddEventPopupView(
                     isPresented: $showingAddEventPopup,
-                    onSave: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                    onSave: { (title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, customDays: [WeekDay]?, tagId: String?) in
                         let calendar = Calendar.current
                         let weekdayIndex = calendar.component(.weekday, from: date)
 
@@ -896,20 +914,22 @@ struct MainAppView: View {
                             reminderTime: reminder,
                             isRecurring: recurring,
                             recurrenceFrequency: frequency,
+                            customRecurrenceDays: customDays,
                             tagId: tagId
                         )
                     }
                 )
                 .presentationBg()
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showingAddEventPopup)
+            .animation(.sheetPresentation, value: showingAddEventPopup)
             .sheet(isPresented: $showReceiptStats) {
                 ReceiptStatsView()
-                    .presentationDetents([.large])
+                    .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+                    .modifier(PresentationModifiers())
                     .presentationBg()
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showReceiptStats)
+            .animation(.sheetPresentation, value: showReceiptStats)
             .sheet(isPresented: $showAllLocationsSheet) {
                 AllVisitsSheet(
                     allLocations: $allLocations,
@@ -918,21 +938,53 @@ struct MainAppView: View {
                         // Find the SavedPlace with this UUID
                         if let place = locationsManager.savedPlaces.first(where: { $0.id == locationId }) {
                             selectedLocationPlace = place
-                            showingLocationPlaceDetail = true
                         }
                     },
                     savedPlaces: locationsManager.savedPlaces
                 )
                 .presentationBg()
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showAllLocationsSheet)
-            .sheet(isPresented: $showingLocationPlaceDetail) {
-                if let place = selectedLocationPlace {
-                    PlaceDetailSheet(place: place, onDismiss: { showingLocationPlaceDetail = false }, isFromRanking: false)
-                        .presentationBg()
+            .animation(.sheetPresentation, value: showAllLocationsSheet)
+            .sheet(item: $selectedLocationPlace) { place in
+                PlaceDetailSheet(place: place, onDismiss: { 
+                    selectedLocationPlace = nil
+                }, isFromRanking: false)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .modifier(PresentationModifiers())
+                .presentationBg()
+            }
+            .sheet(isPresented: $showingReceiptImagePicker) {
+                ImagePicker(selectedImage: Binding(
+                    get: { nil },
+                    set: { newImage in
+                        if let image = newImage {
+                            processReceiptImage(image)
+                        }
+                    }
+                ))
+            }
+            .sheet(isPresented: $showingReceiptCameraPicker) {
+                CameraPicker(selectedImage: Binding(
+                    get: { nil },
+                    set: { newImage in
+                        if let image = newImage {
+                            processReceiptImage(image)
+                        }
+                    }
+                ))
+            }
+            .overlay(alignment: .top) {
+                // Receipt processing toast indicator
+                if receiptProcessingState != .idle {
+                    VStack {
+                        ReceiptProcessingToast(state: receiptProcessingState)
+                            .padding(.top, 8)
+                        Spacer()
+                    }
+                    .zIndex(1000)
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showingLocationPlaceDetail)
     }
 
     private var mainContentBase: some View {
@@ -948,12 +1000,13 @@ struct MainAppView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(colorScheme == .dark ? Color.black : Color.white)
             .blur(radius: isAnySheetPresented ? 5 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isAnySheetPresented)
+            .animation(.gentleFade, value: isAnySheetPresented)
         }
     }
 
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
+            // Negative spacing to eliminate separator line
             // Padding to account for fixed header (only on home tab)
             if selectedTab == .home {
                 Color.clear.frame(height: 48)
@@ -980,15 +1033,18 @@ struct MainAppView: View {
                 }
             }
             .transition(.asymmetric(
-                insertion: .scale(scale: 0.95).combined(with: .opacity),
-                removal: .opacity
+                insertion: .move(edge: getTabEdge(for: selectedTab))
+                    .combined(with: .opacity),
+                removal: .move(edge: getTabEdge(for: selectedTab, isRemoval: true))
+                    .combined(with: .opacity)
             ))
-            .animation(.easeInOut(duration: 0.25), value: selectedTab)
+            .animation(.smoothTabTransition, value: selectedTab)
             .frame(maxHeight: .infinity)
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
             if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
                 BottomTabBar(selectedTab: $selectedTab)
+                    .padding(.top, -0.5) // Eliminate separator line by overlapping slightly
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -1001,7 +1057,7 @@ struct MainAppView: View {
 
                     if horizontalAmount < -threshold {
                         // Swipe left - next tab
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        withAnimation(.smoothTabTransition) {
                             let tabs = TabSelection.allCases
                             if let currentIndex = tabs.firstIndex(of: selectedTab),
                                currentIndex < tabs.count - 1 {
@@ -1011,7 +1067,7 @@ struct MainAppView: View {
                         }
                     } else if horizontalAmount > threshold {
                         // Swipe right - previous tab
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        withAnimation(.smoothTabTransition) {
                             let tabs = TabSelection.allCases
                             if let currentIndex = tabs.firstIndex(of: selectedTab),
                                currentIndex > 0 {
@@ -1628,11 +1684,19 @@ struct MainAppView: View {
                 .zIndex(1)
 
                 // Spending + ETA widget - replaces weather widget
-                SpendingAndETAWidget(isVisible: selectedTab == .home)
-                    .padding(.horizontal, 12)
-                    .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-                    .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
-                    .allowsHitTesting(!isDailyOverviewExpanded)
+                SpendingAndETAWidget(
+                    isVisible: selectedTab == .home,
+                    onAddReceipt: {
+                        showingReceiptCameraPicker = true
+                    },
+                    onAddReceiptFromGallery: {
+                        showingReceiptImagePicker = true
+                    }
+                )
+                .padding(.horizontal, 12)
+                .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+                .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+                .allowsHitTesting(!isDailyOverviewExpanded)
 
                 // Current Location card
                 CurrentLocationCardWidget(
@@ -1644,7 +1708,6 @@ struct MainAppView: View {
                     elapsedTimeString: elapsedTimeString,
                     todaysVisits: todaysVisits,
                     selectedPlace: $selectedLocationPlace,
-                    showingPlaceDetail: $showingLocationPlaceDetail,
                     showAllLocationsSheet: $showAllLocationsSheet
                 )
                 .padding(.horizontal, 12)
@@ -1723,6 +1786,112 @@ struct MainAppView: View {
         )
         .cornerRadius(10)
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+    }
+    
+    // MARK: - Tab Transition Helpers
+    
+    private func getTabEdge(for tab: TabSelection, isRemoval: Bool = false) -> Edge {
+        let tabs = TabSelection.allCases
+        guard let currentIndex = tabs.firstIndex(of: selectedTab),
+              let tabIndex = tabs.firstIndex(of: tab) else {
+            return .trailing
+        }
+        
+        if isRemoval {
+            // When removing, determine direction based on where we're going
+            return tabIndex < currentIndex ? .leading : .trailing
+        } else {
+            // When inserting, determine direction based on where we're coming from
+            return tabIndex > currentIndex ? .trailing : .leading
+        }
+    }
+    
+    // MARK: - Receipt Processing
+    
+    private func processReceiptImage(_ image: UIImage) {
+        // Process receipt image using the same logic as receipts page
+        // Navigate to Notes tab and open note editor with receipt
+        Task {
+            // Show processing indicator
+            await MainActor.run {
+                receiptProcessingState = .processing
+            }
+            
+            do {
+                // Use DeepSeekService (which delegates to OpenAI for vision) - same as receipts page
+                let deepSeekService = DeepSeekService.shared
+                let (receiptTitle, receiptContent) = try await deepSeekService.analyzeReceiptImage(image)
+                
+                // Clean up the extracted content - same as receipts page
+                let cleanedContent = receiptContent
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                
+                // Extract month and year from receipt title for automatic folder organization - same as receipts page
+                var folderIdForReceipt: UUID?
+                if let (month, year) = notesManager.extractMonthYearFromTitle(receiptTitle) {
+                    // Use async folder creation to ensure folders sync before using IDs
+                    folderIdForReceipt = await notesManager.getOrCreateReceiptMonthFolderAsync(month: month, year: year)
+                    print("✅ Receipt assigned to \(notesManager.getMonthName(month)) \(year)")
+                } else {
+                    // Fallback to main Receipts folder if no date found
+                    let receiptsFolderId = notesManager.getOrCreateReceiptsFolder()
+                    folderIdForReceipt = receiptsFolderId
+                    print("⚠️ No date found in receipt title, using main Receipts folder")
+                }
+                
+                // Create note with receipt content
+                var newNote = Note(title: receiptTitle, content: cleanedContent, folderId: folderIdForReceipt)
+                
+                // Save note first, then upload image
+                let syncSuccess = await notesManager.addNoteAndWaitForSync(newNote)
+                
+                if syncSuccess {
+                    // Upload image
+                    let imageUrls = await notesManager.uploadNoteImages([image], noteId: newNote.id)
+                    
+                    // Update note with image URL
+                    var updatedNote = newNote
+                    updatedNote.imageUrls = imageUrls
+                    updatedNote.dateModified = Date()
+                    let _ = await notesManager.updateNoteAndWaitForSync(updatedNote)
+                    
+                    await MainActor.run {
+                        HapticManager.shared.success()
+                        receiptProcessingState = .success
+                        
+                        // Navigate to Notes tab and open the note editor to show the receipt
+                        selectedTab = .notes
+                        // Open the note in the editor so user can see it immediately
+                        selectedNoteToOpen = updatedNote
+                        
+                        // Hide success message after 2 seconds
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            await MainActor.run {
+                                receiptProcessingState = .idle
+                            }
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    print("❌ Error processing receipt: \(error.localizedDescription)")
+                    HapticManager.shared.error()
+                    receiptProcessingState = .error(error.localizedDescription)
+                    
+                    // Hide error message after 3 seconds
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        await MainActor.run {
+                            receiptProcessingState = .idle
+                        }
+                    }
+                }
+            }
+        }
     }
 
 }

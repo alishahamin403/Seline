@@ -10,6 +10,7 @@ struct EventFormContent: View {
     @Binding var selectedEndTime: Date
     @Binding var isRecurring: Bool
     @Binding var recurrenceFrequency: RecurrenceFrequency
+    @Binding var customRecurrenceDays: Set<WeekDay>
     @Binding var selectedReminder: ReminderTime
     @Binding var selectedTagId: String?
 
@@ -297,9 +298,12 @@ struct EventFormContent: View {
                                             Text("Frequency")
                                                 .font(.system(size: 12, weight: .medium))
                                                 .foregroundColor(secondaryTextColor)
-                                            Text(recurrenceFrequency.rawValue.capitalized)
+                                            Text(recurrenceFrequency == .custom && !customRecurrenceDays.isEmpty ?
+                                                customRecurrenceDays.sorted(by: { $0.sortOrder < $1.sortOrder }).map { $0.shortDisplayName }.joined(separator: ", ") :
+                                                recurrenceFrequency.rawValue.capitalized)
                                                 .font(.system(size: 14, weight: .semibold))
                                                 .foregroundColor(textColor)
+                                                .lineLimit(1)
                                         }
 
                                         Spacer()
@@ -321,9 +325,10 @@ struct EventFormContent: View {
                                 .sheet(isPresented: $showingRecurrenceOptions) {
                                     RecurringOptionsSheet(
                                         selectedFrequency: $recurrenceFrequency,
+                                        customRecurrenceDays: $customRecurrenceDays,
                                         colorScheme: colorScheme
                                     )
-                                    .presentationDetents([.height(300)])
+                                    .presentationDetents([.height(recurrenceFrequency == .custom ? 450 : 300)])
                                 }
                             .presentationBg()
                                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -607,46 +612,134 @@ struct TagSelectionSheet: View {
     }
 }
 
+// MARK: - Custom Day Button
+struct CustomDayButton: View {
+    let day: WeekDay
+    let isSelected: Bool
+    let colorScheme: ColorScheme
+    let onTap: () -> Void
+    
+    private var foregroundColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.black : Color.white
+        } else {
+            return colorScheme == .dark ? Color.white : Color.black
+        }
+    }
+    
+    private var backgroundColor: Color {
+        if isSelected {
+            return colorScheme == .dark ? Color.white : Color.black
+        } else {
+            return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
+        }
+    }
+    
+    private var strokeColor: Color {
+        isSelected ? Color.clear : Color.gray.opacity(0.2)
+    }
+    
+    var body: some View {
+        Button(action: onTap) {
+            Text(day.shortDisplayName)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(foregroundColor)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(backgroundColor)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(strokeColor, lineWidth: 1)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
 // MARK: - Recurring Options Sheet
 struct RecurringOptionsSheet: View {
     @Binding var selectedFrequency: RecurrenceFrequency
+    @Binding var customRecurrenceDays: Set<WeekDay>
     let colorScheme: ColorScheme
     @Environment(\.dismiss) private var dismiss
+    
+    private var checkmarkColor: Color {
+        colorScheme == .dark ? Color.white : Color.black
+    }
+    
+    private func backgroundForFrequency(_ frequency: RecurrenceFrequency) -> Color {
+        if selectedFrequency == frequency {
+            return colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)
+        } else {
+            return Color.clear
+        }
+    }
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                ForEach(RecurrenceFrequency.allCases, id: \.self) { frequency in
-                    Button(action: {
-                        selectedFrequency = frequency
-                        dismiss()
-                    }) {
-                        HStack {
-                            Text(frequency.rawValue.capitalized)
-                                .font(.shadcnTextBase)
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(RecurrenceFrequency.allCases, id: \.self) { frequency in
+                            Button(action: {
+                                selectedFrequency = frequency
+                                if frequency != .custom {
+                                    dismiss()
+                                }
+                            }) {
+                                HStack {
+                                    Text(frequency.displayName)
+                                        .font(.shadcnTextBase)
+                                        .foregroundColor(Color.shadcnForeground(colorScheme))
 
-                            Spacer()
+                                    Spacer()
 
-                            if selectedFrequency == frequency {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(
-                                        colorScheme == .dark ?
-                                            Color.white :
-                                            Color.black
-                                    )
+                                    if selectedFrequency == frequency {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(checkmarkColor)
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 16)
+                                .background(backgroundForFrequency(frequency))
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
-                        .background(
-                            selectedFrequency == frequency ?
-                                (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)) :
-                                Color.clear
-                        )
+
+                        // Custom day selector (shown when custom is selected)
+                        if selectedFrequency == .custom {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Divider()
+                                    .padding(.vertical, 8)
+
+                                Text("Select Days")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                                    .padding(.horizontal, 20)
+
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                                    ForEach(WeekDay.allCases.sorted(by: { $0.sortOrder < $1.sortOrder }), id: \.self) { day in
+                                        CustomDayButton(
+                                            day: day,
+                                            isSelected: customRecurrenceDays.contains(day),
+                                            colorScheme: colorScheme,
+                                            onTap: {
+                                                if customRecurrenceDays.contains(day) {
+                                                    customRecurrenceDays.remove(day)
+                                                } else {
+                                                    customRecurrenceDays.insert(day)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
                     }
-                    .buttonStyle(PlainButtonStyle())
                 }
 
                 Spacer()
@@ -662,11 +755,8 @@ struct RecurringOptionsSheet: View {
                     Button("Done") {
                         dismiss()
                     }
-                    .foregroundColor(
-                        colorScheme == .dark ?
-                            Color.white :
-                            Color.black
-                    )
+                    .foregroundColor(checkmarkColor)
+                    .disabled(selectedFrequency == .custom && customRecurrenceDays.isEmpty)
                 }
             }
         }
@@ -753,6 +843,7 @@ struct ReminderOptionsSheet: View {
     @State var selectedEndTime = Date().addingTimeInterval(3600)
     @State var isRecurring = false
     @State var recurrenceFrequency: RecurrenceFrequency = .weekly
+    @State var customRecurrenceDays: Set<WeekDay> = []
     @State var selectedReminder: ReminderTime = .none
     @State var selectedTagId: String? = nil
 
@@ -769,6 +860,7 @@ struct ReminderOptionsSheet: View {
             selectedEndTime: $selectedEndTime,
             isRecurring: $isRecurring,
             recurrenceFrequency: $recurrenceFrequency,
+            customRecurrenceDays: $customRecurrenceDays,
             selectedReminder: $selectedReminder,
             selectedTagId: $selectedTagId
         )

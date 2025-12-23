@@ -15,6 +15,9 @@ class SelineAppContext {
     private let locationsManager: LocationsManager
     private let navigationService: NavigationService
     private let categorizationService: ReceiptCategorizationService
+    private let habitTrackingService: HabitTrackingService
+    private let visitFeedbackService: VisitFeedbackService
+    private let attachmentService: AttachmentService
     // MARK: - Cached Data
 
     private(set) var events: [TaskItem] = []
@@ -45,7 +48,10 @@ class SelineAppContext {
         weatherService: WeatherService = WeatherService.shared,
         locationsManager: LocationsManager = LocationsManager.shared,
         navigationService: NavigationService = NavigationService.shared,
-        categorizationService: ReceiptCategorizationService = ReceiptCategorizationService.shared
+        categorizationService: ReceiptCategorizationService = ReceiptCategorizationService.shared,
+        habitTrackingService: HabitTrackingService = HabitTrackingService.shared,
+        visitFeedbackService: VisitFeedbackService = VisitFeedbackService.shared,
+        attachmentService: AttachmentService = AttachmentService.shared
     ) {
         self.taskManager = taskManager
         self.tagManager = tagManager
@@ -55,6 +61,9 @@ class SelineAppContext {
         self.locationsManager = locationsManager
         self.navigationService = navigationService
         self.categorizationService = categorizationService
+        self.habitTrackingService = habitTrackingService
+        self.visitFeedbackService = visitFeedbackService
+        self.attachmentService = attachmentService
 
         // Note: refresh() is called asynchronously in buildContextPrompt()
         // to fetch custom email folders and saved emails
@@ -212,10 +221,15 @@ class SelineAppContext {
             let thisMonthReceipts = receipts.filter { $0.date >= startOfMonth && $0.date <= currentDate }
             let thisMonthTotal = thisMonthReceipts.reduce(0.0) { $0 + $1.amount }
 
-            print("     THIS MONTH (Nov 1 - Nov 12): \(thisMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", thisMonthTotal))")
+            let monthFormatter = DateFormatter()
+            monthFormatter.dateFormat = "MMM"
+            let currentMonthName = monthFormatter.string(from: currentDate)
+            let dayOfMonth = Calendar.current.component(.day, from: currentDate)
+
+            print("     THIS MONTH (\(currentMonthName) 1 - \(currentMonthName) \(dayOfMonth)): \(thisMonthReceipts.count) receipts, Total: $\(String(format: "%.2f", thisMonthTotal))")
 
             // Show ALL receipts counted as this month for verification
-            print("     --- ALL NOVEMBER RECEIPTS ---")
+            print("     --- ALL \(currentMonthName.uppercased()) RECEIPTS (by transaction date) ---")
             for receipt in thisMonthReceipts.sorted(by: { $0.date < $1.date }) {
                 print("     • \(formatDate(receipt.date)): \(receipt.title) - $\(String(format: "%.2f", receipt.amount))")
             }
@@ -921,6 +935,10 @@ class SelineAppContext {
                         return total + amount
                     case .yearly:
                         return total + (amount / 12)
+                    case .custom:
+                        // Custom frequency typically means specific days per week
+                        // Using weekly multiplier (4.3) as a reasonable approximation
+                        return total + (amount * 4.3)
                     }
                 }
 
@@ -937,6 +955,10 @@ class SelineAppContext {
                         return total + (amount * 12)
                     case .yearly:
                         return total + amount
+                    case .custom:
+                        // Custom frequency typically means specific days per week
+                        // Using weekly multiplier (52) as a reasonable approximation
+                        return total + (amount * 52)
                     }
                 }
 
@@ -1412,6 +1434,314 @@ class SelineAppContext {
             }
         }
 
+        // Add USER BEHAVIOR PATTERNS section
+        context += "\n=== USER BEHAVIOR PATTERNS ===\n"
+        context += "Analysis of your spending, event, and location patterns:\n\n"
+
+        // Build metadata for pattern analysis
+        let patternCalendar = Calendar.current
+        let monthYearFormatter = DateFormatter()
+        monthYearFormatter.dateFormat = "MMMM yyyy"
+
+        let metadata = AppDataMetadata(
+            receipts: receipts.map { receipt in
+                let dayOfWeek = patternCalendar.component(Calendar.Component.weekday, from: receipt.date)
+                let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+                return ReceiptMetadata(
+                    id: UUID(), // Generate ID for receipt
+                    merchant: receipt.title,
+                    amount: receipt.amount,
+                    date: receipt.date,
+                    category: receipt.category,
+                    preview: receipt.title,
+                    monthYear: monthYearFormatter.string(from: receipt.date),
+                    dayOfWeek: dayNames[dayOfWeek - 1]
+                )
+            },
+            events: events.map { event in
+                EventMetadata(
+                    id: event.id,
+                    title: event.title,
+                    date: event.targetDate ?? event.scheduledTime ?? event.completedDate,
+                    time: event.scheduledTime,
+                    endTime: event.endTime,
+                    description: event.description,
+                    location: nil,
+                    reminder: nil,
+                    isRecurring: event.isRecurring,
+                    recurrencePattern: event.recurrenceFrequency?.rawValue,
+                    isCompleted: event.isCompleted,
+                    completedDates: event.completedDates.isEmpty ? nil : event.completedDates,
+                    eventType: event.tagId.map { getCategoryName(for: $0) },
+                    priority: nil
+                )
+            },
+            locations: locations.map { location in
+                let stats = LocationVisitAnalytics.shared.visitStats[location.id]
+                return LocationMetadata(
+                    id: location.id,
+                    name: location.name,
+                    customName: location.customName,
+                    folderName: location.category,
+                    address: location.address,
+                    city: location.city,
+                    province: location.province,
+                    country: location.country,
+                    folderCity: nil,
+                    folderProvince: nil,
+                    folderCountry: nil,
+                    userRating: location.userRating,
+                    notes: location.userNotes,
+                    cuisine: location.userCuisine,
+                    dateCreated: location.dateCreated,
+                    dateModified: location.dateModified,
+                    visitCount: stats?.totalVisits,
+                    totalVisitDuration: nil,
+                    averageVisitDuration: stats?.averageDurationMinutes != nil ? TimeInterval(stats!.averageDurationMinutes * 60) : nil,
+                    lastVisited: stats?.lastVisitDate,
+                    isFrequent: stats?.totalVisits != nil ? (stats!.totalVisits > 1) : nil,
+                    peakVisitTimes: nil,
+                    mostVisitedDays: nil
+                )
+            },
+            notes: [],
+            emails: [],
+            recurringExpenses: []
+        )
+
+        let patterns = UserPatternAnalysisService.analyzeUserPatterns(from: metadata)
+
+        // Top expense categories
+        if !patterns.topExpenseCategories.isEmpty {
+            context += "**Top Spending Categories:**\n"
+            for categorySpending in patterns.topExpenseCategories {
+                context += "  • \(categorySpending.category): $\(String(format: "%.2f", categorySpending.totalAmount)) (\(String(format: "%.1f", categorySpending.percentage))% of total, \(categorySpending.transactionCount) transactions)\n"
+            }
+            context += "\n"
+        }
+
+        // Spending trends
+        context += "**Spending Trends:**\n"
+        context += "  • Average monthly spending: $\(String(format: "%.2f", patterns.averageMonthlySpending))\n"
+        context += "  • Trend: \(patterns.spendingTrend.capitalized)\n"
+        context += "  • Average transaction amount: $\(String(format: "%.2f", patterns.averageExpenseAmount))\n"
+        context += "  • Total transactions: \(patterns.totalTransactions)\n\n"
+
+        // Event patterns
+        if !patterns.mostFrequentEvents.isEmpty {
+            context += "**Most Frequent Events:**\n"
+            for eventFreq in patterns.mostFrequentEvents {
+                let avgDays = eventFreq.averageDaysApart.map { String(format: "%.0f", $0) } ?? "N/A"
+                context += "  • \(eventFreq.title): \(String(format: "%.1f", eventFreq.timesPerMonth)) times/month (avg \(avgDays) days apart)\n"
+            }
+            context += "\n"
+        }
+
+        // Location patterns
+        if !patterns.mostVisitedLocations.isEmpty {
+            context += "**Most Visited Locations:**\n"
+            for locationVisit in patterns.mostVisitedLocations {
+                let lastVisitStr = locationVisit.lastVisited.map { formatDate($0) } ?? "Unknown"
+                context += "  • \(locationVisit.name): \(locationVisit.visitCount) visits (last: \(lastVisitStr))\n"
+            }
+            context += "\n"
+        }
+
+        // Time patterns
+        context += "**Activity Patterns:**\n"
+        context += "  • Most active time of day: \(patterns.mostActiveTimeOfDay.capitalized)\n"
+        context += "  • Average events per week: \(String(format: "%.1f", patterns.averageEventsPerWeek))\n"
+        if !patterns.busyDays.isEmpty {
+            context += "  • Busiest days: \(patterns.busyDays.joined(separator: ", "))\n"
+        }
+        if !patterns.favoriteRestaurantTypes.isEmpty {
+            context += "  • Favorite cuisines: \(patterns.favoriteRestaurantTypes.joined(separator: ", "))\n"
+        }
+        context += "\n"
+
+        // Add HABIT TRACKING & STREAKS section
+        context += "\n=== HABIT TRACKING & STREAKS ===\n"
+        context += "Location visit streaks and consistency patterns:\n\n"
+
+        // Check for streaks at top locations
+        var hasStreaks = false
+        for location in locations.prefix(10) {
+            if let stats = LocationVisitAnalytics.shared.visitStats[location.id] {
+                // Estimate streak potential based on recent visit patterns
+                if stats.thisMonthVisits >= 3 {
+                    context += "**\(location.displayName)**:\n"
+                    context += "  • This month: \(stats.thisMonthVisits) visits (consistent!)\n"
+
+                    if let peakDay = stats.mostCommonDayOfWeek, let peakTime = stats.mostCommonTimeOfDay {
+                        context += "  • Habit pattern: Usually visit on \(peakDay)s during \(peakTime)\n"
+                    }
+
+                    if stats.thisMonthVisits >= 7 {
+                        context += "  • 🔥 Strong habit detected - visiting regularly!\n"
+                    }
+
+                    context += "\n"
+                    hasStreaks = true
+                }
+            }
+        }
+
+        if !hasStreaks {
+            context += "  No strong habit streaks detected yet. Visit locations consistently to build habits!\n"
+        }
+
+        // Add TAGS & CATEGORIES section
+        context += "\n=== TAGS & CATEGORIES ===\n"
+        context += "Event tags/categories and their distribution:\n\n"
+
+        let allTags = tagManager.tags
+        if !allTags.isEmpty {
+            // Count events per tag
+            var tagCounts: [String: Int] = [:]
+            for event in events {
+                if let tagId = event.tagId {
+                    let tagName = getCategoryName(for: tagId)
+                    tagCounts[tagName, default: 0] += 1
+                }
+            }
+
+            // Sort by count
+            let sortedTags = tagCounts.sorted { $0.value > $1.value }
+
+            context += "**Available Tags:** \(allTags.map { $0.name }.joined(separator: ", "))\n\n"
+
+            if !sortedTags.isEmpty {
+                context += "**Tag Distribution:**\n"
+                for (tagName, count) in sortedTags {
+                    let percentage = events.isEmpty ? 0.0 : (Double(count) / Double(events.count)) * 100
+                    context += "  • \(tagName): \(count) events (\(String(format: "%.1f", percentage))%)\n"
+                }
+            }
+        } else {
+            context += "  No tags/categories created yet\n"
+        }
+        context += "\n"
+
+        // Add MOOD & VISIT FEEDBACK section
+        context += "\n=== LOCATION SATISFACTION & FEEDBACK ===\n"
+        context += "User ratings and feedback on location visits:\n\n"
+
+        let overallFeedback = await visitFeedbackService.getOverallStats()
+
+        if overallFeedback.total > 0 {
+            context += "**Overall Visit Accuracy:**\n"
+            context += "  • Total feedback submissions: \(overallFeedback.total)\n"
+            context += "  • Visit tracking accuracy: \(String(format: "%.1f", overallFeedback.accuracy * 100))%\n"
+
+            if !overallFeedback.byType.isEmpty {
+                context += "\n**Feedback Breakdown:**\n"
+                for (feedbackType, count) in overallFeedback.byType.sorted(by: { $0.value > $1.value }) {
+                    context += "  • \(feedbackType.displayName): \(count) times\n"
+                }
+            }
+        } else {
+            context += "  No visit feedback submitted yet\n"
+        }
+        context += "\n"
+
+        // Add ATTACHMENTS & DOCUMENTS section
+        context += "\n=== ATTACHMENTS & DOCUMENTS ===\n"
+        context += "Files attached to notes and their extracted content:\n\n"
+
+        let allAttachments = attachmentService.attachments
+        if !allAttachments.isEmpty {
+            context += "**Total Attachments:** \(allAttachments.count) files\n\n"
+
+            // Group by document type
+            let attachmentsByType = Dictionary(grouping: allAttachments) { attachment in
+                attachment.documentType ?? attachment.fileType
+            }
+
+            for (type, attachments) in attachmentsByType.sorted(by: { $0.key < $1.key }) {
+                context += "**\(type.capitalized)** (\(attachments.count) files):\n"
+
+                for attachment in attachments.prefix(5) {
+                    context += "  • \(attachment.fileName) (\(ByteCountFormatter.string(fromByteCount: Int64(attachment.fileSize), countStyle: .file)))\n"
+
+                    // Include extracted data if available
+                    if let extracted = attachmentService.extractedDataCache[attachment.id] {
+                        if let summary = extracted.extractedFields["summary"] as? String {
+                            let preview = summary.count > 150 ? String(summary.prefix(150)) + "..." : summary
+                            context += "    Content: \(preview)\n"
+                        }
+                    }
+                }
+
+                if attachments.count > 5 {
+                    context += "  ... and \(attachments.count - 5) more files\n"
+                }
+                context += "\n"
+            }
+        } else {
+            context += "  No file attachments in notes\n"
+        }
+
+        // Add CROSS-DATA RELATIONSHIPS section
+        context += "\n=== CROSS-DATA INSIGHTS ===\n"
+        context += "Connections between receipts, locations, events, and emails:\n\n"
+
+        // Link receipts to locations (by matching names or dates)
+        var receiptLocationLinks: [(receipt: ReceiptStat, location: SavedPlace)] = []
+        for receipt in receipts.prefix(20) {
+            for location in locations {
+                // Check if receipt title contains location name
+                if receipt.title.lowercased().contains(location.displayName.lowercased().split(separator: " ").first?.lowercased() ?? "") {
+                    receiptLocationLinks.append((receipt, location))
+                    break
+                }
+            }
+        }
+
+        if !receiptLocationLinks.isEmpty {
+            context += "**Receipts Linked to Locations:**\n"
+            for (receipt, location) in receiptLocationLinks.prefix(10) {
+                context += "  • $\(String(format: "%.2f", receipt.amount)) at \(location.displayName) on \(formatDate(receipt.date))\n"
+            }
+            if receiptLocationLinks.count > 10 {
+                context += "  ... and \(receiptLocationLinks.count - 10) more links\n"
+            }
+            context += "\n"
+        }
+
+        // Link events to location visits (by date proximity)
+        var eventLocationLinks: [(event: TaskItem, location: SavedPlace)] = []
+        for event in events.filter({ $0.isCompleted }).prefix(20) {
+            guard let eventDate = event.completedDate ?? event.targetDate else { continue }
+
+            for location in locations {
+                if let stats = LocationVisitAnalytics.shared.visitStats[location.id],
+                   let lastVisit = stats.lastVisitDate {
+                    // Check if visit happened within 2 hours of event
+                    let timeDiff = abs(lastVisit.timeIntervalSince(eventDate))
+                    if timeDiff < 7200 { // 2 hours
+                        eventLocationLinks.append((event, location))
+                        break
+                    }
+                }
+            }
+        }
+
+        if !eventLocationLinks.isEmpty {
+            context += "**Events Linked to Location Visits:**\n"
+            for (event, location) in eventLocationLinks.prefix(10) {
+                context += "  • \(event.title) at \(location.displayName)\n"
+            }
+            if eventLocationLinks.count > 10 {
+                context += "  ... and \(eventLocationLinks.count - 10) more links\n"
+            }
+            context += "\n"
+        }
+
+        if receiptLocationLinks.isEmpty && eventLocationLinks.isEmpty {
+            context += "  No significant cross-data relationships detected\n\n"
+        }
+
         // Restore original events and receipts
         self.events = originalEvents
         self.receipts = originalReceipts
@@ -1759,6 +2089,10 @@ class SelineAppContext {
                         return total + amount
                     case .yearly:
                         return total + (amount / 12)
+                    case .custom:
+                        // Custom frequency typically means specific days per week
+                        // Using weekly multiplier (4.3) as a reasonable approximation
+                        return total + (amount * 4.3)
                     }
                 }
 
@@ -1775,6 +2109,10 @@ class SelineAppContext {
                         return total + (amount * 12)
                     case .yearly:
                         return total + amount
+                    case .custom:
+                        // Custom frequency typically means specific days per week
+                        // Using weekly multiplier (52) as a reasonable approximation
+                        return total + (amount * 52)
                     }
                 }
 
@@ -2369,6 +2707,14 @@ class SelineAppContext {
             let dateMonth = calendar.component(.month, from: date)
             let dateDay = calendar.component(.day, from: date)
             return targetMonth == dateMonth && targetDay == dateDay
+
+        case .custom:
+            // For custom frequency, check if date is on one of the custom days
+            // Note: Full implementation would check customRecurrenceDays from the event
+            // For now, treat as weekly (same day of week as anchor)
+            let targetWeekday = calendar.component(.weekday, from: anchorDate)
+            let dateWeekday = calendar.component(.weekday, from: date)
+            return targetWeekday == dateWeekday
         }
     }
 

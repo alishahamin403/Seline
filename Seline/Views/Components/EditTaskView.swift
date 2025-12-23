@@ -15,6 +15,7 @@ struct EditTaskView: View {
     @State private var selectedEndTime: Date
     @State private var isRecurring: Bool
     @State private var recurrenceFrequency: RecurrenceFrequency
+    @State private var customRecurrenceDays: Set<WeekDay>
     @State private var selectedReminder: ReminderTime
     @State private var selectedTagId: String?
     @Environment(\.colorScheme) var colorScheme
@@ -34,6 +35,7 @@ struct EditTaskView: View {
         _selectedEndTime = State(initialValue: task.endTime ?? (task.scheduledTime?.addingTimeInterval(3600) ?? Date().addingTimeInterval(3600)))
         _isRecurring = State(initialValue: task.isRecurring)
         _recurrenceFrequency = State(initialValue: task.recurrenceFrequency ?? .weekly)
+        _customRecurrenceDays = State(initialValue: Set(task.customRecurrenceDays ?? []))
         _selectedReminder = State(initialValue: task.reminderTime ?? .none)
         _selectedTagId = State(initialValue: task.tagId)
     }
@@ -74,6 +76,7 @@ struct EditTaskView: View {
                     reminderTime: reminderToSave,
                     isRecurring: isRecurring,
                     recurrenceFrequency: isRecurring ? recurrenceFrequency : nil,
+                    customRecurrenceDays: isRecurring && recurrenceFrequency == .custom && !customRecurrenceDays.isEmpty ? Array(customRecurrenceDays) : nil,
                     parentRecurringTaskId: task.parentRecurringTaskId
                 )
                 updatedTask.id = task.id
@@ -111,6 +114,7 @@ struct EditTaskView: View {
                 selectedEndTime: $selectedEndTime,
                 isRecurring: $isRecurring,
                 recurrenceFrequency: $recurrenceFrequency,
+                customRecurrenceDays: $customRecurrenceDays,
                 selectedReminder: $selectedReminder,
                 selectedTagId: $selectedTagId
             )

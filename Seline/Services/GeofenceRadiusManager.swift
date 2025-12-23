@@ -21,11 +21,11 @@ class GeofenceRadiusManager {
         "Residence": 500,
         "Apartment": 500,
 
-        // Work
-        "Work": 300,
-        "Office": 300,
-        "Workplace": 300,
-        "Corporate Office": 300,
+        // Work (reduced from 300m to 200m to prevent nearby location triggering)
+        "Work": 200,
+        "Office": 200,
+        "Workplace": 200,
+        "Corporate Office": 200,
 
         // Food & Dining
         "Restaurant": 75,
