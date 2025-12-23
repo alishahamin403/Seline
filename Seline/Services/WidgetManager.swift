@@ -1,0 +1,216 @@
+import SwiftUI
+import Combine
+
+// MARK: - Widget Types
+
+enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
+    case dailyOverview = "daily_overview"
+    case spending = "spending"
+    case currentLocation = "current_location"
+    case events = "events"
+    
+    var id: String { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .dailyOverview: return "Daily Overview"
+        case .spending: return "Monthly Spend"
+        case .currentLocation: return "Current Location"
+        case .events: return "Today's Events"
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .dailyOverview: return "sun.max.fill"
+        case .spending: return "creditcard.fill"
+        case .currentLocation: return "location.fill"
+        case .events: return "calendar"
+        }
+    }
+}
+
+// MARK: - Widget Configuration
+
+struct WidgetConfiguration: Codable, Identifiable, Equatable {
+    let type: HomeWidgetType
+    var isVisible: Bool
+    var order: Int
+    
+    var id: String { type.rawValue }
+    
+    static func == (lhs: WidgetConfiguration, rhs: WidgetConfiguration) -> Bool {
+        lhs.type == rhs.type && lhs.isVisible == rhs.isVisible && lhs.order == rhs.order
+    }
+}
+
+// MARK: - Widget Manager
+
+@MainActor
+class WidgetManager: ObservableObject {
+    static let shared = WidgetManager()
+    
+    private let storageKey = "home_widget_configurations"
+    
+    @Published var configurations: [WidgetConfiguration] = []
+    @Published var isEditMode: Bool = false
+    
+    private init() {
+        loadConfigurations()
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Get visible widgets sorted by order
+    var visibleWidgets: [WidgetConfiguration] {
+        configurations
+            .filter { $0.isVisible }
+            .sorted { $0.order < $1.order }
+    }
+    
+    /// Get hidden widgets
+    var hiddenWidgets: [WidgetConfiguration] {
+        configurations
+            .filter { !$0.isVisible }
+            .sorted { $0.order < $1.order }
+    }
+    
+    /// Toggle widget visibility
+    func toggleVisibility(for type: HomeWidgetType) {
+        if let index = configurations.firstIndex(where: { $0.type == type }) {
+            configurations[index].isVisible.toggle()
+            saveConfigurations()
+            HapticManager.shared.selection()
+        }
+    }
+    
+    /// Hide a widget
+    func hideWidget(_ type: HomeWidgetType) {
+        if let index = configurations.firstIndex(where: { $0.type == type }) {
+            configurations[index].isVisible = false
+            saveConfigurations()
+            HapticManager.shared.selection()
+        }
+    }
+    
+    /// Show a widget
+    func showWidget(_ type: HomeWidgetType) {
+        if let index = configurations.firstIndex(where: { $0.type == type }) {
+            configurations[index].isVisible = true
+            // Place it at the end of visible widgets
+            let maxOrder = configurations.filter { $0.isVisible }.map { $0.order }.max() ?? 0
+            configurations[index].order = maxOrder + 1
+            normalizeOrder()
+            saveConfigurations()
+            HapticManager.shared.selection()
+        }
+    }
+    
+    /// Move widget from one position to another
+    func moveWidget(from source: IndexSet, to destination: Int) {
+        var visible = visibleWidgets
+        visible.move(fromOffsets: source, toOffset: destination)
+        
+        // Update orders
+        for (index, config) in visible.enumerated() {
+            if let configIndex = configurations.firstIndex(where: { $0.type == config.type }) {
+                configurations[configIndex].order = index
+            }
+        }
+        
+        saveConfigurations()
+        HapticManager.shared.selection()
+    }
+    
+    /// Move widget by dragging (for custom drag gesture)
+    func moveWidget(_ type: HomeWidgetType, toIndex newIndex: Int) {
+        let visible = visibleWidgets
+        guard let currentIndex = visible.firstIndex(where: { $0.type == type }) else { return }
+        
+        var mutableVisible = visible
+        let item = mutableVisible.remove(at: currentIndex)
+        let safeIndex = min(max(newIndex, 0), mutableVisible.count)
+        mutableVisible.insert(item, at: safeIndex)
+        
+        // Update orders
+        for (index, config) in mutableVisible.enumerated() {
+            if let configIndex = configurations.firstIndex(where: { $0.type == config.type }) {
+                configurations[configIndex].order = index
+            }
+        }
+        
+        saveConfigurations()
+    }
+    
+    /// Enter edit mode
+    func enterEditMode() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            isEditMode = true
+        }
+        HapticManager.shared.medium()
+    }
+    
+    /// Exit edit mode
+    func exitEditMode() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            isEditMode = false
+        }
+        HapticManager.shared.light()
+    }
+    
+    /// Reset to default configuration
+    func resetToDefaults() {
+        configurations = Self.defaultConfigurations
+        saveConfigurations()
+        HapticManager.shared.success()
+    }
+    
+    // MARK: - Private Methods
+    
+    private func loadConfigurations() {
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let saved = try? JSONDecoder().decode([WidgetConfiguration].self, from: data) {
+            // Merge with defaults to handle new widget types
+            var merged = saved
+            for defaultConfig in Self.defaultConfigurations {
+                if !merged.contains(where: { $0.type == defaultConfig.type }) {
+                    merged.append(defaultConfig)
+                }
+            }
+            configurations = merged
+        } else {
+            configurations = Self.defaultConfigurations
+        }
+    }
+    
+    private func saveConfigurations() {
+        if let data = try? JSONEncoder().encode(configurations) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+    }
+    
+    private func normalizeOrder() {
+        // Ensure visible widgets have sequential orders starting from 0
+        let sortedVisible = configurations
+            .filter { $0.isVisible }
+            .sorted { $0.order < $1.order }
+        
+        for (index, config) in sortedVisible.enumerated() {
+            if let configIndex = configurations.firstIndex(where: { $0.type == config.type }) {
+                configurations[configIndex].order = index
+            }
+        }
+    }
+    
+    // MARK: - Default Configuration
+    
+    private static var defaultConfigurations: [WidgetConfiguration] {
+        [
+            WidgetConfiguration(type: .dailyOverview, isVisible: true, order: 0),
+            WidgetConfiguration(type: .spending, isVisible: true, order: 1),
+            WidgetConfiguration(type: .currentLocation, isVisible: true, order: 2),
+            WidgetConfiguration(type: .events, isVisible: true, order: 3)
+        ]
+    }
+}
+

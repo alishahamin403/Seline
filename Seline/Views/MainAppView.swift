@@ -15,6 +15,7 @@ struct MainAppView: View {
     @StateObject private var weatherService = WeatherService.shared
     @StateObject private var navigationService = NavigationService.shared
     @StateObject private var tagManager = TagManager.shared
+    @StateObject private var widgetManager = WidgetManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @State private var selectedTab: TabSelection = .home
@@ -1665,9 +1666,37 @@ struct MainAppView: View {
     }
 
     private var mainContentWidgets: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 8) {
-                // Daily Overview widget - shows expenses due, important emails, and birthdays
+        ZStack {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 8) {
+                    // Render widgets based on user configuration
+                    ForEach(widgetManager.visibleWidgets) { config in
+                        widgetView(for: config.type)
+                            .transition(.asymmetric(
+                                insertion: .scale.combined(with: .opacity),
+                                removal: .scale.combined(with: .opacity)
+                            ))
+                    }
+                }
+                .padding(.vertical, 12)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: widgetManager.visibleWidgets)
+            }
+            .allowsHitTesting(!widgetManager.isEditMode || true) // Allow interaction in edit mode too
+            
+            // Edit mode overlay
+            if widgetManager.isEditMode {
+                WidgetEditModeOverlay(widgetManager: widgetManager)
+            }
+        }
+    }
+    
+    // MARK: - Widget Views
+    
+    @ViewBuilder
+    private func widgetView(for type: HomeWidgetType) -> some View {
+        switch type {
+        case .dailyOverview:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .dailyOverview) {
                 DailyOverviewWidget(
                     isExpanded: $isDailyOverviewExpanded,
                     onNoteSelected: { note in
@@ -1680,10 +1709,12 @@ struct MainAppView: View {
                         searchSelectedTask = task
                     }
                 )
-                .padding(.horizontal, 12)
-                .zIndex(1)
-
-                // Spending + ETA widget - replaces weather widget
+            }
+            .padding(.horizontal, 12)
+            .zIndex(isDailyOverviewExpanded ? 10 : 1)
+            
+        case .spending:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .spending) {
                 SpendingAndETAWidget(
                     isVisible: selectedTab == .home,
                     onAddReceipt: {
@@ -1693,12 +1724,14 @@ struct MainAppView: View {
                         showingReceiptImagePicker = true
                     }
                 )
-                .padding(.horizontal, 12)
-                .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-                .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
-                .allowsHitTesting(!isDailyOverviewExpanded)
-
-                // Current Location card
+            }
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
+            
+        case .currentLocation:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .currentLocation) {
                 CurrentLocationCardWidget(
                     currentLocationName: currentLocationName,
                     nearbyLocation: nearbyLocation,
@@ -1710,19 +1743,20 @@ struct MainAppView: View {
                     selectedPlace: $selectedLocationPlace,
                     showAllLocationsSheet: $showAllLocationsSheet
                 )
-                .padding(.horizontal, 12)
-                .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-                .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
-                .allowsHitTesting(!isDailyOverviewExpanded)
-
-                // Events card
-                EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
-                    .padding(.horizontal, 12)
-                    .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-                    .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
-                    .allowsHitTesting(!isDailyOverviewExpanded)
             }
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
+            
+        case .events:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .events) {
+                EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
+            }
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
         }
     }
 
