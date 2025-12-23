@@ -672,6 +672,12 @@ struct MainAppView: View {
             .id(colorScheme) // Force complete view recreation on theme change
             .fullScreenCover(isPresented: $showConversationModal) {
                 ConversationSearchView()
+                    .onAppear {
+                        // Focus the input field when the modal appears
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            // The ConversationSearchView will handle focusing automatically
+                        }
+                    }
             }
     }
 
@@ -924,10 +930,10 @@ struct MainAppView: View {
             }
             .animation(.sheetPresentation, value: showingAddEventPopup)
             .sheet(isPresented: $showReceiptStats) {
-                ReceiptStatsView()
-                    .presentationDetents([.medium, .large])
+                ReceiptStatsView(isPopup: true)
+                    .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
-                    .modifier(PresentationModifiers())
+                    .interactiveDismissDisabled(false)
                     .presentationBg()
             }
             .animation(.sheetPresentation, value: showReceiptStats)
@@ -943,6 +949,9 @@ struct MainAppView: View {
                     },
                     savedPlaces: locationsManager.savedPlaces
                 )
+                .presentationDetents([.fraction(0.6), .large])
+                .presentationDragIndicator(.visible)
+                .interactiveDismissDisabled(false)
                 .presentationBg()
             }
             .animation(.sheetPresentation, value: showAllLocationsSheet)
@@ -993,10 +1002,7 @@ struct MainAppView: View {
             ZStack(alignment: .top) {
                 mainContentVStack(geometry: geometry)
 
-                // Fixed Header with search bar at top (only on home tab)
-                if selectedTab == .home {
-                    mainContentHeader
-                }
+                // The fixed header is removed from here and replaced with a floating bar at the bottom
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(colorScheme == .dark ? Color.black : Color.white)
@@ -1008,10 +1014,7 @@ struct MainAppView: View {
     private func mainContentVStack(geometry: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             // Negative spacing to eliminate separator line
-            // Padding to account for fixed header (only on home tab)
-            if selectedTab == .home {
-                Color.clear.frame(height: 48)
-            }
+            // Padding removed - header is now a floating bar at bottom
 
             // Content based on selected tab
             Group {
@@ -1044,6 +1047,23 @@ struct MainAppView: View {
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
             if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
+                
+                // Floating AI Bar (only on home tab) - always render but hide when not needed for instant appearance
+                FloatingAIBar(
+                    onTap: {
+                        HapticManager.shared.selection()
+                        searchService.clearConversation()
+                        Task {
+                            searchService.conversationHistory = []
+                            searchService.conversationTitle = "New Conversation"
+                            searchService.isInConversationMode = true
+                            showConversationModal = true
+                        }
+                    }
+                )
+                .opacity(selectedTab == .home && !searchService.isInConversationMode ? 1 : 0)
+                .allowsHitTesting(selectedTab == .home && !searchService.isInConversationMode)
+                
                 BottomTabBar(selectedTab: $selectedTab)
                     .padding(.top, -0.5) // Eliminate separator line by overlapping slightly
             }
@@ -1081,53 +1101,9 @@ struct MainAppView: View {
         )
     }
 
-    private var mainContentHeader: some View {
-        VStack(spacing: 0) {
-            HeaderSection(
-                selectedTab: $selectedTab,
-                searchText: $searchText,
-                isSearchFocused: $isSearchFocused,
-                onSearchSubmit: {
-                    Task {
-                        await searchService.performSearch(query: searchText)
-                    }
-                },
-                onNewConversation: {
-                    HapticManager.shared.selection()
-                    searchService.clearConversation()
-                    Task {
-                        searchService.conversationHistory = []
-                        searchService.conversationTitle = "New Conversation"
-                        searchService.isInConversationMode = true
-                    }
-                }
-            )
-            .padding(.bottom, 8)
-            .background(colorScheme == .dark ? Color.black : Color.white)
-
-            // Search results or question response
-            if !searchText.isEmpty && !searchService.isInConversationMode {
-                if let response = searchService.questionResponse {
-                    questionResponseView(response)
-                        .padding(.horizontal, 20)
-                        .transition(.opacity)
-                } else if !searchResults.isEmpty {
-                    searchResultsDropdown
-                        .padding(.horizontal, 20)
-                        .transition(.opacity)
-                } else if searchService.isLoadingQuestionResponse {
-                    loadingQuestionView
-                        .padding(.horizontal, 20)
-                        .transition(.opacity)
-                }
-            }
-        }
-        .background(colorScheme == .dark ? Color.black : Color.white)
-        .zIndex(100)
-    }
-
-
-    // MARK: - Detail Content
+    // Detail Content Removal - mainContentHeader is no longer used
+    
+    // Generate an icon based on sender email or name (same logic as EmailRow)
 
     // Generate an icon based on sender email or name (same logic as EmailRow)
     private func emailIcon(for email: Email) -> String? {
@@ -1531,44 +1507,35 @@ struct MainAppView: View {
     // MARK: - Search Bar Components
 
     private var searchBarView: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.gray)
+        Button(action: {
+            // Open LLM chat view when search bar is tapped
+            HapticManager.shared.selection()
+            searchService.isInConversationMode = true
+            showConversationModal = true
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.gray)
 
-            TextField("Search or ask for actions...", text: $searchText)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
-                .focused($isSearchFocused)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-                .onSubmit {
-                    // Perform search when user taps search button
-                    if !searchText.isEmpty {
-                        Task {
-                            await searchService.performSearch(query: searchText)
-                        }
-                    }
-                }
+                Text("Search or ask for actions...")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !searchText.isEmpty {
-                Button(action: {
-                    searchText = ""
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
-                }
-                .buttonStyle(PlainButtonStyle())
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? Color.cyan.opacity(0.7) : Color.blue.opacity(0.7))
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
+            )
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color.gray.opacity(0.2) : Color.gray.opacity(0.1))
-        )
+        .buttonStyle(PlainButtonStyle())
     }
 
     private var searchResultsDropdown: some View {
@@ -1668,7 +1635,7 @@ struct MainAppView: View {
     private var mainContentWidgets: some View {
         ZStack {
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 8) {
+                LazyVStack(spacing: 8) {
                     // Render widgets based on user configuration
                     ForEach(widgetManager.visibleWidgets) { config in
                         widgetView(for: config.type)
@@ -1679,15 +1646,19 @@ struct MainAppView: View {
                     }
                 }
                 .padding(.vertical, 12)
+                .padding(.bottom, 100) // Extra bottom padding to ensure scrollable area
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: widgetManager.visibleWidgets)
             }
-            .allowsHitTesting(!widgetManager.isEditMode || true) // Allow interaction in edit mode too
-            
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollDismissesKeyboard(.interactively)
+            .scrollContentBackground(.hidden)
+
             // Edit mode overlay
             if widgetManager.isEditMode {
                 WidgetEditModeOverlay(widgetManager: widgetManager)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     // MARK: - Widget Views
@@ -1757,30 +1728,56 @@ struct MainAppView: View {
             .blur(radius: isDailyOverviewExpanded ? 3 : 0)
             .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
+            
+        case .weather:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .weather) {
+                HomeWeatherWidget(isVisible: selectedTab == .home)
+            }
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
+            
+        case .unreadEmails:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .unreadEmails) {
+                HomeUnreadEmailsWidget(
+                    selectedTab: $selectedTab,
+                    onEmailSelected: { email in
+                        searchSelectedEmail = email
+                    }
+                )
+            }
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
+            
+        case .pinnedNotes:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .pinnedNotes) {
+                HomePinnedNotesWidget(
+                    selectedTab: $selectedTab,
+                    showingNewNoteSheet: $showingNewNoteSheet,
+                    onNoteSelected: { note in
+                        selectedNoteToOpen = note
+                    }
+                )
+            }
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
         }
     }
 
 
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
-        ZStack(alignment: .top) {
-            mainContentWidgets
-                .opacity(searchText.isEmpty ? 1 : 0.3)
-
-            // Overlay to dismiss search when tapping outside
-            if !searchText.isEmpty {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        isSearchFocused = false
-                        searchText = ""
-                    }
-            }
-        }
+        mainContentWidgets
         .background(
             colorScheme == .dark ?
                 Color.black : Color.white
         )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Question Response View

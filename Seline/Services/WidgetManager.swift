@@ -8,6 +8,9 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
     case spending = "spending"
     case currentLocation = "current_location"
     case events = "events"
+    case weather = "weather"
+    case unreadEmails = "unread_emails"
+    case pinnedNotes = "pinned_notes"
     
     var id: String { rawValue }
     
@@ -17,6 +20,9 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
         case .spending: return "Monthly Spend"
         case .currentLocation: return "Current Location"
         case .events: return "Today's Events"
+        case .weather: return "Weather"
+        case .unreadEmails: return "Unread Emails"
+        case .pinnedNotes: return "Pinned Notes"
         }
     }
     
@@ -26,6 +32,9 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
         case .spending: return "creditcard.fill"
         case .currentLocation: return "location.fill"
         case .events: return "calendar"
+        case .weather: return "cloud.sun.fill"
+        case .unreadEmails: return "envelope.badge.fill"
+        case .pinnedNotes: return "pin.fill"
         }
     }
 }
@@ -209,7 +218,11 @@ class WidgetManager: ObservableObject {
             WidgetConfiguration(type: .dailyOverview, isVisible: true, order: 0),
             WidgetConfiguration(type: .spending, isVisible: true, order: 1),
             WidgetConfiguration(type: .currentLocation, isVisible: true, order: 2),
-            WidgetConfiguration(type: .events, isVisible: true, order: 3)
+            WidgetConfiguration(type: .events, isVisible: true, order: 3),
+            // New widgets - hidden by default, users can add them
+            WidgetConfiguration(type: .weather, isVisible: false, order: 4),
+            WidgetConfiguration(type: .unreadEmails, isVisible: false, order: 5),
+            WidgetConfiguration(type: .pinnedNotes, isVisible: false, order: 6)
         ]
     }
 }

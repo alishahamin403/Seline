@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CurrentLocationCardWidget: View {
     @Environment(\.colorScheme) var colorScheme
-    @State private var isPressed = false
 
     let currentLocationName: String
     let nearbyLocation: String?
@@ -88,13 +87,7 @@ struct CurrentLocationCardWidget: View {
                 .padding(.vertical, 4)
             }
             .buttonStyle(PlainButtonStyle())
-            .scaleEffect(isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isPressed = true }
-                    .onEnded { _ in isPressed = false }
-            )
+            .allowsParentScrolling()
             
             // Today's Visits Section - Collapsible
             if !todaysVisits.isEmpty {
@@ -173,11 +166,6 @@ struct CurrentLocationCardWidget: View {
     // MARK: - Visit Row View
     private func visitRowView(visit: (id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)) -> some View {
         HStack(spacing: 10) {
-            // Subtle indicator
-            RoundedRectangle(cornerRadius: 2)
-                .fill(visit.isActive ? activeIndicatorColor : tertiaryTextColor.opacity(0.3))
-                .frame(width: 3, height: 16)
-            
             Text(visit.displayName)
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(primaryTextColor)

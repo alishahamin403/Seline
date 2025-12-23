@@ -53,13 +53,9 @@ struct ReceiptProcessingToast: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(.ultraThinMaterial)
-                    )
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
             )
-            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
             .padding(.horizontal, 20)
             .transition(.asymmetric(
                 insertion: .move(edge: .top).combined(with: .opacity),

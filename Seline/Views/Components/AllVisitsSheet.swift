@@ -6,6 +6,7 @@ struct AllVisitsSheet: View {
     let onLocationTap: ((UUID) -> Void)?
     var savedPlaces: [SavedPlace] = []
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
 
     private var visitedLocations: [(id: UUID, displayName: String, visitCount: Int)] {
         allLocations.filter { $0.visitCount > 0 }
@@ -15,23 +16,23 @@ struct AllVisitsSheet: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Text("All Visits")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    // Header
+                    HStack {
+                        Text("All Visits")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                    Spacer()
+                        Spacer()
 
-                    Button(action: { isPresented = false }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        }
                     }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(colorScheme == .dark ? Color.black : Color.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                    .background(colorScheme == .dark ? Color.black : Color.white)
 
                 // List of all locations
                 if visitedLocations.isEmpty {

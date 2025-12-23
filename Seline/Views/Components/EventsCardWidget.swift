@@ -166,6 +166,7 @@ struct EventsCardWidget: View {
                         .foregroundColor(isTaskCompleted ? circleColor : circleColor.opacity(0.4))
                 }
                 .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
 
                 // Event title
                 Text(task.title)
@@ -188,6 +189,7 @@ struct EventsCardWidget: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
     }
 
     var body: some View {
@@ -214,6 +216,7 @@ struct EventsCardWidget: View {
                         )
                 }
                 .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
             }
             
             // Tag color indicators - moved to separate line

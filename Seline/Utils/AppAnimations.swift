@@ -55,3 +55,16 @@ struct PresentationModifiers: ViewModifier {
     }
 }
 
+// MARK: - Scroll Gesture Helpers
+
+extension View {
+    /// Makes buttons and interactive elements allow scroll gestures to pass through to parent ScrollView
+    /// This prevents buttons from blocking scrolling when dragging on them
+    func allowsParentScrolling() -> some View {
+        self.simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in }
+        )
+    }
+}
+

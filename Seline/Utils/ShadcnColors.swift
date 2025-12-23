@@ -14,6 +14,16 @@ extension Color {
     static let gmailDarkBackground = Color(red: 0.059, green: 0.059, blue: 0.059) // #0F0F0F (very dark gray)
     static let gmailDarkCard = Color(red: 0.235, green: 0.251, blue: 0.263) // #3c4043 (medium gray)
     static let gmailDarkCardAlt = Color(red: 0.196, green: 0.212, blue: 0.224) // #323639 (slightly darker gray)
+    
+    // MARK: - Claude-Style Colors
+    // Inspired by Claude's warm, elegant chat interface
+    static let claudeDarkBackground = Color(red: 0.176, green: 0.165, blue: 0.153) // #2D2A27 warm dark brown
+    static let claudeLightBackground = Color(red: 0.961, green: 0.945, blue: 0.922) // #F5F1EB warm cream
+    static let claudeAccent = Color(red: 0.878, green: 0.471, blue: 0.314) // #E07850 coral/orange
+    static let claudeInputDark = Color(red: 0.22, green: 0.21, blue: 0.20) // Darker input background
+    static let claudeInputLight = Color(red: 0.95, green: 0.93, blue: 0.90) // Light cream input background
+    static let claudeTextDark = Color(red: 0.95, green: 0.93, blue: 0.90) // Warm white text for dark mode
+    static let claudeTextLight = Color(red: 0.15, green: 0.14, blue: 0.13) // Warm dark text for light mode
 
     // Background Colors
     static func shadcnBackground(_ colorScheme: ColorScheme) -> Color {

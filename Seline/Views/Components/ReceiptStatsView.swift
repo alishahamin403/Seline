@@ -9,7 +9,9 @@ struct ReceiptStatsView: View {
     @State private var selectedCategory: String? = nil
     @State private var showRecurringExpenses = false
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
     @State private var categoryBreakdownDebounceTask: Task<Void, Never>? = nil  // Debounce task for category recalculation
+    @State private var contentHeight: CGFloat = 400
 
     var searchText: String? = nil
 
@@ -64,6 +66,26 @@ struct ReceiptStatsView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: isPopup ? 8 : 12) {
+                // Header with close button (only in popup mode)
+                if isPopup {
+                    HStack {
+                        Text("Receipt Statistics")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        
+                        Spacer()
+                        
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+                }
+                
                 // Main card container
                 VStack(alignment: .leading, spacing: 0) {
                     if showRecurringExpenses {
@@ -183,6 +205,11 @@ struct ReceiptStatsView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxHeight: .infinity, alignment: .top)
+            .background(
+                // Prevent tap-through on content
+                Color.clear
+                    .contentShape(Rectangle())
+            )
         }
         .onAppear {
             // Set current year to the most recent year with data

@@ -291,6 +291,7 @@ struct DailyOverviewWidget: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
     }
 
     // MARK: - Section Views
@@ -389,6 +390,7 @@ struct DailyOverviewWidget: View {
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
                     .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
                 }
             }
 
@@ -436,6 +438,7 @@ struct DailyOverviewWidget: View {
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
                 .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
 
                 Button(editingQuickNote != nil ? "Update" : "Save") {
                     Task {
@@ -456,6 +459,7 @@ struct DailyOverviewWidget: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.blue)
                 .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
                 .disabled(quickNoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -497,6 +501,7 @@ struct DailyOverviewWidget: View {
                     .foregroundColor(.gray)
             }
             .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
         }
         .padding(.vertical, 4)
     }
@@ -558,6 +563,7 @@ struct DailyOverviewWidget: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
     }
 
     private func birthdayRow(_ birthday: TaskItem) -> some View {
@@ -582,6 +588,7 @@ struct DailyOverviewWidget: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
     }
 
     private func receiptRow(_ note: Note) -> some View {
@@ -607,6 +614,7 @@ struct DailyOverviewWidget: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .allowsParentScrolling()
     }
 
     // MARK: - Helper Methods

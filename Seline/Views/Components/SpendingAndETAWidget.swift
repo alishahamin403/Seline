@@ -217,6 +217,7 @@ struct SpendingAndETAWidget: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(PlainButtonStyle())
+            .allowsParentScrolling()
 
             // Add receipt button (camera/gallery) - Menu with options
             Menu {
@@ -244,6 +245,7 @@ struct SpendingAndETAWidget: View {
                     )
             }
             .buttonStyle(PlainButtonStyle())
+            .allowsParentScrolling()
         }
         .padding(16)
         .shadcnTileStyle(colorScheme: colorScheme)

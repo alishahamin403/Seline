@@ -16,6 +16,8 @@ struct ConversationSearchView: View {
     @State private var elapsedTimeUpdateTrigger = UUID() // Triggers elapsed time updates
     @State private var generatedFollowUpQuestions: [String] = []
     @State private var isGeneratingFollowUps = false
+    @State private var showingSettings = false
+    @StateObject private var speechService = SpeechRecognitionService.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,7 +26,7 @@ struct ConversationSearchView: View {
             conversationScrollView
             inputAreaView
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .background(colorScheme == .dark ? Color.black : Color.white)
         .onChange(of: searchService.isLoadingQuestionResponse) { newValue in
             if newValue {
                 // Started streaming
@@ -37,7 +39,8 @@ struct ConversationSearchView: View {
             }
         }
         .onAppear {
-            isInputFocused = true
+            // Don't auto-focus on appear - let user see the greeting first
+            // isInputFocused = true
 
             // Load daily usage stats
             Task {
@@ -66,55 +69,36 @@ struct ConversationSearchView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+        }
     }
 
     // MARK: - Subviews
 
     private var emptyStateView: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 40)
-
-                // Modern greeting section with icon badge
-                VStack(spacing: 16) {
-                    // Icon badge
-                    ZStack {
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                            .frame(width: 64, height: 64)
-                        
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 28, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.8))
-                    }
-                    
-                    VStack(spacing: 8) {
-                        Text(userFirstName.isEmpty ? greetingText : "\(greetingText), \(userFirstName)")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                        Text("How can I help you today?")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 32)
-
-                // Only show default suggestions when input is empty
-                // When typing, suggestions appear above input box instead
-                if messageText.isEmpty {
-                    defaultSuggestionsView
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 32)
-                }
-
-                Spacer()
-                    .frame(height: 100)
+        VStack {
+            Spacer()
+            
+            // Claude-style centered greeting
+            VStack(spacing: 20) {
+                // Coral sparkle icon (no circle background)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundColor(Color.claudeAccent)
+                
+                // Single line greeting matching Claude's style
+                Text(claudeGreetingText)
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
             }
+            .frame(maxWidth: .infinity)
+            
+            Spacer()
         }
-        .scrollDismissesKeyboard(.interactively)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var greetingText: String {
@@ -127,6 +111,17 @@ struct ConversationSearchView: View {
         }
     }
     
+    // Claude-style greeting: "How can I help you this morning/afternoon/evening/night?"
+    private var claudeGreetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "How can I help you this morning?"
+        case 12..<17: return "How can I help you this afternoon?"
+        case 17..<21: return "How can I help you this evening?"
+        default: return "How can I help you tonight?"
+        }
+    }
+    
     private var userFirstName: String {
         if let fullName = authManager.currentUser?.profile?.name {
             let components = fullName.components(separatedBy: " ")
@@ -135,40 +130,6 @@ struct ConversationSearchView: View {
         return ""
     }
     
-    private var defaultSuggestionsView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Modern card-based suggestions
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ], spacing: 12) {
-                suggestionChip(icon: "chart.line.uptrend.xyaxis", title: "Spending", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
-                suggestionChip(icon: "calendar", title: "Schedule", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
-                suggestionChip(icon: "note.text", title: "Notes", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
-                suggestionChip(icon: "mappin.circle", title: "Locations", color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 22)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(
-                    colorScheme == .dark 
-                        ? Color.white.opacity(0.08)
-                        : Color.clear,
-                    lineWidth: 1
-                )
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
-            radius: 20,
-            x: 0,
-            y: 4
-        )
-    }
     
     private var contextualSuggestionsView: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -203,62 +164,6 @@ struct ConversationSearchView: View {
                 .padding(.horizontal, 4)
             }
         }
-    }
-    
-    private func suggestionChip(icon: String, title: String, color: Color) -> some View {
-        Button(action: {
-            HapticManager.shared.light()
-            // Set contextual message based on category
-            switch title {
-            case "Spending":
-                messageText = "Show me my spending analysis"
-            case "Schedule":
-                messageText = "What's on my calendar?"
-            case "Notes":
-                messageText = "Show me my recent notes"
-            case "Locations":
-                messageText = "Where have I been recently?"
-            default:
-                break
-            }
-            isInputFocused = true
-        }) {
-            VStack(spacing: 10) {
-                // Icon with colored background
-                ZStack {
-                    Circle()
-                        .fill(color.opacity(0.15))
-                        .frame(width: 40, height: 40)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(color)
-                }
-                
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .padding(.horizontal, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(
-                        colorScheme == .dark 
-                            ? Color.white.opacity(0.08)
-                            : Color.black.opacity(0.05),
-                        lineWidth: 1
-                    )
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
     }
     
     private func modernPromptCard(icon: String, prompt: String, gradient: [Color]) -> some View {
@@ -492,7 +397,7 @@ struct ConversationSearchView: View {
             Divider()
                 .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06))
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .background(colorScheme == .dark ? Color.black : Color.white)
         .transition(.opacity)
     }
 
@@ -500,35 +405,45 @@ struct ConversationSearchView: View {
 
     private var headerView: some View {
         HStack(spacing: 12) {
-            // Token usage stats on the left (replacing "New Conversation" text)
-            HStack(spacing: 4) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 10, weight: .medium))
-                Text(deepSeekService.dailyUsageString)
-                    .font(.system(size: 11, weight: .medium))
+            // Profile icon and Token usage on the left
+            HStack(spacing: 10) {
+                // Profile icon
+                Button(action: {
+                    HapticManager.shared.selection()
+                    showingSettings = true
+                }) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                // Token usage %
+                Text("\(Int(deepSeekService.quotaPercentage))% utilized")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.7) : Color.claudeTextLight.opacity(0.6))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                    )
             }
-            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.6))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-            )
 
             Spacer()
 
-            // Modern close button - circular with subtle background
+            // Modern X button (escape)
             Button(action: {
                 HapticManager.shared.selection()
                 dismiss()
             }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.7))
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                    .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.06))
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                     )
             }
             .buttonStyle(PlainButtonStyle())
@@ -536,8 +451,7 @@ struct ConversationSearchView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-            // Gradient fade background that blends with content
-            colorScheme == .dark ? Color.gmailDarkBackground : Color.white
+            colorScheme == .dark ? Color.black : Color.white
         )
     }
 
@@ -546,8 +460,10 @@ struct ConversationSearchView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     if searchService.conversationHistory.isEmpty {
-                        // Empty state
+                        // Empty state - ensure it's visible
                         emptyStateView
+                            .frame(minHeight: UIScreen.main.bounds.height * 0.6)
+                            .padding(.top, 60)
                     } else {
                         VStack(alignment: .leading, spacing: 16) {
                             ForEach(searchService.conversationHistory) { message in
@@ -629,7 +545,7 @@ struct ConversationSearchView: View {
 
             inputBoxContainer
         }
-        .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+        .background(colorScheme == .dark ? Color.black : Color.white)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isInputFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: messageText.isEmpty)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: searchService.conversationHistory.count)
@@ -712,51 +628,76 @@ struct ConversationSearchView: View {
     private var inputBoxContainer: some View {
         HStack(spacing: 12) {
             inputTextEditor
+            
+            // Voice recording button
+            Button(action: {
+                if speechService.isRecording {
+                    speechService.stopRecording()
+                    HapticManager.shared.medium()
+                } else {
+                    speechService.startRecording()
+                    HapticManager.shared.light()
+                    isInputFocused = true
+                }
+            }) {
+                Image(systemName: speechService.isRecording ? "stop.fill" : "mic.fill")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(
+                        speechService.isRecording 
+                            ? .red 
+                            : (colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                    )
+            }
+            .frame(width: 30, height: 30)
+            .background(
+                Circle()
+                    .fill(
+                        speechService.isRecording
+                            ? Color.red.opacity(0.1)
+                            : (colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    )
+            )
+            .buttonStyle(PlainButtonStyle())
+            
             sendButton
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .frame(height: inputHeight)
         .background(
-            RoundedRectangle(cornerRadius: 22)
-                .fill(
-                    colorScheme == .dark 
-                        ? (isInputFocused ? Color(white: 0.12) : Color(white: 0.08))
-                        : (isInputFocused ? Color.white : Color(white: 0.96))
+            RoundedRectangle(cornerRadius: 24)
+                // Claude-like neutral input fill (not pure white/black)
+                .fill(colorScheme == .dark ? Color(white: 0.14) : Color(white: 0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(
+                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06),
+                    lineWidth: 1
                 )
         )
-        .overlay(inputBoxBorder)
-        .shadow(
-            color: isInputFocused
-                ? (colorScheme == .dark ? Color.blue.opacity(0.15) : Color.blue.opacity(0.08))
-                : (colorScheme == .dark ? Color.black.opacity(0.2) : Color.black.opacity(0.06)),
-            radius: isInputFocused ? 12 : 6,
-            x: 0,
-            y: isInputFocused ? 4 : 2
-        )
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isInputFocused)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: inputHeight)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
 
     private var inputTextEditor: some View {
         ZStack(alignment: .leading) {
-            // Modern placeholder with better styling - perfectly aligned
-            if messageText.isEmpty {
+            // Claude-style placeholder - only show when not focused and text is empty
+            if messageText.isEmpty && !isInputFocused {
                 HStack {
-                    Text(searchService.conversationHistory.isEmpty ? "Ask me anything..." : "Ask a follow-up question...")
+                    Text(searchService.conversationHistory.isEmpty ? "Chat with Seline" : "Reply to Seline")
                         .font(.system(size: 15, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.4) : Color.claudeTextLight.opacity(0.4))
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .frame(height: inputHeight - 24, alignment: .center)
                 .allowsHitTesting(false)
             }
 
             AlignedTextEditor(
                 text: $messageText,
                 colorScheme: colorScheme,
-                height: inputHeight - 24,
+                // Ensure the editor has enough vertical space so text isn't clipped
+                height: max(inputHeight - 24, 36),
                 onFocusChange: { focused in
                     isInputFocused = focused
                 },
@@ -767,32 +708,49 @@ struct ConversationSearchView: View {
             .onChange(of: messageText) { _ in
                 updateInputHeight()
             }
+            .onChange(of: speechService.transcribedText) { newText in
+                if !newText.isEmpty {
+                    messageText = newText
+                    updateInputHeight()
+                }
+            }
             .onAppear {
                 updateInputHeight()
+                // Set up speech recognition callback
+                speechService.onTranscriptionUpdate = { text in
+                    messageText = text
+                    updateInputHeight()
+                }
             }
         }
     }
 
     private func updateInputHeight() {
-        let size = CGSize(width: UIScreen.main.bounds.width - 80, height: .infinity)
+        let size = CGSize(width: UIScreen.main.bounds.width - 120, height: .infinity)
         let estimatedHeight = messageText.boundingRect(
             with: size,
             options: .usesLineFragmentOrigin,
-            attributes: [.font: UIFont.systemFont(ofSize: 14, weight: .regular)],
+            attributes: [.font: UIFont.systemFont(ofSize: 15, weight: .regular)],
             context: nil
-        ).height + 20
+        ).height + 28
 
-        let maxHeight: CGFloat = 200  // Increased to show 4-5 lines
-        let minHeight: CGFloat = 44
+        let maxHeight: CGFloat = 132  // ~3 lines + breathing room
+        let minHeight: CGFloat = 56   // Prevent clipping with insets/buttons
         inputHeight = min(max(estimatedHeight, minHeight), maxHeight)
     }
 
     private func sendMessage() {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
+        // Stop recording if active
+        if speechService.isRecording {
+            speechService.stopRecording()
+        }
+
         HapticManager.shared.medium()
         let query = messageText
         messageText = ""
+        speechService.clearTranscription()
         updateInputHeight()
         isInputFocused = false // Dismiss keyboard
         Task {
@@ -823,23 +781,35 @@ struct ConversationSearchView: View {
                 sendMessage()
             }
         }) {
-            Image(systemName: (searchService.isLoadingQuestionResponse || isStreamingResponse) ? "stop.circle.fill" : "arrow.up.circle.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(
-                    (searchService.isLoadingQuestionResponse || isStreamingResponse) 
-                        ? .red 
-                        : (messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.3) : (colorScheme == .dark ? Color.white : Color.black))
-                )
-                .opacity(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse) ? 0.5 : 1.0)
-                .scaleEffect(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse) ? 0.9 : 1.0, anchor: .center)
+            // Claude-style: stop button when streaming, send arrow when ready
+            if searchService.isLoadingQuestionResponse || isStreamingResponse {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                    .frame(width: 20, height: 20)
+            } else {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(
+                        messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
+                            ? (colorScheme == .dark ? Color.claudeTextDark.opacity(0.4) : Color.claudeTextLight.opacity(0.4))
+                            : (colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
+                    )
+            }
         }
+        .frame(width: 30, height: 30)
+        .background(
+            Circle()
+                .fill(
+                    (searchService.isLoadingQuestionResponse || isStreamingResponse || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        ? (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                        : Color.clear
+                )
+        )
         .buttonStyle(PlainButtonStyle())
         .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !(searchService.isLoadingQuestionResponse || isStreamingResponse))
         .animation(.easeInOut(duration: 0.15), value: messageText)
         .animation(.easeInOut(duration: 0.15), value: searchService.isLoadingQuestionResponse)
         .animation(.easeInOut(duration: 0.15), value: isStreamingResponse)
-        .padding(.trailing, 12)
-        .padding(.bottom, 2)
     }
 
     private var inputBoxBorder: some View {
@@ -1611,12 +1581,13 @@ struct AlignedTextEditor: UIViewRepresentable {
         textView.textColor = colorScheme == .dark ? .white : .black
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
         
-        // Critical: Set proper insets to align cursor with text baseline
-        // Matching the placeholder padding of 16px horizontal and 11px vertical center alignment
-        textView.textContainerInset = UIEdgeInsets(top: 11, left: 16, bottom: 11, right: 16)
+        // Use zero left/right inset because SwiftUI already pads the container.
+        // This fixes the cursor starting "a few spaces ahead".
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
 
+        // Enable scrolling so users can see all text as they type
         textView.isScrollEnabled = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
@@ -1634,8 +1605,7 @@ struct AlignedTextEditor: UIViewRepresentable {
         textView.tintColor = colorScheme == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.8)
         
         // Ensure insets are maintained (important for cursor alignment)
-        // These insets match the placeholder padding exactly for perfect alignment
-        textView.textContainerInset = UIEdgeInsets(top: 11, left: 16, bottom: 11, right: 16)
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         textView.textContainer.lineFragmentPadding = 0
     }
     
@@ -1652,6 +1622,14 @@ struct AlignedTextEditor: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
+            
+            // Auto-scroll to cursor position so user can see what they're typing
+            DispatchQueue.main.async {
+                let selectedRange = textView.selectedRange
+                if selectedRange.location != NSNotFound {
+                    textView.scrollRangeToVisible(selectedRange)
+                }
+            }
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
