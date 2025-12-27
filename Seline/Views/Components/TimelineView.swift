@@ -8,6 +8,7 @@ struct TimelineView: View {
     let onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)?
     let onEditEvent: ((TaskItem) -> Void)?
     let onDeleteEvent: ((TaskItem) -> Void)?
+    let onDateChange: ((Date) -> Void)?
     @Binding var isCreatingEvent: Bool
 
     @StateObject private var taskManager = TaskManager.shared
@@ -27,7 +28,8 @@ struct TimelineView: View {
         onToggleCompletion: @escaping (TaskItem) -> Void,
         onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)? = nil,
         onEditEvent: ((TaskItem) -> Void)? = nil,
-        onDeleteEvent: ((TaskItem) -> Void)? = nil
+        onDeleteEvent: ((TaskItem) -> Void)? = nil,
+        onDateChange: ((Date) -> Void)? = nil
     ) {
         self.date = date
         self.selectedTagId = selectedTagId
@@ -37,6 +39,7 @@ struct TimelineView: View {
         self.onAddEvent = onAddEvent
         self.onEditEvent = onEditEvent
         self.onDeleteEvent = onDeleteEvent
+        self.onDateChange = onDateChange
     }
 
     // MARK: - Compatibility Init (for backward compatibility)
@@ -47,7 +50,8 @@ struct TimelineView: View {
         onToggleCompletion: @escaping (TaskItem) -> Void,
         onAddEvent: ((String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, String?) -> Void)? = nil,
         onEditEvent: ((TaskItem) -> Void)? = nil,
-        onDeleteEvent: ((TaskItem) -> Void)? = nil
+        onDeleteEvent: ((TaskItem) -> Void)? = nil,
+        onDateChange: ((Date) -> Void)? = nil
     ) {
         self.init(
             date: date,
@@ -57,7 +61,8 @@ struct TimelineView: View {
             onToggleCompletion: onToggleCompletion,
             onAddEvent: onAddEvent,
             onEditEvent: onEditEvent,
-            onDeleteEvent: onDeleteEvent
+            onDeleteEvent: onDeleteEvent,
+            onDateChange: onDateChange
         )
     }
 
@@ -348,6 +353,7 @@ struct TimelineView: View {
                     .transition(.move(edge: .bottom))
             }
         }
+        // Removed swipe gesture - day view always shows today
     }
 
     private func handleTimelineTap(at timeSlot: Date) {
@@ -491,21 +497,21 @@ struct TimelineView: View {
             // Current time label
             Text(formatCurrentTime())
                 .font(.system(size: 9, weight: .bold))
-                .foregroundColor(.red)
+                .foregroundColor(accentColor)
                 .frame(width: 50, alignment: .trailing)
                 .padding(.trailing, 4)
 
             // Small circle on the left
             Circle()
-                .fill(Color.red)
+                .fill(accentColor)
                 .frame(width: 10, height: 10)
-                .shadow(color: Color.red.opacity(0.5), radius: 3, x: 0, y: 0)
+                .shadow(color: accentColor.opacity(0.5), radius: 3, x: 0, y: 0)
 
-            // Red line with gradient fade
+            // Line with gradient fade
             Rectangle()
                 .fill(
                     LinearGradient(
-                        gradient: Gradient(colors: [Color.red, Color.red.opacity(0.3)]),
+                        gradient: Gradient(colors: [accentColor, accentColor.opacity(0.3)]),
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -513,6 +519,7 @@ struct TimelineView: View {
                 .frame(height: 2)
                 .padding(.trailing, 20)
         }
+        .drawingGroup() // Metal-accelerated rendering for gradient
         .offset(y: CGFloat(minutes) / 60.0 * hourHeight - 1) // -1 to center on the line
     }
 

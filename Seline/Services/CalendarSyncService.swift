@@ -13,6 +13,7 @@ class CalendarSyncService {
 
     // Key to track if we've already synced calendars on first launch
     private let lastSyncDateKey = "lastCalendarSyncDate"
+    private let originalSyncDateKey = "originalCalendarSyncDate" // Date when user first synced (retain all events from this date)
     private let syncedEventIDsKey = "syncedCalendarEventIDs"
     private let monthsToSkipKey = "calendarSyncMonthsToSkip"
     private let syncWindowVersionKey = "calendarSyncWindowVersion"
@@ -135,10 +136,10 @@ class CalendarSyncService {
 
     // MARK: - Event Fetching & Filtering (READ-ONLY)
 
-    /// Fetch calendar events from today onwards for the next 3 months
+    /// Fetch calendar events from the original sync date onwards for the next 3 months
     /// This is a READ-ONLY operation - no modifications to the calendar
-    /// Only fetches upcoming events (no historical data) to minimize performance impact
-    /// - Returns: Array of calendar events from today to next 3 months
+    /// Retains historical events from the original sync date (first time user syncs)
+    /// - Returns: Array of calendar events from original sync date to next 3 months
     func fetchCalendarEventsFromCurrentMonthOnwards() async -> [EKEvent] {
         // Get authorization first
         let hasAccess = await requestCalendarAccess()
@@ -150,9 +151,21 @@ class CalendarSyncService {
         let calendar = Calendar.current
         let now = Date()
 
-        // Create a predicate to fetch events from TODAY to 3 MONTHS AHEAD (READ-ONLY)
-        // Only upcoming events for better performance
-        let startDate = calendar.startOfDay(for: now)
+        // Get or set the original sync date (first time user synced)
+        // If not set, use today as the original sync date and save it
+        let originalSyncDate: Date
+        if let existingOriginalDate = getOriginalSyncDate() {
+            originalSyncDate = existingOriginalDate
+        } else {
+            // First time syncing - set today as the original sync date
+            originalSyncDate = calendar.startOfDay(for: now)
+            setOriginalSyncDate(originalSyncDate)
+            print("📅 [CalendarSync] First sync - setting original sync date to: \(originalSyncDate)")
+        }
+
+        // Create a predicate to fetch events from ORIGINAL SYNC DATE to 3 MONTHS AHEAD (READ-ONLY)
+        // This ensures we retain all historical events from the first sync date
+        let startDate = originalSyncDate
         let endDate = calendar.date(byAdding: .month, value: 3, to: now) ?? now
 
         // Get all calendars (nil = all calendars)
@@ -165,7 +178,26 @@ class CalendarSyncService {
         // Filter out all-day events and events that don't have a time component
         let timedEvents = allEvents.filter { !$0.isAllDay }
 
+        print("📅 [CalendarSync] Fetched \(timedEvents.count) events from \(startDate) to \(endDate)")
         return timedEvents
+    }
+    
+    // MARK: - Original Sync Date Management
+    
+    /// Get the original sync date (when user first synced calendar)
+    /// This date determines how far back we fetch historical events
+    private func getOriginalSyncDate() -> Date? {
+        return userDefaults.object(forKey: originalSyncDateKey) as? Date
+    }
+    
+    /// Set the original sync date (called on first sync)
+    private func setOriginalSyncDate(_ date: Date) {
+        userDefaults.set(date, forKey: originalSyncDateKey)
+    }
+    
+    /// Get the original sync date (public access)
+    func getOriginalSyncDatePublic() -> Date? {
+        return getOriginalSyncDate()
     }
 
     /// Fetch only new events (not previously synced)
@@ -203,11 +235,8 @@ class CalendarSyncService {
         // Determine the weekday from the event's start date
         let weekday = WeekDay.from(date: startDate)
 
-        // Create title with location if available
-        var title = event.title ?? "Calendar Event"
-        if let location = event.location, !location.isEmpty {
-            title += " @ \(location)"
-        }
+        // Create title
+        let title = event.title ?? "Calendar Event"
 
         // Extract notes as description
         let description = event.notes
@@ -221,6 +250,7 @@ class CalendarSyncService {
             endTime: endDate,
             targetDate: startDate,
             reminderTime: .none, // Let user set their own reminders
+            location: event.location, // Map location directly
             isRecurring: event.hasRecurrenceRules,
             recurrenceFrequency: convertEKRecurrenceToFrequency(event.recurrenceRules)
         )
@@ -289,9 +319,16 @@ class CalendarSyncService {
     }
 
     /// Clear sync tracking (for testing or manual reset)
+    /// Note: This does NOT clear the original sync date - we want to retain historical events
     func clearSyncTracking() {
         userDefaults.removeObject(forKey: syncedEventIDsKey)
         userDefaults.removeObject(forKey: lastSyncDateKey)
+        // Do NOT clear originalSyncDateKey - we want to keep fetching from the original date
+    }
+    
+    /// Clear the original sync date (use with caution - this will affect historical event fetching)
+    func clearOriginalSyncDate() {
+        userDefaults.removeObject(forKey: originalSyncDateKey)
     }
 
     /// Reset calendar sync completely (delete all tracking and request permission again)

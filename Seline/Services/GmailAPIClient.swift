@@ -104,6 +104,22 @@ class GmailAPIClient {
         profilePictureCache[email] = ""
         return nil
     }
+    
+    /// Fetches the current user's own profile picture
+    func fetchCurrentUserProfilePicture() async throws -> String? {
+        guard let user = GIDSignIn.sharedInstance.currentUser,
+              let email = user.profile?.email else {
+            return nil
+        }
+        
+        // First try to get it directly from GIDGoogleUser profile (faster)
+        if let imageURL = user.profile?.imageURL(withDimension: 128) {
+            return imageURL.absoluteString
+        }
+        
+        // Fallback to fetching via People API
+        return try await fetchProfilePicture(for: email)
+    }
 
     // MARK: - Full Email Body Fetching
     // This function fetches the complete email body including HTML content

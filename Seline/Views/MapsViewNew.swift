@@ -33,7 +33,6 @@ struct MapsViewNew: View, Searchable {
     @State private var allLocations: [(id: UUID, displayName: String, visitCount: Int)] = []
     @State private var showAllLocationsSheet = false
     @State private var lastLocationUpdateTime: Date = Date.distantPast  // Time debounce for location updates
-    @State private var isFavoritesExpanded = true  // Controls expand/collapse of favourites section
     @State private var recentlyVisitedPlaces: [SavedPlace] = []
     @State private var expandedCategories: Set<String> = []  // Track which categories are expanded
     @State private var showFullMapView = false  // Controls full map view sheet
@@ -128,8 +127,9 @@ struct MapsViewNew: View, Searchable {
             } message: {
                 Text("Enter a new name for this place")
             }
-            .onAppear {
-                setupOnAppear()
+            .task {
+                // Use .task for async setup - only runs once per view lifecycle
+                await setupOnAppear()
             }
             .onReceive(locationService.$currentLocation) { _ in
                 handleLocationUpdate()
@@ -141,7 +141,16 @@ struct MapsViewNew: View, Searchable {
                 handleScenePhaseChange(newPhase)
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
-                loadTopLocations()
+                // Only reload if we have no data yet, or debounce to avoid excessive reloads
+                if topLocations.isEmpty {
+                    loadTopLocations()
+                } else {
+                    // Debounce: reload after a short delay to batch multiple changes
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                        loadTopLocations()
+                    }
+                }
             }
             .onChange(of: colorScheme) { _ in
                 // Force view refresh when system theme changes
@@ -354,25 +363,30 @@ struct MapsViewNew: View, Searchable {
         return Array(categorySet).sorted()
     }
     
-    private func setupOnAppear() {
+    private func setupOnAppear() async {
         SearchService.shared.registerSearchableProvider(self, for: .maps)
 
-        // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase
-        Task {
+        // CLEANUP: Auto-close any incomplete visits older than 3 hours in Supabase (background)
+        Task.detached(priority: .utility) {
             await geofenceManager.cleanupIncompleteVisitsInSupabase(olderThanMinutes: 180)
         }
 
         // Load incomplete visits from Supabase to resume tracking BEFORE checking location
-        Task {
-            await geofenceManager.loadIncompleteVisitsFromSupabase()
-            await MainActor.run {
-                updateCurrentLocation()
-                hasLoadedIncompleteVisits = true
-            }
+        await geofenceManager.loadIncompleteVisitsFromSupabase()
+        await MainActor.run {
+            updateCurrentLocation()
+            hasLoadedIncompleteVisits = true
         }
 
-        loadTopLocations()
-        loadRecentlyVisited()
+        // OPTIMIZATION: Load data in background (non-blocking) so UI appears immediately
+        // Only load if data is empty or stale
+        if topLocations.isEmpty {
+            loadTopLocations()
+        }
+        if recentlyVisitedPlaces.isEmpty {
+            loadRecentlyVisited()
+        }
+        
         locationService.requestLocationPermission()
     }
     
@@ -457,77 +471,51 @@ struct MapsViewNew: View, Searchable {
         
         if !favourites.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
-                // Header with expand/collapse button
-                Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        isFavoritesExpanded.toggle()
-                    }
-                    HapticManager.shared.light()
-                }) {
-                    HStack(spacing: 12) {
-                        Text("Favorites")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                        Spacer()
-                        Image(systemName: isFavoritesExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, isFavoritesExpanded ? 0 : 20)
-                    .contentShape(Rectangle())
+                HStack(spacing: 12) {
+                    Text("Favorites")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    Spacer()
                 }
-                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
 
-                // Collapsible content
-                if isFavoritesExpanded {
-                    VStack(spacing: 12) {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                            ForEach(favourites, id: \.id) { place in
-                                Button(action: { selectedPlace = place }) {
-                                    VStack(spacing: 6) {
-                                        ZStack(alignment: .topTrailing) {
-                                            PlaceImageView(place: place, size: 60, cornerRadius: 14)
-                                            Button(action: { locationsManager.toggleFavourite(for: place.id); HapticManager.shared.selection() }) {
-                                                Image(systemName: place.isFavourite ? "star.fill" : "star")
-                                                    .font(.system(size: 11, weight: .semibold))
-                                                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                                                    .padding(5)
-                                                    .background(Circle().fill(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.9)))
-                                            }
-                                            .offset(x: 4, y: -4)
-                                        }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(favourites, id: \.id) { place in
+                            Button(action: {
+                                selectedPlace = place
+                            }) {
+                                VStack(spacing: 8) {
+                                    PlaceImageView(place: place, size: 70, cornerRadius: 16)
 
-                                        Text(place.displayName)
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.center)
-                                            .minimumScaleFactor(0.8)
-                                            .frame(height: 28)
-                                    }
+                                    Text(place.displayName)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                        .frame(width: 70, height: 32)
+                                        .minimumScaleFactor(0.8)
                                 }
-                                .buttonStyle(PlainButtonStyle())
-                                .contextMenu {
-                                    Button(action: {
-                                        placeToRename = place
-                                        newPlaceName = place.customName ?? place.name
-                                        showingRenameAlert = true
-                                    }) {
-                                        Label("Rename", systemImage: "pencil")
-                                    }
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .contextMenu {
+                                Button(action: {
+                                    placeToRename = place
+                                    newPlaceName = place.customName ?? place.name
+                                    showingRenameAlert = true
+                                }) {
+                                    Label("Rename", systemImage: "pencil")
+                                }
 
-                                    Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
-                                        Label("Delete", systemImage: "trash")
-                                    }
+                                Button(role: .destructive, action: { locationsManager.deletePlace(place) }) {
+                                    Label("Delete", systemImage: "trash")
                                 }
                             }
                         }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
             .background(
@@ -828,19 +816,33 @@ struct MapsViewNew: View, Searchable {
 
     private func loadTopLocations() {
         Task {
-            // Get all places with their visit counts sorted by most visited
+            // OPTIMIZATION: Fetch stats in parallel for all places (much faster!)
+            let places = locationsManager.savedPlaces
             var placesWithCounts: [(id: UUID, displayName: String, visitCount: Int)] = []
-
-            for place in locationsManager.savedPlaces {
-                // Fetch stats for this place
-                await LocationVisitAnalytics.shared.fetchStats(for: place.id)
-
-                if let stats = LocationVisitAnalytics.shared.visitStats[place.id] {
-                    placesWithCounts.append((
-                        id: place.id,
-                        displayName: place.displayName,
-                        visitCount: stats.totalVisits
-                    ))
+            
+            await withTaskGroup(of: (UUID, String, Int?).self) { group in
+                for place in places {
+                    group.addTask {
+                        // Fetch stats for this place
+                        await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                        
+                        // Access visitStats on MainActor since it's main actor-isolated
+                        let stats = await MainActor.run {
+                            LocationVisitAnalytics.shared.visitStats[place.id]
+                        }
+                        
+                        if let stats = stats {
+                            return (place.id, place.displayName, stats.totalVisits)
+                        } else {
+                            return (place.id, place.displayName, nil)
+                        }
+                    }
+                }
+                
+                for await (id, displayName, visitCount) in group {
+                    if let visitCount = visitCount {
+                        placesWithCounts.append((id: id, displayName: displayName, visitCount: visitCount))
+                    }
                 }
             }
 
@@ -1770,33 +1772,27 @@ struct ExpandableCategoryRow: View {
             Button(action: onToggle) {
                 HStack(spacing: 12) {
                     Text(category)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    Text("(\(places.count))")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
 
                     Spacer()
                     
-                    // Chevron indicator moved to the right
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
-                        .frame(width: 20)
+                    // Count badge - matching notes section styling
+                    Text("\(places.count)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(minWidth: 24, minHeight: 24)
+                        .padding(.horizontal, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                        )
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 0)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
-            
-            // Divider between categories
-            if !isExpanded && places.count > 0 {
-                Divider()
-                    .padding(.horizontal, 0)
-                    .opacity(0.3)
-            }
 
             // Places list
             if isExpanded {
@@ -1834,10 +1830,6 @@ struct ExpandableCategoryRow: View {
                                 }
 
                                 Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
                             }
                             .padding(.vertical, 12)
                             .padding(.horizontal, 0)

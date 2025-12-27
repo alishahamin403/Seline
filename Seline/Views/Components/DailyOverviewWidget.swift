@@ -6,6 +6,7 @@ struct DailyOverviewWidget: View {
     @StateObject private var tagManager = TagManager.shared
     @StateObject private var notesManager = NotesManager.shared
     @StateObject private var quickNoteManager = QuickNoteManager.shared
+    @StateObject private var widgetManager = WidgetManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     @Binding var isExpanded: Bool
@@ -14,6 +15,7 @@ struct DailyOverviewWidget: View {
     @State private var quickNoteText = ""
     @State private var editingQuickNote: QuickNote?
     @FocusState private var isQuickNoteFocused: Bool
+    @State private var refreshTrigger: UUID = UUID() // Force refresh when notes change
 
     // Navigation callbacks
     var onNoteSelected: ((Note) -> Void)?
@@ -97,10 +99,13 @@ struct DailyOverviewWidget: View {
     }
 
     private var todaysReceipts: [Note] {
-        // OPTIMIZATION: Use CacheManager with 5-minute TTL to avoid repeated currency parsing
+        // Use refreshTrigger to force cache invalidation when notes change
+        let _ = refreshTrigger // Access refreshTrigger to make this computed property depend on it
+        
+        // Use shorter TTL (1 minute) for today's receipts to ensure new receipts appear quickly
         return CacheManager.shared.getOrCompute(
             forKey: CacheManager.CacheKey.todaysReceipts,
-            ttl: CacheManager.TTL.medium
+            ttl: CacheManager.TTL.short // Changed from .medium (5 min) to .short (1 min)
         ) {
             let calendar = Calendar.current
             let receiptsFolder = notesManager.folders.first { $0.name == "Receipts" }
@@ -134,20 +139,31 @@ struct DailyOverviewWidget: View {
                 // Receipt notes must have bullet points (lines starting with "- ")
                 guard content.contains("- ") else { return false }
 
-                // FIXED: Always use dateCreated to determine if receipt was added today
-                // The title may contain the receipt's original date (which could be old),
-                // but we want to show receipts that were ADDED today, not DATED today
-                let noteDay = calendar.startOfDay(for: note.dateCreated)
-                return noteDay == today
-            }.sorted { $0.dateCreated > $1.dateCreated }
+                // Extract the actual receipt transaction date from the title
+                // Try to extract date from title first (e.g., "Store Name - November 08, 2025")
+                // Fall back to dateModified if no date found in title
+                var receiptDate = note.dateModified
+                if let extractedDate = notesManager.extractFullDateFromTitle(note.title) {
+                    receiptDate = extractedDate
+                }
+                
+                // Compare the receipt's actual date (not dateCreated) to today
+                let receiptDay = calendar.startOfDay(for: receiptDate)
+                return receiptDay == today
+            }.sorted { note1, note2 in
+                // Sort by actual receipt date, not dateCreated
+                let date1 = notesManager.extractFullDateFromTitle(note1.title) ?? note1.dateModified
+                let date2 = notesManager.extractFullDateFromTitle(note2.title) ?? note2.dateModified
+                return date1 > date2
+            }
         }
     }
 
     private var todaysTotalSpending: Double {
-        // OPTIMIZATION: Use CacheManager with 5-minute TTL (same as receipts)
+        // Use shorter TTL (1 minute) to match receipts cache
         return CacheManager.shared.getOrCompute(
             forKey: CacheManager.CacheKey.todaysSpending,
-            ttl: CacheManager.TTL.medium
+            ttl: CacheManager.TTL.short // Changed from .medium (5 min) to .short (1 min)
         ) {
             // Compute from cached receipts
             return todaysReceipts.compactMap { note in
@@ -248,6 +264,10 @@ struct DailyOverviewWidget: View {
             .padding(16)
             .shadcnTileStyle(colorScheme: colorScheme)
             .onAppear {
+                // Invalidate cache to ensure fresh data when widget appears
+                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
+                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
+                
                 loadData()
                 Task {
                     do {
@@ -257,41 +277,70 @@ struct DailyOverviewWidget: View {
                     }
                 }
             }
+            .onChange(of: notesManager.notes.count) { _ in
+                // Invalidate cache when notes change (new receipt added)
+                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
+                CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
+                // Force view refresh by updating refreshTrigger
+                refreshTrigger = UUID()
+            }
+            .onChange(of: refreshTrigger) { _ in
+                // This ensures the view refreshes when refreshTrigger changes
+                // The computed properties will re-evaluate
+            }
         }
     }
 
     // MARK: - Header View
 
     private var headerView: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isExpanded.toggle()
-            }
-            HapticManager.shared.light()
-        }) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Quick Access")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-
-                    if !isExpanded {
-                        Text(summaryText)
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
-                    }
+        HStack(spacing: 12) {
+            // Clickable area for expanding/collapsing
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
                 }
+                HapticManager.shared.light()
+            }) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Quick Access")
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
 
-                Spacer()
-
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                        if !isExpanded {
+                            Text(summaryText)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(PlainButtonStyle())
+            .allowsParentScrolling()
+            
+            // Edit button inside widget (only show when not in edit mode)
+            if !widgetManager.isEditMode {
+                Button(action: {
+                    HapticManager.shared.selection()
+                    widgetManager.enterEditMode()
+                }) {
+                    Text("Edit")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .black : .white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white : Color.black)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
         }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
     }
 
     // MARK: - Section Views
@@ -299,10 +348,11 @@ struct DailyOverviewWidget: View {
     private var todaysSpendingSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Total Spend Today: \(CurrencyParser.formatAmount(todaysTotalSpending))")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
-            ForEach(todaysReceipts.prefix(5), id: \.id) { note in
+            // Show all receipts from today, not just 5
+            ForEach(todaysReceipts, id: \.id) { note in
                 receiptRow(note)
             }
         }
@@ -311,7 +361,7 @@ struct DailyOverviewWidget: View {
     private var expensesDueTodaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Due Today")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(expensesDueToday.prefix(5), id: \.instance.id) { item in
@@ -323,7 +373,7 @@ struct DailyOverviewWidget: View {
     private var expensesDueTomorrowSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Due Tomorrow")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(expensesDueTomorrow.prefix(5), id: \.instance.id) { item in
@@ -335,7 +385,7 @@ struct DailyOverviewWidget: View {
     private var upcomingExpensesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Upcoming (Next 7 Days)")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(upcomingExpenses.prefix(10), id: \.instance.id) { item in
@@ -347,7 +397,7 @@ struct DailyOverviewWidget: View {
     private var importantEmailsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Important Emails")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(importantUnreadEmails.prefix(3), id: \.id) { email in
@@ -359,7 +409,7 @@ struct DailyOverviewWidget: View {
     private var birthdaysSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Birthdays This Week")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             ForEach(birthdaysThisWeek.prefix(3), id: \.id) { birthday in
@@ -373,7 +423,7 @@ struct DailyOverviewWidget: View {
             // Header with Quick Notes text and + button
             HStack(spacing: 12) {
                 Text("Quick Notes")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()

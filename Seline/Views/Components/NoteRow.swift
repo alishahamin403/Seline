@@ -30,7 +30,7 @@ struct NoteRow: View {
                         }
 
                         Text(note.title)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
@@ -80,6 +80,13 @@ struct NoteRow: View {
         }
         .buttonStyle(PlainButtonStyle())
         .contextMenu {
+            Button {
+                HapticManager.shared.selection()
+                onPinToggle(note)
+            } label: {
+                Label(note.isPinned ? "Unpin" : "Pin", systemImage: note.isPinned ? "pin.slash" : "pin")
+            }
+            
             if onDelete != nil {
                 Button(role: .destructive) {
                     showDeleteConfirmation = true

@@ -11,11 +11,36 @@ struct ReceiptItemRow: View {
         return String(components.first ?? "").trimmingCharacters(in: .whitespaces)
     }
 
+    private func iconForCategory(_ category: String?) -> String {
+        var categoryToUse = category
+        
+        // If category is nil or "Other", try to infer from title
+        if category == nil || category == "Other" {
+             let title = receipt.title.lowercased()
+             if title.contains("uber") || title.contains("lyft") || title.contains("gas") { categoryToUse = "Transportation" }
+             else if title.contains("food") || title.contains("pizza") || title.contains("burger") { categoryToUse = "Food & Dining" }
+             else if title.contains("grocery") || title.contains("market") { categoryToUse = "Shopping" }
+             else if title.contains("wifi") || title.contains("internet") { categoryToUse = "Utilities & Internet" }
+        }
+
+        return CategoryIconProvider.icon(for: categoryToUse ?? "Other")
+    }
+
+
     var body: some View {
         Button(action: { onTap(receipt.noteId) }) {
             HStack(spacing: 12) {
+                // Category Icon
+                Text(iconForCategory(receipt.category))
+                    .font(.system(size: 16))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                    )
+
                 Text(destinationName)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 15, weight: .regular)) // 15pt
                     .lineLimit(1)
                     .multilineTextAlignment(.leading)
                     .foregroundColor(Color.shadcnForeground(colorScheme))
@@ -24,15 +49,11 @@ struct ReceiptItemRow: View {
                 Spacer()
 
                 Text(CurrencyParser.formatAmount(receipt.amount))
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 15, weight: .regular)) // 15pt
                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
-            )
         }
         .buttonStyle(PlainButtonStyle())
     }

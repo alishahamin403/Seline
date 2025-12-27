@@ -33,8 +33,13 @@ class SelineAppContext {
     // MARK: - Cache Control
 
     private var lastRefreshTime: Date = Date.distantPast
-    private let cacheValidityDuration: TimeInterval = 300 // 5 minutes
+    private let cacheValidityDuration: TimeInterval = 1800 // 30 minutes (increased from 5 minutes for better performance)
     private var folderNameCache: [UUID: String] = [:] // Cache for folder name lookups
+    
+    // Cache for computed values
+    private var cachedFilteredEvents: [TaskItem]?
+    private var cachedFilteredReceipts: [ReceiptStat]?
+    private var lastFilterCacheTime: Date?
 
     private var isCacheValid: Bool {
         Date().timeIntervalSince(lastRefreshTime) < cacheValidityDuration
@@ -114,21 +119,35 @@ class SelineAppContext {
         // Collect all events
         self.events = taskManager.tasks.values.flatMap { $0 }
 
-        // Collect custom email folders and their saved emails
+        // Collect custom email folders and their saved emails (optimized with parallel loading)
         do {
             self.customEmailFolders = try await emailService.fetchSavedFolders()
             print("📧 Found \(self.customEmailFolders.count) custom email folders")
 
-            // Load emails for each folder
-            for folder in self.customEmailFolders {
-                do {
-                    let savedEmails = try await emailService.fetchSavedEmails(in: folder.id)
-                    self.savedEmailsByFolder[folder.id] = savedEmails
-                    print("  • \(folder.name): \(savedEmails.count) emails")
-                } catch {
-                    print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
-                    self.savedEmailsByFolder[folder.id] = []
+            // Load emails for each folder in parallel (non-blocking)
+            await withTaskGroup(of: (UUID, [SavedEmail]?).self) { [self] group in
+                for folder in self.customEmailFolders {
+                    group.addTask {
+                        do {
+                            let savedEmails = try await self.emailService.fetchSavedEmails(in: folder.id)
+                            return (folder.id, savedEmails)
+                        } catch {
+                            print("  ⚠️  Error loading emails for folder '\(folder.name)': \(error)")
+                            return (folder.id, nil)
+                        }
+                    }
                 }
+                
+                var foldersByEmail: [UUID: [SavedEmail]] = [:]
+                for await (folderId, emails) in group {
+                    foldersByEmail[folderId] = emails ?? []
+                    if let emails = emails, !emails.isEmpty {
+                        if let folder = self.customEmailFolders.first(where: { $0.id == folderId }) {
+                            print("  • \(folder.name): \(emails.count) emails")
+                        }
+                    }
+                }
+                self.savedEmailsByFolder = foldersByEmail
             }
         } catch {
             print("⚠️  Error loading custom email folders: \(error)")
@@ -190,21 +209,25 @@ class SelineAppContext {
         // Collect all locations
         self.locations = locationsManager.savedPlaces
 
-        // Fetch visit stats for ALL locations to ensure complete data for queries
-        await LocationVisitAnalytics.shared.fetchAllStats(for: self.locations)
-        print("📍 Fetched visit stats for \(self.locations.count) locations")
+        // OPTIMIZATION: Don't fetch visit stats here - only fetch when needed in buildContextPrompt
+        // This prevents blocking the refresh operation
+        print("📍 Locations loaded: \(self.locations.count) (visit stats will be fetched on-demand)")
 
-        // Fetch weather data
-        do {
-            // Try to get current location, otherwise use default (Toronto)
-            let locationService = LocationService.shared
-            let location = locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
+        // OPTIMIZATION: Fetch weather in background (non-blocking)
+        Task.detached(priority: .utility) { [self] in
+            do {
+                // Try to get current location, otherwise use default (Toronto)
+                let locationService = LocationService.shared
+                let location = await locationService.currentLocation ?? CLLocation(latitude: 43.6532, longitude: -79.3832)
 
-            await weatherService.fetchWeather(for: location)
-            self.weatherData = weatherService.weatherData
-            print("🌤️ Weather data fetched")
-        } catch {
-            print("⚠️ Failed to fetch weather: \(error)")
+                await self.weatherService.fetchWeather(for: location)
+                await MainActor.run {
+                    self.weatherData = self.weatherService.weatherData
+                    print("🌤️ Weather data fetched")
+                }
+            } catch {
+                print("⚠️ Failed to fetch weather: \(error)")
+            }
         }
 
         print("📦 AppContext refreshed:")
@@ -562,53 +585,77 @@ class SelineAppContext {
 
         if isLocationQuery {
             print("📊 Location query detected - fetching visit stats...")
-            await withTaskGroup(of: Void.self) { group in
-                for place in locations.prefix(20) {  // Limit to 20 most recent locations
-                    group.addTask {
-                        await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+            // Fetch stats in background (non-blocking) - don't await to prevent blocking UI
+            let locationsToFetch = await MainActor.run { self.locations.prefix(20) }
+            Task.detached(priority: .utility) {
+                await withTaskGroup(of: Void.self) { group in
+                    for place in locationsToFetch {  // Limit to 20 most recent locations
+                        group.addTask {
+                            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                        }
                     }
                 }
+                print("✅ Visit stats loaded for top locations")
             }
-            print("✅ Visit stats loaded for top locations")
         } else {
             print("⚡ Skipping visit stats - not a location query")
         }
 
-        // Filter events based on extracted intent
-        var filteredEvents = events
+        // OPTIMIZATION: Cache filtered results to avoid recomputation
+        let cacheKey = "\(categoryFilter ?? "none")_\(timePeriodFilter != nil ? "\(timePeriodFilter!.startDate.timeIntervalSince1970)" : "none")"
+        let shouldRecompute = cachedFilteredEvents == nil || 
+                             lastFilterCacheTime == nil ||
+                             Date().timeIntervalSince(lastFilterCacheTime!) > 60 // 1 minute cache
+        
+        var filteredEvents: [TaskItem]
+        if shouldRecompute {
+            filteredEvents = events
 
-        // Apply category filter if detected
-        if let categoryId = categoryFilter {
-            filteredEvents = filteredEvents.filter { $0.tagId == categoryId }
-        }
+            // Apply category filter if detected
+            if let categoryId = categoryFilter {
+                filteredEvents = filteredEvents.filter { $0.tagId == categoryId }
+            }
 
-        // Apply time period filter if detected
-        if let timePeriod = timePeriodFilter {
-            filteredEvents = filteredEvents.filter { event in
-                // For recurring events, check if ANY completion falls within the time period
-                if event.isRecurring {
-                    // Include event if it has at least one completion in the time period
-                    let hasCompletionInPeriod = event.completedDates.contains { date in
-                        return date >= timePeriod.startDate && date <= timePeriod.endDate
+            // Apply time period filter if detected
+            if let timePeriod = timePeriodFilter {
+                filteredEvents = filteredEvents.filter { event in
+                    // For recurring events, check if ANY completion falls within the time period
+                    if event.isRecurring {
+                        // Include event if it has at least one completion in the time period
+                        let hasCompletionInPeriod = event.completedDates.contains { date in
+                            return date >= timePeriod.startDate && date <= timePeriod.endDate
+                        }
+                        // Also include if the event is scheduled/active during this period
+                        let eventDate = event.targetDate ?? event.scheduledTime ?? currentDate
+                        let isActiveInPeriod = eventDate <= timePeriod.endDate && (event.recurrenceEndDate == nil || event.recurrenceEndDate! >= timePeriod.startDate)
+                        return hasCompletionInPeriod || isActiveInPeriod
+                    } else {
+                        // For non-recurring events, use the original date-based filtering
+                        let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
+                        return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
                     }
-                    // Also include if the event is scheduled/active during this period
-                    let eventDate = event.targetDate ?? event.scheduledTime ?? currentDate
-                    let isActiveInPeriod = eventDate <= timePeriod.endDate && (event.recurrenceEndDate == nil || event.recurrenceEndDate! >= timePeriod.startDate)
-                    return hasCompletionInPeriod || isActiveInPeriod
-                } else {
-                    // For non-recurring events, use the original date-based filtering
-                    let eventDate = event.targetDate ?? event.scheduledTime ?? event.completedDate ?? currentDate
-                    return eventDate >= timePeriod.startDate && eventDate <= timePeriod.endDate
                 }
             }
+            
+            // Cache the result
+            cachedFilteredEvents = filteredEvents
+            lastFilterCacheTime = Date()
+        } else {
+            filteredEvents = cachedFilteredEvents ?? events
         }
 
         // Filter receipts by time period if detected (apply regardless of query type)
-        var filteredReceipts = receipts
-        if let timePeriod = timePeriodFilter {
-            filteredReceipts = receipts.filter { receipt in
-                return receipt.date >= timePeriod.startDate && receipt.date <= timePeriod.endDate
+        var filteredReceipts: [ReceiptStat]
+        if shouldRecompute {
+            filteredReceipts = receipts
+            if let timePeriod = timePeriodFilter {
+                filteredReceipts = receipts.filter { receipt in
+                    return receipt.date >= timePeriod.startDate && receipt.date <= timePeriod.endDate
+                }
             }
+            cachedFilteredReceipts = filteredReceipts
+        } else {
+            filteredReceipts = cachedFilteredReceipts ?? receipts
         }
 
         // Temporarily replace events and receipts with filtered versions
@@ -627,6 +674,18 @@ class SelineAppContext {
 
         context += "=== CURRENT DATE ===\n"
         context += dateFormatter.string(from: currentDate) + "\n\n"
+
+        // Current location context
+        let locationService = LocationService.shared
+        if let currentLocation = locationService.currentLocation {
+            context += "=== CURRENT LOCATION ===\n"
+            context += "Location: \(locationService.locationName)\n"
+            context += "Coordinates: \(String(format: "%.6f", currentLocation.coordinate.latitude)), \(String(format: "%.6f", currentLocation.coordinate.longitude))\n"
+            context += "Accuracy: \(Int(currentLocation.horizontalAccuracy))m\n\n"
+        } else {
+            context += "=== CURRENT LOCATION ===\n"
+            context += "Location: Not available (location services may be disabled or location not yet determined)\n\n"
+        }
 
         // Data summary
         context += "=== DATA SUMMARY ===\n"
@@ -757,6 +816,16 @@ class SelineAppContext {
 
                     if let description = event.description, !description.isEmpty {
                         context += "    \(description)\n"
+                    }
+                    
+                    // Try to find location in event title/description and calculate ETA
+                    let eventText = "\(event.title) \(event.description ?? "")"
+                    if let location = findLocationByName(eventText) {
+                        if let eta = await calculateETA(to: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)) {
+                            context += "    📍 Location: \(location.displayName) | ETA: \(eta)\n"
+                        } else {
+                            context += "    📍 Location: \(location.displayName)\n"
+                        }
                     }
                 }
             }
@@ -1775,6 +1844,18 @@ class SelineAppContext {
         context += "=== CURRENT DATE ===\n"
         context += dateFormatter.string(from: currentDate) + "\n\n"
 
+        // Current location context
+        let locationService = LocationService.shared
+        if let currentLocation = locationService.currentLocation {
+            context += "=== CURRENT LOCATION ===\n"
+            context += "Location: \(locationService.locationName)\n"
+            context += "Coordinates: \(String(format: "%.6f", currentLocation.coordinate.latitude)), \(String(format: "%.6f", currentLocation.coordinate.longitude))\n"
+            context += "Accuracy: \(Int(currentLocation.horizontalAccuracy))m\n\n"
+        } else {
+            context += "=== CURRENT LOCATION ===\n"
+            context += "Location: Not available (location services may be disabled or location not yet determined)\n\n"
+        }
+
         // Data summary
         // Fetch recurring expenses count
         var recurringCount = 0
@@ -2743,6 +2824,48 @@ class SelineAppContext {
         }
 
         return nil
+    }
+
+    // MARK: - ETA Calculation Helpers
+
+    /// Calculate ETA from current location to a destination
+    func calculateETA(to destination: CLLocationCoordinate2D) async -> String? {
+        let locationService = LocationService.shared
+        guard let currentLocation = locationService.currentLocation else {
+            return nil
+        }
+        
+        do {
+            let result = try await navigationService.calculateETA(
+                from: currentLocation,
+                to: destination
+            )
+            return "\(result.durationText) (\(result.distanceText))"
+        } catch {
+            print("⚠️ Failed to calculate ETA: \(error)")
+            return nil
+        }
+    }
+
+    /// Find saved location by name (fuzzy match)
+    func findLocationByName(_ name: String) -> SavedPlace? {
+        let searchName = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Try exact match first
+        if let exact = locations.first(where: { 
+            $0.displayName.lowercased() == searchName || 
+            $0.name.lowercased() == searchName 
+        }) {
+            return exact
+        }
+        
+        // Try partial match
+        return locations.first(where: { 
+            $0.displayName.lowercased().contains(searchName) || 
+            $0.name.lowercased().contains(searchName) ||
+            searchName.contains($0.displayName.lowercased()) ||
+            searchName.contains($0.name.lowercased())
+        })
     }
 
     // MARK: - Multi-Source Search Helpers

@@ -7,36 +7,33 @@ struct CategoryIconProvider {
     // MARK: - Icons (Emoji)
 
     static func icon(for category: String) -> String {
-        switch category {
-        case "Food & Dining":
+        let cat = category.lowercased()
+        
+        if cat.contains("food") || cat.contains("dining") || cat.contains("restaurant") {
             return "🍔"
-        case "Transportation":
+        } else if cat.contains("transport") || cat.contains("gas") || cat.contains("uber") || cat.contains("lyft") {
             return "🚗"
-        case "Healthcare":
+        } else if cat.contains("health") || cat.contains("medical") || cat.contains("pharmacy") {
             return "🏥"
-        case "Entertainment":
+        } else if cat.contains("entertainment") || cat.contains("movie") || cat.contains("netflix") {
             return "🎬"
-        case "Shopping":
+        } else if cat.contains("shopping") || cat.contains("retail") || cat.contains("store") {
             return "🛍"
-        case "Software & Subscriptions":
+        } else if cat.contains("software") || cat.contains("subscription") || cat.contains("app") {
             return "💻"
-        case "Accommodation & Travel":
+        } else if cat.contains("travel") || cat.contains("accommodation") || cat.contains("hotel") || cat.contains("flight") {
             return "✈️"
-        case "Utilities & Internet":
+        } else if cat.contains("utilities") || cat.contains("internet") || cat.contains("electric") || cat.contains("water") {
             return "💡"
-        case "Professional Services":
+        } else if cat.contains("professional") || cat.contains("service") {
             return "💼"
-        case "Auto & Vehicle":
+        } else if cat.contains("auto") || cat.contains("vehicle") || cat.contains("car") {
             return "🚙"
-        case "Home & Maintenance":
+        } else if cat.contains("home") || cat.contains("maintenance") || cat.contains("repair") {
             return "🏠"
-        case "Memberships":
+        } else if cat.contains("membership") || cat.contains("gym") {
             return "💳"
-        case "Services":
-            return "🔧" // Legacy category
-        case "Food":
-            return "🍔" // Legacy category
-        default:
+        } else {
             return "📦" // Other
         }
     }

@@ -180,19 +180,15 @@ struct SelineWidgetEntryView: View {
                 if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
                     VStack(alignment: .center, spacing: 6) {
                         Text(location)
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 16, weight: .regular))
                             .foregroundColor(badgeContentColor)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
 
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color.green)
-                                .frame(width: 6, height: 6)
-                            Text(elapsed)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(badgeContentColor.opacity(0.7))
-                        }
+                        Text(elapsed)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(badgeContentColor.opacity(0.6))
+                            .textCase(.uppercase)
+                            .tracking(0.5)
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 12)
@@ -216,10 +212,10 @@ struct SelineWidgetEntryView: View {
             Link(destination: URL(string: "seline://action/receipts")!) {
                 VStack(alignment: .center, spacing: 4) {
                     Text(String(format: "$%.2f", entry.dailySpending))
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.system(size: 16, weight: .regular))
                         .foregroundColor(badgeContentColor)
 
-                    Text("TODAY")
+                    Text("Spent Today")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(badgeContentColor.opacity(0.6))
                         .textCase(.uppercase)
@@ -249,19 +245,15 @@ struct SelineWidgetEntryView: View {
                         if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
                             VStack(alignment: .center, spacing: 6) {
                                 Text(location)
-                                    .font(.system(size: 18, weight: .bold))
+                                    .font(.system(size: 16, weight: .regular))
                                     .foregroundColor(badgeContentColor)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
 
-                                HStack(spacing: 5) {
-                                    Circle()
-                                        .fill(Color.green)
-                                        .frame(width: 6, height: 6)
-                                    Text(elapsed)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(badgeContentColor.opacity(0.7))
-                                }
+                                Text(elapsed)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(badgeContentColor.opacity(0.6))
+                                    .textCase(.uppercase)
+                                    .tracking(0.5)
                             }
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 12)
@@ -285,10 +277,10 @@ struct SelineWidgetEntryView: View {
                     Link(destination: URL(string: "seline://action/receipts")!) {
                         VStack(alignment: .center, spacing: 4) {
                             Text(String(format: "$%.2f", entry.dailySpending))
-                                .font(.system(size: 18, weight: .bold))
+                                .font(.system(size: 16, weight: .regular))
                                 .foregroundColor(badgeContentColor)
 
-                            Text("TODAY")
+                            Text("Spent Today")
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundColor(badgeContentColor.opacity(0.6))
                                 .textCase(.uppercase)
@@ -331,7 +323,7 @@ struct SelineWidgetEntryView: View {
                     // Chat bar - pill-shaped
                     Link(destination: URL(string: "seline://action/chat")!) {
                         Text("Chat")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 14, weight: .regular))
                             .foregroundColor(badgeContentColor.opacity(0.7))
                             .frame(height: 44)
                             .frame(maxWidth: 120)
@@ -355,19 +347,15 @@ struct SelineWidgetEntryView: View {
                     if let location = entry.visitedLocation, let elapsed = entry.elapsedTime {
                         VStack(alignment: .center, spacing: 6) {
                             Text(location)
-                                .font(.system(size: 18, weight: .bold))
+                                .font(.system(size: 16, weight: .regular))
                                 .foregroundColor(badgeContentColor)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.7)
 
-                            HStack(spacing: 5) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 6, height: 6)
-                                Text(elapsed)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(badgeContentColor.opacity(0.7))
-                            }
+                            Text(elapsed)
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(badgeContentColor.opacity(0.6))
+                                .textCase(.uppercase)
+                                .tracking(0.5)
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, 12)
@@ -392,10 +380,10 @@ struct SelineWidgetEntryView: View {
                 Link(destination: URL(string: "seline://action/receipts")!) {
                     VStack(alignment: .center, spacing: 6) {
                         Text(String(format: "$%.2f", entry.dailySpending))
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 16, weight: .regular))
                             .foregroundColor(badgeContentColor)
 
-                        Text("TODAY")
+                        Text("Spent Today")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(badgeContentColor.opacity(0.6))
                             .textCase(.uppercase)
@@ -456,7 +444,7 @@ struct SelineWidgetEntryView: View {
 
                 Link(destination: URL(string: "seline://action/chat")!) {
                     Text("Chat")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundColor(badgeContentColor.opacity(0.7))
                         .frame(height: 44)
                         .frame(maxWidth: 120)

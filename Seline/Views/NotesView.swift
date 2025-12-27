@@ -235,11 +235,18 @@ struct NotesView: View, Searchable {
 
                         // Search bar - show when search is active
                         if isSearchActive {
-                            EmailSearchBar(searchText: $searchText) { query in
-                                // Search is handled by filtering in content views
+                            VStack(spacing: 0) {
+                                EmailSearchBar(searchText: $searchText) { query in
+                                    // Search is handled by filtering
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.top, 0)
+                                
+                                // Search results dropdown
+                                if !searchText.isEmpty {
+                                    searchResultsDropdown
+                                }
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 0)
                             .padding(.bottom, 12)
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
@@ -613,6 +620,78 @@ struct NotesView: View, Searchable {
             }
         }
     }
+    
+    // MARK: - Search Results Dropdown
+    private var searchResultsDropdown: some View {
+        let searchResults = notesManager.searchNotes(query: searchText).prefix(10)
+        
+        return VStack(spacing: 0) {
+            if searchResults.isEmpty {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    Text("No results for \"\(searchText)\"")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            } else {
+                ForEach(Array(searchResults), id: \.id) { note in
+                    Button(action: {
+                        HapticManager.shared.buttonTap()
+                        searchText = ""
+                        isSearchActive = false
+                        navigationPath.append(note)
+                    }) {
+                        HStack(spacing: 12) {
+                            // Icon
+                            Image(systemName: note.isPinned ? "pin.fill" : "doc.text")
+                                .font(.system(size: 14))
+                                .foregroundColor(note.isPinned ? .orange : .secondary)
+                                .frame(width: 24)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(note.title.isEmpty ? "Untitled" : note.title)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                    .lineLimit(1)
+                                
+                                Text(note.content.prefix(50).replacingOccurrences(of: "\n", with: " "))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            
+                            Spacer()
+                            
+                            // Date
+                            Text(note.dateModified.formatted(.relative(presentation: .named)))
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    if searchResults.last?.id != note.id {
+                        Divider()
+                            .padding(.leading, 52)
+                    }
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.white)
+                .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+        )
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+    }
 
     private var receiptsTabContent: some View {
         ReceiptStatsView(searchText: searchText.isEmpty ? nil : searchText)
@@ -914,9 +993,43 @@ struct NoteEditView: View {
     
     // OPTIMIZATION: Debounced auto-save for text changes
     @State private var autoSaveTask: Task<Void, Never>?
+    
+    // Event detection states
+    @State private var showingEventCreationPrompt = false
+    @State private var detectedEventDate: Date?
+    @State private var detectedEventTitle: String = ""
+    @State private var detectedEventLocation: String = ""
+    @State private var detectedEventDescription: String = ""
+    @State private var detectedEventEndDate: Date = Date()
+    @State private var detectedEventIsMultiDay: Bool = false
+    @State private var detectedEventHasTime: Bool = true
+    @State private var isParsingEventFromNote: Bool = false
+    @State private var eventSelectedTagId: String? = nil
+    @State private var eventReminder: ReminderTime = .fifteenMinutes
+    @State private var eventIsRecurring: Bool = false
+    @State private var eventRecurrenceFrequency: RecurrenceFrequency = .weekly
+    @State private var eventCustomDays: Set<WeekDay> = []
+    @State private var eventSelectedTime: Date = Date()
+    @State private var eventSelectedEndTime: Date = Date().addingTimeInterval(3600)
+    @State private var showingEventDatePicker: Bool = false
+    @State private var showingEventEndDatePicker: Bool = false
+    
+    // Add More mode: "replace" or "append"
+    @State private var addMoreMode: String = "append"
 
     var isAnyProcessing: Bool {
         isProcessingCleanup || isProcessingSummarize || isProcessingAddMore || isProcessingReceipt || isGeneratingTitle || isProcessingFile
+    }
+    
+    var eventCreationMessage: String {
+        var message = "\"\(detectedEventTitle)\""
+        if let date = detectedEventDate {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            message += "\n\(formatter.string(from: date))"
+        }
+        return message
     }
 
     init(note: Note?, isPresented: Binding<Bool>, initialFolderId: UUID? = nil) {
@@ -1063,15 +1176,26 @@ struct NoteEditView: View {
             Button("Cancel", role: .cancel) {
                 addMorePromptText = ""
             }
-            Button("Add") {
+            Button("Replace") {
                 if !addMorePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Task {
-                        await addMoreToNoteWithAI(userRequest: addMorePromptText)
+                        await addMoreToNoteWithAI(userRequest: addMorePromptText, replaceExisting: true)
+                    }
+                }
+            }
+            Button("Append") {
+                if !addMorePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Task {
+                        await addMoreToNoteWithAI(userRequest: addMorePromptText, replaceExisting: false)
                     }
                 }
             }
         } message: {
-            Text("Describe what additional information you'd like to add to your note.")
+            Text("Replace removes existing text. Append adds after existing text.")
+        }
+        // Event creation sheet (triggered by calendar icon in note)
+        .sheet(isPresented: $showingEventCreationPrompt) {
+            eventCreationSheetContent
         }
         .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
             Button("Cancel", role: .cancel) { }
@@ -1275,75 +1399,143 @@ struct NoteEditView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 2)
-        .padding(.bottom, 2)
+        .padding(.bottom, 20)
+    }
+    
+    // MARK: - Event Creation Sheet Content
+    private var eventCreationSheetContent: some View {
+        NavigationView {
+            ScrollView {
+                if isParsingEventFromNote {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Parsing event details...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                } else {
+                    eventFormContent
+                }
+            }
+            .navigationTitle("Create Event from Note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingEventCreationPrompt = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveEventFromNote()
+                    }
+                    .disabled(detectedEventTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isParsingEventFromNote)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+    
+    // Separate computed property for the form to help compiler
+    private var eventFormContent: some View {
+        EventFormContent(
+            title: $detectedEventTitle,
+            location: $detectedEventLocation,
+            description: $detectedEventDescription,
+            selectedDate: Binding(
+                get: { detectedEventDate ?? Date() },
+                set: { detectedEventDate = $0 }
+            ),
+            selectedEndDate: $detectedEventEndDate,
+            isMultiDay: $detectedEventIsMultiDay,
+            hasTime: $detectedEventHasTime,
+            selectedTime: $eventSelectedTime,
+            selectedEndTime: $eventSelectedEndTime,
+            isRecurring: $eventIsRecurring,
+            recurrenceFrequency: $eventRecurrenceFrequency,
+            customRecurrenceDays: $eventCustomDays,
+            selectedReminder: $eventReminder,
+            selectedTagId: $eventSelectedTagId,
+            showingDatePicker: $showingEventDatePicker,
+            showingEndDatePicker: $showingEventEndDatePicker
+        )
     }
 
     private var noteContentView: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Title
-            TextField("", text: $title, axis: .vertical)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .lineLimit(nil)
-                .placeholder(when: title.isEmpty) {
-                    Text("Note title")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
+        // Check if this note is in the Receipts folder or any subfolder of Receipts
+        // Use note.folderId directly (the original parameter) as selectedFolderId/editingNote may not be set yet on first render
+        let isReceiptNote: Bool = {
+            guard let folderId = note?.folderId ?? selectedFolderId ?? editingNote?.folderId else { 
+                return false 
+            }
+            let receiptsFolder = notesManager.folders.first(where: { $0.name == "Receipts" })
+            guard let receiptsFolderId = receiptsFolder?.id else { 
+                return false 
+            }
+            
+            // Check if current folder is Receipts or a child of Receipts
+            var currentId: UUID? = folderId
+            while let id = currentId {
+                if id == receiptsFolderId {
+                    return true
                 }
-                .onChange(of: title) { newValue in
-                    // Don't trigger saves during view updates
-                }
+                // Check parent folder
+                currentId = notesManager.folders.first(where: { $0.id == id })?.parentFolderId
+            }
+            return false
+        }()
+        
+        return VStack(alignment: .leading, spacing: 12) {
+            // Title - smaller font (22pt), reduced padding (12pt)
+            TextField("Title", text: $title, axis: .vertical)
+                .font(.system(size: 22, weight: .bold))
+                .submitLabel(.next)
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
-
-            // Content - single text editor (table markers are hidden in the editor)
-            FormattableTextEditor(
-                attributedText: $attributedContent,
-                colorScheme: colorScheme,
-                onSelectionChange: { range in
-                    selectedTextRange = range
+            
+            // Content editor with date detection
+            UnifiedNoteEditor(
+                text: $content,
+                onEditingChanged: {
+                    // No auto-save - save only on checkmark
                 },
-                onTextChange: { newAttributedText in
-                    attributedContent = newAttributedText
-                    content = newAttributedText.string
+                onDateDetected: { date, context in
+                    // User tapped highlighted date - parse event details with LLM
+                    detectedEventDate = date
+                    detectedEventEndDate = date.addingTimeInterval(3600)
+                    detectedEventHasTime = true
+                    isParsingEventFromNote = true
+                    showingEventCreationPrompt = true
                     
-                    // OPTIMIZATION: Debounced auto-save (1.5 seconds after typing stops)
-                    autoSaveTask?.cancel()
-                    autoSaveTask = Task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 second debounce
-                        if !Task.isCancelled, let existingNote = editingNote {
-                            await performAutoSave()
-                        }
+                    Task {
+                        await parseEventDetailsFromNote(context: context, date: date)
                     }
-                }
+                },
+                onTodoInsert: {
+                    insertTodoAtCursor()
+                },
+                isReceiptNote: isReceiptNote
             )
-            .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
-            .padding(.horizontal, 0)
-            .padding(.top, 8)
-
-            // Tappable area to continue writing
-            Color.clear
-                .frame(minHeight: 300)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    // Ensure there's content after the last marker for cursor placement
-                    if !content.hasSuffix("\n\n") {
-                        let mutableAttrString = NSMutableAttributedString(attributedString: attributedContent)
-                        let newlineString = NSAttributedString(
-                            string: "\n\n",
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                                .foregroundColor: colorScheme == .dark ? UIColor.white : UIColor.black
-                            ]
-                        )
-                        mutableAttrString.append(newlineString)
-                        attributedContent = mutableAttrString
-                        content = attributedContent.string
-                    }
-                    // Dismiss keyboard is now handled by scroll gesture
-                }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+            
+            Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+    
+    // Insert a todo checkbox at the cursor position
+    private func insertTodoAtCursor() {
+        // Add todo at end of content or on new line
+        if content.isEmpty {
+            content = "- [ ] "
+        } else if content.hasSuffix("\n") {
+            content += "- [ ] "
+        } else {
+            content += "\n- [ ] "
+        }
     }
 
     private var imageAttachmentsView: some View {
@@ -1525,6 +1717,21 @@ struct NoteEditView: View {
 
             // Spacer
             Spacer()
+            
+            // Todo checkbox button
+            Button(action: {
+                HapticManager.shared.buttonTap()
+                insertTodoAtCursor()
+            }) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 40, height: 36)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+            )
 
             // File icon button
             Button(action: {
@@ -1708,7 +1915,8 @@ struct NoteEditView: View {
 
     private func saveNoteAndDismiss() {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let contentToSave = convertAttributedContentToText()
+        // Use content directly - UnifiedNoteEditor already stores as string
+        let contentToSave = content
         let trimmedContent = contentToSave.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Don't save completely empty notes
@@ -1822,7 +2030,7 @@ struct NoteEditView: View {
         Task {
             var updatedNote = existingNote
             updatedNote.title = title.isEmpty ? "Untitled" : title
-            updatedNote.content = convertAttributedContentToText()
+            updatedNote.content = content // Use content directly
             updatedNote.isLocked = noteIsLocked
             updatedNote.folderId = selectedFolderId
             updatedNote.imageUrls = existingNote.imageUrls // Keep existing image URLs
@@ -2022,22 +2230,31 @@ struct NoteEditView: View {
         }
     }
 
-    private func addMoreToNoteWithAI(userRequest: String) async {
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    private func addMoreToNoteWithAI(userRequest: String, replaceExisting: Bool = false) async {
         guard !userRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         isProcessingAddMore = true
         saveToUndoHistory()
 
         do {
-            // Get expanded text (now returns markdown-formatted text)
-            let expandedText = try await openAIService.addMoreToNoteText(content, userRequest: userRequest)
+            // Get expanded text from AI
+            let aiResponse = try await openAIService.addMoreToNoteText(content, userRequest: userRequest)
+            
+            // Strip markdown syntax for clean output
+            let cleanText = stripMarkdownSyntax(aiResponse)
 
             await MainActor.run {
-                content = expandedText
-                // Parse markdown formatting (bold, italic, headings, etc)
-                let textColor = colorScheme == .dark ? UIColor.white : UIColor.black
-                attributedContent = MarkdownParser.shared.parseMarkdown(expandedText, fontSize: 14, textColor: textColor)
+                if replaceExisting {
+                    // Replace: Clear existing and use new content
+                    content = cleanText
+                } else {
+                    // Append: Add after existing content
+                    if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        content = cleanText
+                    } else {
+                        content = content + "\n\n" + cleanText
+                    }
+                }
                 isProcessingAddMore = false
                 addMorePromptText = ""
                 HapticManager.shared.aiActionComplete()
@@ -2050,6 +2267,269 @@ struct NoteEditView: View {
                 print("Error adding more to text: \(error.localizedDescription)")
             }
         }
+    }
+    
+    // Strip markdown syntax for clean display
+    private func stripMarkdownSyntax(_ text: String) -> String {
+        var result = text
+        // Remove bold **text** -> text (non-greedy, handles multiline)
+        if let boldRegex = try? NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*", options: [.dotMatchesLineSeparators]) {
+            result = boldRegex.stringByReplacingMatches(in: result, options: [], range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
+        }
+        // Remove italic *text* -> text (single asterisk, not double)
+        if let italicRegex = try? NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)", options: []) {
+            result = italicRegex.stringByReplacingMatches(in: result, options: [], range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
+        }
+        // Remove heading prefixes # ## ### at start of lines (multiline mode)
+        if let headingRegex = try? NSRegularExpression(pattern: "^#{1,3}\\s+", options: [.anchorsMatchLines]) {
+            result = headingRegex.stringByReplacingMatches(in: result, options: [], range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        return result
+    }
+    
+    // Event detection from note content
+    private func detectEventFromContent() {
+        guard content.count > 10 else { return }
+        guard !showingEventCreationPrompt else { return }
+        
+        Task {
+            if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) {
+                let matches = detector.matches(in: content, options: [], range: NSRange(location: 0, length: content.utf16.count))
+                
+                if let match = matches.first, let date = match.date {
+                    // Only prompt for future dates or today
+                    if date >= Calendar.current.startOfDay(for: Date()) {
+                        await MainActor.run {
+                            self.detectedEventDate = date
+                            // Extract context around the date
+                            let range = Range(match.range, in: content) ?? content.startIndex..<content.endIndex
+                            let lineStart = content[..<range.lowerBound].lastIndex(of: "\n").map { content.index(after: $0) } ?? content.startIndex
+                            let lineEnd = content[range.upperBound...].firstIndex(of: "\n") ?? content.endIndex
+                            self.detectedEventTitle = String(content[lineStart..<lineEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            self.showingEventCreationPrompt = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Save event to Supabase via TaskManager
+    private func saveEventToSupabase(title: String, date: Date, endDate: Date?, description: String) {
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: date)
+        
+        // Convert to WeekDay enum
+        let dayOfWeek: WeekDay
+        switch weekday {
+        case 1: dayOfWeek = .sunday
+        case 2: dayOfWeek = .monday
+        case 3: dayOfWeek = .tuesday
+        case 4: dayOfWeek = .wednesday
+        case 5: dayOfWeek = .thursday
+        case 6: dayOfWeek = .friday
+        case 7: dayOfWeek = .saturday
+        default: dayOfWeek = .monday
+        }
+        
+        // Add task to TaskManager (saves to Supabase automatically)
+        TaskManager.shared.addTask(
+            title: title,
+            to: dayOfWeek,
+            description: description.isEmpty ? nil : description,
+            scheduledTime: date,
+            endTime: endDate,
+            targetDate: date,
+            reminderTime: .fifteenMinutes,
+            isRecurring: false,
+            recurrenceFrequency: nil,
+            customRecurrenceDays: nil,
+            tagId: nil
+        )
+        
+        HapticManager.shared.success()
+        showingEventCreationPrompt = false
+    }
+    
+    // Parse event details from note context using LLM
+    private func parseEventDetailsFromNote(context: String, date: Date) async {
+        do {
+            // Build a comprehensive prompt for the LLM to extract event details
+            let prompt = """
+            Extract event details from this text. Return ONLY a valid JSON object.
+            
+            Text: "\(context)"
+            Detected base date: \(DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .none))
+            
+            Extract and return JSON with these fields:
+            - title: A SHORT event name (max 5-6 words, like "Meeting with Bob" or "Doctor Appointment")
+            - description: Any additional details, context, or notes (everything that's not the title)
+            - startTime: Time in HH:mm 24-hour format if mentioned (e.g., "2pm" -> "14:00", "3:30pm" -> "15:30")
+            - endTime: End time in HH:mm format if mentioned, otherwise null
+            - location: Location or place if mentioned, otherwise null
+            - reminder: One of ["none", "15min", "1hour", "3hours", "1day"] if user mentions reminder/alert, otherwise "15min" as default
+            
+            Example input: "Meeting with John at 2pm tomorrow at Starbucks to discuss project"
+            Example output: {"title": "Meeting with John", "description": "Discuss project", "startTime": "14:00", "endTime": null, "location": "Starbucks", "reminder": "15min"}
+            
+            Example input: "Call mom at 5:30pm remind me 30 minutes before"
+            Example output: {"title": "Call mom", "description": null, "startTime": "17:30", "endTime": null, "location": null, "reminder": "30min"}
+            
+            IMPORTANT: Title should be CONCISE (3-6 words max). Put all other info in description.
+            Return ONLY the JSON, no other text.
+            """
+            
+            let response = try await openAIService.generateNoteTitle(from: prompt)
+            
+            // Clean the response - remove markdown code blocks if present
+            var cleanResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleanResponse.hasPrefix("```json") {
+                cleanResponse = String(cleanResponse.dropFirst(7))
+            }
+            if cleanResponse.hasPrefix("```") {
+                cleanResponse = String(cleanResponse.dropFirst(3))
+            }
+            if cleanResponse.hasSuffix("```") {
+                cleanResponse = String(cleanResponse.dropLast(3))
+            }
+            cleanResponse = cleanResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Try to parse JSON response
+            if let jsonData = cleanResponse.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                
+                await MainActor.run {
+                    // Title - keep it short
+                    if let title = json["title"] as? String, !title.isEmpty {
+                        detectedEventTitle = title
+                    } else {
+                        // Extract first few words as title
+                        let words = context.split(separator: " ").prefix(5).joined(separator: " ")
+                        detectedEventTitle = words
+                    }
+                    
+                    // Description
+                    if let desc = json["description"] as? String, !desc.isEmpty, desc != "null" {
+                        detectedEventDescription = desc
+                    }
+                    
+                    // Parse time if present
+                    let calendar = Calendar.current
+                    if let startTimeStr = json["startTime"] as? String, !startTimeStr.isEmpty, startTimeStr != "null" {
+                        let parts = startTimeStr.split(separator: ":")
+                        if parts.count >= 2, let hour = Int(parts[0]), let minute = Int(parts[1]) {
+                            if let newDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date) {
+                                detectedEventDate = newDate
+                                eventSelectedTime = newDate
+                            }
+                            detectedEventHasTime = true
+                        }
+                    }
+                    
+                    if let endTimeStr = json["endTime"] as? String, !endTimeStr.isEmpty, endTimeStr != "null" {
+                        let parts = endTimeStr.split(separator: ":")
+                        if parts.count >= 2, let hour = Int(parts[0]), let minute = Int(parts[1]) {
+                            if let endDate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date) {
+                                detectedEventEndDate = endDate
+                                eventSelectedEndTime = endDate
+                            }
+                        }
+                    } else if detectedEventHasTime {
+                        // Default end time 1 hour after start
+                        detectedEventEndDate = (detectedEventDate ?? date).addingTimeInterval(3600)
+                        eventSelectedEndTime = detectedEventEndDate
+                    }
+                    
+                    // Location - add to description if present
+                    if let location = json["location"] as? String, !location.isEmpty, location != "null" {
+                        if detectedEventDescription.isEmpty {
+                            detectedEventDescription = "📍 \(location)"
+                        } else {
+                            detectedEventDescription = "📍 \(location)\n\(detectedEventDescription)"
+                        }
+                    }
+                    
+                    // Reminder
+                    if let reminderStr = json["reminder"] as? String {
+                        switch reminderStr.lowercased() {
+                        case "none": eventReminder = .none
+                        case "5min", "15min": eventReminder = .fifteenMinutes
+                        case "30min", "1hour": eventReminder = .oneHour
+                        case "3hours": eventReminder = .threeHours
+                        case "1day": eventReminder = .oneDay
+                        default: eventReminder = .fifteenMinutes
+                        }
+                    }
+                    
+                    isParsingEventFromNote = false
+                }
+            } else {
+                // Fallback: use smart extraction
+                await MainActor.run {
+                    let words = context.split(separator: " ")
+                    detectedEventTitle = words.prefix(5).joined(separator: " ")
+                    if words.count > 5 {
+                        detectedEventDescription = words.dropFirst(5).joined(separator: " ")
+                    }
+                    isParsingEventFromNote = false
+                }
+            }
+        } catch {
+            // Fallback on error
+            await MainActor.run {
+                let words = context.split(separator: " ")
+                detectedEventTitle = words.prefix(5).joined(separator: " ")
+                if words.count > 5 {
+                    detectedEventDescription = words.dropFirst(5).joined(separator: " ")
+                }
+                isParsingEventFromNote = false
+            }
+        }
+    }
+    
+    // Save event from the full EventFormContent
+    private func saveEventFromNote() {
+        guard let date = detectedEventDate else { return }
+        
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: date)
+        
+        let dayOfWeek: WeekDay
+        switch weekday {
+        case 1: dayOfWeek = .sunday
+        case 2: dayOfWeek = .monday
+        case 3: dayOfWeek = .tuesday
+        case 4: dayOfWeek = .wednesday
+        case 5: dayOfWeek = .thursday
+        case 6: dayOfWeek = .friday
+        case 7: dayOfWeek = .saturday
+        default: dayOfWeek = .monday
+        }
+        
+        TaskManager.shared.addTask(
+            title: detectedEventTitle,
+            to: dayOfWeek,
+            description: detectedEventDescription.isEmpty ? nil : detectedEventDescription,
+            scheduledTime: detectedEventHasTime ? date : nil,
+            endTime: detectedEventHasTime ? detectedEventEndDate : nil,
+            targetDate: date,
+            reminderTime: eventReminder,
+            location: detectedEventLocation.isEmpty ? nil : detectedEventLocation,
+            isRecurring: eventIsRecurring,
+            recurrenceFrequency: eventIsRecurring ? eventRecurrenceFrequency : nil,
+            customRecurrenceDays: eventRecurrenceFrequency == .custom ? Array(eventCustomDays) : nil,
+            tagId: eventSelectedTagId
+        )
+        
+        HapticManager.shared.success()
+        showingEventCreationPrompt = false
+        
+        // Reset state
+
+        detectedEventTitle = ""
+        detectedEventLocation = ""
+        detectedEventDescription = ""
+        detectedEventDate = nil
     }
 
     private func processReceiptImage(_ image: UIImage) {

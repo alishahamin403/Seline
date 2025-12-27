@@ -11,6 +11,7 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
     case weather = "weather"
     case unreadEmails = "unread_emails"
     case pinnedNotes = "pinned_notes"
+    case favoriteLocations = "favorite_locations"
     
     var id: String { rawValue }
     
@@ -23,6 +24,7 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
         case .weather: return "Weather"
         case .unreadEmails: return "Unread Emails"
         case .pinnedNotes: return "Pinned Notes"
+        case .favoriteLocations: return "Favorite Locations"
         }
     }
     
@@ -35,6 +37,7 @@ enum HomeWidgetType: String, CaseIterable, Codable, Identifiable {
         case .weather: return "cloud.sun.fill"
         case .unreadEmails: return "envelope.badge.fill"
         case .pinnedNotes: return "pin.fill"
+        case .favoriteLocations: return "star.fill"
         }
     }
 }
@@ -72,9 +75,29 @@ class WidgetManager: ObservableObject {
     
     /// Get visible widgets sorted by order
     var visibleWidgets: [WidgetConfiguration] {
-        configurations
+        var widgets = configurations
             .filter { $0.isVisible }
             .sorted { $0.order < $1.order }
+        
+        // CRITICAL: Ensure Quick Access (dailyOverview) is always first and visible
+        // If it's not visible, make it visible
+        if let dailyOverviewIndex = widgets.firstIndex(where: { $0.type == .dailyOverview }) {
+            // Move it to the front
+            let dailyOverview = widgets.remove(at: dailyOverviewIndex)
+            widgets.insert(dailyOverview, at: 0)
+        } else {
+            // If it's not in the list, add it
+            if let config = configurations.first(where: { $0.type == .dailyOverview }) {
+                widgets.insert(config, at: 0)
+            } else {
+                // Create it if it doesn't exist
+                let newConfig = WidgetConfiguration(type: .dailyOverview, isVisible: true, order: 0)
+                configurations.append(newConfig)
+                widgets.insert(newConfig, at: 0)
+            }
+        }
+        
+        return widgets
     }
     
     /// Get hidden widgets
@@ -86,6 +109,11 @@ class WidgetManager: ObservableObject {
     
     /// Toggle widget visibility
     func toggleVisibility(for type: HomeWidgetType) {
+        // CRITICAL: Quick Access (dailyOverview) cannot be hidden
+        if type == .dailyOverview {
+            return
+        }
+        
         if let index = configurations.firstIndex(where: { $0.type == type }) {
             configurations[index].isVisible.toggle()
             saveConfigurations()
@@ -95,6 +123,11 @@ class WidgetManager: ObservableObject {
     
     /// Hide a widget
     func hideWidget(_ type: HomeWidgetType) {
+        // CRITICAL: Quick Access (dailyOverview) cannot be hidden
+        if type == .dailyOverview {
+            return
+        }
+        
         if let index = configurations.firstIndex(where: { $0.type == type }) {
             configurations[index].isVisible = false
             saveConfigurations()
@@ -133,12 +166,18 @@ class WidgetManager: ObservableObject {
     
     /// Move widget by dragging (for custom drag gesture)
     func moveWidget(_ type: HomeWidgetType, toIndex newIndex: Int) {
+        // CRITICAL: Quick Access (dailyOverview) must always stay at position 0
+        if type == .dailyOverview {
+            return
+        }
+        
         let visible = visibleWidgets
         guard let currentIndex = visible.firstIndex(where: { $0.type == type }) else { return }
         
         var mutableVisible = visible
         let item = mutableVisible.remove(at: currentIndex)
-        let safeIndex = min(max(newIndex, 0), mutableVisible.count)
+        // Ensure we don't move anything to position 0 (reserved for Quick Access)
+        let safeIndex = min(max(newIndex, 1), mutableVisible.count)
         mutableVisible.insert(item, at: safeIndex)
         
         // Update orders
@@ -222,7 +261,8 @@ class WidgetManager: ObservableObject {
             // New widgets - hidden by default, users can add them
             WidgetConfiguration(type: .weather, isVisible: false, order: 4),
             WidgetConfiguration(type: .unreadEmails, isVisible: false, order: 5),
-            WidgetConfiguration(type: .pinnedNotes, isVisible: false, order: 6)
+            WidgetConfiguration(type: .pinnedNotes, isVisible: false, order: 6),
+            WidgetConfiguration(type: .favoriteLocations, isVisible: false, order: 7)
         ]
     }
 }

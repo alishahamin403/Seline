@@ -59,6 +59,7 @@ struct MainAppView: View {
     @State private var showingReceiptImagePicker = false
     @State private var showingReceiptCameraPicker = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
+    @State private var showingSettings = false
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -836,6 +837,10 @@ struct MainAppView: View {
                 GmailLabelSelectionView()
                     .presentationBg()
             }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+                    .presentationBg()
+            }
             .sheet(item: $searchSelectedEmail) { email in
                 EmailDetailView(email: email)
                     .presentationBg()
@@ -895,7 +900,7 @@ struct MainAppView: View {
             .sheet(isPresented: $showingAddEventPopup) {
                 AddEventPopupView(
                     isPresented: $showingAddEventPopup,
-                    onSave: { (title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, customDays: [WeekDay]?, tagId: String?) in
+                    onSave: { (title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, customDays: [WeekDay]?, tagId: String?, location: String?) in
                         let calendar = Calendar.current
                         let weekdayIndex = calendar.component(.weekday, from: date)
 
@@ -919,6 +924,7 @@ struct MainAppView: View {
                             endTime: endTime,
                             targetDate: date,
                             reminderTime: reminder,
+                            location: location,
                             isRecurring: recurring,
                             recurrenceFrequency: frequency,
                             customRecurrenceDays: customDays,
@@ -1016,53 +1022,105 @@ struct MainAppView: View {
             // Negative spacing to eliminate separator line
             // Padding removed - header is now a floating bar at bottom
 
-            // Content based on selected tab
-            Group {
-                switch selectedTab {
-                case .home:
+            // Content based on selected tab - preserve views to avoid recreation
+            ZStack {
+                // Home tab
+                if selectedTab == .home {
                     homeContentWithoutHeader
-                        .onAppear {
-                            Task {
+                        .task {
+                            // Only load if not already loaded (defer heavy operations)
+                            if emailService.inboxEmails.isEmpty {
                                 await emailService.loadEmailsForFolder(.inbox)
                             }
                         }
-                case .email:
+                        .task(id: selectedTab) {
+                            // Background prefetching for adjacent tabs when on home
+                            let isEmpty = await MainActor.run { emailService.inboxEmails.isEmpty }
+                            Task.detached(priority: .utility) {
+                                // Prefetch emails if not loaded
+                                if isEmpty {
+                                    await emailService.loadEmailsForFolder(.inbox)
+                                }
+                                
+                                // OPTIMIZATION: Pre-load maps data to reduce lag when switching to maps tab
+                                let places = await MainActor.run { locationsManager.savedPlaces }
+                                await withTaskGroup(of: Void.self) { group in
+                                    // Pre-fetch location stats for top locations (parallel)
+                                    for place in places.prefix(20) {
+                                        group.addTask {
+                                            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .transition(.opacity)
+                }
+                
+                // Email tab
+                if selectedTab == .email {
                     EmailView()
-                case .events:
+                        .transition(.opacity)
+                }
+                
+                // Events tab
+                if selectedTab == .events {
                     EventsView()
-                case .notes:
+                        .transition(.opacity)
+                }
+                
+                // Notes tab
+                if selectedTab == .notes {
                     NotesView()
-                case .maps:
+                        .transition(.opacity)
+                }
+                
+                // Maps tab
+                if selectedTab == .maps {
                     MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
+                        .task(id: selectedTab) {
+                            // Pre-load maps data when user is on adjacent tabs to reduce lag
+                            // This runs in background and doesn't block UI
+                            Task.detached(priority: .utility) {
+                                // Pre-fetch location stats for top locations (parallel)
+                                let places = await MainActor.run { locationsManager.savedPlaces }
+                                await withTaskGroup(of: Void.self) { group in
+                                    // Only pre-fetch top 20 most likely to be shown
+                                    for place in places.prefix(20) {
+                                        group.addTask {
+                                            await LocationVisitAnalytics.shared.fetchStats(for: place.id)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .transition(.opacity)
                 }
             }
-            .transition(.asymmetric(
-                insertion: .move(edge: getTabEdge(for: selectedTab))
-                    .combined(with: .opacity),
-                removal: .move(edge: getTabEdge(for: selectedTab, isRemoval: true))
-                    .combined(with: .opacity)
-            ))
-            .animation(.smoothTabTransition, value: selectedTab)
+            .animation(.easeInOut(duration: 0.2), value: selectedTab)
             .frame(maxHeight: .infinity)
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
             if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
                 
-                // Floating AI Bar (only on home tab) - always render but hide when not needed for instant appearance
-                FloatingAIBar(
-                    onTap: {
-                        HapticManager.shared.selection()
-                        searchService.clearConversation()
-                        Task {
-                            searchService.conversationHistory = []
-                            searchService.conversationTitle = "New Conversation"
-                            searchService.isInConversationMode = true
-                            showConversationModal = true
+                // Floating AI Bar (only on home tab) - conditionally render to avoid taking space on other pages
+                if selectedTab == .home && !searchService.isInConversationMode {
+                    FloatingAIBar(
+                        onTap: {
+                            HapticManager.shared.selection()
+                            searchService.clearConversation()
+                            Task {
+                                searchService.conversationHistory = []
+                                searchService.conversationTitle = "New Conversation"
+                                searchService.isInConversationMode = true
+                                showConversationModal = true
+                            }
+                        },
+                        onProfileTap: {
+                            showingSettings = true
                         }
-                    }
-                )
-                .opacity(selectedTab == .home && !searchService.isInConversationMode ? 1 : 0)
-                .allowsHitTesting(selectedTab == .home && !searchService.isInConversationMode)
+                    )
+                }
                 
                 BottomTabBar(selectedTab: $selectedTab)
                     .padding(.top, -0.5) // Eliminate separator line by overlapping slightly
@@ -1070,35 +1128,7 @@ struct MainAppView: View {
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .background(colorScheme == .dark ? Color.black : Color.white)
-        .gesture(
-            DragGesture()
-                .onEnded { value in
-                    let threshold: CGFloat = 50
-                    let horizontalAmount = value.translation.width
-
-                    if horizontalAmount < -threshold {
-                        // Swipe left - next tab
-                        withAnimation(.smoothTabTransition) {
-                            let tabs = TabSelection.allCases
-                            if let currentIndex = tabs.firstIndex(of: selectedTab),
-                               currentIndex < tabs.count - 1 {
-                                selectedTab = tabs[currentIndex + 1]
-                                HapticManager.shared.tabChange()
-                            }
-                        }
-                    } else if horizontalAmount > threshold {
-                        // Swipe right - previous tab
-                        withAnimation(.smoothTabTransition) {
-                            let tabs = TabSelection.allCases
-                            if let currentIndex = tabs.firstIndex(of: selectedTab),
-                               currentIndex > 0 {
-                                selectedTab = tabs[currentIndex - 1]
-                                HapticManager.shared.tabChange()
-                            }
-                        }
-                    }
-                }
-        )
+        // Swipe gestures disabled - user requested removal of left/right swipe navigation
     }
 
     // Detail Content Removal - mainContentHeader is no longer used
@@ -1637,28 +1667,69 @@ struct MainAppView: View {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 8) {
                     // Render widgets based on user configuration
+                    // Note: Edit button is now inside Quick Access widget
                     ForEach(widgetManager.visibleWidgets) { config in
                         widgetView(for: config.type)
-                            .transition(.asymmetric(
-                                insertion: .scale.combined(with: .opacity),
-                                removal: .scale.combined(with: .opacity)
-                            ))
                     }
                 }
-                .padding(.vertical, 12)
-                .padding(.bottom, 100) // Extra bottom padding to ensure scrollable area
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: widgetManager.visibleWidgets)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
+            .refreshable {
+                // Refresh all data sources
+                await refreshAllData()
+            }
+            // Apply delaysContentTouches via UIScrollView introspection
+            .onAppear {
+                // Find and configure UIScrollView to delay content touches
+                DispatchQueue.main.async {
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let window = windowScene.windows.first {
+                        configureScrollViewsForSmoothScrolling(in: window)
+                    }
+                }
+            }
 
-            // Edit mode overlay
+            // Edit mode overlay (only when in edit mode)
             if widgetManager.isEditMode {
                 WidgetEditModeOverlay(widgetManager: widgetManager)
+                    .allowsHitTesting(true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Refresh Helper
+    
+    private func refreshAllData() async {
+        // Invalidate caches
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysReceipts)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysSpending)
+        CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.birthdaysThisWeek)
+        
+        // Refresh core data
+        await taskManager.syncCalendarEvents()
+        await emailService.handleBackgroundRefresh()
+        
+        // Update location data
+        loadTodaysVisits()
+        
+        // Success haptic
+        HapticManager.shared.success()
+    }
+    
+    // Configure all UIScrollViews to delay content touches for smoother scrolling
+    private func configureScrollViewsForSmoothScrolling(in view: UIView) {
+        if let scrollView = view as? UIScrollView {
+            scrollView.delaysContentTouches = true
+            scrollView.canCancelContentTouches = true
+        }
+        for subview in view.subviews {
+            configureScrollViewsForSmoothScrolling(in: subview)
+        }
     }
     
     // MARK: - Widget Views
@@ -1759,6 +1830,19 @@ struct MainAppView: View {
                     showingNewNoteSheet: $showingNewNoteSheet,
                     onNoteSelected: { note in
                         selectedNoteToOpen = note
+                    }
+                )
+            }
+            .padding(.horizontal, 12)
+            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
+            .allowsHitTesting(!isDailyOverviewExpanded)
+            
+        case .favoriteLocations:
+            ReorderableWidgetContainer(widgetManager: widgetManager, type: .favoriteLocations) {
+                HomeFavoriteLocationsWidget(
+                    onLocationSelected: { place in
+                        selectedLocationPlace = place
                     }
                 )
             }
@@ -1892,11 +1976,7 @@ struct MainAppView: View {
                     await MainActor.run {
                         HapticManager.shared.success()
                         receiptProcessingState = .success
-                        
-                        // Navigate to Notes tab and open the note editor to show the receipt
-                        selectedTab = .notes
-                        // Open the note in the editor so user can see it immediately
-                        selectedNoteToOpen = updatedNote
+                        print("✅ Receipt saved automatically in background")
                         
                         // Hide success message after 2 seconds
                         Task {

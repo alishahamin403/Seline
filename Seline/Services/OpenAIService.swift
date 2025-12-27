@@ -1776,7 +1776,7 @@ class OpenAIService: ObservableObject {
         TITLE: [Business Name] - [Date in "Month DD, YYYY" format]
         CONTENT:
         📍 **Merchant:** [Business Name]
-        ⏰ **Time:** [Time if visible, otherwise "N/A"]
+        **Time:** [Time if visible, otherwise "N/A"]
 
         **Items Purchased:**
         • [Item 1] - $[Amount with 2 decimals]

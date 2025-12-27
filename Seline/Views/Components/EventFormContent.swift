@@ -3,8 +3,11 @@ import SwiftUI
 struct EventFormContent: View {
     // MARK: - Bindings
     @Binding var title: String
+    @Binding var location: String
     @Binding var description: String
     @Binding var selectedDate: Date
+    @Binding var selectedEndDate: Date
+    @Binding var isMultiDay: Bool
     @Binding var hasTime: Bool
     @Binding var selectedTime: Date
     @Binding var selectedEndTime: Date
@@ -13,6 +16,8 @@ struct EventFormContent: View {
     @Binding var customRecurrenceDays: Set<WeekDay>
     @Binding var selectedReminder: ReminderTime
     @Binding var selectedTagId: String?
+    @Binding var showingDatePicker: Bool
+    @Binding var showingEndDatePicker: Bool
 
     // MARK: - State
     @State private var showingStartTimePicker = false
@@ -20,6 +25,7 @@ struct EventFormContent: View {
     @State private var showingRecurrenceOptions = false
     @State private var showingReminderOptions = false
     @State private var showingTagOptions = false
+    @State private var showingLocationPicker = false
 
     // MARK: - Managers
     @StateObject private var tagManager = TagManager.shared
@@ -50,6 +56,13 @@ struct EventFormContent: View {
     private func formatTimeWithAMPM(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
         return formatter.string(from: date)
     }
 
@@ -84,6 +97,50 @@ struct EventFormContent: View {
                                 )
                         }
 
+                        // Location Input
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Location")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(secondaryTextColor)
+
+                            Button(action: { showingLocationPicker = true }) {
+                                HStack {
+                                    if location.isEmpty {
+                                        Text("Add location")
+                                            .foregroundColor(Color.gray.opacity(0.6))
+                                    } else {
+                                        Text(location)
+                                            .foregroundColor(textColor)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "mappin.and.ellipse")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(secondaryTextColor)
+                                }
+                                .font(.system(size: 15))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(fieldBackground)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                                )
+                            }
+                            .sheet(isPresented: $showingLocationPicker) {
+                                LocationSelectionSheet(
+                                    selectedLocation: $location,
+                                    colorScheme: colorScheme
+                                )
+                                .presentationDetents([.medium, .large])
+                                .presentationBg()
+                            }
+                        }
+
                         // Description Input
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Description (Optional)")
@@ -116,18 +173,116 @@ struct EventFormContent: View {
                     SectionHeader(title: "Details")
 
                     VStack(spacing: 12) {
-                        // Date Picker
+                        // Multi-Day Toggle
+                        HStack {
+                            Toggle("Multi-Day Event", isOn: $isMultiDay)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(textColor)
+                                .onChange(of: isMultiDay) { newValue in
+                                    if newValue {
+                                        // When enabling multi-day, ensure end date is at least start date
+                                        if selectedEndDate < selectedDate {
+                                            selectedEndDate = selectedDate
+                                        }
+                                    } else {
+                                        // When disabling multi-day, reset end date to start date
+                                        selectedEndDate = selectedDate
+                                    }
+                                }
+                            Spacer()
+                        }
+                        
+                        Divider()
+                            .opacity(0.5)
+                        
+                        // Start Date Picker
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Date")
+                            Text(isMultiDay ? "Start Date" : "Date")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(secondaryTextColor)
 
                             HStack {
-                                DatePicker("", selection: $selectedDate, displayedComponents: .date)
-                                    .datePickerStyle(CompactDatePickerStyle())
-                                    .labelsHidden()
-                                Spacer()
+                                Button(action: {
+                                    showingDatePicker = true
+                                }) {
+                                    HStack {
+                                        Text(formatDate(selectedDate))
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(textColor)
+                                        Spacer()
+                                        Image(systemName: "calendar")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(secondaryTextColor)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .background(fieldBackground)
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                                    )
+                                }
                             }
+                        }
+                        .sheet(isPresented: $showingDatePicker) {
+                            DateSelectionSheet(
+                                selectedDate: $selectedDate,
+                                colorScheme: colorScheme,
+                                title: isMultiDay ? "Start Date" : "Date"
+                            )
+                            .presentationDetents([.height(400)])
+                            .presentationBg()
+                        }
+                        
+                        // End Date Picker (only shown for multi-day events)
+                        if isMultiDay {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("End Date")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(secondaryTextColor)
+
+                                HStack {
+                                    Button(action: {
+                                        showingEndDatePicker = true
+                                    }) {
+                                        HStack {
+                                            Text(formatDate(selectedEndDate))
+                                                .font(.system(size: 15, weight: .medium))
+                                                .foregroundColor(textColor)
+                                            Spacer()
+                                            Image(systemName: "calendar")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(secondaryTextColor)
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 12)
+                                        .background(fieldBackground)
+                                        .cornerRadius(8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.gray.opacity(0.15), lineWidth: 0.8)
+                                        )
+                                    }
+                                }
+                            }
+                            .sheet(isPresented: $showingEndDatePicker) {
+                                DateSelectionSheet(
+                                    selectedDate: $selectedEndDate,
+                                    colorScheme: colorScheme,
+                                    title: "End Date",
+                                    minDate: selectedDate
+                                )
+                                .presentationDetents([.height(400)])
+                                .presentationBg()
+                            }
+                            .onChange(of: selectedDate) { newStartDate in
+                                // Ensure end date is not before start date
+                                if isMultiDay && selectedEndDate < newStartDate {
+                                    selectedEndDate = newStartDate
+                                }
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
 
                         Divider()
@@ -136,7 +291,7 @@ struct EventFormContent: View {
                         // Time Toggle
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Toggle("Include Time", isOn: $hasTime)
+                                Toggle(isMultiDay ? "Include Times" : "Include Time", isOn: $hasTime)
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundColor(textColor)
                                 Spacer()
@@ -187,7 +342,7 @@ struct EventFormContent: View {
                                     Button(action: { showingEndTimePicker = true }) {
                                         HStack {
                                             VStack(alignment: .leading, spacing: 2) {
-                                                Text("End Time")
+                                                Text(isMultiDay ? "End Time (on End Date)" : "End Time")
                                                     .font(.system(size: 12, weight: .medium))
                                                     .foregroundColor(secondaryTextColor)
                                                 Text(formatTimeWithAMPM(selectedEndTime))
@@ -214,7 +369,7 @@ struct EventFormContent: View {
                                         UnifiedTimePickerSheet(
                                             selectedTime: $selectedEndTime,
                                             colorScheme: colorScheme,
-                                            title: "End Time"
+                                            title: isMultiDay ? "End Time" : "End Time"
                                         )
                                     }
                                 .presentationBg()
@@ -399,6 +554,51 @@ struct EventFormContent: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 20)
+        }
+    }
+}
+
+// MARK: - Date Selection Sheet
+struct DateSelectionSheet: View {
+    @Binding var selectedDate: Date
+    let colorScheme: ColorScheme
+    let title: String
+    var minDate: Date? = nil
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                DatePicker(
+                    "",
+                    selection: $selectedDate,
+                    in: (minDate ?? Date.distantPast)...Date.distantFuture,
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .padding(.vertical, 20)
+                .onChange(of: selectedDate) { _ in
+                    // Auto-dismiss when date is selected
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        dismiss()
+                    }
+                }
+                
+                Spacer()
+            }
+            .background(colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(colorScheme == .dark ? .dark : .light, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                }
+            }
         }
     }
 }
@@ -640,22 +840,378 @@ struct CustomDayButton: View {
     }
     
     var body: some View {
-        Button(action: onTap) {
+            Button(action: onTap) {
             Text(day.shortDisplayName)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(foregroundColor)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(backgroundColor)
-                .cornerRadius(8)
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(backgroundColor)
+                )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    Circle()
                         .stroke(strokeColor, lineWidth: 1)
                 )
         }
         .buttonStyle(PlainButtonStyle())
     }
 }
+
+// MARK: - Location Selection Sheet
+struct LocationSelectionSheet: View {
+    @Binding var selectedLocation: String
+    let colorScheme: ColorScheme
+    @Environment(\.dismiss) var dismiss
+    
+    @StateObject private var locationsManager = LocationsManager.shared
+    @StateObject private var mapsService = GoogleMapsService.shared
+    @State private var searchText = ""
+    @State private var searchResults: [PlaceSearchResult] = []
+    @State private var isSearching = false
+    @State private var searchTask: Task<Void, Never>? = nil
+    
+    private var backgroundColor: Color {
+        colorScheme == .dark ? Color.black : Color(red: 0.98, green: 0.98, blue: 0.98)
+    }
+    
+    private var cardBackground: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.white
+    }
+    
+    private var searchBarBackground: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Custom header
+            headerView
+            
+            // Search bar
+            searchBar
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            
+            // Content
+            ScrollView {
+                VStack(spacing: 16) {
+                    if !searchText.isEmpty {
+                        // Search Results
+                        searchResultsSection
+                    } else {
+                        // Saved Places
+                        if !locationsManager.savedPlaces.isEmpty {
+                            savedPlacesSection
+                        } else {
+                            emptyStateView
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 32)
+            }
+        }
+        .background(backgroundColor.ignoresSafeArea())
+    }
+    
+    // MARK: - Header
+    
+    private var headerView: some View {
+        HStack {
+            Spacer()
+            
+            // Drag indicator only
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.2))
+                .frame(width: 36, height: 5)
+            
+            Spacer()
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+    }
+    
+    // MARK: - Search Bar
+    
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.4))
+            
+            TextField("Search for a place...", text: $searchText)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? .white : .black)
+                .onChange(of: searchText) { newValue in
+                    searchTask?.cancel()
+                    if newValue.isEmpty {
+                        searchResults = []
+                        isSearching = false
+                    } else {
+                        searchTask = Task {
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            if !Task.isCancelled {
+                                await performSearch(query: newValue)
+                            }
+                        }
+                    }
+                }
+            
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.3))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(searchBarBackground)
+        )
+    }
+    
+    // MARK: - Saved Places Section
+    
+    private var savedPlacesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            HStack {
+                Text("Saved Places")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+                
+                Spacer()
+                
+                // Count pill
+                Text("\(locationsManager.savedPlaces.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                    )
+            }
+            
+            // Places list card
+            VStack(spacing: 0) {
+                ForEach(Array(locationsManager.savedPlaces.enumerated()), id: \.element.id) { index, place in
+                    Button(action: {
+                        selectedLocation = place.displayName
+                        HapticManager.shared.selection()
+                        dismiss()
+                    }) {
+                        HStack(spacing: 12) {
+                            // Icon
+                            ZStack {
+                                Circle()
+                                    .fill(iconColor(for: place).opacity(0.15))
+                                    .frame(width: 36, height: 36)
+                                
+                                Image(systemName: place.getDisplayIcon())
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(iconColor(for: place))
+                            }
+                            
+                            // Name
+                            Text(place.displayName)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .lineLimit(1)
+                            
+                            Spacer()
+                            
+                            // Arrow
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    // Divider (not on last item)
+                    if index < locationsManager.savedPlaces.count - 1 {
+                        Divider()
+                            .padding(.leading, 64)
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(cardBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+            )
+        }
+    }
+    
+    // MARK: - Search Results Section
+    
+    private var searchResultsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            HStack {
+                Text("Search Results")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.5))
+                
+                Spacer()
+                
+                if isSearching {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
+            }
+            
+            if isSearching {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Searching...")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 32)
+            } else if searchResults.isEmpty {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "location.slash")
+                            .font(.system(size: 24, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                        Text("No results found")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 32)
+            } else {
+                // Results list card
+                VStack(spacing: 0) {
+                    ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, result in
+                        Button(action: {
+                            selectedLocation = result.name
+                            HapticManager.shared.selection()
+                            dismiss()
+                        }) {
+                            HStack(spacing: 12) {
+                                // Icon
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.blue.opacity(0.15))
+                                        .frame(width: 36, height: 36)
+                                    
+                                    Image(systemName: "mappin.circle.fill")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.blue)
+                                }
+                                
+                                // Name and address
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(result.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .lineLimit(1)
+                                    
+                                    Text(result.address)
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                                        .lineLimit(1)
+                                }
+                                
+                                Spacer()
+                                
+                                // Arrow
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        
+                        // Divider (not on last item)
+                        if index < searchResults.count - 1 {
+                            Divider()
+                                .padding(.leading, 64)
+                        }
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(cardBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+                )
+            }
+        }
+    }
+    
+    // MARK: - Empty State
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.system(size: 32, weight: .light))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
+            
+            Text("No saved places")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+            
+            Text("Search for a location above")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+        }
+        .padding(.vertical, 48)
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func iconColor(for place: SavedPlace) -> Color {
+        let icon = place.getDisplayIcon()
+        switch icon {
+        case "house.fill": return .green
+        case "briefcase.fill": return .blue
+        case "dumbbell.fill": return .orange
+        case "fork.knife": return .red
+        case "scissors": return .purple
+        default: return .blue
+        }
+    }
+    
+    private func performSearch(query: String) async {
+        await MainActor.run { isSearching = true }
+        do {
+            let results = try await mapsService.searchPlaces(query: query)
+            await MainActor.run {
+                searchResults = results
+                isSearching = false
+            }
+        } catch {
+            await MainActor.run { isSearching = false }
+        }
+    }
+}
+
 
 // MARK: - Recurring Options Sheet
 struct RecurringOptionsSheet: View {
@@ -836,8 +1392,11 @@ struct ReminderOptionsSheet: View {
 
 #Preview {
     @State var title = ""
+    @State var location = ""
     @State var description = ""
     @State var selectedDate = Date()
+    @State var selectedEndDate = Date()
+    @State var isMultiDay = false
     @State var hasTime = false
     @State var selectedTime = Date()
     @State var selectedEndTime = Date().addingTimeInterval(3600)
@@ -846,15 +1405,20 @@ struct ReminderOptionsSheet: View {
     @State var customRecurrenceDays: Set<WeekDay> = []
     @State var selectedReminder: ReminderTime = .none
     @State var selectedTagId: String? = nil
+    @State var showingDatePicker = false
+    @State var showingEndDatePicker = false
 
-    return ZStack {
+    ZStack {
         Color.white
             .ignoresSafeArea()
 
         EventFormContent(
             title: $title,
+            location: $location,
             description: $description,
             selectedDate: $selectedDate,
+            selectedEndDate: $selectedEndDate,
+            isMultiDay: $isMultiDay,
             hasTime: $hasTime,
             selectedTime: $selectedTime,
             selectedEndTime: $selectedEndTime,
@@ -862,7 +1426,9 @@ struct ReminderOptionsSheet: View {
             recurrenceFrequency: $recurrenceFrequency,
             customRecurrenceDays: $customRecurrenceDays,
             selectedReminder: $selectedReminder,
-            selectedTagId: $selectedTagId
+            selectedTagId: $selectedTagId,
+            showingDatePicker: $showingDatePicker,
+            showingEndDatePicker: $showingEndDatePicker
         )
     }
 }

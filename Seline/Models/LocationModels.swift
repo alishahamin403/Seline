@@ -677,6 +677,13 @@ class LocationsManager: ObservableObject {
         }
     }
 
+    // MARK: - Analytics Proxy
+    
+    /// Get weekly visits summary (proxy to LocationVisitAnalytics)
+    func getWeeklyVisitsSummary(from startDate: Date) async -> [WeeklyVisitSummaryItem] {
+        return await LocationVisitAnalytics.shared.getWeeklyVisitsSummary(from: startDate)
+    }
+
     // MARK: - Cache Invalidation
 
     /// Invalidate location-related caches when locations are modified

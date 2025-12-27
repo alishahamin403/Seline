@@ -20,12 +20,12 @@ struct EmailView: View, Searchable {
         return emailService.getLoadingState(for: selectedTab.folder)
     }
 
-    var currentSections: [EmailSection] {
+    var currentDaySections: [EmailDaySection] {
         if let selectedCategory = selectedCategory {
-            return emailService.getCategorizedEmails(for: selectedTab.folder, category: selectedCategory, unreadOnly: showUnreadOnly)
+            return emailService.getDayCategorizedEmails(for: selectedTab.folder, category: selectedCategory, unreadOnly: showUnreadOnly)
         } else {
             // Show all emails when no category is selected
-            return emailService.getCategorizedEmails(for: selectedTab.folder, unreadOnly: showUnreadOnly)
+            return emailService.getDayCategorizedEmails(for: selectedTab.folder, unreadOnly: showUnreadOnly)
         }
     }
 
@@ -242,8 +242,8 @@ struct EmailView: View, Searchable {
     }
     
     private var emailListView: some View {
-        EmailListWithCategories(
-            sections: currentSections,
+        EmailListByDay(
+            daySections: currentDaySections,
             loadingState: currentLoadingState,
             onRefresh: {
                 await refreshCurrentFolder()

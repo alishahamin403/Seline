@@ -11,7 +11,6 @@ struct TaskRow: View {
     let onEdit: (() -> Void)?
 
     @Environment(\.colorScheme) var colorScheme
-    @State private var dragOffset: CGSize = .zero
 
     private var blueColor: Color {
         colorScheme == .dark ?
@@ -88,7 +87,6 @@ struct TaskRow: View {
         .padding(.trailing, 16)
         .padding(.vertical, 4)
         .background(Color.clear)
-        .offset(x: dragOffset.width)
         .contentShape(Rectangle()) // Makes entire row area tappable
         .contextMenu {
             // Show edit option for all tasks
@@ -128,22 +126,6 @@ struct TaskRow: View {
                 }
             }
         }
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Only allow left swipe (negative width)
-                    dragOffset = CGSize(width: min(0, value.translation.width), height: 0)
-                }
-                .onEnded { value in
-                    if value.translation.width < -100 {
-                        // Swipe far enough to delete
-                        onDelete()
-                    } else {
-                        // Reset position immediately
-                        dragOffset = .zero
-                    }
-                }
-        )
     }
 }
 

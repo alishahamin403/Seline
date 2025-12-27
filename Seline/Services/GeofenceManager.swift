@@ -576,6 +576,20 @@ class GeofenceManager: NSObject, ObservableObject {
                 }
             }
 
+            // SOLUTION: SPEED-BASED FILTERING
+            // Reject geofence entries if user is moving too fast (likely driving/passing by)
+            // Speed is in m/s: 5.5 m/s ≈ 20 km/h, 11 m/s ≈ 40 km/h
+            let speed = currentLocation.speed // m/s (negative if invalid)
+            let maxAllowedSpeed: Double = 5.5 // ~20 km/h (walking/running speed)
+
+            if speed > 0 && speed > maxAllowedSpeed {
+                print("⚠️ GEOFENCE ENTRY REJECTED: User moving too fast (\(String(format: "%.1f", speed * 3.6)) km/h > \(String(format: "%.1f", maxAllowedSpeed * 3.6)) km/h)")
+                print("   → Likely driving/passing by, not an actual visit")
+                return
+            } else if speed > 0 {
+                print("✅ Speed check passed: \(String(format: "%.1f", speed * 3.6)) km/h (walking/stationary)")
+            }
+
             // SOLUTION 3: BEST-MATCH LOCATION SELECTION
             // Find all nearby locations within their geofence radius and pick the closest one
             // This prevents recording visits at wrong locations when geofences overlap
@@ -909,6 +923,20 @@ class GeofenceManager: NSObject, ObservableObject {
 
                 if visitsToSave.count > 1 {
                     print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+                    
+                    // IDEMPOTENCY CHECK: Before creating split visits, check if they already exist
+                    let existingSplits = await checkForExistingSplitVisits(
+                        placeId: placeId,
+                        entryTime: visit.entryTime,
+                        exitTime: visit.exitTime ?? Date()
+                    )
+                    
+                    if !existingSplits.isEmpty {
+                        print("⚠️ IDEMPOTENCY: Found \(existingSplits.count) existing split visit(s), skipping duplicate creation")
+                        print("   Existing IDs: \(existingSplits.map { $0.id.uuidString })")
+                        return
+                    }
+                    
                     // Delete the original visit before saving split visits
                     await self.deleteVisitFromSupabase(visit)
                     for visitPart in visitsToSave {
@@ -1117,6 +1145,20 @@ class GeofenceManager: NSObject, ObservableObject {
 
                     if visitsToSave.count > 1 {
                         print("🌙 MIDNIGHT SPLIT: Visit spans 2 days, splitting into \(visitsToSave.count) records")
+                        
+                        // IDEMPOTENCY CHECK: Before creating split visits, check if they already exist
+                        let existingSplits = await checkForExistingSplitVisits(
+                            placeId: placeId,
+                            entryTime: visit.entryTime,
+                            exitTime: visit.exitTime ?? Date()
+                        )
+                        
+                        if !existingSplits.isEmpty {
+                            print("⚠️ IDEMPOTENCY: Found \(existingSplits.count) existing split visit(s), skipping duplicate creation")
+                            print("   Existing IDs: \(existingSplits.map { $0.id.uuidString })")
+                            return
+                        }
+                        
                         // Delete the original visit before saving split visits
                         await self.deleteVisitFromSupabase(visit)
                         for visitPart in visitsToSave {
@@ -1521,6 +1563,20 @@ class GeofenceManager: NSObject, ObservableObject {
 
         if visitsToSave.count > 1 {
             print("🌙 MIDNIGHT SPLIT in updateVisit: Splitting into \(visitsToSave.count) records")
+            
+            // IDEMPOTENCY CHECK: Before creating split visits, check if they already exist
+            let existingSplits = await checkForExistingSplitVisits(
+                placeId: visit.savedPlaceId,
+                entryTime: visit.entryTime,
+                exitTime: visit.exitTime ?? Date()
+            )
+            
+            if !existingSplits.isEmpty {
+                print("⚠️ IDEMPOTENCY: Found \(existingSplits.count) existing split visit(s), skipping duplicate creation")
+                print("   Existing IDs: \(existingSplits.map { $0.id.uuidString })")
+                return
+            }
+            
             // Delete the original visit and save the split parts
             await deleteVisitFromSupabase(visit)
             for part in visitsToSave {
@@ -1608,6 +1664,52 @@ class GeofenceManager: NSObject, ObservableObject {
             return response
         } catch {
             print("❌ Error fetching recent visits from Supabase: \(error)")
+            return []
+        }
+    }
+
+    /// Check if midnight-split visits already exist for the given time range
+    /// This prevents duplicate splits when the function is called multiple times
+    private func checkForExistingSplitVisits(placeId: UUID, entryTime: Date, exitTime: Date) async -> [LocationVisitRecord] {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return []
+        }
+        
+        do {
+            let client = await SupabaseManager.shared.getPostgrestClient()
+            let calendar = Calendar.current
+            
+            // Calculate the midnight boundary
+            let midnightStart = calendar.startOfDay(for: exitTime)
+            
+            // Format dates for PostgreSQL
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let midnightString = formatter.string(from: midnightStart)
+            
+            // Query for visits that:
+            // 1. Are at the same place
+            // 2. Start at midnight (12:00 AM)
+            // 3. Have merge_reason containing "midnight_split"
+            let response = try await client
+                .from("location_visits")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .eq("saved_place_id", value: placeId.uuidString)
+                .eq("entry_time", value: midnightString)
+                .execute()
+            
+            let decoder = JSONDecoder.supabaseDecoder()
+            let visits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+            
+            // Filter for midnight splits
+            let splitVisits = visits.filter { visit in
+                visit.mergeReason?.contains("midnight_split") == true
+            }
+            
+            return splitVisits
+        } catch {
+            print("❌ Error checking for existing split visits: \(error)")
             return []
         }
     }

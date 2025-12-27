@@ -46,7 +46,7 @@ struct BottomTabBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.top, 4)
-        .padding(.bottom, 8)
+        .padding(.bottom, 0)
         .background(
             colorScheme == .dark ? Color.black : Color.white
         )

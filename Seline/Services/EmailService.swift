@@ -111,11 +111,11 @@ class EmailService: ObservableObject {
 
                 switch folder {
                 case .inbox:
-                    // Fetch recent 10 emails (Gmail API - doesn't count toward Supabase egress)
-                    emails = try await gmailAPIClient.fetchInboxEmails(maxResults: 10)
+                    // Fetch recent 100 emails to cover 7 days (Gmail API - doesn't count toward Supabase egress)
+                    emails = try await gmailAPIClient.fetchInboxEmails(maxResults: 100)
                 case .sent:
-                    // Fetch recent 10 emails (Gmail API - doesn't count toward Supabase egress)
-                    emails = try await gmailAPIClient.fetchSentEmails(maxResults: 10)
+                    // Fetch recent 100 emails to cover 7 days (Gmail API - doesn't count toward Supabase egress)
+                    emails = try await gmailAPIClient.fetchSentEmails(maxResults: 100)
                 default:
                     // For other folders, we can extend this later
                     emails = []
@@ -344,6 +344,36 @@ class EmailService: ObservableObject {
             guard !periodEmails.isEmpty else { return nil }
             return EmailSection(timePeriod: period, emails: periodEmails)
         }
+    }
+    
+    // MARK: - Day-based Email Sections (7-day rolling view)
+    
+    func getDayCategorizedEmails(for folder: EmailFolder, unreadOnly: Bool = false) -> [EmailDaySection] {
+        var emails = getEmails(for: folder)
+        
+        // Filter to last 7 days
+        emails = filterTodaysEmails(emails)
+        
+        // Filter to unread only if requested
+        if unreadOnly {
+            emails = emails.filter { !$0.isRead }
+        }
+        
+        return EmailDaySection.categorizeByDay(emails)
+    }
+    
+    func getDayCategorizedEmails(for folder: EmailFolder, category: EmailCategory, unreadOnly: Bool = false) -> [EmailDaySection] {
+        var emails = getFilteredEmails(for: folder, category: category)
+        
+        // Filter to last 7 days
+        emails = filterTodaysEmails(emails)
+        
+        // Filter to unread only if requested
+        if unreadOnly {
+            emails = emails.filter { !$0.isRead }
+        }
+        
+        return EmailDaySection.categorizeByDay(emails)
     }
 
     func getFilteredEmails(for folder: EmailFolder, category: EmailCategory) -> [Email] {
@@ -842,31 +872,47 @@ class EmailService: ObservableObject {
     @objc private func appDidBecomeActive() {
         isAppActive = true
 
-        // Fetch emails when app opens (from Supabase cache, not Gmail API)
+        // Fetch emails when app opens
         Task { @MainActor in
             await loadTodaysEmails()
         }
 
-        // NOTE: Email polling disabled - using Supabase as source of truth instead
-        // Gmail API calls are expensive and unnecessary with Supabase caching
-        // Users can manually refresh if needed
+        // Start polling for new emails every 60 seconds
+        // This enables automatic UI refresh and real-time notifications
+        startNewEmailPolling()
     }
 
     @objc private func appDidEnterBackground() {
         isAppActive = false
-        // Stop email polling when app goes to background
-        // NOTE: No background polling - using Supabase + cached data only
+        // Stop email polling when app goes to background to save battery
         stopNewEmailPolling()
     }
 
-    // MARK: - New Email Polling (DISABLED - Using Supabase Instead)
+    // MARK: - New Email Polling
 
     private func startNewEmailPolling() {
-        // DISABLED: Email polling disabled to reduce Gmail API calls
-        // All email data now comes from Supabase which is cached
-        // Users can manually refresh via pull-to-refresh or manual sync button
-        // This significantly reduces API quota usage and improves battery life
-        print("📧 Email polling disabled - using Supabase cache only")
+        // Cancel any existing timer
+        newEmailTimer?.invalidate()
+        
+        // Only poll if user is authenticated
+        guard GIDSignIn.sharedInstance.currentUser != nil else {
+            print("📧 Email polling disabled - user not authenticated")
+            return
+        }
+        
+        print("📧 Starting email polling (every \(Int(newEmailCheckInterval)) seconds)")
+        
+        // Create a timer that fires every 60 seconds to check for new emails
+        newEmailTimer = Timer.scheduledTimer(withTimeInterval: newEmailCheckInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.checkForNewEmails()
+            }
+        }
+        
+        // Add to run loop to ensure it fires even during scrolling
+        if let timer = newEmailTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
     }
 
     private func stopNewEmailPolling() {
@@ -1169,10 +1215,15 @@ class EmailService: ObservableObject {
 
     private func filterTodaysEmails(_ emails: [Email]) -> [Email] {
         let calendar = Calendar.current
-        let today = Date()
+        let today = calendar.startOfDay(for: Date())
+        
+        // Get date 7 days ago (including today = 7 days total)
+        guard let sevenDaysAgo = calendar.date(byAdding: .day, value: -6, to: today) else {
+            return emails.sorted { $0.timestamp > $1.timestamp }
+        }
 
         return emails.filter { email in
-            calendar.isDate(email.timestamp, inSameDayAs: today)
+            email.timestamp >= sevenDaysAgo
         }.sorted { $0.timestamp > $1.timestamp }
     }
 
@@ -1218,12 +1269,42 @@ class EmailService: ObservableObject {
         var emailToSave = email
 
         // First, fetch full email body if needed
+        // CRITICAL: Preserve attachments from original email when fetching full body
+        let originalAttachments = emailToSave.attachments
+        let originalHasAttachments = emailToSave.hasAttachments
+        
         do {
             if emailToSave.body == nil || emailToSave.body?.isEmpty == true {
                 if let messageId = emailToSave.gmailMessageId {
                     if let fetchedEmail = try await GmailAPIClient.shared.fetchFullEmailBody(messageId: messageId) {
-                        emailToSave = fetchedEmail
-                        print("✅ Fetched full email body for saving")
+                        // CRITICAL FIX: If fetched email has no attachments but original does, preserve them
+                        if originalHasAttachments && !originalAttachments.isEmpty && fetchedEmail.attachments.isEmpty {
+                            // Create new Email with preserved attachments and fetched body
+                            emailToSave = Email(
+                                id: fetchedEmail.id,
+                                threadId: fetchedEmail.threadId,
+                                sender: fetchedEmail.sender,
+                                recipients: fetchedEmail.recipients,
+                                ccRecipients: fetchedEmail.ccRecipients,
+                                subject: fetchedEmail.subject,
+                                snippet: fetchedEmail.snippet,
+                                body: fetchedEmail.body,
+                                timestamp: fetchedEmail.timestamp,
+                                isRead: fetchedEmail.isRead,
+                                isImportant: fetchedEmail.isImportant,
+                                hasAttachments: originalHasAttachments,
+                                attachments: originalAttachments,
+                                labels: fetchedEmail.labels,
+                                aiSummary: fetchedEmail.aiSummary,
+                                gmailMessageId: fetchedEmail.gmailMessageId,
+                                gmailThreadId: fetchedEmail.gmailThreadId
+                            )
+                            print("✅ Fetched full email body and preserved \(originalAttachments.count) attachment(s)")
+                        } else {
+                            // Use fetched email (it has attachments or no attachments needed)
+                            emailToSave = fetchedEmail
+                            print("✅ Fetched full email body for saving")
+                        }
                     }
                 }
             }

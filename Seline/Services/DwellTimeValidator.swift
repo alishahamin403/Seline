@@ -193,6 +193,17 @@ class DwellTimeValidator: ObservableObject {
             return
         }
 
+        // SPEED CHECK: If user is moving fast during validation, cancel
+        // This prevents drive-by false positives even if dwell time hasn't expired
+        let speed = currentLocation.speed // m/s
+        let maxAllowedSpeed: Double = 5.5 // ~20 km/h
+
+        if speed > 0 && speed > maxAllowedSpeed {
+            print("⏭️ Dwell validation cancelled: User moving at \(String(format: "%.1f", speed * 3.6)) km/h (likely driving)")
+            cancelPendingEntry(for: placeId)
+            return
+        }
+
         // Check if still within geofence
         let distance = currentLocation.distance(from: entry.initialLocation)
 

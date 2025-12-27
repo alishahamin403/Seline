@@ -38,6 +38,12 @@ struct BlockNoteEditView: View {
     @State private var isProcessingAddMore = false
     @State private var showingAddMorePrompt = false
     @State private var addMorePromptText = ""
+    @State private var generatedContentForConfirmation: String? = nil
+    @State private var showingAppendReplaceConfirmation = false
+    @State private var showingEventCreationPrompt = false
+    @State private var detectedEventDate: Date? = nil
+    @State private var detectedEventTitle: String? = nil
+    @State private var showAddEventPopup = false
 
     // Image attachments
     @State private var showingImagePicker = false
@@ -74,7 +80,7 @@ struct BlockNoteEditView: View {
     }
 
     var body: some View {
-        ZStack {
+        applyModifiers(to: ZStack {
             backgroundColor
                 .ignoresSafeArea()
 
@@ -115,152 +121,243 @@ struct BlockNoteEditView: View {
                     lockedStateView
                 }
             }
+        })
+    }
+
+    private func handleEventSave(title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, customDays: [WeekDay]?, tagId: String?, location: String?) {
+        let calendar = Calendar.current
+        let weekdayIndex = calendar.component(.weekday, from: date)
+        let weekday: WeekDay
+        switch weekdayIndex {
+        case 1: weekday = .sunday
+        case 2: weekday = .monday
+        case 3: weekday = .tuesday
+        case 4: weekday = .wednesday
+        case 5: weekday = .thursday
+        case 6: weekday = .friday
+        case 7: weekday = .saturday
+        default: weekday = .monday
         }
-        .navigationBarHidden(true)
-        .toolbarBackground(.hidden, for: .tabBar)
-        .toolbar(.hidden, for: .tabBar)
-        .onAppear(perform: onAppear)
-        .onChange(of: blockController.blocks) { _ in
-            hasUnsavedChanges = true
-            scheduleAutoSave()
-        }
-        .onChange(of: title) { _ in
-            hasUnsavedChanges = true
-            scheduleAutoSave()
-        }
-        .sheet(isPresented: $showingFolderPicker) {
-            FolderPickerView(
-                selectedFolderId: $selectedFolderId,
-                isPresented: $showingFolderPicker
-            )
-            .presentationBg()
-        }
-        .sheet(isPresented: $showingShareSheet) {
-            ShareSheet(activityItems: ["\(title)\n\n\(blockController.toMarkdown())"])
-        }
-        .sheet(isPresented: $showingBlockTypePicker) {
-            BlockTypePickerView(
-                currentBlockId: blockController.focusedBlockId,
-                controller: blockController,
-                isPresented: $showingBlockTypePicker
-            )
-        }
-        .sheet(isPresented: $showingImagePicker) {
-            ImagePicker(selectedImages: Binding(
-                get: { imageAttachments },
-                set: { newImages in
-                    for image in newImages {
-                        if imageAttachments.count < 10 {
-                            imageAttachments.append(image)
-                        }
-                    }
-                }
-            ))
-        }
-        .sheet(isPresented: $showingCameraPicker) {
-            CameraPicker(selectedImage: Binding(
-                get: { nil },
-                set: { newImage in
-                    if let image = newImage {
-                        imageAttachments.append(image)
-                    }
-                }
-            ))
-        }
-        .sheet(isPresented: $showingReceiptImagePicker) {
-            ImagePicker(selectedImage: Binding(
-                get: { nil },
-                set: { newImage in
-                    if let image = newImage {
-                        processReceiptImage(image)
-                    }
-                }
-            ))
-        }
-        .sheet(isPresented: $showingReceiptCameraPicker) {
-            CameraPicker(selectedImage: Binding(
-                get: { nil },
-                set: { newImage in
-                    if let image = newImage {
-                        processReceiptImage(image)
-                    }
-                }
-            ))
-        }
-        .fullScreenCover(isPresented: $showingImageViewer) {
-            if selectedImageIndex < imageAttachments.count {
-                ImageViewer(image: imageAttachments[selectedImageIndex], isPresented: $showingImageViewer)
-            }
-        }
-        .sheet(isPresented: $showingAttachmentsSheet) {
-            NavigationView {
-                imageAttachmentsView
-                    .navigationTitle("Attachments (\(imageAttachments.count))")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Done") {
-                                showingAttachmentsSheet = false
-                            }
-                        }
-                    }
-            }
-            .presentationBg()
-        }
-        .fileImporter(
-            isPresented: $showingFileImporter,
-            allowedContentTypes: [.pdf, .image, .plainText, .commaSeparatedText],
-            onCompletion: { result in
-                switch result {
-                case .success(let url):
-                    handleFileSelected(url)
-                case .failure(let error):
-                    print("❌ File picker error: \(error.localizedDescription)")
-                }
-            }
+
+        TaskManager.shared.addTask(
+            title: title,
+            to: weekday,
+            description: description,
+            scheduledTime: time,
+            endTime: endTime,
+            targetDate: date,
+            reminderTime: reminder,
+            location: location,
+            isRecurring: recurring,
+            recurrenceFrequency: frequency,
+            tagId: tagId
         )
-        .sheet(isPresented: $showingExtractionSheet) {
-            if let extractedData = extractedData {
-                ExtractionDetailSheet(
-                    extractedData: extractedData,
-                    onSave: { updatedData in
-                        Task {
-                            await saveExtractedData(updatedData)
-                        }
-                    }
+    }
+
+    @ViewBuilder
+    private func applyModifiers<V: View>(to content: V) -> some View {
+        applyAlertModifiers(to: applySheetModifiers(to: applyLifecycleModifiers(to: content)))
+    }
+    
+    @ViewBuilder
+    private func applyLifecycleModifiers<V: View>(to content: V) -> some View {
+        content
+            .navigationBarHidden(true)
+            .toolbarBackground(.hidden, for: .tabBar)
+            .toolbar(.hidden, for: .tabBar)
+            .onAppear(perform: onAppear)
+            .onChange(of: blockController.blocks) { blocks in
+                hasUnsavedChanges = true
+                scheduleAutoSave()
+                checkForEvents(in: blocks)
+            }
+            .onChange(of: title) { _ in
+                hasUnsavedChanges = true
+                scheduleAutoSave()
+            }
+    }
+    
+    @ViewBuilder
+    private func applySheetModifiers<V: View>(to content: V) -> some View {
+        content
+            .sheet(isPresented: $showingFolderPicker) {
+                FolderPickerView(
+                    selectedFolderId: $selectedFolderId,
+                    isPresented: $showingFolderPicker
                 )
                 .presentationBg()
             }
-        }
-        .sheet(isPresented: $showingFilePreview) {
-            if let fileURL = filePreviewURL {
-                FilePreviewSheet(fileURL: fileURL)
-                    .presentationBg()
+            .sheet(isPresented: $showingShareSheet) {
+                ShareSheet(activityItems: ["\(title)\n\n\(blockController.toMarkdown())"])
             }
-        }
-        .alert("Add More Information", isPresented: $showingAddMorePrompt) {
-            TextField("What would you like to add?", text: $addMorePromptText)
-            Button("Cancel", role: .cancel) {
-                addMorePromptText = ""
+            .sheet(isPresented: $showingBlockTypePicker) {
+                BlockTypePickerView(
+                    currentBlockId: blockController.focusedBlockId,
+                    controller: blockController,
+                    isPresented: $showingBlockTypePicker
+                )
             }
-            Button("Add") {
-                if !addMorePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Task {
-                        await addMoreToNoteWithAI(userRequest: addMorePromptText)
+            .sheet(isPresented: $showingImagePicker) {
+                ImagePicker(selectedImages: Binding(
+                    get: { imageAttachments },
+                    set: { newImages in
+                        for image in newImages {
+                            if imageAttachments.count < 10 {
+                                imageAttachments.append(image)
+                            }
+                        }
                     }
+                ))
+            }
+            .sheet(isPresented: $showingCameraPicker) {
+                CameraPicker(selectedImage: Binding(
+                    get: { nil },
+                    set: { newImage in
+                        if let image = newImage {
+                            imageAttachments.append(image)
+                        }
+                    }
+                ))
+            }
+            .sheet(isPresented: $showingReceiptImagePicker) {
+                ImagePicker(selectedImage: Binding(
+                    get: { nil },
+                    set: { newImage in
+                        if let image = newImage {
+                            processReceiptImage(image)
+                        }
+                    }
+                ))
+            }
+            .sheet(isPresented: $showingReceiptCameraPicker) {
+                CameraPicker(selectedImage: Binding(
+                    get: { nil },
+                    set: { newImage in
+                        if let image = newImage {
+                            processReceiptImage(image)
+                        }
+                    }
+                ))
+            }
+            .fullScreenCover(isPresented: $showingImageViewer) {
+                if selectedImageIndex < imageAttachments.count {
+                    ImageViewer(image: imageAttachments[selectedImageIndex], isPresented: $showingImageViewer)
                 }
             }
-        } message: {
-            Text("Describe what additional information you'd like to add to your note.")
-        }
-        .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
-            Button("Cancel", role: .cancel) { }
-            Button("Try Again") {
-                authenticateWithBiometricOrPasscode()
+            .sheet(isPresented: $showingAttachmentsSheet) {
+                NavigationView {
+                    imageAttachmentsView
+                        .navigationTitle("Attachments (\(imageAttachments.count))")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button("Done") {
+                                    showingAttachmentsSheet = false
+                                }
+                            }
+                        }
+                }
+                .presentationBg()
             }
-        } message: {
-            Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
-        }
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: [.pdf, .image, .plainText, .commaSeparatedText],
+                onCompletion: { result in
+                    switch result {
+                    case .success(let url):
+                        handleFileSelected(url)
+                    case .failure(let error):
+                        print("❌ File picker error: \(error.localizedDescription)")
+                    }
+                }
+            )
+            .sheet(isPresented: $showingExtractionSheet) {
+                if let extractedData = extractedData {
+                    ExtractionDetailSheet(
+                        extractedData: extractedData,
+                        onSave: { updatedData in
+                            Task {
+                                await saveExtractedData(updatedData)
+                            }
+                        }
+                    )
+                    .presentationBg()
+                }
+            }
+            .sheet(isPresented: $showingFilePreview) {
+                if let fileURL = filePreviewURL {
+                    FilePreviewSheet(fileURL: fileURL)
+                        .presentationBg()
+                }
+            }
+    }
+    
+    @ViewBuilder
+    private func applyAlertModifiers<V: View>(to content: V) -> some View {
+        content
+            .alert("Add More Information", isPresented: $showingAddMorePrompt) {
+                TextField("What would you like to add?", text: $addMorePromptText)
+                Button("Cancel", role: .cancel) {
+                    addMorePromptText = ""
+                }
+                Button("Add") {
+                    if !addMorePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Task {
+                            await addMoreToNoteWithAI(userRequest: addMorePromptText)
+                        }
+                    }
+                }
+            } message: {
+                Text("Describe what additional information you'd like to add to your note.")
+            }
+            .confirmationDialog("Add AI Content", isPresented: $showingAppendReplaceConfirmation) {
+                Button("Append to Note") {
+                    if let content = generatedContentForConfirmation {
+                        appendAIContent(content)
+                    }
+                }
+                Button("Replace Note") {
+                    if let content = generatedContentForConfirmation {
+                        replaceNoteContent(content)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    generatedContentForConfirmation = nil
+                }
+            } message: {
+                Text("How would you like to add the generated content?")
+            }
+            .alert("Create Event?", isPresented: $showingEventCreationPrompt) {
+                Button("Create Event") {
+                    showAddEventPopup = true
+                }
+                Button("Not Now", role: .cancel) { }
+            } message: {
+                if let date = detectedEventDate {
+                     Text("Found specific date: \(date.formatted(date: .abbreviated, time: .shortened)). Create an event?")
+                } else {
+                     Text("It looks like you're writing about an event. Would you like to add it to your calendar?")
+                }
+            }
+            .sheet(isPresented: $showAddEventPopup) {
+                if let date = detectedEventDate {
+                    AddEventPopupView(
+                        isPresented: $showAddEventPopup,
+                        onSave: handleEventSave,
+                        initialDate: date,
+                        initialTime: date
+                    )
+                    .presentationBg()
+                }
+            }
+            .alert("Authentication Failed", isPresented: $showingFaceIDPrompt) {
+                Button("Cancel", role: .cancel) { }
+                Button("Try Again") {
+                    authenticateWithBiometricOrPasscode()
+                }
+            } message: {
+                Text("Face ID or Touch ID authentication failed or is not available. Please try again.")
+            }
     }
 
     private var backgroundColor: some View {
@@ -522,6 +619,56 @@ struct BlockNoteEditView: View {
                     updatedNote.imageUrls = imageUrls
                     updatedNote.dateModified = Date()
                     notesManager.updateNote(updatedNote)
+                }
+            }
+        }
+    }
+
+    private func appendAIContent(_ content: String) {
+        let newBlocks = BlockDocumentController.parseMarkdown(content)
+        blockController.blocks.append(contentsOf: newBlocks)
+        generatedContentForConfirmation = nil
+        saveToUndoHistory()
+    }
+
+    private func replaceNoteContent(_ content: String) {
+        let newBlocks = BlockDocumentController.parseMarkdown(content)
+        blockController.blocks = newBlocks
+        generatedContentForConfirmation = nil
+        saveToUndoHistory()
+    }
+
+    private func checkForEvents(in blocks: [AnyBlock]) {
+        // Check the focused block first, otherwise fallback to last block
+        let blockToCheck: AnyBlock?
+        if let focusedId = blockController.focusedBlockId {
+            blockToCheck = blocks.first(where: { $0.id == focusedId })
+        } else {
+            blockToCheck = blocks.last
+        }
+
+        guard let block = blockToCheck,
+              let content = Optional(block.content),
+              !content.isEmpty,
+              content.count > 10 else { return }
+
+        // Don't detect if we just showed it
+        if showingEventCreationPrompt { return }
+
+        Task {
+            // Use NSDataDetector to find dates
+            if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) {
+                let matches = detector.matches(in: content, options: [], range: NSRange(location: 0, length: content.utf16.count))
+                
+                if let match = matches.first, let date = match.date {
+                    // Only prompt for future dates or today
+                    if date >= Calendar.current.startOfDay(for: Date()) {
+                        await MainActor.run {
+                            self.detectedEventDate = date
+                            self.detectedEventTitle = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                            self.showingEventCreationPrompt = true
+                        }
+                    }
                 }
             }
         }
@@ -867,13 +1014,12 @@ struct BlockNoteEditView: View {
 
         do {
             let expandedText = try await deepSeekService.addMoreToNoteText(plainText, userRequest: userRequest)
-            let blocks = BlockDocumentController.parseMarkdown(expandedText)
-
+            
             await MainActor.run {
-                blockController.blocks = blocks
+                generatedContentForConfirmation = expandedText
                 isProcessingAddMore = false
                 addMorePromptText = ""
-                saveToUndoHistory()
+                showingAppendReplaceConfirmation = true
             }
         } catch {
             await MainActor.run {

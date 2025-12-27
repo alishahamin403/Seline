@@ -2,15 +2,18 @@ import SwiftUI
 
 struct AddEventPopupView: View {
     @Binding var isPresented: Bool
-    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, [WeekDay]?, String?) -> Void
+    let onSave: (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, [WeekDay]?, String?, String?) -> Void
 
     // Optional initial values
     let initialDate: Date?
     let initialTime: Date?
 
     @State private var title: String = ""
+    @State private var location: String = ""
     @State private var description: String = ""
     @State private var selectedDate: Date
+    @State private var selectedEndDate: Date
+    @State private var isMultiDay: Bool = false
     @State private var hasTime: Bool
     @State private var selectedTime: Date
     @State private var selectedEndTime: Date
@@ -19,11 +22,14 @@ struct AddEventPopupView: View {
     @State private var customRecurrenceDays: Set<WeekDay> = []
     @State private var selectedReminder: ReminderTime = .none
     @State private var selectedTagId: String? = nil
+    @State private var createAnother: Bool = false
+    @State private var showingDatePicker: Bool = false
+    @State private var showingEndDatePicker: Bool = false
     @Environment(\.colorScheme) var colorScheme
 
     init(
         isPresented: Binding<Bool>,
-        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, [WeekDay]?, String?) -> Void,
+        onSave: @escaping (String, String?, Date, Date?, Date?, ReminderTime?, Bool, RecurrenceFrequency?, [WeekDay]?, String?, String?) -> Void,
         initialDate: Date? = nil,
         initialTime: Date? = nil
     ) {
@@ -35,6 +41,7 @@ struct AddEventPopupView: View {
         let date = initialDate ?? Date()
         let time = initialTime ?? Date()
         _selectedDate = State(initialValue: date)
+        _selectedEndDate = State(initialValue: date)
         _hasTime = State(initialValue: initialTime != nil)
         _selectedTime = State(initialValue: time)
         _selectedEndTime = State(initialValue: time.addingTimeInterval(3600))
@@ -61,9 +68,46 @@ struct AddEventPopupView: View {
             Button(action: {
                 let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
                 let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
                 let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
-                let timeToSave = hasTime ? selectedTime : nil
-                let endTimeToSave = hasTime ? selectedEndTime : nil
+                let locationToSave = trimmedLocation.isEmpty ? nil : trimmedLocation
+                
+                // For multi-day events, combine date and time for both start and end
+                var timeToSave: Date? = nil
+                var endTimeToSave: Date? = nil
+                let calendar = Calendar.current
+                
+                if hasTime {
+                    // Combine start date with start time
+                    let startDateComponents = calendar.dateComponents([.year, .month, .day], from: selectedDate)
+                    let startTimeComponents = calendar.dateComponents([.hour, .minute], from: selectedTime)
+                    var startCombinedComponents = DateComponents()
+                    startCombinedComponents.year = startDateComponents.year
+                    startCombinedComponents.month = startDateComponents.month
+                    startCombinedComponents.day = startDateComponents.day
+                    startCombinedComponents.hour = startTimeComponents.hour
+                    startCombinedComponents.minute = startTimeComponents.minute
+                    timeToSave = calendar.date(from: startCombinedComponents) ?? selectedTime
+                    
+                    if isMultiDay {
+                        // Combine end date with end time
+                        let endDateComponents = calendar.dateComponents([.year, .month, .day], from: selectedEndDate)
+                        let endTimeComponents = calendar.dateComponents([.hour, .minute], from: selectedEndTime)
+                        var endCombinedComponents = DateComponents()
+                        endCombinedComponents.year = endDateComponents.year
+                        endCombinedComponents.month = endDateComponents.month
+                        endCombinedComponents.day = endDateComponents.day
+                        endCombinedComponents.hour = endTimeComponents.hour
+                        endCombinedComponents.minute = endTimeComponents.minute
+                        endTimeToSave = calendar.date(from: endCombinedComponents) ?? selectedEndTime
+                    } else {
+                        endTimeToSave = selectedEndTime
+                    }
+                } else if isMultiDay {
+                    // All-day multi-day event: set end time to end of end date
+                    endTimeToSave = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: selectedEndDate)
+                }
+                
                 let customDays = (isRecurring && recurrenceFrequency == .custom && !customRecurrenceDays.isEmpty) ?
                     Array(customRecurrenceDays).sorted(by: { $0.sortOrder < $1.sortOrder }) : nil
 
@@ -77,19 +121,41 @@ struct AddEventPopupView: View {
                     isRecurring,
                     isRecurring ? recurrenceFrequency : nil,
                     customDays,
-                    selectedTagId
+                    selectedTagId,
+                    locationToSave
                 )
-                isPresented = false
+                
+                if createAnother {
+                    // Reset form for next event
+                    title = ""
+                    location = ""
+                    description = ""
+                    // Keep multi-day state, but advance dates
+                    let nextDate = isMultiDay ? selectedEndDate.addingTimeInterval(86400) : selectedDate.addingTimeInterval(86400)
+                    selectedDate = nextDate
+                    if isMultiDay {
+                        selectedEndDate = nextDate
+                    }
+                    // Reset times to default
+                    let calendar = Calendar.current
+                    let defaultTime = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: nextDate) ?? Date()
+                    selectedTime = defaultTime
+                    selectedEndTime = defaultTime.addingTimeInterval(3600)
+                    // Keep other settings as they might be useful for creating similar events
+                    // isRecurring, recurrenceFrequency, customRecurrenceDays, selectedReminder, selectedTagId remain
+                } else {
+                    isPresented = false
+                }
             }) {
                 Text("Create Event")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(isValidInput ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(isValidInput ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray.opacity(0.3))
-                    )
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(isValidInput ? (colorScheme == .dark ? Color.black : Color.white) : Color.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isValidInput ? (colorScheme == .dark ? Color.white : Color.black) : Color.gray.opacity(0.3))
+                )
             }
             .disabled(!isValidInput)
         }
@@ -100,8 +166,11 @@ struct AddEventPopupView: View {
             VStack(spacing: 0) {
                 EventFormContent(
                     title: $title,
+                    location: $location,
                     description: $description,
                     selectedDate: $selectedDate,
+                    selectedEndDate: $selectedEndDate,
+                    isMultiDay: $isMultiDay,
                     hasTime: $hasTime,
                     selectedTime: $selectedTime,
                     selectedEndTime: $selectedEndTime,
@@ -109,12 +178,24 @@ struct AddEventPopupView: View {
                     recurrenceFrequency: $recurrenceFrequency,
                     customRecurrenceDays: $customRecurrenceDays,
                     selectedReminder: $selectedReminder,
-                    selectedTagId: $selectedTagId
+                    selectedTagId: $selectedTagId,
+                    showingDatePicker: $showingDatePicker,
+                    showingEndDatePicker: $showingEndDatePicker
                 )
 
                 Divider()
                     .padding(.top, 16)
 
+                // Create Another Toggle
+                HStack {
+                    Toggle("Create Another", isOn: $createAnother)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                
                 actionButtonsSection
                     .padding(.horizontal, 20)
                     .padding(.vertical, 16)
@@ -134,8 +215,8 @@ struct AddEventPopupView: View {
 
         AddEventPopupView(
             isPresented: .constant(true),
-            onSave: { title, description, date, time, endTime, reminder, recurring, frequency, customDays, tagId in
-                print("Created: \(title), Description: \(description ?? "None"), Custom Days: \(customDays?.map { $0.shortDisplayName }.joined(separator: ", ") ?? "None"), TagID: \(tagId ?? "Personal")")
+            onSave: { title, description, date, time, endTime, reminder, recurring, frequency, customDays, tagId, location in
+                print("Created: \(title), Description: \(description ?? "None"), Location: \(location ?? "None")")
             }
         )
     }

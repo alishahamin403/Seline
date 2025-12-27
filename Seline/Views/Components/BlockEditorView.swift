@@ -1,5 +1,7 @@
 import SwiftUI
+import UIKit
 
+// MARK: - Main Block Editor View
 struct BlockEditorView: View {
     let block: AnyBlock
     @Binding var isFocused: Bool
@@ -8,262 +10,142 @@ struct BlockEditorView: View {
     let onBackspace: () -> Void
     let onTab: () -> Void
     let onShiftTab: () -> Void
+    var onCheckboxToggle: (() -> Void)? = nil
 
     @Environment(\.colorScheme) var colorScheme
-    @State private var content: String
-
-    init(
-        block: AnyBlock,
-        isFocused: Binding<Bool>,
-        onContentChange: @escaping (String) -> Void,
-        onReturn: @escaping () -> Void,
-        onBackspace: @escaping () -> Void,
-        onTab: @escaping () -> Void,
-        onShiftTab: @escaping () -> Void
-    ) {
-        self.block = block
-        self._isFocused = isFocused
-        self.onContentChange = onContentChange
-        self.onReturn = onReturn
-        self.onBackspace = onBackspace
-        self.onTab = onTab
-        self.onShiftTab = onShiftTab
-        self._content = State(initialValue: block.content)
-    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Block icon/prefix
-            blockPrefix
-                .animation(.easeInOut(duration: 0.2), value: block.blockType)
-
-            // Content editor
-            BlockTextField(
-                text: $content,
-                placeholder: block.blockType.placeholder,
-                isFocused: $isFocused,
-                font: blockFont,
-                onSubmit: {
-                    onReturn()
-                },
-                onBackspace: {
-                    if content.isEmpty {
-                        onBackspace()
-                    }
-                },
-                onTab: {
-                    onTab()
-                },
-                onShiftTab: {
-                    onShiftTab()
-                }
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .onChange(of: content) { newValue in
-                // Prevent feedback loop - only notify if content actually changed
-                if newValue != block.content {
-                    onContentChange(newValue)
-                }
-            }
-            .foregroundColor(textColor)
-            .animation(.easeInOut(duration: 0.15), value: textColor)
-        }
-        .padding(.leading, CGFloat(block.metadata.indentLevel) * 24)
-        .padding(.trailing, 0)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeInOut(duration: 0.2), value: block.metadata.indentLevel)
-        .clipped()
-        .onChange(of: block.content) { newValue in
-            // Update local state when block content changes externally (e.g., from markdown shortcuts)
-            if content != newValue {
-                content = newValue
-            }
-        }
-        .onChange(of: block.id) { _ in
-            // When block type changes, the ID stays the same but we need to sync content
-            content = block.content
-        }
-    }
-
-    @ViewBuilder
-    private var blockPrefix: some View {
-        switch block {
-        case .bulletList:
-            Text("•")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                .frame(width: 20)
-
-        case .numberedList(let numbered):
-            Text("\(numbered.number).")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
-                .frame(minWidth: 24, alignment: .trailing)
-
-        case .checkbox(let checkbox):
-            Button(action: {
-                // Checkbox toggle handled by parent
-            }) {
-                Image(systemName: checkbox.metadata.isChecked ? "checkmark.square.fill" : "square")
+        HStack(alignment: .top, spacing: 6) {
+            // Checkbox specific handling
+            if case .checkbox(let checkbox) = block {
+                 Button(action: {
+                     // Toggle checkbox state via callback
+                     onCheckboxToggle?()
+                 }) {
+                     Image(systemName: checkbox.metadata.isChecked ? "checkmark.circle.fill" : "circle")
+                         .font(.system(size: 20))
+                         .foregroundColor(checkbox.metadata.isChecked ? .accentColor : .secondary)
+                 }
+                 .padding(.top, 2)
+            } else if case .bulletList = block {
+                Text("•")
                     .font(.system(size: 20))
-                    .foregroundColor(checkbox.metadata.isChecked ? .blue : (colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7)))
+                    .foregroundColor(.primary)
+                    .frame(width: 20, alignment: .center)
+                    .padding(.top, 0)
+            } else if case .numberedList(let item) = block {
+                Text("\(item.number).")
+                    .font(.body) // Apple Notes uses body font size for numbers
+                    .foregroundColor(.primary)
+                    .frame(minWidth: 20, alignment: .trailing)
+                    .padding(.top, 2)
             }
-            .frame(width: 20)
 
-        case .quote:
-            Rectangle()
-                .fill(Color.blue.opacity(0.3))
-                .frame(width: 3)
-                .cornerRadius(1.5)
-
-        case .divider:
-            EmptyView()
-
-        default:
-            EmptyView()
+            // The Text Editor
+            AppleNotesTextView(
+                text: Binding(
+                    get: { block.content },
+                    set: { onContentChange($0) } // Direct binding
+                ),
+                isFocused: $isFocused,
+                font: appleNotesFont,
+                textColor: appleNotesColor,
+                onReturn: onReturn,
+                onBackspace: onBackspace,
+                onTab: onTab,
+                onShiftTab: onShiftTab
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(minHeight: 30) // Minimum touch target size, but allows expansion
         }
+        .padding(.leading, CGFloat(block.metadata.indentLevel) * 20) // Standard indentation
+        .padding(.vertical, 1) // Tight vertical spacing like Apple Notes
     }
 
-    private var blockFont: Font {
+    // MARK: - Apple Notes Style Typography
+    private var appleNotesFont: UIFont {
         switch block.blockType {
         case .heading1:
-            return .system(size: 28, weight: .bold)
+            return .systemFont(ofSize: 28, weight: .bold) // Title
         case .heading2:
-            return .system(size: 22, weight: .bold)
+            return .systemFont(ofSize: 22, weight: .bold) // Heading
         case .heading3:
-            return .system(size: 18, weight: .semibold)
+            return .systemFont(ofSize: 20, weight: .semibold) // Subheading
         case .code:
-            return .system(size: 14, design: .monospaced)
+            return .monospacedSystemFont(ofSize: 15, weight: .regular)
         default:
-            return .system(size: 16)
+            return .preferredFont(forTextStyle: .body) // roughly 17pt
         }
     }
 
-    private var textColor: Color {
+    private var appleNotesColor: UIColor {
         switch block.blockType {
-        case .heading1, .heading2, .heading3:
-            return colorScheme == .dark ? .white : .black
         case .quote:
-            return colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8)
+            return .secondaryLabel
         case .code:
-            return .green
+            return .label // Code blocks in Apple Notes are just monospaced, usually black/white
         default:
-            return colorScheme == .dark ? .white : .black
+            return .label
         }
     }
 }
 
-// MARK: - Custom TextView with Key Handling
-
-struct BlockTextField: UIViewRepresentable {
+// MARK: - Apple Notes Text View (UIViewRepresentable)
+struct AppleNotesTextView: UIViewRepresentable {
     @Binding var text: String
-    let placeholder: String
     @Binding var isFocused: Bool
-    let font: Font
-    let onSubmit: () -> Void
+    let font: UIFont
+    let textColor: UIColor
+    let onReturn: () -> Void
     let onBackspace: () -> Void
     let onTab: () -> Void
     let onShiftTab: () -> Void
 
-    func makeUIView(context: Context) -> UITextView {
-        let textView = BlockCustomTextView()
+    func makeUIView(context: Context) -> CustomUITextView {
+        let textView = CustomUITextView()
         textView.delegate = context.coordinator
-        textView.font = UIFont.preferredFont(from: font)
+        textView.font = font
+        textView.textColor = textColor
         textView.backgroundColor = .clear
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.textContainer.widthTracksTextView = true
-        textView.textContainer.size = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.isScrollEnabled = false
-        textView.autocapitalizationType = .sentences
-        textView.autocorrectionType = .yes
-        textView.spellCheckingType = .yes
-        textView.keyboardType = .default
-        textView.returnKeyType = .default
-        textView.clipsToBounds = true
-
-        // Set consistent line height
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineHeightMultiple = 1.2
-        paragraphStyle.lineBreakMode = .byWordWrapping
-        paragraphStyle.lineSpacing = 2
-        textView.typingAttributes = [
-            .font: UIFont.preferredFont(from: font),
-            .paragraphStyle: paragraphStyle
-        ]
-
-        // Set content compression resistance for proper layout
-        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        // Key handling
-        textView.onBackspaceEmpty = onBackspace
+        textView.isScrollEnabled = false // Auto-expanding
+        textView.textContainerInset = .zero // Remove default padding to align with SwiftUI Text
+        textView.textContainer.lineFragmentPadding = 0 // Remove left/right padding
+        
+        // Input Accessory View for formatting (Apple Notes style)
+        // We can add this later if needed, for more advanced formatting toolbar
+        
+        // Key callbacks
+        textView.onReturn = onReturn
+        textView.onBackspace = onBackspace
         textView.onTab = onTab
         textView.onShiftTab = onShiftTab
-        textView.onReturn = onSubmit
-
-        // Setup placeholder
-        textView.placeholderText = placeholder
-        textView.placeholderColor = UIColor.placeholderText
-
-        // Set initial text
-        textView.text = text
-
+        
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        
         return textView
     }
 
-    func updateUIView(_ uiView: UITextView, context: Context) {
-        guard let customTextView = uiView as? BlockCustomTextView else { return }
+    func updateUIView(_ uiView: CustomUITextView, context: Context) {
+        // Update basic properties
+        if uiView.font != font { uiView.font = font }
+        if uiView.textColor != textColor { uiView.textColor = textColor }
+        
+        // Update Text ONLY if changed (prevents cursor jumping)
+        if uiView.text != text {
+            // Preserve cursor position if possible? 
+            // Usually setting text resets cursor to end. 
+            // In a block editor, usually the text update comes from typing, so we are ALREADY consistent.
+            // We only force update if the EXTERNAL source changed it (e.g. AI rewrite).
+            uiView.text = text
+        }
 
-        // Update text container width when view updates
+        // Handle Focus
         DispatchQueue.main.async {
-            uiView.setNeedsLayout()
-            uiView.layoutIfNeeded()
-            
-            // Calculate available width and update text container
-            if uiView.bounds.width > 0 {
-                let availableWidth = uiView.bounds.width - uiView.textContainerInset.left - uiView.textContainerInset.right
-                uiView.textContainer.size = CGSize(width: availableWidth, height: CGFloat.greatestFiniteMagnitude)
-                uiView.textContainer.widthTracksTextView = true
+            if isFocused && !uiView.isFirstResponder {
+                uiView.becomeFirstResponder()
+            } else if !isFocused && uiView.isFirstResponder {
+                uiView.resignFirstResponder()
             }
-        }
-
-        // Only update if we're not currently editing
-        if !uiView.isFirstResponder {
-            // Update text if it's different
-            if uiView.text != text {
-                uiView.text = text
-            }
-        }
-
-        // Update font if changed
-        let newFont = UIFont.preferredFont(from: font)
-        if uiView.font != newFont {
-            uiView.font = newFont
-
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.lineHeightMultiple = 1.2
-            paragraphStyle.lineBreakMode = .byWordWrapping
-            paragraphStyle.lineSpacing = 2
-            uiView.typingAttributes = [
-                .font: newFont,
-                .paragraphStyle: paragraphStyle
-            ]
-        }
-
-        // Update placeholder if changed
-        if customTextView.placeholderText != placeholder {
-            customTextView.placeholderText = placeholder
-            customTextView.setNeedsDisplay()
-        }
-
-        // Handle focus changes
-        if isFocused && !uiView.isFirstResponder {
-            uiView.becomeFirstResponder()
-        } else if !isFocused && uiView.isFirstResponder {
-            uiView.resignFirstResponder()
         }
     }
 
@@ -272,146 +154,111 @@ struct BlockTextField: UIViewRepresentable {
     }
 
     class Coordinator: NSObject, UITextViewDelegate {
-        let parent: BlockTextField
+        var parent: AppleNotesTextView
 
-        init(_ parent: BlockTextField) {
+        init(_ parent: AppleNotesTextView) {
             self.parent = parent
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            // Only update if text actually changed
-            if parent.text != textView.text {
-                parent.text = textView.text
-            }
-            // Trigger placeholder update
-            textView.setNeedsDisplay()
+            parent.text = textView.text
+            textView.invalidateIntrinsicContentSize()
         }
-
+        
         func textViewDidBeginEditing(_ textView: UITextView) {
-            if !parent.isFocused {
-                parent.isFocused = true
+            DispatchQueue.main.async {
+                self.parent.isFocused = true
             }
         }
-
+        
         func textViewDidEndEditing(_ textView: UITextView) {
-            if parent.isFocused {
-                parent.isFocused = false
+            DispatchQueue.main.async {
+                self.parent.isFocused = false
             }
         }
     }
 }
 
-// MARK: - Custom TextView for Key Interception
-
-class BlockCustomTextView: UITextView {
-    var onBackspaceEmpty: (() -> Void)?
+// MARK: - Custom UIKit View for Key Handling
+class CustomUITextView: UITextView {
+    var onReturn: (() -> Void)?
+    var onBackspace: (() -> Void)?
     var onTab: (() -> Void)?
     var onShiftTab: (() -> Void)?
-    var onReturn: (() -> Void)?
-
-    var placeholderText: String = ""
-    var placeholderColor: UIColor = .placeholderText
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
+    
+    // Add Strike-through support via Menu
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(toggleStrikethrough(_:)) { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    
+    @objc func toggleStrikethrough(_ sender: Any?) {
+        // Core functionality for strike-through would go here
+        // For block-based, we often wrap in Markdown "~~"
+        // But for "Apple Notes Experience", we might want attributed strings.
+        // However, the data model is likely Strings. 
+        // So we stick to wrapping selected text in ~~
+        guard let range = selectedTextRange, 
+              let selectedText = text(in: range), 
+              !selectedText.isEmpty else { return }
         
-        // Update text container width when layout changes
-        if bounds.width > 0 {
-            let availableWidth = bounds.width - textContainerInset.left - textContainerInset.right
-            textContainer.size = CGSize(width: availableWidth, height: CGFloat.greatestFiniteMagnitude)
-            textContainer.widthTracksTextView = true
+        // Simple toggle logic
+        if selectedText.hasPrefix("~~") && selectedText.hasSuffix("~~") {
+            let newText = String(selectedText.dropFirst(2).dropLast(2))
+            replace(range, withText: newText)
+        } else {
+            replace(range, withText: "~~\(selectedText)~~")
         }
     }
+    
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        builder.insertChild(UIMenu(title: "", options: .displayInline, children: [
+            UIAction(title: "Strikethrough") { [weak self] _ in
+                self?.toggleStrikethrough(nil)
+            }
+        ]), atEndOfMenu: .format)
+    }
 
-    override func draw(_ rect: CGRect) {
-        super.draw(rect)
+    override var keyCommands: [UIKeyCommand]? {
+        return [
+            UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(handleTab)),
+            UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(handleShiftTab))
+        ]
+    }
 
-        // Draw placeholder if needed
-        if text.isEmpty && !placeholderText.isEmpty {
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: placeholderColor
-            ]
-            let placeholderRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height)
-            placeholderText.draw(in: placeholderRect, withAttributes: attributes)
-        }
+    @objc func handleTab() {
+        onTab?()
+    }
+
+    @objc func handleShiftTab() {
+        onShiftTab?()
     }
 
     override func deleteBackward() {
-        let wasEmpty = text.isEmpty
-        super.deleteBackward()
-
-        if wasEmpty {
-            onBackspaceEmpty?()
+        if text.isEmpty {
+            onBackspace?()
+        } else {
+            super.deleteBackward()
         }
     }
-
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var handled = false
-
-        for press in presses {
-            if press.key?.keyCode == .keyboardTab {
-                if press.key?.modifierFlags.contains(.shift) == true {
-                    onShiftTab?()
-                } else {
-                    onTab?()
-                }
-                handled = true
-            } else if press.key?.keyCode == .keyboardReturnOrEnter {
-                onReturn?()
-                handled = true
-            }
-        }
-
-        if !handled {
-            super.pressesBegan(presses, with: event)
+    
+    // Intercept Return key
+    override func insertText(_ text: String) {
+        if text == "\n" {
+            onReturn?()
+        } else {
+            super.insertText(text)
         }
     }
 }
 
-// MARK: - Helper Extension
-
-extension UIFont {
-    static func preferredFont(from font: Font) -> UIFont {
-        // Convert SwiftUI Font to UIFont
-        switch font {
-        case .largeTitle:
-            return .preferredFont(forTextStyle: .largeTitle)
-        case .title:
-            return .preferredFont(forTextStyle: .title1)
-        case .title2:
-            return .preferredFont(forTextStyle: .title2)
-        case .title3:
-            return .preferredFont(forTextStyle: .title3)
-        case .headline:
-            return .preferredFont(forTextStyle: .headline)
-        case .subheadline:
-            return .preferredFont(forTextStyle: .subheadline)
-        case .body:
-            return .preferredFont(forTextStyle: .body)
-        case .callout:
-            return .preferredFont(forTextStyle: .callout)
-        case .caption:
-            return .preferredFont(forTextStyle: .caption1)
-        case .caption2:
-            return .preferredFont(forTextStyle: .caption2)
-        case .footnote:
-            return .preferredFont(forTextStyle: .footnote)
-        default:
-            return .systemFont(ofSize: 16)
-        }
-    }
-}
-
-// MARK: - Divider Block View
-
+// MARK: - Divider Block
 struct DividerBlockView: View {
-    @Environment(\.colorScheme) var colorScheme
-
     var body: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.2))
+            .fill(Color.secondary.opacity(0.3))
             .frame(height: 1)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
     }
 }

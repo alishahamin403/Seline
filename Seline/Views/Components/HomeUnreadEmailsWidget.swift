@@ -35,7 +35,7 @@ struct HomeUnreadEmailsWidget: View {
             // Header
             HStack(spacing: 10) {
                 Text("Unread Emails")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 
                 Spacer()
@@ -75,23 +75,21 @@ struct HomeUnreadEmailsWidget: View {
                     
                     // Show "more" indicator if there are more emails
                     if unreadCount > 4 {
-                        Button(action: {
+                        HStack(spacing: 6) {
+                            Text("+\(unreadCount - 4) more")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
                             HapticManager.shared.selection()
                             selectedTab = .email
-                        }) {
-                            HStack(spacing: 6) {
-                                Text("+\(unreadCount - 4) more")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .allowsParentScrolling()
                     }
                 }
             }
@@ -102,47 +100,44 @@ struct HomeUnreadEmailsWidget: View {
     }
     
     private func emailRow(_ email: Email) -> some View {
-        Button(action: {
+        HStack(spacing: 10) {
+            // Avatar
+            Circle()
+                .fill(emailAvatarColor(for: email))
+                .frame(width: 28, height: 28)
+                .overlay(
+                    Text(email.sender.shortDisplayName.prefix(1).uppercased())
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                )
+            
+            VStack(alignment: .leading, spacing: 2) {
+                // Sender name
+                Text(email.sender.displayName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+                
+                // Subject
+                Text(email.subject)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+            
+            // Time indicator
+            Text(formatEmailTime(email.timestamp))
+                .font(.system(size: 10, weight: .regular))
+                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
             HapticManager.shared.email()
             onEmailSelected?(email)
-        }) {
-            HStack(spacing: 10) {
-                // Avatar
-                Circle()
-                    .fill(emailAvatarColor(for: email))
-                    .frame(width: 28, height: 28)
-                    .overlay(
-                        Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.white)
-                    )
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    // Sender name
-                    Text(email.sender.displayName)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
-                    
-                    // Subject
-                    Text(email.subject)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                // Time indicator
-                Text(formatEmailTime(email.timestamp))
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
     }
     
     private func formatEmailTime(_ date: Date) -> String {

@@ -45,86 +45,95 @@ struct AllDayEventsSection: View {
             tagColorIndex: tagColorIndex
         )
     }
-
-    private var accentColor: Color {
-        colorScheme == .dark ?
-            Color.white : // White in dark mode
-            Color.black   // Black in light mode
+    
+    private func getTextColor(_ task: TaskItem) -> Color {
+        let filterType = TimelineEventColorManager.filterType(from: task)
+        let tagColorIndex: Int?
+        if case .tag(let tagId) = filterType {
+            tagColorIndex = tagManager.getTag(by: tagId)?.colorIndex
+        } else {
+            tagColorIndex = nil
+        }
+        
+        if case .tag(_) = filterType, let tagColorIndex = tagColorIndex {
+            return TimelineEventColorManager.tagColorTextColor(colorIndex: tagColorIndex, colorScheme: colorScheme)
+        }
+        return TimelineEventColorManager.timelineEventTextColor(
+            filterType: filterType,
+            colorScheme: colorScheme,
+            tagColorIndex: tagColorIndex
+        )
     }
 
     var body: some View {
         if !allDayTasks.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Horizontal scrollable event pills - always visible
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
+                    HStack(spacing: 8) {
                         ForEach(allDayTasks) { task in
-                            allDayEventCard(task: task)
+                            allDayEventPill(task: task)
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 16)
                 }
             }
-            .padding(.vertical, 3)
-            .background(Color.clear)
+            .padding(.vertical, 8)
         }
     }
 
-    private func allDayEventCard(task: TaskItem) -> some View {
+    // MARK: - All Day Event Pill
+    
+    private func allDayEventPill(task: TaskItem) -> some View {
         Button(action: {
             HapticManager.shared.cardTap()
             onTapTask(task)
         }) {
             let taskColor = getTaskColor(task)
-            let circleColor: Color = colorScheme == .dark ? Color.white : Color.black
+            let textColor = getTextColor(task)
+            let isCompleted = task.isCompletedOn(date: date)
 
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 // Completion checkbox (hidden for calendar events)
                 if !task.isFromCalendar {
                     Button(action: {
                         HapticManager.shared.selection()
                         onToggleCompletion(task)
                     }) {
-                        let isCompleted = task.isCompletedOn(date: date)
                         Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(circleColor)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(textColor)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
 
                 // Task title
-                let isCompleted = task.isCompletedOn(date: date)
                 Text(task.title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(
-                        colorScheme == .dark ? Color.white : Color.black
-                    )
-                    .strikethrough(isCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    .foregroundColor(textColor)
+                    .strikethrough(isCompleted, color: textColor.opacity(0.5))
                     .lineLimit(1)
 
                 // Indicators
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     if task.hasEmailAttachment {
                         Image(systemName: "envelope.fill")
                             .font(.system(size: 9))
-                            .foregroundColor(circleColor.opacity(0.7))
+                            .foregroundColor(textColor.opacity(0.7))
                     }
 
                     if task.isRecurring {
                         Image(systemName: "repeat")
                             .font(.system(size: 9))
-                            .foregroundColor(circleColor.opacity(0.7))
+                            .foregroundColor(textColor.opacity(0.7))
                     }
                 }
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 11)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(
-                        taskColor.opacity(colorScheme == .dark ? 0.2 : 0.15)
-                    )
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(taskColor)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -144,5 +153,6 @@ struct AllDayEventsSection: View {
             onToggleCompletion: { _ in }
         )
     }
-    .background(Color.shadcnBackground(.light))
+    .background(Color.shadcnBackground(.dark))
+    .preferredColorScheme(.dark)
 }

@@ -17,6 +17,7 @@ struct ConversationSearchView: View {
     @State private var generatedFollowUpQuestions: [String] = []
     @State private var isGeneratingFollowUps = false
     @State private var showingSettings = false
+    @State private var showingTokenDetails = false
     @StateObject private var speechService = SpeechRecognitionService.shared
 
     var body: some View {
@@ -71,6 +72,11 @@ struct ConversationSearchView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showingTokenDetails) {
+            TokenUsageDetailsSheet()
+                .presentationDetents([.height(300)])
+                .presentationBg()
         }
     }
 
@@ -405,20 +411,11 @@ struct ConversationSearchView: View {
 
     private var headerView: some View {
         HStack(spacing: 12) {
-            // Profile icon and Token usage on the left
-            HStack(spacing: 10) {
-                // Profile icon
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showingSettings = true
-                }) {
-                    Image(systemName: "person.circle.fill")
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.claudeTextDark : Color.claudeTextLight)
-                }
-                .buttonStyle(PlainButtonStyle())
-                
-                // Token usage %
+            // Token usage pill (clickable)
+            Button(action: {
+                HapticManager.shared.selection()
+                showingTokenDetails = true
+            }) {
                 Text("\(Int(deepSeekService.quotaPercentage))% utilized")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(colorScheme == .dark ? Color.claudeTextDark.opacity(0.7) : Color.claudeTextLight.opacity(0.6))
@@ -429,6 +426,7 @@ struct ConversationSearchView: View {
                             .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
                     )
             }
+            .buttonStyle(PlainButtonStyle())
 
             Spacer()
 
@@ -1652,6 +1650,110 @@ struct AlignedTextEditor: UIViewRepresentable {
     }
 }
 
+
+// MARK: - Token Usage Details Sheet
+struct TokenUsageDetailsSheet: View {
+    @StateObject private var deepSeekService = DeepSeekService.shared
+    @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
+    
+    private let dailyTokenLimit: Int = 2_000_000 // 2M tokens per day
+    
+    private var dailyTokensRemaining: Int {
+        max(0, dailyTokenLimit - deepSeekService.dailyTokensUsed)
+    }
+    
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000.0)
+        } else if count >= 1_000 {
+            return String(format: "%.0fK", Double(count) / 1_000.0)
+        } else {
+            return "\(count)"
+        }
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                // Usage Overview
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Daily Usage")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        Spacer()
+                    }
+                    
+                    // Progress bar
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
+                            
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.blue)
+                                .frame(width: geometry.size.width * (deepSeekService.quotaPercentage / 100.0))
+                        }
+                    }
+                    .frame(height: 8)
+                    
+                    // Usage stats
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("Used")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                            Spacer()
+                            Text(formatTokenCount(deepSeekService.dailyTokensUsed))
+                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                        
+                        HStack {
+                            Text("Remaining")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                            Spacer()
+                            Text(formatTokenCount(dailyTokensRemaining))
+                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                        
+                        HStack {
+                            Text("Limit")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                            Spacer()
+                            Text(formatTokenCount(dailyTokenLimit))
+                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                )
+                
+                Spacer()
+            }
+            .padding(20)
+            .background(colorScheme == .dark ? Color.black : Color.white)
+            .navigationTitle("Token Usage")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                }
+            }
+        }
+    }
+}
 
 #Preview {
     ConversationSearchView()

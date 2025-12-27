@@ -59,7 +59,7 @@ struct CompactCategoryCard: View {
 
             VStack(alignment: .trailing, spacing: 2) {
                 Text(category.formattedAmount)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(.primary)
 
                 Text(category.formattedPercentage)

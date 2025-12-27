@@ -66,26 +66,6 @@ struct ReceiptStatsView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: isPopup ? 8 : 12) {
-                // Header with close button (only in popup mode)
-                if isPopup {
-                    HStack {
-                        Text("Receipt Statistics")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                        
-                        Spacer()
-                        
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
-                }
-                
                 // Main card container
                 VStack(alignment: .leading, spacing: 0) {
                     if showRecurringExpenses {
@@ -97,7 +77,7 @@ struct ReceiptStatsView: View {
                         if !availableYears.isEmpty && currentYear != availableYears.min() {
                             Button(action: { selectPreviousYear() }) {
                                 Image(systemName: "chevron.left")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: 16, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white : .black)
                                     .frame(width: 32, height: 32)
                             }
@@ -109,12 +89,12 @@ struct ReceiptStatsView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(String(format: "%d", currentYear))
-                                .font(.system(size: 28, weight: .bold))
+                                .font(.system(size: 34, weight: .bold)) // Increased size
                                 .foregroundColor(.primary)
 
                             if let stats = currentYearStats {
                                 Text(CurrencyParser.formatAmountNoDecimals(stats.yearlyTotal))
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: 20, weight: .bold)) // Reduced further from 24pt
                                     .foregroundColor(.green)
                             }
                         }
@@ -150,7 +130,7 @@ struct ReceiptStatsView: View {
 
                     // Monthly breakdown
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 20) {
+                        VStack(spacing: 16) { // Reduced spacing from 32 to 16
                             if let stats = currentYearStats {
                                 if stats.monthlySummaries.isEmpty {
                                     VStack(spacing: 8) {
@@ -180,7 +160,7 @@ struct ReceiptStatsView: View {
                                             },
                                             categorizedReceipts: categorizedReceiptsForMonth
                                         )
-                                        .padding(.horizontal, 16)
+                                        .padding(.horizontal, 12) // Match home page widget padding
 
                                     }
                                 }
@@ -205,11 +185,6 @@ struct ReceiptStatsView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxHeight: .infinity, alignment: .top)
-            .background(
-                // Prevent tap-through on content
-                Color.clear
-                    .contentShape(Rectangle())
-            )
         }
         .onAppear {
             // Set current year to the most recent year with data
@@ -440,7 +415,7 @@ struct RecurringExpenseStatsContent: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(expense.title)
                                             .font(.subheadline)
-                                            .fontWeight(.semibold)
+                                            .fontWeight(.regular)
                                         HStack(spacing: 8) {
                                             // Show next occurrence date
                                             Image(systemName: "calendar")

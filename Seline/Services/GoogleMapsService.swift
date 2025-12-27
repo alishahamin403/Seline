@@ -308,14 +308,33 @@ class GoogleMapsService: ObservableObject {
 
     // MARK: - Open in Google Maps
 
-    func openInGoogleMaps(place: SavedPlace) {
-        // Try Google Maps app first
-        if let googleMapsURL = place.googleMapsURL,
-           UIApplication.shared.canOpenURL(googleMapsURL) {
-            UIApplication.shared.open(googleMapsURL)
+    func openInGoogleMaps(place: SavedPlace, preferGoogle: Bool? = nil) {
+        // Determine which map to use
+        let useGoogle: Bool
+        if let preferGoogle = preferGoogle {
+            useGoogle = preferGoogle
+        } else {
+            // Check user preference
+            let userDefaults = UserDefaults.standard
+            if let preferredMap = userDefaults.string(forKey: "preferredMapApp") {
+                useGoogle = preferredMap == "google"
+            } else {
+                // Default: try Google Maps first, fallback to Apple Maps
+                useGoogle = true
+            }
         }
-        // Fallback to Apple Maps
-        else if let appleMapsURL = place.appleMapsURL {
+        
+        if useGoogle {
+            // Try Google Maps app first
+            if let googleMapsURL = place.googleMapsURL,
+               UIApplication.shared.canOpenURL(googleMapsURL) {
+                UIApplication.shared.open(googleMapsURL)
+                return
+            }
+        }
+        
+        // Use Apple Maps (either as preference or fallback)
+        if let appleMapsURL = place.appleMapsURL {
             UIApplication.shared.open(appleMapsURL)
         }
     }

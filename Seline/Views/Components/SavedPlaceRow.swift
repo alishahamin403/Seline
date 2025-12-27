@@ -82,17 +82,6 @@ struct SavedPlaceRow: View {
 
                 Spacer()
 
-                // Favourite button
-                Button(action: {
-                    locationsManager.toggleFavourite(for: place.id)
-                    isFavourite.toggle()
-                }) {
-                    Image(systemName: isFavourite ? "star.fill" : "star")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                }
-                .buttonStyle(PlainButtonStyle())
-
                 // Chevron
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))

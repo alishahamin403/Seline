@@ -17,43 +17,37 @@ struct ReceiptProcessingToast: View {
         if state != .idle {
             HStack(spacing: 12) {
                 // Status icon
-                ZStack {
-                    Circle()
-                        .fill(iconBackgroundColor)
-                        .frame(width: 32, height: 32)
-                    
-                    Group {
-                        switch state {
-                        case .processing:
-                            ProgressView()
-                                .tint(iconColor)
-                                .scaleEffect(0.8)
-                        case .success:
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(iconColor)
-                        case .error:
-                            Image(systemName: "exclamationmark")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(iconColor)
-                        case .idle:
-                            EmptyView()
-                        }
+                Group {
+                    switch state {
+                    case .processing:
+                        ProgressView()
+                            .tint(colorScheme == .dark ? Color(white: 0.3) : .white)
+                            .scaleEffect(0.8)
+                    case .success:
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
+                    case .error:
+                        Image(systemName: "exclamationmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
+                    case .idle:
+                        EmptyView()
                     }
                 }
                 
                 // Status text
                 Text(statusText)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
                 
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.02))
+                Capsule()
+                    .fill(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.2))
             )
             .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
             .padding(.horizontal, 20)

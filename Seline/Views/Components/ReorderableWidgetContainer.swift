@@ -25,24 +25,9 @@ struct ReorderableWidgetContainer<Content: View>: View {
                 editModeView
             } else {
                 // Normal mode: no gesture interference, let ScrollView handle everything
-                normalModeView
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        widgetManager.enterEditMode()
-                    }
+                content()
             }
         }
-    }
-    
-    private var normalModeView: some View {
-        ZStack(alignment: .topTrailing) {
-            content()
-                .scaleEffect(1.0)
-                .opacity(1.0)
-            
-            // No overlay, no gestures in normal mode - completely transparent to ScrollView
-        }
-        .offset(.zero)
-        .zIndex(0)
     }
     
     private var editModeView: some View {
@@ -58,58 +43,63 @@ struct ReorderableWidgetContainer<Content: View>: View {
                         )
                 )
 
-            // Control buttons (up, down, remove)
+            // Control buttons (up, down, remove) - hide up/down for Quick Access since it's fixed
             HStack(spacing: 8) {
-                // Move up button
-                Button(action: {
-                    moveWidgetUp()
-                }) {
-                    Image(systemName: "chevron.up.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue)
-                        .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
-                                .frame(width: 20, height: 20)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .opacity(canMoveUp() ? 1.0 : 0.3)
-                .disabled(!canMoveUp())
-
-                // Move down button
-                Button(action: {
-                    moveWidgetDown()
-                }) {
-                    Image(systemName: "chevron.down.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue)
-                        .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
-                                .frame(width: 20, height: 20)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .opacity(canMoveDown() ? 1.0 : 0.3)
-                .disabled(!canMoveDown())
-
-                // Remove button
-                Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        widgetManager.hideWidget(widgetType)
+                // Only show move buttons for widgets that aren't Quick Access
+                if widgetType != .dailyOverview {
+                    // Move up button
+                    Button(action: {
+                        moveWidgetUp()
+                    }) {
+                        Image(systemName: "chevron.up.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                                    .frame(width: 20, height: 20)
+                            )
                     }
-                }) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.red)
-                        .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.black : Color.white)
-                                .frame(width: 20, height: 20)
-                        )
+                    .buttonStyle(PlainButtonStyle())
+                    .opacity(canMoveUp() ? 1.0 : 0.3)
+                    .disabled(!canMoveUp())
+
+                    // Move down button
+                    Button(action: {
+                        moveWidgetDown()
+                    }) {
+                        Image(systemName: "chevron.down.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(colorScheme == .dark ? Color(white: 0.7) : Color(white: 0.3))
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                                    .frame(width: 20, height: 20)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .opacity(canMoveDown() ? 1.0 : 0.3)
+                    .disabled(!canMoveDown())
                 }
-                .buttonStyle(PlainButtonStyle())
+
+                // Remove button (hide for dailyOverview - Quick Access cannot be deleted)
+                if widgetType != .dailyOverview {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            widgetManager.hideWidget(widgetType)
+                        }
+                    }) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.red)
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? Color.black : Color.white)
+                                    .frame(width: 20, height: 20)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
             .offset(x: 8, y: -8)
             .transition(.scale.combined(with: .opacity))
@@ -126,11 +116,17 @@ struct ReorderableWidgetContainer<Content: View>: View {
     // MARK: - Helper Methods
 
     private func canMoveUp() -> Bool {
+        // CRITICAL: Quick Access (dailyOverview) cannot be moved
+        if widgetType == .dailyOverview {
+            return false
+        }
+        
         let visibleWidgets = widgetManager.visibleWidgets
         guard let currentIndex = visibleWidgets.firstIndex(where: { $0.type == widgetType }) else {
             return false
         }
-        return currentIndex > 0
+        // Can't move to position 0 (reserved for Quick Access)
+        return currentIndex > 1
     }
 
     private func canMoveDown() -> Bool {
@@ -142,9 +138,14 @@ struct ReorderableWidgetContainer<Content: View>: View {
     }
 
     private func moveWidgetUp() {
+        // CRITICAL: Quick Access (dailyOverview) cannot be moved
+        if widgetType == .dailyOverview {
+            return
+        }
+        
         let visibleWidgets = widgetManager.visibleWidgets
         guard let currentIndex = visibleWidgets.firstIndex(where: { $0.type == widgetType }),
-              currentIndex > 0 else {
+              currentIndex > 1 else { // Can't move to position 0 (reserved for Quick Access)
             return
         }
 
@@ -221,9 +222,7 @@ struct WidgetEditModeOverlay: View {
             HStack(spacing: 12) {
                 // Edit mode indicator
                 HStack(spacing: 6) {
-                    Image(systemName: "hand.draw.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+
 
                     Text("Edit Mode")
                         .font(.system(size: 14, weight: .medium))
@@ -259,19 +258,20 @@ struct WidgetEditModeOverlay: View {
                     .buttonStyle(PlainButtonStyle())
                 }
 
-                // Done button
+                // Done button (inside the edit mode bar)
                 Button("Done") {
                     widgetManager.exitEditMode()
                     showAddWidgets = false
                 }
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(.blue)
+                .foregroundColor(colorScheme == .dark ? Color(white: 0.9) : Color(white: 0.2))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.blue.opacity(0.15))
+                        .fill(colorScheme == .dark ? Color(white: 0.3) : Color(white: 0.85))
                 )
+
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

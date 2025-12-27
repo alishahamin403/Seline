@@ -18,6 +18,12 @@ struct VisitHistoryItem {
     let placeName: String
 }
 
+struct WeeklyVisitSummaryItem {
+    let placeId: UUID
+    let placeName: String
+    let totalMinutes: Int
+}
+
 // MARK: - LocationVisitAnalytics Service
 
 @MainActor
@@ -191,6 +197,34 @@ class LocationVisitAnalytics: ObservableObject {
         }
 
         return locationVisits
+    }
+
+    /// Get summary of visits for the current week starting from a specific date
+    func getWeeklyVisitsSummary(from startDate: Date) async -> [WeeklyVisitSummaryItem] {
+        guard let userId = SupabaseManager.shared.getCurrentUser()?.id else {
+            return []
+        }
+        
+        // End date is today
+        let endDate = Date()
+        
+        // Fetch all saved places
+        let allPlaces = LocationsManager.shared.savedPlaces
+        var summaryItems: [WeeklyVisitSummaryItem] = []
+        
+        // For each place, get visits in range
+        // Note: This could be optimized with a specialized Supabase query, but reusing existing logic for now
+        for place in allPlaces {
+            let visits = await getVisitsInDateRange(for: place.id, startDate: startDate, endDate: endDate)
+            if !visits.isEmpty {
+                let totalMinutes = visits.reduce(0) { $0 + ($1.durationMinutes ?? 0) }
+                if totalMinutes > 0 {
+                    summaryItems.append(WeeklyVisitSummaryItem(placeId: place.id, placeName: place.displayName, totalMinutes: totalMinutes))
+                }
+            }
+        }
+        
+        return summaryItems
     }
 
     /// Get today's visits with total duration per location
@@ -584,6 +618,25 @@ class LocationVisitAnalytics: ObservableObject {
                 print("   Split 2: \(startOfExitDay) to \(visit.exitTime!) (\(duration2) min)")
 
                 do {
+                    // IDEMPOTENCY CHECK: Check if split visits already exist
+                    let response = try await client
+                        .from("location_visits")
+                        .select()
+                        .eq("user_id", value: userId.uuidString)
+                        .eq("saved_place_id", value: visit.savedPlaceId.uuidString)
+                        .eq("entry_time", value: formatter.string(from: startOfExitDay))
+                        .execute()
+                    
+                    let decoder = JSONDecoder.supabaseDecoder()
+                    let existingVisits: [LocationVisitRecord] = try decoder.decode([LocationVisitRecord].self, from: response.data)
+                    let existingSplits = existingVisits.filter { $0.mergeReason?.contains("midnight_split") == true }
+                    
+                    if !existingSplits.isEmpty {
+                        print("   ⚠️ IDEMPOTENCY: Split visits already exist, skipping")
+                        skippedCount += 1
+                        continue
+                    }
+                    
                     // Step 1: Delete the original visit
                     try await client
                         .from("location_visits")

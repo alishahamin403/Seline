@@ -6,7 +6,7 @@ struct BlockListView: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(controller.blocks.enumerated()), id: \.element.id) { index, block in
                     if block.blockType == .divider {
                         DividerBlockView()
@@ -36,14 +36,13 @@ struct BlockListView: View {
                             },
                             onShiftTab: {
                                 controller.decreaseIndent(block.id)
+                            },
+                            onCheckboxToggle: {
+                                controller.toggleCheckbox(block.id)
                             }
                         )
                         .id(block.id)
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            // Focus this block when tapped
-                            controller.focusedBlockId = block.id
-                        }
                     }
                 }
             }

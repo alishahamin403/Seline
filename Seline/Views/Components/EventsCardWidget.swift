@@ -133,7 +133,7 @@ struct EventsCardWidget: View {
         let color = filterAccentColor(type, colorIndex)
         return Text(filterDisplayNameForType(type))
             .font(.system(size: 9, weight: .medium))
-            .foregroundColor(colorScheme == .dark ? Color(white: 0.3) : .white)
+            .foregroundColor(.white) // Always white text in both dark and light mode
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
@@ -143,53 +143,135 @@ struct EventsCardWidget: View {
     }
 
     private func eventRow(_ task: TaskItem) -> some View {
-        Button(action: {
-            HapticManager.shared.cardTap()
-            selectedTask = task
-        }) {
-            let isTaskCompleted = task.isCompletedOn(date: selectedDate)
-            let badgeFilterType = filterType(from: task)
-            let colorIndex = getTagColorIndex(for: task)
-            let circleColor = filterAccentColor(badgeFilterType, colorIndex)
-            let badge = filterDisplayName(for: task)
-            let badgeColor = filterAccentColor(badgeFilterType, colorIndex)
+        let isTaskCompleted = task.isCompletedOn(date: selectedDate)
+        let badgeFilterType = filterType(from: task)
+        let colorIndex = getTagColorIndex(for: task)
+        let circleColor = filterAccentColor(badgeFilterType, colorIndex)
 
-            // Title row with checkmark and time
-            HStack(spacing: 10) {
-                // Completion status icon - tappable
-                Button(action: {
+        // Title row with checkmark and time
+        return HStack(spacing: 10) {
+            // Completion status icon - tappable
+            Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(isTaskCompleted ? circleColor : circleColor.opacity(0.4))
+                .onTapGesture {
                     HapticManager.shared.selection()
                     taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                }) {
-                    Image(systemName: isTaskCompleted ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(isTaskCompleted ? circleColor : circleColor.opacity(0.4))
                 }
-                .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
 
-                // Event title
-                Text(task.title)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
-                    .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            // Event title
+            Text(task.title)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5)) : (colorScheme == .dark ? Color.white : Color.black))
+                .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                Spacer()
-
-                // Event time
-                if let scheduledTime = task.scheduledTime {
-                    Text(formatTime(scheduledTime))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45)) : (colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65)))
-                        .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                }
+            // Location Badge
+            if let location = task.location, !location.isEmpty {
+                 HStack(spacing: 2) {
+                     Image(systemName: "mappin.circle.fill")
+                         .font(.system(size: 10))
+                     Text(location)
+                         .font(.system(size: 10, weight: .medium))
+                 }
+                 .foregroundColor(colorScheme == .dark ? .white : .black)
+                 .padding(.horizontal, 6)
+                 .padding(.vertical, 2)
+                 .background(
+                     RoundedRectangle(cornerRadius: 4)
+                         .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                 )
             }
-            .padding(.vertical, 4)
+
+            Spacer()
+
+            // Event time
+            if let scheduledTime = task.scheduledTime {
+                Text(formatTime(scheduledTime))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isTaskCompleted ? (colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45)) : (colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65)))
+                    .strikethrough(isTaskCompleted, color: colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+            }
         }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            HapticManager.shared.cardTap()
+            selectedTask = task
+        }
+        .contextMenu {
+            Button {
+                HapticManager.shared.selection()
+                taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+            } label: {
+                Label(isTaskCompleted ? "Mark Incomplete" : "Mark Complete", 
+                      systemImage: isTaskCompleted ? "arrow.uturn.backward" : "checkmark.circle")
+            }
+            
+            Button {
+                HapticManager.shared.selection()
+                selectedTask = task
+                showingEditTask = true
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            
+            Divider()
+            
+            Button(role: .destructive) {
+                HapticManager.shared.warning()
+                taskManager.deleteTask(task)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    @AppStorage("dismissedOverdueTaskIds") private var dismissedTaskIdsString: String = ""
+    
+    private var dismissedTaskIds: [String] {
+        dismissedTaskIdsString.split(separator: ",").map(String.init)
+    }
+    
+    private func dismissTask(_ id: String) {
+        var ids = dismissedTaskIds
+        if !ids.contains(id) {
+            ids.append(id)
+            dismissedTaskIdsString = ids.joined(separator: ",")
+        }
+    }
+
+    private var overdueEvents: [TaskItem] {
+        let now = Date()
+        let today = Calendar.current.startOfDay(for: now)
+        let flattened = taskManager.getAllFlattenedTasks()
+        let dismissed = Set(dismissedTaskIds)
+        
+        return flattened.filter { task in
+            // Must have a scheduled time (not all day)
+            guard let scheduledTime = task.scheduledTime, let targetDate = task.targetDate else { return false }
+            
+            // Filter out completed, deleted, and dismissed tasks
+            if task.isCompleted || task.isDeleted || dismissed.contains(task.id) {
+                return false
+            }
+            
+            // Combine target date and scheduled time for accurate comparison
+            let calendar = Calendar.current
+            let timeComponents = calendar.dateComponents([.hour, .minute], from: scheduledTime)
+            guard let taskDateTime = calendar.date(bySettingHour: timeComponents.hour ?? 0,
+                                                 minute: timeComponents.minute ?? 0,
+                                                 second: 0,
+                                                 of: targetDate) else { return false }
+            
+            // Must be strictly from a previous day (before today 00:00)
+            return taskDateTime < today
+        }.sorted { 
+            // Sort by most recently overdue (closest to today)
+            guard let d1 = $0.targetDate, let d2 = $1.targetDate else { return false }
+            return d1 > d2
+        }
     }
 
     var body: some View {
@@ -197,26 +279,74 @@ struct EventsCardWidget: View {
             // Header with "Todos"
             HStack(spacing: 12) {
                 Text("Todos")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
 
                 Spacer()
 
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showingAddEventPopup = true
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 32, height: 32)
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                    )
+                    .onTapGesture {
+                        HapticManager.shared.selection()
+                        showingAddEventPopup = true
+                    }
+            }
+            
+            // Overdue Tasks Alert
+            if !overdueEvents.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                        Text("Overdue")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.red)
+                        Spacer()
+                    }
+                    
+                    ForEach(overdueEvents.prefix(3)) { task in
+                        HStack(spacing: 8) {
+                            Text(task.title)
+                                .font(.system(size: 12))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .lineLimit(1)
+                            
+                            Spacer()
+                            
+                            if let targetDate = task.targetDate {
+                                Text(formatDateShort(targetDate))
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.red.opacity(0.8))
+                            }
+                            
+                            Button(action: {
+                                withAnimation {
+                                    dismissTask(task.id)
+                                }
+                            }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.gray)
+                                    .padding(4)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
                         .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.red.opacity(0.1))
                         )
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
+                .padding(.bottom, 6)
             }
             
             // Tag color indicators - moved to separate line
@@ -230,25 +360,26 @@ struct EventsCardWidget: View {
             }
 
             // Events list for selected date
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 6) {
-                    if sortedEvents.isEmpty {
-                        Text("No events")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(sortedEvents, id: \.id) { task in
-                            eventRow(task)
-                        }
+            // IMPORTANT: Avoid nested vertical ScrollView inside the home page ScrollView.
+            // Nested vertical scrolling is a major source of "tap wins over scroll" behavior.
+            VStack(alignment: .leading, spacing: 6) {
+                if sortedEvents.isEmpty {
+                    Text("No events")
+
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(Array(sortedEvents.prefix(8)), id: \.id) { task in
+                        eventRow(task)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
         .padding(16)
         .shadcnTileStyle(colorScheme: colorScheme)
         .sheet(item: $selectedTask) { task in
@@ -305,6 +436,12 @@ struct EventsCardWidget: View {
                 showingEditTask = false
             }
         }
+    }
+    
+    private func formatDateShort(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 }
 

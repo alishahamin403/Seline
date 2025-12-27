@@ -170,17 +170,18 @@ struct WeatherWidget: View {
                 break
             }
         }
-        .onAppear {
-            // NO automatic timer - only manual refresh on appearance
+        .task {
+            // Use .task instead of .onAppear for async operations
             // Only fetch if visible
             guard isVisible else { return }
 
             locationService.requestLocationPermission()
             loadLocationPreferences()
 
-            // If we already have a location, fetch weather immediately on appearance
+            // If we already have a location, fetch weather (non-blocking)
             if let location = locationService.currentLocation {
-                Task {
+                // Only fetch if weather data is stale or missing
+                if weatherService.weatherData == nil {
                     await weatherService.fetchWeather(for: location)
                 }
             }

@@ -3,6 +3,7 @@ import SwiftUI
 struct EventsView: View {
     @StateObject private var taskManager = TaskManager.shared
     @StateObject private var tagManager = TagManager.shared
+    @StateObject private var locationsManager = LocationsManager.shared
     @Environment(\.colorScheme) var colorScheme
     @Namespace private var tabAnimation
     @State private var activeSheet: ActiveSheet?
@@ -19,6 +20,9 @@ struct EventsView: View {
     @State private var selectedImage: UIImage?
     @State private var showImagePicker = false
     @State private var isCreatingEvent = false
+    @State private var calendarViewMode: CalendarViewMode = .week
+    @State private var showAddEventPopup = false
+    @State private var addEventDate: Date = Date()
 
     enum EventViewType: Hashable {
         case events
@@ -26,7 +30,6 @@ struct EventsView: View {
     }
 
     enum ActiveSheet: Identifiable {
-        case calendar
         case recurring
         case viewTask
         case editTask
@@ -58,38 +61,18 @@ struct EventsView: View {
                             Spacer()
                             HStack {
                                 Spacer()
-                                VStack(spacing: 12) {
-                                    // Stats button
-                                    Button(action: {
-                                        activeSheet = .stats
-                                    }) {
-                                        Image(systemName: "chart.bar.fill")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 56, height: 56)
-                                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
-                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-
-                                    // Photo import button
-                                    Button(action: {
-                                        showPhotoImportDialog = true
-                                    }) {
-                                        Image(systemName: "camera.fill")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 56, height: 56)
-                                            .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
-                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-
-                                    // Calendar button
-                                    FloatingCalendarButton {
-                                        activeSheet = .calendar
-                                    }
+                                // Photo import button (stats button removed - ranking is now a tab)
+                                Button(action: {
+                                    showPhotoImportDialog = true
+                                }) {
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .frame(width: 48, height: 48)
+                                        .background(Circle().fill(Color(red: 0.2, green: 0.2, blue: 0.2)))
+                                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                                 }
+                                .buttonStyle(PlainButtonStyle())
                                 .padding(.trailing, 20)
                                 .padding(.bottom, 30)
                             }
@@ -133,8 +116,6 @@ struct EventsView: View {
         .sheet(item: $activeSheet) { sheet in
             Group {
                 switch sheet {
-                case .calendar:
-                    CalendarPopupView(selectedDate: $selectedDate, selectedTagId: selectedTagId)
                 case .recurring:
                 if let task = selectedTaskForRecurring {
                     NavigationView {
@@ -264,6 +245,17 @@ struct EventsView: View {
                 isTransitioningToEdit = false
             }
         }
+        .sheet(isPresented: $showAddEventPopup) {
+            AddEventPopupView(
+                isPresented: $showAddEventPopup,
+                onSave: { title, description, date, time, endTime, reminder, recurring, frequency, customDays, tagId, location in
+                    addEventToCalendar(title: title, description: description, date: date, time: time, endTime: endTime, reminder: reminder, recurring: recurring, frequency: frequency, tagId: tagId, location: location)
+                },
+                initialDate: addEventDate,
+                initialTime: nil
+            )
+            .presentationBg()
+        }
     }
 
     // MARK: - Helper Methods
@@ -296,25 +288,20 @@ struct EventsView: View {
     }
 
     // Helper methods for filter button styling
-    private func filterButtonTextColor(isSelected: Bool) -> Color {
-        isSelected ? (colorScheme == .dark ? Color.white : Color.black) : Color.shadcnForeground(colorScheme)
+    private func filterButtonTextColor(isSelected: Bool, accentColor: Color) -> Color {
+        if isSelected {
+            // Always use white text on colored buttons for both dark and light mode
+            return Color.white
+        } else {
+            return Color.shadcnForeground(colorScheme)
+        }
     }
 
     private func filterButtonBackground(isSelected: Bool, accentColor: Color) -> some View {
-        RoundedRectangle(cornerRadius: 6)
+        Capsule()
             .fill(isSelected ?
-                accentColor.opacity(0.2) :
+                accentColor : // Use the actual tag/category color when selected
                 (colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-            )
-    }
-
-    private func filterButtonBorder(isSelected: Bool, accentColor: Color) -> some View {
-        RoundedRectangle(cornerRadius: 6)
-            .stroke(
-                isSelected ?
-                    accentColor.opacity(0.3) :
-                    (colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1)),
-                lineWidth: 1
             )
     }
 
@@ -322,166 +309,234 @@ struct EventsView: View {
 
     private var eventsContent: some View {
         VStack(spacing: 0) {
-            // Day slider
-            DaySliderView(selectedDate: $selectedDate)
+            // Calendar header with month title and view mode toggle
+            CalendarHeaderView(
+                selectedDate: $selectedDate,
+                viewMode: $calendarViewMode
+            )
 
-            // Filter buttons - Show "All", "Personal", and all user-created tags
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    // "All" button (neutral black/white, no color impact)
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTagId = nil
-                        }
-                    }) {
-                        let isSelected = selectedTagId == nil
-                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme)
-
-                        Text("All")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(filterButtonTextColor(isSelected: isSelected))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
-                            .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
+            // View content based on selected mode
+            Group {
+                switch calendarViewMode {
+                case .week:
+                    // For week view: filters as usual
+                    VStack(spacing: 0) {
+                        tagFilterButtons
+                        weekViewContent
                     }
-                    .buttonStyle(PlainButtonStyle())
-
-                    // Personal (default) button - using special marker ""
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTagId = "" // Empty string to filter for personal events (nil tagId)
-                        }
-                    }) {
-                        let isSelected = selectedTagId == ""
-                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme)
-
-                        Text("Personal")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(filterButtonTextColor(isSelected: isSelected))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
-                            .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
+                    .transition(.opacity)
+                case .month:
+                    // For month view: filters as usual
+                    VStack(spacing: 0) {
+                        tagFilterButtons
+                        monthViewContent
                     }
-                    .buttonStyle(PlainButtonStyle())
-
-                    // Personal - Sync button (Calendar synced events)
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTagId = "cal_sync" // Special marker for synced calendar events
-                        }
-                    }) {
-                        let isSelected = selectedTagId == "cal_sync"
-                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme)
-
-                        Text("Personal - Sync")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(filterButtonTextColor(isSelected: isSelected))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
-                            .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    // User-created tags
-                    ForEach(tagManager.tags, id: \.id) { tag in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedTagId = tag.id
-                            }
-                        }) {
-                            let isSelected = selectedTagId == tag.id
-                            let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex)
-
-                            Text(tag.name)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(filterButtonTextColor(isSelected: isSelected))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
-                                .overlay(filterButtonBorder(isSelected: isSelected, accentColor: accentColor))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-
-                    Spacer()
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity
+                    ))
+                case .ranking:
+                    // Ranking view - no filters needed
+                    rankingViewContent
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity
+                    ))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
-
-            // All day events section
-            AllDayEventsSection(
-                tasks: filteredTasks(from: taskManager.getAllTasks(for: selectedDate)),
-                date: selectedDate,
-                onTapTask: { task in
-                    selectedTaskForViewing = task
-                    activeSheet = .viewTask
-                },
-                onToggleCompletion: { task in
-                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                }
-            )
-
-            // Timeline view
-            TimelineView(
-                date: selectedDate,
-                selectedTagId: selectedTagId,
-                isCreatingEvent: $isCreatingEvent,
-                onTapTask: { task in
-                    selectedTaskForViewing = task
-                    activeSheet = .viewTask
-                },
-                onToggleCompletion: { task in
-                    taskManager.toggleTaskCompletion(task, forDate: selectedDate)
-                },
-                onAddEvent: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
-                    // Determine the weekday from the selected date
-                    let calendar = Calendar.current
-                    let weekdayIndex = calendar.component(.weekday, from: date)
-                    let weekday: WeekDay
-                    switch weekdayIndex {
-                    case 1: weekday = .sunday
-                    case 2: weekday = .monday
-                    case 3: weekday = .tuesday
-                    case 4: weekday = .wednesday
-                    case 5: weekday = .thursday
-                    case 6: weekday = .friday
-                    case 7: weekday = .saturday
-                    default: weekday = .monday
-                    }
-
-                    taskManager.addTask(
-                        title: title,
-                        to: weekday,
-                        description: description,
-                        scheduledTime: time,
-                        endTime: endTime,
-                        targetDate: date,
-                        reminderTime: reminder,
-                        isRecurring: recurring,
-                        recurrenceFrequency: frequency,
-                        tagId: tagId
-                    )
-                },
-                onEditEvent: { task in
-                    selectedTaskForEditing = task
-                    activeSheet = .editTask
-                },
-                onDeleteEvent: { task in
-                    if task.isRecurring {
-                        taskManager.deleteRecurringTask(task)
-                    } else {
-                        taskManager.deleteTask(task)
-                    }
-                }
-            )
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: calendarViewMode)
         }
         .background(
             colorScheme == .dark ?
                 Color.black : Color.white
+        )
+    }
+    
+    // MARK: - Tag Filter Buttons
+    
+    private var tagFilterButtons: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // "All" button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = nil
+                    }
+                }) {
+                    let isSelected = selectedTagId == nil
+                    let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .all, colorScheme: colorScheme)
+
+                    Text("All")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Personal button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = ""
+                    }
+                }) {
+                    let isSelected = selectedTagId == ""
+                    let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personal, colorScheme: colorScheme)
+
+                    Text("Personal")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // Sync button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTagId = "cal_sync"
+                    }
+                }) {
+                    let isSelected = selectedTagId == "cal_sync"
+                    let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .personalSync, colorScheme: colorScheme)
+
+                    Text("Sync")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // User-created tags
+                ForEach(tagManager.tags, id: \.id) { tag in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedTagId = tag.id
+                        }
+                    }) {
+                        let isSelected = selectedTagId == tag.id
+                        let accentColor = TimelineEventColorManager.filterButtonAccentColor(buttonStyle: .tag(tag.id), colorScheme: colorScheme, tagColorIndex: tag.colorIndex)
+
+                        Text(tag.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(filterButtonTextColor(isSelected: isSelected, accentColor: accentColor))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(filterButtonBackground(isSelected: isSelected, accentColor: accentColor))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+    
+    // MARK: - Week View Content
+    
+    private var weekViewContent: some View {
+        CalendarWeekView(
+            selectedDate: $selectedDate,
+            selectedTagId: selectedTagId,
+            onTapEvent: { task in
+                selectedTaskForViewing = task
+                activeSheet = .viewTask
+            },
+            onAddEvent: { title, description, date, time, endTime, reminder, recurring, frequency, tagId in
+                addEventToCalendar(title: title, description: description, date: date, time: time, endTime: endTime, reminder: reminder, recurring: recurring, frequency: frequency, tagId: tagId, location: nil)
+            }
+        )
+    }
+    
+    // MARK: - Ranking View Content (Recurring Stats)
+    
+    private var rankingViewContent: some View {
+        EventStatsView()
+    }
+    
+    // MARK: - Month View Content
+    
+    private var monthViewContent: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 0) {
+                    // Calendar month grid
+                    CalendarMonthView(
+                        selectedDate: $selectedDate,
+                        selectedTagId: selectedTagId,
+                        onTapEvent: { task in
+                            selectedTaskForViewing = task
+                            activeSheet = .viewTask
+                        },
+                        onAddEvent: { date in
+                            addEventDate = date
+                            showAddEventPopup = true
+                        }
+                    )
+                    
+                    // Agenda view for selected date (no divider line)
+                    CalendarAgendaView(
+                        selectedDate: selectedDate,
+                        selectedTagId: selectedTagId,
+                        onTapEvent: { task in
+                            selectedTaskForViewing = task
+                            activeSheet = .viewTask
+                        },
+                        onToggleCompletion: { task in
+                            taskManager.toggleTaskCompletion(task, forDate: selectedDate)
+                        },
+                        onAddEvent: { date in
+                            addEventDate = date
+                            showAddEventPopup = true
+                        }
+                    )
+                    .id("agendaView") // ID for scrolling
+                }
+            }
+            .onChange(of: selectedDate) { _ in
+                // Scroll to agenda view when date is selected
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    proxy.scrollTo("agendaView", anchor: .top)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Add Event Helper
+    
+    private func addEventToCalendar(title: String, description: String?, date: Date, time: Date?, endTime: Date?, reminder: ReminderTime?, recurring: Bool, frequency: RecurrenceFrequency?, tagId: String?, location: String?) {
+        let calendar = Calendar.current
+        let weekdayIndex = calendar.component(.weekday, from: date)
+        let weekday: WeekDay
+        switch weekdayIndex {
+        case 1: weekday = .sunday
+        case 2: weekday = .monday
+        case 3: weekday = .tuesday
+        case 4: weekday = .wednesday
+        case 5: weekday = .thursday
+        case 6: weekday = .friday
+        case 7: weekday = .saturday
+        default: weekday = .monday
+        }
+
+        taskManager.addTask(
+            title: title,
+            to: weekday,
+            description: description,
+            scheduledTime: time,
+            endTime: endTime,
+            targetDate: date,
+            reminderTime: reminder,
+            location: location,
+            isRecurring: recurring,
+            recurrenceFrequency: frequency,
+            tagId: tagId
         )
     }
 

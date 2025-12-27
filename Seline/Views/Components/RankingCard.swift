@@ -143,50 +143,36 @@ struct RankingCard: View {
     }
 
     private var expandedEditView: some View {
-        VStack(spacing: 12) {
-            Divider()
-                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
-                .padding(.horizontal, 12)
-
+        VStack(spacing: 20) {
             ratingSliderView
-
             cuisineFieldView
-
             notesFieldView
-
             saveButtonView
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+        .padding(16)
+        .padding(.bottom, 4)
     }
 
     private var ratingSliderView: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Your Rating")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
-
                 Spacer()
-
                 if let rating = tempRating {
-                    HStack(spacing: 3) {
-                        Text("\(rating)")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(ratingColor(rating))
-                        Text("/10")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    }
+                    Text("\(rating)/10")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(ratingColor(rating))
                 } else {
-                    Text("Not rated")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                    Text("Tap to rate")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5))
                 }
             }
 
-            // Star rating buttons
-            HStack(spacing: 6) {
+            // Star rating container
+            HStack(spacing: 8) {
                 ForEach(1...10, id: \.self) { number in
                     Button(action: {
                         HapticManager.shared.selection()
@@ -194,36 +180,28 @@ struct RankingCard: View {
                             tempRating = number
                         }
                     }) {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    tempRating == number 
-                                        ? ratingColor(number).opacity(0.2)
-                                        : (colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05))
-                                )
-                                .frame(width: 28, height: 28)
-                            
-                            if let rating = tempRating, number <= rating {
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(ratingColor(rating))
-                            } else {
-                                Image(systemName: "star")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.3))
-                            }
-                        }
+                        Image(systemName: (tempRating ?? 0) >= number ? "star.fill" : "star")
+                            .font(.system(size: (tempRating ?? 0) >= number ? 14 : 12, weight: .medium))
+                            .foregroundColor((tempRating ?? 0) >= number ? ratingColor(tempRating ?? 0) : (colorScheme == .dark ? .white.opacity(0.2) : .black.opacity(0.2)))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03))
+            )
         }
     }
 
     private var cuisineFieldView: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Cuisine")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
             Menu {
@@ -251,60 +229,54 @@ struct RankingCard: View {
                     }
                 }
             } label: {
-                    HStack(spacing: 6) {
-                        Text(tempCuisine ?? "Select cuisine")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                HStack {
+                    Text(tempCuisine ?? "Select Cuisine")
+                        .font(.system(size: 14, weight: tempCuisine == nil ? .regular : .medium))
+                        .foregroundColor(tempCuisine == nil ? (colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.5)) : (colorScheme == .dark ? .white : .black))
 
-                        Spacer()
+                    Spacer()
 
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
                 .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(
-                            colorScheme == .dark 
-                                ? Color.white.opacity(0.08)
-                                : Color.black.opacity(0.1),
-                            lineWidth: 1
-                        )
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03))
                 )
             }
         }
     }
 
     private var notesFieldView: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Notes")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
 
-            TextEditor(text: $tempNotes)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-                .frame(minHeight: 70)
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(
-                            colorScheme == .dark 
-                                ? Color.white.opacity(0.08)
-                                : Color.black.opacity(0.1),
-                            lineWidth: 1
-                        )
-                )
+            ZStack(alignment: .topLeading) {
+                if tempNotes.isEmpty {
+                    Text("Add your personal notes here...")
+                        .font(.system(size: 14))
+                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.3) : .black.opacity(0.3))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                }
+                
+                TextEditor(text: $tempNotes)
+                    .font(.system(size: 14))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
+            .frame(minHeight: 80)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.03))
+            )
         }
     }
 
@@ -316,14 +288,14 @@ struct RankingCard: View {
                 isExpanded = false
             }
         }) {
-            Text("Save")
-                .font(.system(size: 13, weight: .semibold))
+            Text("Save Changes")
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 14)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black)
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black)
                 )
         }
     }

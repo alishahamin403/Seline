@@ -143,10 +143,7 @@ struct RankingView: View {
                 emptyStateView
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 16) {
-                        // Stats summary card
-                        statsSummaryCard
-                        
+                    VStack(spacing: 24) {
                         // Cuisine filter pills
                         filterPillsSection
                         
@@ -154,7 +151,9 @@ struct RankingView: View {
                         if !topRated.isEmpty {
                             ratingSection(
                                 title: "Top Rated",
-                                subtitle: "8-10",
+                                subtitle: "Rating 8.0 - 10.0",
+                                icon: "crown.fill",
+                                count: topRated.count,
                                 restaurants: topRated,
                                 accentColor: Color.green,
                                 isExpanded: expandedRatingSections.contains("Top Rated"),
@@ -175,7 +174,9 @@ struct RankingView: View {
                         if !goodRated.isEmpty {
                             ratingSection(
                                 title: "Good",
-                                subtitle: "5-7",
+                                subtitle: "Rating 5.0 - 7.0",
+                                icon: "hand.thumbsup.fill",
+                                count: goodRated.count,
                                 restaurants: goodRated,
                                 accentColor: Color.orange,
                                 isExpanded: expandedRatingSections.contains("Good"),
@@ -196,9 +197,11 @@ struct RankingView: View {
                         if !needsRating.isEmpty {
                             ratingSection(
                                 title: "Needs Rating",
-                                subtitle: "\(needsRating.count) unrated",
+                                subtitle: "Not yet reviewed",
+                                icon: "star.bubble.fill",
+                                count: needsRating.count,
                                 restaurants: needsRating,
-                                accentColor: Color.gray,
+                                accentColor: Color.blue,
                                 isExpanded: expandedRatingSections.contains("Needs Rating"),
                                 onToggle: {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -213,8 +216,8 @@ struct RankingView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 16)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 20)
                     .padding(.bottom, 100)
                 }
             }
@@ -223,54 +226,6 @@ struct RankingView: View {
         .background(
             colorScheme == .dark ? Color.black : Color.white
         )
-    }
-    
-    // MARK: - Stats Summary Card
-    
-    private var statsSummaryCard: some View {
-        VStack(spacing: 12) {
-            // Stats grid
-            HStack(spacing: 16) {
-                statItem(
-                    value: "\(restaurants.count)",
-                    label: "Total",
-                    icon: "fork.knife"
-                )
-                
-                statItem(
-                    value: ratedRestaurants.isEmpty ? "—" : String(format: "%.1f", averageRating),
-                    label: "Avg Rating",
-                    icon: "star.fill"
-                )
-                
-                statItem(
-                    value: "\(needsRating.count)",
-                    label: "Unrated",
-                    icon: "star"
-                )
-            }
-        }
-        .padding(16)
-        .shadcnTileStyle(colorScheme: colorScheme)
-    }
-    
-    private func statItem(value: String, label: String, icon: String) -> some View {
-        VStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-            
-            Text(value)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-            
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                .textCase(.uppercase)
-                .tracking(0.5)
-        }
-        .frame(maxWidth: .infinity)
     }
     
     // MARK: - Filter Pills Section
@@ -338,43 +293,47 @@ struct RankingView: View {
     
     // MARK: - Rating Section
     
-    private func ratingSection(title: String, subtitle: String, restaurants: [SavedPlace], accentColor: Color, isExpanded: Bool, onToggle: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func ratingSection(title: String, subtitle: String, icon: String, count: Int, restaurants: [SavedPlace], accentColor: Color, isExpanded: Bool, onToggle: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             // Section header - clickable to expand/collapse
             Button(action: onToggle) {
                 HStack(spacing: 12) {
-                    // Accent indicator
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(accentColor)
-                        .frame(width: 3, height: 20)
-                    
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 16, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? .white : .black)
                         
                         Text(subtitle)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
                     }
                     
                     Spacer()
                     
-                    // Chevron indicator
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
-                        .frame(width: 20)
+                    // Count Badge - Oval shaped circle matching all locations widget
+                    Text("\(count)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                        .frame(minWidth: 24, minHeight: 24)
+                        .padding(.horizontal, 6)
+                        .background(
+                            Capsule()
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.08))
+                        )
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.vertical, 14)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
             
             // Restaurants list - only show when expanded
             if isExpanded {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
+                    Divider()
+                        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08))
+                        .padding(.bottom, 4)
+                        
                     ForEach(restaurants) { restaurant in
                         RankingCard(
                             restaurant: restaurant,
@@ -390,25 +349,7 @@ struct RankingView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 22)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(
-                    colorScheme == .dark 
-                        ? Color.white.opacity(0.08)
-                        : Color.clear,
-                    lineWidth: 1
-                )
-        )
-        .shadow(
-            color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.04),
-            radius: 20,
-            x: 0,
-            y: 4
-        )
+        .shadcnTileStyle(colorScheme: colorScheme)
     }
     
     // MARK: - Empty State

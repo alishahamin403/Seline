@@ -78,13 +78,21 @@ struct TimelineEventBlock: View {
     }
 
     private var textColor: Color {
-        // Use black in light mode, white in dark mode for better readability
-        return colorScheme == .dark ? Color.white : Color.black
+        // Use the color manager to determine appropriate text color
+        if case .tag(let tagId) = filterType, let tagColorIndex = tagColorIndex {
+            return TimelineEventColorManager.tagColorTextColor(colorIndex: tagColorIndex, colorScheme: colorScheme)
+        }
+        // For personal/sync events, use white in dark mode, black in light mode
+        return TimelineEventColorManager.timelineEventTextColor(
+            filterType: filterType,
+            colorScheme: colorScheme,
+            tagColorIndex: tagColorIndex
+        )
     }
 
     private var circleColor: Color {
-        // Use black in light mode, white in dark mode for better readability
-        return colorScheme == .dark ? Color.white : Color.black
+        // Use white in both light and dark mode for better visibility
+        return Color.white
     }
 
 
@@ -137,10 +145,9 @@ struct TimelineEventBlock: View {
         .frame(height: displayHeight)
         .background(
             RoundedRectangle(cornerRadius: 7)
-                .fill(backgroundColor)
+                .fill(backgroundColor) // Solid color, no opacity
         )
         .clipped() // Prevent content from overflowing
-        .opacity(isCompleted ? 0.7 : 1.0)
         .shadow(
             color: (colorScheme == .dark ? Color.white : Color.black).opacity(0.08),
             radius: 2,

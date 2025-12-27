@@ -176,48 +176,48 @@ struct SpendingAndETAWidget: View {
 
     private func spendingCard() -> some View {
         ZStack(alignment: .topTrailing) {
-            Button(action: { showReceiptStats = true }) {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Monthly spending amount and % on same line
-                    HStack(alignment: .bottom, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("This Month")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
-                                .textCase(.uppercase)
-                                .tracking(0.5)
+            VStack(alignment: .leading, spacing: 12) {
+                // Monthly spending amount and % on same line
+                HStack(alignment: .bottom, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("This Month")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.65) : Color.black.opacity(0.65))
+                            .textCase(.uppercase)
+                            .tracking(0.5)
 
-                            Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                        }
-
-                        // Month over month percentage
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up" : "arrow.down")
-                                    .font(.system(size: 9, weight: .semibold))
-                                Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(monthOverMonthPercentage.isIncrease ? Color.red.opacity(0.85) : Color.green.opacity(0.85))
-
-                            Text("vs last month")
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
-                        }
-                        .padding(.leading, 8)
-
-                        Spacer()
+                        Text(CurrencyParser.formatAmountNoDecimals(monthlyTotal))
+                            .font(.system(size: 20, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                     }
 
-                    // Categories - below % text
-                    topCategoryView
+                    // Month over month percentage
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Image(systemName: monthOverMonthPercentage.isIncrease ? "arrow.up" : "arrow.down")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(String(format: "%.0f%%", monthOverMonthPercentage.percentage))
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(monthOverMonthPercentage.isIncrease ? Color.red.opacity(0.85) : Color.green.opacity(0.85))
+
+                        Text("vs last month")
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.45))
+                    }
+                    .padding(.leading, 8)
+
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Categories - below % text
+                topCategoryView
             }
-            .buttonStyle(PlainButtonStyle())
-            .allowsParentScrolling()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                showReceiptStats = true
+            }
 
             // Add receipt button (camera/gallery) - Menu with options
             Menu {
@@ -295,7 +295,7 @@ struct SpendingAndETAWidget: View {
 
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(category.category)
-                                        .font(.system(size: 11, weight: .semibold))
+                                        .font(.system(size: 11, weight: .regular))
                                         .foregroundColor(colorScheme == .dark ? .white : .black)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.85)

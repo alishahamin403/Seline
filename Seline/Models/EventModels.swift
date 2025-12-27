@@ -3,7 +3,8 @@ import PostgREST
 import SwiftUI
 import EventKit
 
-// Color palette for tags - minimalistic, unique colors for each tag
+// Color palette for tags - DEPRECATED: Now using TimelineEventColorManager.NeutralColorPalette
+// Keeping for backwards compatibility, but new code should use TimelineEventColorManager
 struct TagColorPalette {
     static let colors: [Color] = [
         Color(red: 0.4, green: 0.6, blue: 0.8),   // Muted blue
@@ -270,6 +271,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var targetDate: Date? // Specific date this task is intended for
     var reminderTime: ReminderTime? // When to remind the user
     var tagId: String? // Tag for organizing events (nil means "Personal" default tag)
+    var location: String? // Location of the event
     var isDeleted: Bool = false // Flag for soft deletion when Supabase deletion fails
     var completedDates: [Date] = [] // For recurring tasks: track which specific dates were completed
     var isFromCalendar: Bool = false // True if synced from iPhone calendar (read-only, no Supabase save)
@@ -303,7 +305,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         }
     }
 
-    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, customRecurrenceDays: [WeekDay]? = nil, parentRecurringTaskId: String? = nil) {
+    init(title: String, weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, location: String? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, customRecurrenceDays: [WeekDay]? = nil, parentRecurringTaskId: String? = nil) {
         self.id = UUID().uuidString
         self.title = title
         self.description = description
@@ -315,6 +317,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         self.endTime = endTime
         self.targetDate = targetDate
         self.reminderTime = reminderTime
+        self.location = location
         self.isRecurring = isRecurring
         self.recurrenceFrequency = recurrenceFrequency
         self.customRecurrenceDays = customRecurrenceDays
@@ -350,7 +353,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, title, description, isCompleted, completedDate, weekday, createdAt
         case isRecurring, recurrenceFrequency, recurrenceEndDate, parentRecurringTaskId
-        case scheduledTime, endTime, targetDate, reminderTime, tagId, isDeleted, completedDates, isFromCalendar
+        case scheduledTime, endTime, targetDate, reminderTime, tagId, location, isDeleted, completedDates, isFromCalendar
         case emailId, emailSubject, emailSenderName, emailSenderEmail, emailSnippet
         case emailTimestamp, emailBody, emailIsImportant, emailAiSummary
     }
@@ -376,6 +379,9 @@ struct TaskItem: Identifiable, Codable, Equatable {
 
         // Handle tagId - might be missing in old data, default to nil
         tagId = try container.decodeIfPresent(String.self, forKey: .tagId)
+
+        // Handle location - might be missing in old data
+        location = try container.decodeIfPresent(String.self, forKey: .location)
 
         // Handle isDeleted - might be missing in old data, default to false
         isDeleted = try container.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
@@ -419,6 +425,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(targetDate, forKey: .targetDate)
         try container.encodeIfPresent(reminderTime, forKey: .reminderTime)
         try container.encodeIfPresent(tagId, forKey: .tagId)
+        try container.encodeIfPresent(location, forKey: .location)
         try container.encode(isDeleted, forKey: .isDeleted)
         try container.encode(completedDates, forKey: .completedDates)
         try container.encode(isFromCalendar, forKey: .isFromCalendar)
@@ -514,7 +521,7 @@ class TaskManager: ObservableObject {
         }
     }
 
-    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, customRecurrenceDays: [WeekDay]? = nil, tagId: String? = nil) {
+    func addTask(title: String, to weekday: WeekDay, description: String? = nil, scheduledTime: Date? = nil, endTime: Date? = nil, targetDate: Date? = nil, reminderTime: ReminderTime? = nil, location: String? = nil, isRecurring: Bool = false, recurrenceFrequency: RecurrenceFrequency? = nil, customRecurrenceDays: [WeekDay]? = nil, tagId: String? = nil) {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // Use provided target date, or default to the current week's date for this weekday
@@ -545,6 +552,7 @@ class TaskManager: ObservableObject {
             endTime: endTime,
             targetDate: finalTargetDate,
             reminderTime: reminderTime,
+            location: location,
             isRecurring: isRecurring,
             recurrenceFrequency: recurrenceFrequency,
             customRecurrenceDays: customRecurrenceDays,
@@ -1184,8 +1192,24 @@ class TaskManager: ObservableObject {
                 // For non-recurring tasks, check weekday match
                 if task.weekday == weekday {
                     if let taskTargetDate = task.targetDate {
-                        // For tasks with specific target dates, check if they match the requested date
-                        return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
+                        let taskStartDate = calendar.startOfDay(for: taskTargetDate)
+                        
+                        // Check if this is a multi-day event
+                        if let endTime = task.endTime {
+                            let taskEndDate = calendar.startOfDay(for: endTime)
+                            
+                            // For multi-day events, check if requested date falls within the range
+                            if taskEndDate > taskStartDate {
+                                // Multi-day event: show on all days from start to end (inclusive)
+                                return targetDate >= taskStartDate && targetDate <= taskEndDate
+                            } else {
+                                // Single-day event: only show on the start date
+                                return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
+                            }
+                        } else {
+                            // No end time: single-day event, only show on start date
+                            return calendar.isDate(taskTargetDate, inSameDayAs: targetDate)
+                        }
                     } else {
                         // For tasks without target dates (legacy tasks), check if the weekday matches
                         // Get the weekday of the target date
@@ -1342,6 +1366,7 @@ class TaskManager: ObservableObject {
     func getAllTasks(for date: Date) -> [TaskItem] {
         let calendar = Calendar.current
         let allTasks = tasks.values.flatMap { $0 }
+        let requestedDate = calendar.startOfDay(for: date)
 
         let filtered = allTasks.filter { task in
             guard !task.isDeleted else { return false }
@@ -1353,7 +1378,24 @@ class TaskManager: ObservableObject {
             } else {
                 // For regular tasks, check target date if available, otherwise use weekday matching
                 if let targetDate = task.targetDate {
-                    shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
+                    let taskStartDate = calendar.startOfDay(for: targetDate)
+                    
+                    // Check if this is a multi-day event
+                    if let endTime = task.endTime {
+                        let taskEndDate = calendar.startOfDay(for: endTime)
+                        
+                        // For multi-day events, check if requested date falls within the range
+                        if taskEndDate > taskStartDate {
+                            // Multi-day event: show on all days from start to end (inclusive)
+                            shouldAppear = requestedDate >= taskStartDate && requestedDate <= taskEndDate
+                        } else {
+                            // Single-day event: only show on the start date
+                            shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
+                        }
+                    } else {
+                        // No end time: single-day event, only show on start date
+                        shouldAppear = calendar.isDate(targetDate, inSameDayAs: date)
+                    }
                 } else {
                     // For tasks without target dates, don't show them in timeline view
                     // They need an explicit targetDate to appear on specific dates

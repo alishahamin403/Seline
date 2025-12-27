@@ -122,30 +122,43 @@ struct LocationSearchModal: View {
                     .padding(.top, 60)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(searchResults) { result in
-                                PlaceSearchResultRow(
-                                    result: result,
-                                    isSaved: locationsManager.isPlaceSaved(googlePlaceId: result.id),
-                                    currentLocation: locationService.currentLocation,
-                                    onSave: {
-                                        // Save handled in detail view
-                                    },
-                                    onTap: {
-                                        loadPlaceDetails(placeId: result.id)
-                                    }
-                                )
+                        VStack(spacing: 12) {
+                            // Mini map showing search result locations
+                            SearchResultsMapView(
+                                searchResults: searchResults,
+                                currentLocation: locationService.currentLocation,
+                                onResultTap: { result in
+                                    loadPlaceDetails(placeId: result.id)
+                                }
+                            )
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            
+                            // Search results list
+                            LazyVStack(spacing: 0) {
+                                ForEach(searchResults) { result in
+                                    PlaceSearchResultRow(
+                                        result: result,
+                                        isSaved: locationsManager.isPlaceSaved(googlePlaceId: result.id),
+                                        currentLocation: locationService.currentLocation,
+                                        onSave: {
+                                            // Save handled in detail view
+                                        },
+                                        onTap: {
+                                            loadPlaceDetails(placeId: result.id)
+                                        }
+                                    )
 
-                                if result.id != searchResults.last?.id {
-                                    Rectangle()
-                                        .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-                                        .frame(height: 1)
-                                        .padding(.leading, 56)
+                                    if result.id != searchResults.last?.id {
+                                        Rectangle()
+                                            .fill(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+                                            .frame(height: 1)
+                                            .padding(.leading, 56)
+                                    }
                                 }
                             }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
                     }
                 }
             }

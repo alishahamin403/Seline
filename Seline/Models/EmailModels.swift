@@ -435,6 +435,76 @@ struct EmailSection: Identifiable {
     }
 }
 
+// MARK: - Day-based Email Section for 7-day rolling view
+
+struct EmailDaySection: Identifiable {
+    let id = UUID()
+    let date: Date
+    let emails: [Email]
+    var isExpanded: Bool = true
+    
+    /// Display title for this day section
+    var title: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Today"
+        } else if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE, MMM d"
+            return formatter.string(from: date)
+        }
+    }
+    
+    /// Short day label (e.g., "Mon", "Tue")
+    var dayLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
+    }
+    
+    /// Date number (e.g., "23")
+    var dateNumber: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d"
+        return formatter.string(from: date)
+    }
+    
+    var emailCount: Int {
+        emails.count
+    }
+    
+    var isEmpty: Bool {
+        emails.isEmpty
+    }
+    
+    var unreadCount: Int {
+        emails.filter { !$0.isRead }.count
+    }
+    
+    /// Categorize emails by day and return sections for the last 7 days (including today)
+    static func categorizeByDay(_ emails: [Email]) -> [EmailDaySection] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        // Generate the last 7 days including today - ALWAYS show all 7 days
+        var sections: [EmailDaySection] = []
+        for dayOffset in 0..<7 {
+            guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
+            
+            let dayEmails = emails.filter { email in
+                calendar.isDate(email.timestamp, inSameDayAs: date)
+            }.sorted { $0.timestamp > $1.timestamp }
+            
+            // Always include all 7 days, even if empty
+            sections.append(EmailDaySection(date: date, emails: dayEmails, isExpanded: dayOffset == 0))
+        }
+        
+        return sections
+    }
+}
+
 extension Email {
     static var sampleEmails: [Email] {
         let today = Date()

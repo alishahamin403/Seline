@@ -22,27 +22,24 @@ struct HomePinnedNotesWidget: View {
             // Header
             HStack(spacing: 10) {
                 Text("Pinned Notes")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 
                 Spacer()
                 
                 // Add note button
-                Button(action: {
-                    HapticManager.shared.selection()
-                    showingNewNoteSheet = true
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            Circle()
-                                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .allowsParentScrolling()
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Circle()
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+                    )
+                    .onTapGesture {
+                        HapticManager.shared.selection()
+                        showingNewNoteSheet = true
+                    }
             }
             
             // Notes list
@@ -70,23 +67,21 @@ struct HomePinnedNotesWidget: View {
                     
                     // Show "more" indicator if there are more notes
                     if pinnedCount > 5 {
-                        Button(action: {
+                        HStack(spacing: 6) {
+                            Text("+\(pinnedCount - 5) more pinned")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
                             HapticManager.shared.selection()
                             selectedTab = .notes
-                        }) {
-                            HStack(spacing: 6) {
-                                Text("+\(pinnedCount - 5) more pinned")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .allowsParentScrolling()
                     }
                 }
             }
@@ -97,38 +92,43 @@ struct HomePinnedNotesWidget: View {
     }
     
     private func noteRow(_ note: Note) -> some View {
-        Button(action: {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                // Title
+                Text(note.title.isEmpty ? "Untitled" : note.title)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+                
+                // Last updated and folder info (same as notes page)
+                HStack(spacing: 8) {
+                    Text(note.formattedDateModified)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                    
+                    if let folderId = note.folderId {
+                        Text("•")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                        
+                        Text(notesManager.getFolderName(for: folderId))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer()
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture {
             HapticManager.shared.cardTap()
             onNoteSelected?(note)
-        }) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    // Title
-                    Text(note.title.isEmpty ? "Untitled" : note.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
-                    
-                    // Preview or date
-                    if !note.content.isEmpty {
-                        Text(note.content.replacingOccurrences(of: "\n", with: " "))
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
-                            .lineLimit(1)
-                    } else {
-                        Text(note.formattedDateModified)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
-                    }
-                }
-                
-                Spacer()
-            }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
-        .allowsParentScrolling()
     }
 }
 

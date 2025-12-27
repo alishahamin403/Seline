@@ -8,6 +8,12 @@ struct DailyForecast {
     let iconName: String
 }
 
+struct HourlyForecast {
+    let hour: String  // e.g., "3 PM"
+    let temperature: Int
+    let iconName: String
+}
+
 struct WeatherData {
     let temperature: Int
     let description: String
@@ -16,6 +22,7 @@ struct WeatherData {
     let sunset: Date
     let locationName: String
     let dailyForecasts: [DailyForecast]
+    let hourlyForecasts: [HourlyForecast]
 }
 
 // Open-Meteo API Response Models
@@ -160,6 +167,39 @@ class WeatherService: ObservableObject {
             print("⚠️ Geocoding failed: \(error.localizedDescription)")
         }
 
+        // Generate next 12 hours of hourly forecast
+        let hourFormatter = DateFormatter()
+        hourFormatter.dateFormat = "h a"  // e.g., "3 PM"
+        
+        let hourDateFormatter = DateFormatter()
+        hourDateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        
+        var hourlyForecasts: [HourlyForecast] = []
+        let currentDate = Date()
+        
+        // Find current hour index
+        var currentHourIndex = 0
+        for (index, timeString) in meteoResponse.hourly.time.enumerated() {
+            if let hourDate = hourDateFormatter.date(from: timeString),
+               hourDate >= currentDate {
+                currentHourIndex = index
+                break
+            }
+        }
+        
+        // Get next 12 hours
+        for i in currentHourIndex..<min(currentHourIndex + 12, meteoResponse.hourly.time.count) {
+            let timeString = meteoResponse.hourly.time[i]
+            if let hourDate = hourDateFormatter.date(from: timeString) {
+                let hourLabel = hourFormatter.string(from: hourDate)
+                let temp = Int(meteoResponse.hourly.temperature_2m[i].rounded())
+                let weatherCode = meteoResponse.hourly.weather_code[i]
+                let icon = mapWeatherCodeToIcon(weatherCode)
+                
+                hourlyForecasts.append(HourlyForecast(hour: hourLabel, temperature: temp, iconName: icon))
+            }
+        }
+
         // Convert to our WeatherData model
         return WeatherData(
             temperature: Int(meteoResponse.current.temperature_2m.rounded()),
@@ -168,7 +208,8 @@ class WeatherService: ObservableObject {
             sunrise: sunrise,
             sunset: sunset,
             locationName: locationName,
-            dailyForecasts: dailyForecasts
+            dailyForecasts: dailyForecasts,
+            hourlyForecasts: hourlyForecasts
         )
     }
 

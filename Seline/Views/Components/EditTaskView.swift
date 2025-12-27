@@ -8,8 +8,11 @@ struct EditTaskView: View {
     let onDeleteRecurringSeries: ((TaskItem) -> Void)?
 
     @State private var title: String
+    @State private var location: String
     @State private var description: String
     @State private var selectedDate: Date
+    @State private var selectedEndDate: Date
+    @State private var isMultiDay: Bool
     @State private var hasTime: Bool
     @State private var selectedTime: Date
     @State private var selectedEndTime: Date
@@ -18,6 +21,8 @@ struct EditTaskView: View {
     @State private var customRecurrenceDays: Set<WeekDay>
     @State private var selectedReminder: ReminderTime
     @State private var selectedTagId: String?
+    @State private var showingDatePicker: Bool = false
+    @State private var showingEndDatePicker: Bool = false
     @Environment(\.colorScheme) var colorScheme
 
     init(task: TaskItem, onSave: @escaping (TaskItem) -> Void, onCancel: @escaping () -> Void, onDelete: ((TaskItem) -> Void)? = nil, onDeleteRecurringSeries: ((TaskItem) -> Void)? = nil) {
@@ -27,9 +32,29 @@ struct EditTaskView: View {
         self.onDelete = onDelete
         self.onDeleteRecurringSeries = onDeleteRecurringSeries
 
+        let startDate = task.targetDate ?? task.weekday.dateForCurrentWeek()
+        let calendar = Calendar.current
+        
+        // Determine if this is a multi-day event
+        var isMultiDayEvent = false
+        var endDate = startDate
+        
+        if let endTime = task.endTime {
+            // Check if end time is on a different day than start date
+            if !calendar.isDate(endTime, inSameDayAs: startDate) {
+                isMultiDayEvent = true
+                endDate = calendar.startOfDay(for: endTime)
+            } else {
+                endDate = startDate
+            }
+        }
+        
         _title = State(initialValue: task.title)
+        _location = State(initialValue: task.location ?? "")
         _description = State(initialValue: task.description ?? "")
-        _selectedDate = State(initialValue: task.targetDate ?? task.weekday.dateForCurrentWeek())
+        _selectedDate = State(initialValue: startDate)
+        _selectedEndDate = State(initialValue: endDate)
+        _isMultiDay = State(initialValue: isMultiDayEvent)
         _hasTime = State(initialValue: task.scheduledTime != nil)
         _selectedTime = State(initialValue: task.scheduledTime ?? Date())
         _selectedEndTime = State(initialValue: task.endTime ?? (task.scheduledTime?.addingTimeInterval(3600) ?? Date().addingTimeInterval(3600)))
@@ -61,9 +86,36 @@ struct EditTaskView: View {
             Button("Save") {
                 let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
                 let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
                 let descriptionToSave = trimmedDescription.isEmpty ? nil : trimmedDescription
-                let timeToSave = hasTime ? selectedTime : nil
-                let endTimeToSave = hasTime ? selectedEndTime : nil
+                let locationToSave = trimmedLocation.isEmpty ? nil : trimmedLocation
+                
+                // Handle time and end time for multi-day events
+                var timeToSave: Date? = nil
+                var endTimeToSave: Date? = nil
+                let calendar = Calendar.current
+                
+                if hasTime {
+                    timeToSave = selectedTime
+                    if isMultiDay {
+                        // Combine end date with end time
+                        let endDateComponents = calendar.dateComponents([.year, .month, .day], from: selectedEndDate)
+                        let endTimeComponents = calendar.dateComponents([.hour, .minute], from: selectedEndTime)
+                        var combinedComponents = DateComponents()
+                        combinedComponents.year = endDateComponents.year
+                        combinedComponents.month = endDateComponents.month
+                        combinedComponents.day = endDateComponents.day
+                        combinedComponents.hour = endTimeComponents.hour
+                        combinedComponents.minute = endTimeComponents.minute
+                        endTimeToSave = calendar.date(from: combinedComponents) ?? selectedEndTime
+                    } else {
+                        endTimeToSave = selectedEndTime
+                    }
+                } else if isMultiDay {
+                    // All-day multi-day event: set end time to end of end date
+                    endTimeToSave = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: selectedEndDate)
+                }
+                
                 let reminderToSave = selectedReminder == .none ? nil : selectedReminder
 
                 var updatedTask = TaskItem(
@@ -74,6 +126,7 @@ struct EditTaskView: View {
                     endTime: endTimeToSave,
                     targetDate: selectedDate,
                     reminderTime: reminderToSave,
+                    location: locationToSave,
                     isRecurring: isRecurring,
                     recurrenceFrequency: isRecurring ? recurrenceFrequency : nil,
                     customRecurrenceDays: isRecurring && recurrenceFrequency == .custom && !customRecurrenceDays.isEmpty ? Array(customRecurrenceDays) : nil,
@@ -107,8 +160,11 @@ struct EditTaskView: View {
         VStack(spacing: 0) {
             EventFormContent(
                 title: $title,
+                location: $location,
                 description: $description,
                 selectedDate: $selectedDate,
+                selectedEndDate: $selectedEndDate,
+                isMultiDay: $isMultiDay,
                 hasTime: $hasTime,
                 selectedTime: $selectedTime,
                 selectedEndTime: $selectedEndTime,
@@ -116,7 +172,9 @@ struct EditTaskView: View {
                 recurrenceFrequency: $recurrenceFrequency,
                 customRecurrenceDays: $customRecurrenceDays,
                 selectedReminder: $selectedReminder,
-                selectedTagId: $selectedTagId
+                selectedTagId: $selectedTagId,
+                showingDatePicker: $showingDatePicker,
+                showingEndDatePicker: $showingEndDatePicker
             )
 
             Divider()

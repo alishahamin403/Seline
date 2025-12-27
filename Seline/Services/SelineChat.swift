@@ -148,6 +148,15 @@ class SelineChat {
         📝 Notes: "You mentioned in your notes..."
         🎯 Tasks: "You have [task]..."
 
+        LOCATION AWARENESS:
+        • You have access to the user's CURRENT LOCATION (coordinates, address, accuracy)
+        • When user asks about future plans/events, check if the event has a location
+        • For events with locations, calculate and share ETA (estimated travel time) from current location to event location
+        • When user asks "where am I" or "where am I right now", share their current location name and coordinates
+        • When user asks about nearby places or "find X near me", use their current location coordinates
+        • For commute questions, calculate ETA from current location to destination
+        • Always use the event's location (not current location) as destination when calculating commute for future plans
+
         RULES:
         ✓ Be specific with numbers, dates, amounts (not "many", "several")
         ✓ Search across NOTES, EVENTS, LOCATIONS together
@@ -156,6 +165,8 @@ class SelineChat {
         ✓ If data missing, say so honestly
         ✓ Connect related insights
         ✓ Show data freshness when relevant
+        ✓ When discussing future events with locations, include ETA from current location
+        ✓ For location-based queries, use current location context naturally
 
         CONFIDENCE LEVELS:
         🟢 HIGH: "According to your calendar..." (complete, recent data)

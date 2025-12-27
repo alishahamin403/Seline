@@ -7,6 +7,7 @@ struct PlaceDetailSheet: View {
     @Environment(\.colorScheme) var colorScheme
     @StateObject private var mapsService = GoogleMapsService.shared
     @State private var isLoading = true
+    @State private var showingMapSelection = false
 
     var isPlaceDataComplete: Bool {
         !place.name.isEmpty && !place.address.isEmpty && !place.displayName.isEmpty
@@ -113,15 +114,35 @@ struct PlaceDetailSheet: View {
                             }
                         }
 
-                        // Address
+                        // Address with Maps button
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Address")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
 
-                            Text(place.address)
-                                .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(place.address)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                                
+                                Spacer()
+                                
+                                // Maps button (pill-shaped)
+                                Button(action: {
+                                    openInMaps(place: place)
+                                }) {
+                                    Text("Maps")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(
+                                            Capsule()
+                                                .fill(colorScheme == .dark ? Color.white.opacity(0.15) : Color.black.opacity(0.1))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
                         }
 
                         // Phone number
@@ -164,32 +185,6 @@ struct PlaceDetailSheet: View {
 
                             VisitHistoryCard(place: place)
                         }
-
-                        // Open in Maps button
-                        Button(action: {
-                            mapsService.openInGoogleMaps(place: place)
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "map.fill")
-                                    .font(.system(size: 18, weight: .semibold))
-
-                                Text("Open in Maps")
-                                    .font(.system(size: 16, weight: .semibold))
-                            }
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        colorScheme == .dark ?
-                                            Color.white.opacity(0.05) :
-                                            Color.black.opacity(0.03)
-                                    )
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.horizontal, 20)
 
@@ -207,6 +202,19 @@ struct PlaceDetailSheet: View {
             (colorScheme == .dark ? Color.gmailDarkBackground : Color.white)
                 .ignoresSafeArea()
         )
+        .alert("Choose Map App", isPresented: $showingMapSelection) {
+            Button("Google Maps") {
+                UserDefaults.standard.set("google", forKey: "preferredMapApp")
+                mapsService.openInGoogleMaps(place: place, preferGoogle: true)
+            }
+            Button("Apple Maps") {
+                UserDefaults.standard.set("apple", forKey: "preferredMapApp")
+                mapsService.openInGoogleMaps(place: place, preferGoogle: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Which map app would you like to use? This will be your default choice.")
+        }
     }
 
     private func callPhone(_ phone: String) {
@@ -216,6 +224,24 @@ struct PlaceDetailSheet: View {
         if let phoneURL = URL(string: "tel://\(cleanedPhone)"),
            UIApplication.shared.canOpenURL(phoneURL) {
             UIApplication.shared.open(phoneURL)
+        }
+    }
+    
+    private func openInMaps(place: SavedPlace) {
+        // Check if user has a preferred map app
+        let userDefaults = UserDefaults.standard
+        let preferredMapKey = "preferredMapApp"
+        
+        if let preferredMap = userDefaults.string(forKey: preferredMapKey) {
+            // User has a preference, use it
+            if preferredMap == "google" {
+                mapsService.openInGoogleMaps(place: place, preferGoogle: true)
+            } else {
+                mapsService.openInGoogleMaps(place: place, preferGoogle: false)
+            }
+        } else {
+            // First time - show selection
+            showingMapSelection = true
         }
     }
 }

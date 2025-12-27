@@ -16,6 +16,7 @@ struct SettingsView: View {
     @AppStorage("locationTrackingEnabled") private var locationTrackingEnabled = true
     @State private var showingFeedback = false
     @State private var showingLocationInfo = false
+    @State private var profilePictureUrl: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,9 @@ struct SettingsView: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 24)
                         .background(isDarkMode ? Color.gmailDarkBackground : Color.white)
+                        .task {
+                            await fetchUserProfilePicture()
+                        }
 
                     // Settings Menu Items
                     VStack(spacing: 0) {
@@ -121,17 +125,9 @@ struct SettingsView: View {
                                 .foregroundColor(isDarkMode ? .white.opacity(0.7) : .black.opacity(0.7))
                                 .frame(width: 24)
 
-                            HStack(spacing: 8) {
-                                Text("Location Tracking")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(isDarkMode ? .white : .black)
-
-                                Button(action: { showingLocationInfo = true }) {
-                                    Image(systemName: "info.circle")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.gray)
-                                }
-                            }
+                            Text("Location Tracking")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundColor(isDarkMode ? .white : .black)
 
                             Spacer()
 
@@ -286,21 +282,73 @@ struct SettingsView: View {
     // MARK: - Profile Header Section
     private var profileHeaderSection: some View {
         HStack(spacing: 16) {
-            // User Avatar with initials
-            Circle()
-                .fill(isDarkMode ? Color.white : Color.black)
-                .overlay(
-                    Text({
-                        if let name = authManager.currentUser?.profile?.name, let firstChar = name.first {
-                            return String(firstChar).uppercased()
-                        } else {
-                            return "U"
+            // User Avatar with profile picture or initials
+            Group {
+                if let profilePictureUrl = profilePictureUrl, let url = URL(string: profilePictureUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure(_), .empty:
+                            // Fallback to initials
+                            Circle()
+                                .fill(isDarkMode ? Color.white : Color.black)
+                                .overlay(
+                                    Text({
+                                        if let name = authManager.currentUser?.profile?.name, let firstChar = name.first {
+                                            return String(firstChar).uppercased()
+                                        } else {
+                                            return "U"
+                                        }
+                                    }())
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundColor(isDarkMode ? .black : .white)
+                                )
+                        @unknown default:
+                            Circle()
+                                .fill(isDarkMode ? Color.white : Color.black)
+                                .overlay(
+                                    Text({
+                                        if let name = authManager.currentUser?.profile?.name, let firstChar = name.first {
+                                            return String(firstChar).uppercased()
+                                        } else {
+                                            return "U"
+                                        }
+                                    }())
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundColor(isDarkMode ? .black : .white)
+                                )
                         }
-                    }())
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(isDarkMode ? .black : .white)
-                )
-                .frame(width: 60, height: 60)
+                    }
+                    .frame(width: 60, height: 60)
+                    .clipShape(Circle())
+                } else {
+                    // Show initials or default icon
+                    if let user = authManager.currentUser,
+                       let name = user.profile?.name,
+                       let firstChar = name.first {
+                        Circle()
+                            .fill(isDarkMode ? Color.white : Color.black)
+                            .overlay(
+                                Text(String(firstChar).uppercased())
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(isDarkMode ? .black : .white)
+                            )
+                            .frame(width: 60, height: 60)
+                    } else {
+                        Circle()
+                            .fill(isDarkMode ? Color.white : Color.black)
+                            .overlay(
+                                Text("U")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(isDarkMode ? .black : .white)
+                            )
+                            .frame(width: 60, height: 60)
+                    }
+                }
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 // User Name
@@ -315,6 +363,21 @@ struct SettingsView: View {
             }
 
             Spacer()
+        }
+    }
+    
+    // MARK: - Private Methods
+    
+    private func fetchUserProfilePicture() async {
+        do {
+            if let picUrl = try await GmailAPIClient.shared.fetchCurrentUserProfilePicture() {
+                await MainActor.run {
+                    self.profilePictureUrl = picUrl
+                }
+            }
+        } catch {
+            // Silently fail - will show initials fallback
+            print("Failed to fetch current user profile picture: \(error)")
         }
     }
 

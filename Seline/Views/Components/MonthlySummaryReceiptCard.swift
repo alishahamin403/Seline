@@ -40,30 +40,28 @@ struct MonthlySummaryReceiptCard: View {
                     isExpanded.toggle()
                 }
             }) {
-                VStack(spacing: 4) {
+                VStack(spacing: 8) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 8) {
                                 Text(monthlySummary.month)
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: 21, weight: .regular)) // 21pt Regular (Unbolded)
                                     .foregroundColor(Color.shadcnForeground(colorScheme))
 
-                                Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
+                                // Chevron removed as requested
                             }
 
                             HStack(spacing: 6) {
-                                Text("\(monthlySummary.receipts.count) receipt\(monthlySummary.receipts.count == 1 ? "" : "s")")
-                                    .font(.system(size: 11, weight: .regular))
+                                Text("\(monthlySummary.receipts.count) receipts")
+                                    .font(.system(size: 13, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
 
                                 Text("•")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.4) : .black.opacity(0.4))
 
                                 Text(String(format: "Avg $%.0f/day", dailyAverage))
-                                    .font(.system(size: 11, weight: .regular))
+                                    .font(.system(size: 13, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             }
                         }
@@ -72,8 +70,8 @@ struct MonthlySummaryReceiptCard: View {
 
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(CurrencyParser.formatAmountNoDecimals(monthlySummary.monthlyTotal))
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(Color.shadcnForeground(colorScheme))
+                                .font(.system(size: 18, weight: .regular)) // 18pt
+                                .foregroundColor(.primary)
 
                             // Category breakdown button
                             Button(action: {
@@ -81,44 +79,32 @@ struct MonthlySummaryReceiptCard: View {
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "chart.pie.fill")
-                                        .font(.system(size: 11))
+                                        .font(.system(size: 12))
                                     Text("Categories")
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 12, weight: .regular))
                                 }
                                 .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(16) // Padding inside the card
             }
             .buttonStyle(PlainButtonStyle())
 
             if isExpanded {
-                Divider()
-                    .padding(.horizontal, 16)
-
                 // Daily Groups - Shown when expanded
-                VStack(spacing: 0) {
+                VStack(spacing: 16) { // Added spacing between day boxes
                     ForEach(monthlySummary.dailySummaries, id: \.id) { daily in
-                        DailyReceiptCard(dailySummary: daily, onReceiptTap: onReceiptTap)
+                        DailyReceiptCard(dailySummary: daily, categorizedReceipts: categorizedReceipts, onReceiptTap: onReceiptTap)
                     }
                 }
-                .padding(.top, 8)
-                .padding(.bottom, 12)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
         }
-        .background(Color.shadcnTileBackground(colorScheme))
-        .cornerRadius(ShadcnRadius.xl)
-        .overlay(
-            RoundedRectangle(cornerRadius: ShadcnRadius.xl)
-                .stroke(
-                    colorScheme == .dark ? Color.white.opacity(0.08) : Color.clear,
-                    lineWidth: 1
-                )
-        )
+        .shadcnTileStyle(colorScheme: colorScheme) // Apply widget style to the whole month card
+
         .sheet(isPresented: $showCategoryBreakdown) {
             CategoryBreakdownModal(
                 monthlyReceipts: categorizedReceipts,

@@ -33,41 +33,41 @@ struct VisitHistoryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
+            // Header Button
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isExpanded.toggle()
                 }
+                HapticManager.shared.light()
             }) {
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Visit History")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
-
-                        if visitHistory.isEmpty {
-                            if isLoading {
-                                HStack(spacing: 6) {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                    Text("Loading...")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                                }
-                            } else {
-                                Text("No visits yet")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                            }
-                        }
-                    }
-
+                HStack(alignment: .center, spacing: 12) {
+                    Text("Visit History")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(colorScheme == .dark ? .white : .black)
+                    
                     Spacer()
-
+                    
+                    if isLoading {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else if visitHistory.isEmpty {
+                        Text("No visits")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    
                     Image(systemName: "chevron.right")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
+                )
+                .contentShape(Rectangle()) // Ensures the whole area is tappable
             }
             .buttonStyle(PlainButtonStyle())
 

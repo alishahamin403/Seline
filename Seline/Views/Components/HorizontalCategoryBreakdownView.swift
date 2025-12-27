@@ -32,13 +32,14 @@ struct HorizontalCategoryCard: View {
         Button(action: onTap) {
             VStack(spacing: 6) {
                 // Category icon/color circle
-                Circle()
-                    .fill(colorForCategory(category.category))
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Text(getCategoryIcon(category.category))
-                            .font(.system(size: 16))
-                    )
+                ZStack {
+                    Circle()
+                        .fill(colorForCategory(category.category).opacity(0.2))
+                        .frame(width: 44, height: 44)
+                    
+                    Text(getCategoryIcon(category.category))
+                        .font(.system(size: 20))
+                }
 
                 // Category info
                 VStack(spacing: 2) {
@@ -47,7 +48,7 @@ struct HorizontalCategoryCard: View {
                         .foregroundColor(.primary)
 
                     Text(category.formattedAmount)
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
@@ -58,8 +59,9 @@ struct HorizontalCategoryCard: View {
             }
             .frame(minWidth: 90)
             .padding(10)
-            .background(colorScheme == .dark ? Color(UIColor.secondarySystemBackground) : Color(UIColor(white: 0.98, alpha: 1)))
-            .cornerRadius(8)
+            .frame(minWidth: 90)
+            .padding(10)
+            .shadcnTileStyle(colorScheme: colorScheme)
         }
     }
 
