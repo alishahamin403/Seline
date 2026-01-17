@@ -14,7 +14,6 @@ struct CurrentLocationCardWidget: View {
     @Binding var selectedPlace: SavedPlace?
     @Binding var showAllLocationsSheet: Bool
     
-    @State private var isExpanded: Bool = false
     @StateObject private var locationsManager = LocationsManager.shared
 
     // MARK: - Colors
@@ -76,31 +75,21 @@ struct CurrentLocationCardWidget: View {
     @State private var showWeeklyPlacesSheet = false
     
     // MARK: - Body
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header Section - Always visible
-            headerView
-            
-            // Expanded Content
-            if isExpanded {
-                expandedContent
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+        VStack(alignment: .leading, spacing: 16) {
+            // Today's Activity Section - always visible
+            if !todaysVisits.isEmpty {
+                todaysActivitySection
             }
+
+            // Weekly Insights Section
+            weeklyInsightsSection
         }
         .padding(16)
         .shadcnTileStyle(colorScheme: colorScheme)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
         .task {
-            // Initial load
             await loadWeeklyStats()
-        }
-        .onChange(of: isExpanded) { expanded in
-            if expanded {
-                Task {
-                    await loadWeeklyStats()
-                }
-            }
         }
         .sheet(isPresented: $showWeeklyPlacesSheet) {
             WeeklyPlacesSheet(places: weeklyPlaces, selectedPlace: $selectedPlace)
@@ -147,131 +136,24 @@ struct CurrentLocationCardWidget: View {
         }
     }
     
-    // MARK: - Header View
-    
-    private var headerView: some View {
-        HStack(spacing: 14) {
-            // Location Icon
-            ZStack {
-                Circle()
-                    .fill(activeIndicatorColor.opacity(0.15))
-                    .frame(width: 40, height: 40)
-                
-                Image(systemName: "location.fill")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(activeIndicatorColor)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if let place = nearbyLocationPlace {
-                    selectedPlace = place
-                }
-            }
-            
-            // Location Info with Progress Bar
-            VStack(alignment: .leading, spacing: 6) {
-                // Location name
-                Text(currentLocationDisplay)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(primaryTextColor)
-                    .lineLimit(1)
-                
-                // Progress bar with time
-                HStack(spacing: 8) {
-                    // Progress bar
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            // Background
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(progressBarBackground)
-                            
-                            // Progress
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(activeIndicatorColor)
-                                .frame(width: min(geo.size.width, geo.size.width * progressPercentage))
-                        }
-                    }
-                    .frame(height: 6)
-                    .frame(maxWidth: 100)
-                    
-                    // Time
-                    Text(elapsedTimeString.isEmpty ? "Just arrived" : elapsedTimeString)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(secondaryTextColor)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if let place = nearbyLocationPlace {
-                    selectedPlace = place
-                }
-            }
-            
-            Spacer()
-            
-            // Expand/Collapse Button
-            Button(action: {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
-                }
-                HapticManager.shared.light()
-            }) {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tertiaryTextColor)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
-                    )
-            }
-            .buttonStyle(PlainButtonStyle())
-        }
-    }
-    
-    private var progressPercentage: CGFloat {
-        // Calculate progress as percentage of a typical day (16 waking hours = 960 minutes)
-        let maxMinutes: CGFloat = 480 // 8 hours max for visual purposes
-        return min(1.0, CGFloat(currentTimeMinutes) / maxMinutes)
-    }
-    
-    // MARK: - Expanded Content
-    
-    private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Divider
-            Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.08))
-                .frame(height: 1)
-                .padding(.top, 12)
-            
-            // Today's Activity Section
-            if !todaysVisits.isEmpty {
-                todaysActivitySection
-            }
-            
-            // Weekly Insights Section
-            weeklyInsightsSection
-        }
-    }
     
     // MARK: - Today's Activity Section
-    
+
     private var todaysActivitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Section Header
             HStack {
                 Text("Today's Activity")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(FontManager.geist(size: 12, weight: .semibold))
                     .foregroundColor(secondaryTextColor)
                     .textCase(.uppercase)
                     .tracking(0.5)
-                
+
                 Spacer()
-                
+
                 // Total time pill
                 Text(formatDuration(totalTodayMinutes))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(FontManager.geist(size: 11, weight: .semibold))
                     .foregroundColor(primaryTextColor)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -280,47 +162,124 @@ struct CurrentLocationCardWidget: View {
                             .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.06))
                     )
             }
-            
-            // Activity Bars
-            VStack(spacing: 8) {
-                ForEach(Array(todaysVisits.prefix(5).enumerated()), id: \.element.id) { index, visit in
+
+            // Activity Bars - sort to show active location first
+            VStack(spacing: 6) {
+                ForEach(Array(sortedVisits.prefix(5).enumerated()), id: \.element.id) { index, visit in
                     activityRow(visit: visit, index: index)
                 }
             }
         }
     }
-    
+
+    // Check if a visit is active (either via isActive flag OR via nearbyLocation match with elapsed time)
+    private func isVisitActive(_ visit: (id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)) -> Bool {
+        // Primary check: isActive flag from GeofenceManager
+        if visit.isActive { return true }
+        // Fallback: if nearbyLocation matches this visit and we have elapsed time, it's active
+        if let nearby = nearbyLocation, !elapsedTimeString.isEmpty, visit.displayName == nearby {
+            return true
+        }
+        return false
+    }
+
+    // Sort visits with active one first
+    private var sortedVisits: [(id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool)] {
+        todaysVisits.sorted { visit1, visit2 in
+            let active1 = isVisitActive(visit1)
+            let active2 = isVisitActive(visit2)
+            if active1 && !active2 { return true }
+            if !active1 && active2 { return false }
+            return visit1.totalDurationMinutes > visit2.totalDurationMinutes
+        }
+    }
+
     private func activityRow(visit: (id: UUID, displayName: String, totalDurationMinutes: Int, isActive: Bool), index: Int) -> some View {
-        HStack(spacing: 10) {
-            // Name
+        // Use the helper function to determine if this is the current active location
+        let isCurrentLocation = isVisitActive(visit)
+        // Neutral bar color for all locations (dark gray in light mode, light gray in dark mode)
+        let neutralBarColor = colorScheme == .dark ? Color.white.opacity(0.3) : Color.black.opacity(0.25)
+
+        return HStack(spacing: 10) {
+            // Active indicator dot for current location
+            if isCurrentLocation {
+                Circle()
+                    .fill(activeIndicatorColor)
+                    .frame(width: 6, height: 6)
+            }
+
+            // Name - highlighted if current location
             Text(visit.displayName)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(primaryTextColor)
+                .font(FontManager.geist(size: 13, weight: isCurrentLocation ? .semibold : .regular))
+                .foregroundColor(isCurrentLocation ? activeIndicatorColor : primaryTextColor)
                 .lineLimit(1)
-                .frame(width: 110, alignment: .leading)
-            
-            // Progress Bar
+                .frame(width: isCurrentLocation ? 104 : 110, alignment: .leading)
+
+            // Progress Bar - green only for active session, gray for everything else
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(progressBarBackground)
-                    
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(colorForIndex(index))
-                        .frame(width: barWidth(for: visit.totalDurationMinutes, in: geo.size.width))
+
+                    if isCurrentLocation {
+                        // For active location: show previous time in gray, current session in green
+                        let previousMinutes = max(0, visit.totalDurationMinutes - currentTimeMinutes)
+                        let previousWidth = barWidth(for: previousMinutes, in: geo.size.width)
+                        let currentWidth = barWidth(for: currentTimeMinutes, in: geo.size.width)
+
+                        // Previous accumulated time (gray)
+                        if previousMinutes > 0 {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(neutralBarColor)
+                                .frame(width: previousWidth)
+                        }
+
+                        // Current session time (green - active)
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(activeIndicatorColor)
+                            .frame(width: currentWidth)
+                            .offset(x: previousWidth)
+                    } else {
+                        // Non-active locations: gray bar
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(neutralBarColor)
+                            .frame(width: barWidth(for: visit.totalDurationMinutes, in: geo.size.width))
+                    }
                 }
             }
             .frame(height: 8)
-            
-            // Duration
-            Text(formatDuration(visit.totalDurationMinutes))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(visit.isActive ? activeIndicatorColor : secondaryTextColor)
-                .frame(width: 55, alignment: .trailing)
+
+            // Duration - show total and current session for active location
+            if isCurrentLocation && currentTimeMinutes > 0 {
+                // Show current session time (green) and total time
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(elapsedTimeString)
+                        .font(FontManager.geist(size: 11, weight: .semibold))
+                        .foregroundColor(activeIndicatorColor)
+                    if visit.totalDurationMinutes > currentTimeMinutes {
+                        Text("(\(formatDuration(visit.totalDurationMinutes)) total)")
+                            .font(FontManager.geist(size: 9, weight: .regular))
+                            .foregroundColor(secondaryTextColor)
+                    }
+                }
+                .frame(width: 70, alignment: .trailing)
+            } else {
+                Text(formatDuration(visit.totalDurationMinutes))
+                    .font(FontManager.geist(size: 11, weight: .medium))
+                    .foregroundColor(isCurrentLocation ? activeIndicatorColor : secondaryTextColor)
+                    .frame(width: 55, alignment: .trailing)
+            }
         }
+        .padding(.vertical, isCurrentLocation ? 6 : 0)
+        .padding(.horizontal, isCurrentLocation ? 8 : 0)
+        .background(
+            isCurrentLocation ?
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(activeIndicatorColor.opacity(0.1))
+                : nil
+        )
         .contentShape(Rectangle())
         .onTapGesture {
-            // Find and select the place
             if let place = locationsManager.savedPlaces.first(where: { $0.id == visit.id }) {
                 selectedPlace = place
                 HapticManager.shared.light()
@@ -340,7 +299,7 @@ struct CurrentLocationCardWidget: View {
         VStack(alignment: .leading, spacing: 10) {
             // Section Header
             Text("This Week")
-                .font(.system(size: 12, weight: .semibold))
+                .font(FontManager.geist(size: 12, weight: .semibold))
                 .foregroundColor(secondaryTextColor)
                 .textCase(.uppercase)
                 .tracking(0.5)
@@ -383,11 +342,11 @@ struct CurrentLocationCardWidget: View {
     private func insightCard(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+                .font(FontManager.geist(size: 10, weight: .medium))
                 .foregroundColor(tertiaryTextColor)
             
             Text(value)
-                .font(.system(size: 13, weight: .semibold))
+                .font(FontManager.geist(size: 13, weight: .semibold))
                 .foregroundColor(primaryTextColor)
                 .lineLimit(1)
         }
@@ -476,7 +435,7 @@ struct WeeklyPlacesSheet: View {
                     Button("Done") {
                         dismiss()
                     }
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(FontManager.geist(size: 16, weight: .semibold))
                 }
             }
         }
@@ -505,7 +464,7 @@ struct WeeklyPlaceGridItem: View {
                         ZStack {
                             Color.gray.opacity(0.1)
                             Image(systemName: place.getDisplayIcon())
-                                .font(.system(size: 30))
+                                .font(FontManager.geist(size: 30, weight: .regular))
                                 .foregroundColor(.gray)
                         }
                     }
@@ -518,12 +477,12 @@ struct WeeklyPlaceGridItem: View {
                 // Details
                 VStack(alignment: .leading, spacing: 4) {
                     Text(place.displayName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(FontManager.geist(size: 14, weight: .semibold))
                         .foregroundColor(colorScheme == .dark ? .white : .black)
                         .lineLimit(1)
                     
                     Text(place.category)
-                        .font(.system(size: 12))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
