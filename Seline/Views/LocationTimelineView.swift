@@ -614,7 +614,10 @@ struct LocationTimelineView: View {
             return
         }
 
-        let normalizedDate = normalizeDate(selectedDate)
+        // Create a cache key based on date and visits content
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateKey = dateFormatter.string(from: selectedDate)
 
         // Use combined hash of visits AND notes for cache invalidation
         var hasher = Hasher()
@@ -624,7 +627,19 @@ struct LocationTimelineView: View {
         }
         let combinedHash = hasher.finalize()
 
-        // Check if we already generated for this date AND the content hasn't changed
+        // Cache key includes date and content hash
+        let cacheKey = "cache.daySummary.\(dateKey).\(combinedHash)"
+
+        // Check CacheManager first for persistent caching across view recreations
+        if let cachedSummary: String = CacheManager.shared.get(forKey: cacheKey) {
+            daySummaryText = cachedSummary
+            lastSummaryGeneratedFor = normalizeDate(selectedDate)
+            lastSummaryNotesHash = combinedHash
+            return
+        }
+
+        // Also check in-memory state (for same session)
+        let normalizedDate = normalizeDate(selectedDate)
         if lastSummaryGeneratedFor == normalizedDate &&
            lastSummaryNotesHash == combinedHash &&
            daySummaryText != nil {
@@ -640,6 +655,9 @@ struct LocationTimelineView: View {
                 lastSummaryGeneratedFor = normalizedDate
                 lastSummaryNotesHash = combinedHash
                 isGeneratingSummary = false
+
+                // Cache for 24 hours (summaries don't change unless visits change)
+                CacheManager.shared.set(summary, forKey: cacheKey, ttl: 86400)
             }
         }
     }
