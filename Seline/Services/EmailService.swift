@@ -320,9 +320,9 @@ class EmailService: ObservableObject {
             emails = emails.filter { !$0.isRead }
         }
 
-        let categorized = TimePeriod.categorizeEmails(emails, for: Date())
+        let categorized = EmailTimePeriod.categorizeEmails(emails, for: Date())
 
-        return TimePeriod.allCases.compactMap { period in
+        return EmailTimePeriod.allCases.compactMap { period in
             let periodEmails = categorized[period] ?? []
             guard !periodEmails.isEmpty else { return nil }
             return EmailSection(timePeriod: period, emails: periodEmails)
@@ -337,9 +337,9 @@ class EmailService: ObservableObject {
             emails = emails.filter { !$0.isRead }
         }
 
-        let categorized = TimePeriod.categorizeEmails(emails, for: Date())
+        let categorized = EmailTimePeriod.categorizeEmails(emails, for: Date())
 
-        return TimePeriod.allCases.compactMap { period in
+        return EmailTimePeriod.allCases.compactMap { period in
             let periodEmails = categorized[period] ?? []
             guard !periodEmails.isEmpty else { return nil }
             return EmailSection(timePeriod: period, emails: periodEmails)
@@ -596,7 +596,8 @@ class EmailService: ObservableObject {
                     labels: currentEmail.labels,
                     aiSummary: currentEmail.aiSummary,
                     gmailMessageId: currentEmail.gmailMessageId,
-                    gmailThreadId: currentEmail.gmailThreadId
+                    gmailThreadId: currentEmail.gmailThreadId,
+                    unsubscribeInfo: currentEmail.unsubscribeInfo
                 )
                 inboxEmails[inboxIndex] = updatedEmail
                 wasUpdated = true
@@ -624,7 +625,8 @@ class EmailService: ObservableObject {
                     labels: currentEmail.labels,
                     aiSummary: currentEmail.aiSummary,
                     gmailMessageId: currentEmail.gmailMessageId,
-                    gmailThreadId: currentEmail.gmailThreadId
+                    gmailThreadId: currentEmail.gmailThreadId,
+                    unsubscribeInfo: currentEmail.unsubscribeInfo
                 )
                 sentEmails[sentIndex] = updatedEmail
                 wasUpdated = true
@@ -680,7 +682,8 @@ class EmailService: ObservableObject {
                     labels: currentEmail.labels,
                     aiSummary: currentEmail.aiSummary,
                     gmailMessageId: currentEmail.gmailMessageId,
-                    gmailThreadId: currentEmail.gmailThreadId
+                    gmailThreadId: currentEmail.gmailThreadId,
+                    unsubscribeInfo: currentEmail.unsubscribeInfo
                 )
                 inboxEmails[inboxIndex] = updatedEmail
                 wasUpdated = true
@@ -708,7 +711,8 @@ class EmailService: ObservableObject {
                     labels: currentEmail.labels,
                     aiSummary: currentEmail.aiSummary,
                     gmailMessageId: currentEmail.gmailMessageId,
-                    gmailThreadId: currentEmail.gmailThreadId
+                    gmailThreadId: currentEmail.gmailThreadId,
+                    unsubscribeInfo: currentEmail.unsubscribeInfo
                 )
                 sentEmails[sentIndex] = updatedEmail
                 wasUpdated = true
@@ -759,10 +763,11 @@ class EmailService: ObservableObject {
                 isImportant: currentEmail.isImportant,
                 hasAttachments: currentEmail.hasAttachments,
                 attachments: currentEmail.attachments,
-                labels: currentEmail.labels,
-                aiSummary: summary, // Update AI summary
-                gmailMessageId: currentEmail.gmailMessageId,
-                gmailThreadId: currentEmail.gmailThreadId
+                    labels: currentEmail.labels,
+                    aiSummary: summary, // Update AI summary
+                    gmailMessageId: currentEmail.gmailMessageId,
+                    gmailThreadId: currentEmail.gmailThreadId,
+                    unsubscribeInfo: currentEmail.unsubscribeInfo
             )
             inboxEmails[inboxIndex] = updatedEmail
             wasUpdated = true
@@ -788,7 +793,8 @@ class EmailService: ObservableObject {
                 labels: currentEmail.labels,
                 aiSummary: summary, // Update AI summary
                 gmailMessageId: currentEmail.gmailMessageId,
-                gmailThreadId: currentEmail.gmailThreadId
+                gmailThreadId: currentEmail.gmailThreadId,
+                unsubscribeInfo: currentEmail.unsubscribeInfo
             )
             sentEmails[sentIndex] = updatedEmail
             wasUpdated = true
@@ -935,6 +941,20 @@ class EmailService: ObservableObject {
         // Update app badge with total unread count
         let unreadCount = inboxEmails.filter { !$0.isRead }.count
         notificationService.updateAppBadge(count: unreadCount)
+    }
+    
+    /// Last time we checked for new emails (for rate limiting)
+    private var lastEmailCheckTime: Date?
+    
+    /// Public method to check for new emails - can be called when navigating to email tab
+    /// Rate limited to prevent excessive API calls (minimum 10 seconds between checks)
+    func checkForNewEmailsIfNeeded() async {
+        // Rate limit: don't check more than once every 10 seconds
+        if let lastCheck = lastEmailCheckTime, Date().timeIntervalSince(lastCheck) < 10 {
+            return
+        }
+        lastEmailCheckTime = Date()
+        await checkForNewEmails()
     }
 
     private func checkForNewEmails() async {
@@ -1170,12 +1190,32 @@ class EmailService: ObservableObject {
 
     // MARK: - Background Refresh
 
+    /// Called by iOS when the app is woken for background refresh
+    /// This allows checking for new emails and sending notifications even when app is closed
     func handleBackgroundRefresh() async {
-        // NOTE: Background refresh disabled - using Supabase as source of truth
-        // No need for background Gmail API calls when data is cached in Supabase
-        // Users will see cached data which is automatically synced when they use the app
-        // DEBUG: Commented out to reduce console spam
-        // print("⏹️ Background refresh disabled - using Supabase cache only")
+        print("📧 Background refresh: Checking for new emails...")
+        
+        // Only proceed if user is authenticated
+        guard GIDSignIn.sharedInstance.currentUser != nil else {
+            print("📧 Background refresh: User not authenticated, skipping")
+            return
+        }
+        
+        // Load cached data if not already loaded
+        if inboxEmails.isEmpty {
+            loadCachedData()
+        }
+        
+        // If still empty, force load inbox emails
+        if inboxEmails.isEmpty {
+            print("📧 Background refresh: No cached emails, fetching fresh inbox...")
+            await loadEmailsForFolder(.inbox, forceRefresh: true)
+        }
+        
+        // Check for new emails and send notifications
+        await checkForNewEmails()
+        
+        print("📧 Background refresh: Complete - Checked \(inboxEmails.count) emails")
     }
 
     // MARK: - Private Methods
@@ -1206,7 +1246,8 @@ class EmailService: ObservableObject {
                     labels: newEmail.labels,
                     aiSummary: existingSummary, // Restore the existing AI summary
                     gmailMessageId: newEmail.gmailMessageId,
-                    gmailThreadId: newEmail.gmailThreadId
+                    gmailThreadId: newEmail.gmailThreadId,
+                    unsubscribeInfo: newEmail.unsubscribeInfo
                 )
             }
             return newEmail
@@ -1297,7 +1338,8 @@ class EmailService: ObservableObject {
                                 labels: fetchedEmail.labels,
                                 aiSummary: fetchedEmail.aiSummary,
                                 gmailMessageId: fetchedEmail.gmailMessageId,
-                                gmailThreadId: fetchedEmail.gmailThreadId
+                                gmailThreadId: fetchedEmail.gmailThreadId,
+                                unsubscribeInfo: fetchedEmail.unsubscribeInfo
                             )
                             print("✅ Fetched full email body and preserved \(originalAttachments.count) attachment(s)")
                         } else {
