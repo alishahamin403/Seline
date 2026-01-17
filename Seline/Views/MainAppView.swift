@@ -16,6 +16,7 @@ struct MainAppView: View {
     @StateObject private var navigationService = NavigationService.shared
     @StateObject private var tagManager = TagManager.shared
     @StateObject private var widgetManager = WidgetManager.shared
+    @StateObject private var locationSuggestionService = LocationSuggestionService.shared
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scenePhase) var scenePhase
     @State private var selectedTab: TabSelection = .home
@@ -60,6 +61,8 @@ struct MainAppView: View {
     @State private var showingReceiptCameraPicker = false
     @State private var receiptProcessingState: ReceiptProcessingState = .idle
     @State private var showingSettings = false
+    @State private var hasAppeared = false
+    @State private var dismissedVisitReasonIds: Set<UUID> = [] // Track visits where user dismissed the reason popup
 
     private var unreadEmailCount: Int {
         emailService.inboxEmails.filter { !$0.isRead }.count
@@ -71,6 +74,19 @@ struct MainAppView: View {
 
     private var pinnedNotesCount: Int {
         return notesManager.pinnedNotes.count
+    }
+
+    /// Returns the current active visit and place if user is at a saved location and should see the visit reason popup
+    private var currentActiveVisitForReasonPopup: (visit: LocationVisitRecord, place: SavedPlace)? {
+        guard let place = nearbyLocationPlace,
+              let visit = geofenceManager.getActiveVisit(for: place.id),
+              // Only show if visit doesn't already have notes
+              (visit.visitNotes ?? "").isEmpty,
+              // Only show if user hasn't dismissed this visit's popup
+              !dismissedVisitReasonIds.contains(visit.id) else {
+            return nil
+        }
+        return (visit, place)
     }
 
     private var isAnySheetPresented: Bool {
@@ -449,6 +465,10 @@ struct MainAppView: View {
 
     private func loadTodaysVisits() {
         Task {
+            // CRITICAL: Force cache invalidation to ensure fresh active visit data
+            // This is especially important when called from GeofenceVisitCreated notification
+            CacheManager.shared.invalidate(forKey: CacheManager.CacheKey.todaysVisits)
+
             // Get today's visits with duration for each location
             let visits = await LocationVisitAnalytics.shared.getTodaysVisitsWithDuration()
 
@@ -479,56 +499,55 @@ struct MainAppView: View {
     private func updateElapsedTime() {
         // Get the active visit entry time for the current location from GeofenceManager
         // This uses REAL geofence entry time, not artificial tracking
-        if let nearbyLoc = nearbyLocation {
-            // Find the place by display name
-            if let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }) {
-                // Only show elapsed time if geofence manager has recorded an entry
-                if let activeVisit = geofenceManager.activeVisits[place.id] {
-                    let elapsed = Date().timeIntervalSince(activeVisit.entryTime)
-                    elapsedTimeString = formatElapsedTime(elapsed)
-
-                    // Save to UserDefaults for widget
-                    if let userDefaults = UserDefaults(suiteName: "group.seline") {
-                        userDefaults.set(nearbyLoc, forKey: "widgetVisitedLocation")
-                        userDefaults.set(elapsedTimeString, forKey: "widgetElapsedTime")
-                    }
-
-                    // Reload widget
-                    WidgetCenter.shared.reloadAllTimelines()
-                    // Debug: Verify we're using real geofence data
-                    // print("⏱️ Timer using REAL geofence data: \(place.displayName) - Entry: \(activeVisit.entryTime)")
-                } else {
-                    // No active visit record from geofence - don't show time
-                    // Debug: Track when timer can't show because geofence event hasn't fired
-                    // print("⚠️ No geofence entry recorded yet for: \(nearbyLoc) (proximity detected but geofence event pending)")
-                    elapsedTimeString = ""
-
-                    // Clear widget data
-                    if let userDefaults = UserDefaults(suiteName: "group.seline") {
-                        userDefaults.removeObject(forKey: "widgetVisitedLocation")
-                        userDefaults.removeObject(forKey: "widgetElapsedTime")
-                    }
-
-                    // Reload widget
-                    WidgetCenter.shared.reloadAllTimelines()
-                }
-            } else {
-                print("⚠️ Location '\(nearbyLoc)' not found in saved places")
-                elapsedTimeString = ""
-
-                // Clear widget data
-                if let userDefaults = UserDefaults(suiteName: "group.seline") {
-                    userDefaults.removeObject(forKey: "widgetVisitedLocation")
-                    userDefaults.removeObject(forKey: "widgetElapsedTime")
-                }
-
-                // Reload widget
-                WidgetCenter.shared.reloadAllTimelines()
-            }
+        // CRITICAL: Check geofenceManager.activeVisits FIRST (most accurate, real-time)
+        // This ensures widget updates match calendar view accuracy
+        
+        // Find any active visit from geofence manager
+        var activePlace: SavedPlace? = nil
+        var activeVisit: LocationVisitRecord? = nil
+        
+        // First try to find from nearbyLocation if set
+        if let nearbyLoc = nearbyLocation,
+           let place = locationsManager.savedPlaces.first(where: { $0.displayName == nearbyLoc }),
+           let visit = geofenceManager.activeVisits[place.id] {
+            activePlace = place
+            activeVisit = visit
         } else {
+            // If nearbyLocation not set yet, check all active visits from geofence manager
+            // This handles case where GeofenceVisitCreated fired before updateCurrentLocation()
+            for (placeId, visit) in geofenceManager.activeVisits {
+                if let place = locationsManager.savedPlaces.first(where: { $0.id == placeId }) {
+                    activePlace = place
+                    activeVisit = visit
+                    
+                    // Update nearbyLocation to match active visit
+                    if nearbyLocation != place.displayName {
+                        nearbyLocation = place.displayName
+                        nearbyLocationFolder = place.category
+                        nearbyLocationPlace = place
+                    }
+                    break
+                }
+            }
+        }
+        
+        if let place = activePlace, let visit = activeVisit {
+            let elapsed = Date().timeIntervalSince(visit.entryTime)
+            elapsedTimeString = formatElapsedTime(elapsed)
+
+            // Save to UserDefaults for widget
+            if let userDefaults = UserDefaults(suiteName: "group.seline") {
+                userDefaults.set(place.displayName, forKey: "widgetVisitedLocation")
+                userDefaults.set(elapsedTimeString, forKey: "widgetElapsedTime")
+            }
+
+            // Reload widget
+            WidgetCenter.shared.reloadAllTimelines()
+        } else {
+            // No active visit - clear elapsed time
             elapsedTimeString = ""
 
-            // Clear widget data when not at any location
+            // Clear widget data
             if let userDefaults = UserDefaults(suiteName: "group.seline") {
                 userDefaults.removeObject(forKey: "widgetVisitedLocation")
                 userDefaults.removeObject(forKey: "widgetElapsedTime")
@@ -685,6 +704,9 @@ struct MainAppView: View {
     private var mainContent: some View {
         mainContentBase
             .onAppear {
+                guard !hasAppeared else { return }
+                hasAppeared = true
+                
                 taskManager.syncTodaysTasksToWidget(tags: tagManager.tags)
                 // Check if there's a pending deep link action (e.g., from widget)
                 deepLinkHandler.processPendingAction()
@@ -756,6 +778,9 @@ struct MainAppView: View {
                     if nearbyLocation != nil {
                         startLocationTimer()
                     }
+                    
+                    // Start location suggestion monitoring (detects unsaved locations)
+                    locationSuggestionService.startMonitoring()
 
                     // FALLBACK: Check if any visits have gone stale while app was backgrounded
                     // This handles case where geofence exit events didn't fire
@@ -770,6 +795,9 @@ struct MainAppView: View {
                 } else {
                     // App went to background/inactive - pause timer
                     stopLocationTimer()
+                    
+                    // Stop location suggestion monitoring
+                    locationSuggestionService.stopMonitoring()
                 }
             }
             .onChange(of: locationsManager.savedPlaces) { _ in
@@ -779,11 +807,26 @@ struct MainAppView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("GeofenceVisitCreated"))) { _ in
                 // Reload visits when a new visit is created (e.g., when app detects user is already inside)
                 loadTodaysVisits()
+                
+                // CRITICAL: Immediately update location widget data to match calendar view accuracy
+                // This ensures home screen widget and widget extension update in real-time
+                updateCurrentLocation()
+                updateElapsedTime()
+                
+                // Reload widget timelines immediately to match calendar view speed
+                WidgetCenter.shared.reloadAllTimelines()
             }
             .onChange(of: locationService.locationName) { _ in
                 // Update location card when location service resolves the location name
                 if locationService.locationName != "Unknown Location" {
                     updateCurrentLocation()
+                }
+            }
+            .onChange(of: nearbyLocationPlace) { newPlace in
+                // Clear dismissed visit reason IDs when user leaves a location
+                // This prevents the Set from growing unbounded and ensures popup shows for new visits
+                if newPlace == nil && !dismissedVisitReasonIds.isEmpty {
+                    dismissedVisitReasonIds.removeAll()
                 }
             }
             .onDisappear {
@@ -818,7 +861,7 @@ struct MainAppView: View {
                     .modifier(PresentationModifiers())
                     .presentationBg()
             }
-            .animation(.sheetPresentation, value: showingNewNoteSheet)
+            // Removed sheet animation for faster presentation
             .sheet(item: $searchSelectedNote) { note in
                 NoteEditView(note: note, isPresented: Binding<Bool>(
                     get: { searchSelectedNote != nil },
@@ -841,9 +884,11 @@ struct MainAppView: View {
                 SettingsView()
                     .presentationBg()
             }
-            .sheet(item: $searchSelectedEmail) { email in
-                EmailDetailView(email: email)
-                    .presentationBg()
+            .fullScreenCover(item: $searchSelectedEmail) { email in
+                NavigationView {
+                    EmailDetailView(email: email)
+                }
+                .presentationBg()
             }
             .sheet(item: $searchSelectedTask) { task in
                 if showingEditTask {
@@ -934,7 +979,7 @@ struct MainAppView: View {
                 )
                 .presentationBg()
             }
-            .animation(.sheetPresentation, value: showingAddEventPopup)
+            // Removed sheet animation for faster presentation
             .sheet(isPresented: $showReceiptStats) {
                 ReceiptStatsView(isPopup: true)
                     .presentationDetents([.fraction(0.6), .large])
@@ -942,7 +987,7 @@ struct MainAppView: View {
                     .interactiveDismissDisabled(false)
                     .presentationBg()
             }
-            .animation(.sheetPresentation, value: showReceiptStats)
+            // Removed sheet animation for faster presentation
             .sheet(isPresented: $showAllLocationsSheet) {
                 AllVisitsSheet(
                     allLocations: $allLocations,
@@ -960,7 +1005,7 @@ struct MainAppView: View {
                 .interactiveDismissDisabled(false)
                 .presentationBg()
             }
-            .animation(.sheetPresentation, value: showAllLocationsSheet)
+            // Removed sheet animation for faster presentation
             .sheet(item: $selectedLocationPlace) { place in
                 PlaceDetailSheet(place: place, onDismiss: { 
                     selectedLocationPlace = nil
@@ -1024,9 +1069,30 @@ struct MainAppView: View {
 
             // Content based on selected tab - preserve views to avoid recreation
             ZStack {
-                // Home tab
+                // Home tab - no transition for instant switching
                 if selectedTab == .home {
-                    homeContentWithoutHeader
+                    ZStack(alignment: .bottom) {
+                        homeContentWithoutHeader
+                        
+                        // Floating AI Bar (Moved here for perfect sync with Home tab)
+                        if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation && !searchService.isInConversationMode {
+                            FloatingAIBar(
+                                onTap: {
+                                    searchService.clearConversation()
+                                    Task {
+                                        searchService.conversationHistory = []
+                                        searchService.conversationTitle = "New Conversation"
+                                        searchService.isInConversationMode = true
+                                        showConversationModal = true
+                                    }
+                                },
+                                onProfileTap: {
+                                    showingSettings = true
+                                }
+                            )
+                            // It has internal bottom padding of 20, matching the previous layout
+                        }
+                    }
                         .task {
                             // Only load if not already loaded (defer heavy operations)
                             if emailService.inboxEmails.isEmpty {
@@ -1054,28 +1120,24 @@ struct MainAppView: View {
                                 }
                             }
                         }
-                        .transition(.opacity)
                 }
                 
-                // Email tab
+                // Email tab - no transition for instant switching
                 if selectedTab == .email {
                     EmailView()
-                        .transition(.opacity)
                 }
                 
-                // Events tab
+                // Events tab - no transition for instant switching
                 if selectedTab == .events {
                     EventsView()
-                        .transition(.opacity)
                 }
                 
-                // Notes tab
+                // Notes tab - no transition for instant switching
                 if selectedTab == .notes {
                     NotesView()
-                        .transition(.opacity)
                 }
                 
-                // Maps tab
+                // Maps tab - no transition for instant switching
                 if selectedTab == .maps {
                     MapsViewNew(externalSelectedFolder: $searchSelectedFolder)
                         .task(id: selectedTab) {
@@ -1094,33 +1156,17 @@ struct MainAppView: View {
                                 }
                             }
                         }
-                        .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: selectedTab)
+            // Removed animation on tab change for instant, lag-free switching
             .frame(maxHeight: .infinity)
 
             // Fixed Footer - hide when keyboard appears or any sheet is open or viewing note in navigation
             if keyboardHeight == 0 && selectedNoteToOpen == nil && !showingNewNoteSheet && searchSelectedNote == nil && searchSelectedEmail == nil && searchSelectedTask == nil && !authManager.showLocationSetup && !notesManager.isViewingNoteInNavigation {
                 
                 // Floating AI Bar (only on home tab) - conditionally render to avoid taking space on other pages
-                if selectedTab == .home && !searchService.isInConversationMode {
-                    FloatingAIBar(
-                        onTap: {
-                            HapticManager.shared.selection()
-                            searchService.clearConversation()
-                            Task {
-                                searchService.conversationHistory = []
-                                searchService.conversationTitle = "New Conversation"
-                                searchService.isInConversationMode = true
-                                showConversationModal = true
-                            }
-                        },
-                        onProfileTap: {
-                            showingSettings = true
-                        }
-                    )
-                }
+                // Floating AI Bar moved to homeContentWithoutHeader ZStack above
+
                 
                 BottomTabBar(selectedTab: $selectedTab)
                     .padding(.top, -0.5) // Eliminate separator line by overlapping slightly
@@ -1328,7 +1374,7 @@ struct MainAppView: View {
 
             if unreadEmails.isEmpty {
                 Text("No unread emails")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             } else {
                 ForEach(Array(unreadEmails.enumerated()), id: \.element.id) { index, email in
@@ -1343,19 +1389,19 @@ struct MainAppView: View {
                                 .frame(width: 32, height: 32)
                                 .overlay(
                                     Text(email.sender.shortDisplayName.prefix(1).uppercased())
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(FontManager.geist(size: 13, weight: .semibold))
                                         .foregroundColor(.white)
                                 )
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(email.subject)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(FontManager.geist(size: 13, weight: .medium))
                                     .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
 
                                 Text("from \(email.sender.displayName)")
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -1371,7 +1417,7 @@ struct MainAppView: View {
                         selectedTab = .email
                     }) {
                         Text("... and \(emailService.inboxEmails.filter { !$0.isRead }.count - 5) more")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -1386,7 +1432,7 @@ struct MainAppView: View {
 
             if todayTasks.isEmpty {
                 Text("No events today")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             } else {
                 ForEach(todayTasks.prefix(5)) { task in
@@ -1396,14 +1442,14 @@ struct MainAppView: View {
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 12))
+                                .font(FontManager.geist(size: 12, weight: .regular))
                                 .foregroundColor(task.isCompleted ?
                                     (colorScheme == .dark ? Color(red: 0.518, green: 0.792, blue: 0.914) : Color.black) :
                                     (colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 )
 
                             Text(task.title)
-                                .font(.system(size: 13, weight: .regular))
+                                .font(FontManager.geist(size: 13, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 .strikethrough(task.isCompleted, color: colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                                 .lineLimit(1)
@@ -1413,7 +1459,7 @@ struct MainAppView: View {
 
                             if let scheduledTime = task.scheduledTime {
                                 Text(formatTime(scheduledTime))
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(FontManager.geist(size: 12, weight: .regular))
                                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                             }
                         }
@@ -1426,7 +1472,7 @@ struct MainAppView: View {
                         selectedTab = .events
                     }) {
                         Text("... and \(todayTasks.count - 5) more")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -1441,7 +1487,7 @@ struct MainAppView: View {
 
             if pinnedNotes.isEmpty {
                 Text("No pinned notes")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             } else {
                 ForEach(pinnedNotes.prefix(5)) { note in
@@ -1451,7 +1497,7 @@ struct MainAppView: View {
                     }) {
                         HStack(spacing: 6) {
                             Text(note.title)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(FontManager.geist(size: 13, weight: .medium))
                                 .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -1459,7 +1505,7 @@ struct MainAppView: View {
                             Spacer()
 
                             Text(note.formattedDateModified)
-                                .font(.system(size: 11, weight: .regular))
+                                .font(FontManager.geist(size: 11, weight: .regular))
                                 .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1472,7 +1518,7 @@ struct MainAppView: View {
                         selectedTab = .notes
                     }) {
                         Text("... and \(pinnedNotes.count - 5) more")
-                            .font(.system(size: 13, weight: .regular))
+                            .font(FontManager.geist(size: 13, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -1545,16 +1591,16 @@ struct MainAppView: View {
         }) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(.gray)
 
                 Text("Search or ask for actions...")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(FontManager.geist(size: 14, weight: .regular))
                     .foregroundColor(.gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "sparkles")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(FontManager.geist(size: 13, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.cyan.opacity(0.7) : Color.blue.opacity(0.7))
             }
             .padding(.horizontal, 12)
@@ -1574,7 +1620,7 @@ struct MainAppView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if searchResults.isEmpty {
                         Text("No results found")
-                            .font(.system(size: 14, weight: .regular))
+                            .font(FontManager.geist(size: 14, weight: .regular))
                             .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.5) : Color.black.opacity(0.5))
                             .padding(.vertical, 20)
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -1604,19 +1650,19 @@ struct MainAppView: View {
             HStack(spacing: 12) {
                 // Icon
                 Image(systemName: result.icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(FontManager.geist(size: 14, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
                     .frame(width: 24)
 
                 // Content
                 VStack(alignment: .leading, spacing: 2) {
                     Text(result.title)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(FontManager.geist(size: 14, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? Color.white : Color.black)
                         .lineLimit(1)
 
                     Text(result.subtitle)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(FontManager.geist(size: 12, weight: .regular))
                         .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.6) : Color.black.opacity(0.6))
                         .lineLimit(1)
                 }
@@ -1625,7 +1671,7 @@ struct MainAppView: View {
 
                 // Type badge
                 Text(result.type.rawValue.capitalized)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(FontManager.geist(size: 10, weight: .semibold))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.8))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -1666,6 +1712,15 @@ struct MainAppView: View {
         ZStack {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 8) {
+                    // NEW: Location suggestion card (shows when at unsaved location for 5+ min)
+                    if locationSuggestionService.hasPendingSuggestion {
+                        NewLocationSuggestionCard()
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
+                    }
+                    
                     // Render widgets based on user configuration
                     // Note: Edit button is now inside Quick Access widget
                     ForEach(widgetManager.visibleWidgets) { config in
@@ -1673,7 +1728,7 @@ struct MainAppView: View {
                     }
                 }
                 .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.bottom, 100) // Increased padding for FloatingAIBar
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollDismissesKeyboard(.interactively)
@@ -1768,8 +1823,6 @@ struct MainAppView: View {
                 )
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .currentLocation:
@@ -1787,8 +1840,6 @@ struct MainAppView: View {
                 )
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .events:
@@ -1796,8 +1847,6 @@ struct MainAppView: View {
                 EventsCardWidget(showingAddEventPopup: $showingAddEventPopup)
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .weather:
@@ -1805,8 +1854,6 @@ struct MainAppView: View {
                 HomeWeatherWidget(isVisible: selectedTab == .home)
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .unreadEmails:
@@ -1819,8 +1866,6 @@ struct MainAppView: View {
                 )
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .pinnedNotes:
@@ -1834,8 +1879,6 @@ struct MainAppView: View {
                 )
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
             
         case .favoriteLocations:
@@ -1847,22 +1890,70 @@ struct MainAppView: View {
                 )
             }
             .padding(.horizontal, 12)
-            .blur(radius: isDailyOverviewExpanded ? 3 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isDailyOverviewExpanded)
             .allowsHitTesting(!isDailyOverviewExpanded)
         }
     }
 
+    // MARK: - Visit Reason Helpers
+
+    /// Save the visit reason to the active visit and sync to Supabase
+    private func saveVisitReason(_ reason: String, for visit: LocationVisitRecord, place: SavedPlace) async {
+        // Update the visit with the reason
+        var updatedVisit = visit
+        updatedVisit.visitNotes = reason
+        updatedVisit.updatedAt = Date()
+
+        // Update local active visit
+        geofenceManager.updateActiveVisit(updatedVisit, for: place.id)
+
+        // Sync visit notes to Supabase (uses update, not insert)
+        await geofenceManager.updateVisitNotesInSupabase(updatedVisit)
+
+        // Dismiss the popup by adding to dismissed set (the visit now has notes so it won't show anyway)
+        await MainActor.run {
+            dismissedVisitReasonIds.insert(visit.id)
+        }
+
+        print("✅ Visit reason saved: '\(reason)' for \(place.displayName)")
+    }
 
     // MARK: - Home Content
     private var homeContentWithoutHeader: some View {
-        mainContentWidgets
-        .background(
-            colorScheme == .dark ?
-                Color.black : Color.white
-        )
+        VStack(spacing: 0) {
+            visitReasonPopupSection
+            mainContentWidgets
+        }
+        .background(colorScheme == .dark ? Color.black : Color.white)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    @ViewBuilder
+    private var visitReasonPopupSection: some View {
+        if let place = nearbyLocationPlace,
+           let visit = geofenceManager.getActiveVisit(for: place.id),
+           (visit.visitNotes ?? "").isEmpty,
+           !dismissedVisitReasonIds.contains(visit.id) {
+            VisitReasonPopupCard(
+                place: place,
+                visit: visit,
+                colorScheme: colorScheme,
+                onSave: { reason in
+                    await saveVisitReason(reason, for: visit, place: place)
+                },
+                onDismiss: {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        _ = dismissedVisitReasonIds.insert(visit.id)
+                    }
+                }
+            )
+            .padding(.top, 12)
+            .transition(.asymmetric(
+                insertion: .move(edge: .top).combined(with: .opacity),
+                removal: .move(edge: .top).combined(with: .opacity)
+            ))
+        }
+    }
+
 
     // MARK: - Question Response View
 
@@ -1888,7 +1979,7 @@ struct MainAppView: View {
                     .scaleEffect(0.8, anchor: .center)
 
                 Text("Thinking...")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(FontManager.geist(size: 13, weight: .regular))
                     .foregroundColor(colorScheme == .dark ? Color.white.opacity(0.7) : Color.black.opacity(0.7))
             }
         }
