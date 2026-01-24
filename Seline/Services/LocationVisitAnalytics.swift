@@ -82,10 +82,27 @@ class LocationVisitAnalytics: ObservableObject {
     }
 
     /// Fetch all visit stats for all locations (not just favorites)
+    /// OPTIMIZATION: Parallel fetching with backpressure control (max 3 concurrent)
     func fetchAllStats(for places: [SavedPlace]) async {
-        // Fetch stats for ALL locations to ensure complete data for LLM queries
-        for place in places {
-            await fetchStats(for: place.id)
+        await withTaskGroup(of: Void.self) { group in
+            var activeCount = 0
+            let maxConcurrent = 3
+
+            for place in places {
+                // Wait if we've hit the concurrency limit
+                if activeCount >= maxConcurrent {
+                    await group.next()
+                    activeCount -= 1
+                }
+
+                group.addTask {
+                    await self.fetchStats(for: place.id)
+                }
+                activeCount += 1
+            }
+
+            // Wait for remaining tasks
+            await group.waitForAll()
         }
     }
 
