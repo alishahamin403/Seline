@@ -159,31 +159,25 @@ class SelineChat: ObservableObject {
         // Get the current user message (last in conversation)
         let userMessage = conversationHistory.last?.content ?? ""
 
-        // Build context using vector search (faster, more relevant) or legacy method
+        // OPTIMIZATION: Always use vector-based context builder for better performance
         let contextPrompt: String
-        
-        if useVectorSearch && !userMessage.isEmpty {
-            // NEW: Use vector-based semantic search for relevant context only
+
+        if !userMessage.isEmpty {
+            // Use vector-based semantic search for relevant context only
             // This dramatically reduces token count and improves response speed
+            let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
+            contextPrompt = result.context
+
             if isVoiceMode {
-                // IMPORTANT: Voice mode must use the SAME underlying context as chat mode.
-                // The only difference is response style (voice prompt rules), not data coverage.
-                let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
-                contextPrompt = result.context
-                print("🎤 Voice mode: Using full vector context (\(result.metadata.estimatedTokens) tokens)")
+                print("🎤 Voice mode: Using vector context (\(result.metadata.estimatedTokens) tokens)")
             } else {
-                // Standard vector context
-                let result = await vectorContextBuilder.buildContext(forQuery: userMessage)
-                contextPrompt = result.context
-                print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (vs legacy ~10K+)")
+                print("🔍 Vector search: \(result.metadata.estimatedTokens) tokens (optimized from legacy ~10K+)")
             }
         } else {
-            // LEGACY: Fall back to comprehensive context building
-            // Use this for empty queries or when vector search is disabled
-            contextPrompt = !userMessage.isEmpty ?
-                await appContext.buildContextPrompt(forQuery: userMessage) :
-                await appContext.buildContextPrompt()
-            print("📦 Legacy context: Using comprehensive data dump")
+            // For empty queries, use minimal essential context
+            // Vector search needs a query to work with
+            contextPrompt = await vectorContextBuilder.buildContext(forQuery: "general status update")
+            print("📊 Empty query: Using minimal essential context")
         }
             
         // Get User Profile Context

@@ -55,6 +55,65 @@ class SelineAppContext {
         Date().timeIntervalSince(lastRefreshTime) < cacheValidityDuration
     }
 
+    // OPTIMIZATION: Reusable DateFormatters (created once, used everywhere)
+    private lazy var dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .short
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE" // Full day name
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var mediumDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var mediumDateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var monthYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM"
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var dayMonthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM d"
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
+    private lazy var timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
     init(
         taskManager: TaskManager = TaskManager.shared,
         tagManager: TagManager = TagManager.shared,
@@ -1294,9 +1353,9 @@ class SelineAppContext {
 
         // OPTIMIZATION: Cache filtered results to avoid recomputation
         let cacheKey = "\(categoryFilter ?? "none")_\(timePeriodFilter != nil ? "\(timePeriodFilter!.startDate.timeIntervalSince1970)" : "none")"
-        let shouldRecompute = cachedFilteredEvents == nil || 
+        let shouldRecompute = cachedFilteredEvents == nil ||
                              lastFilterCacheTime == nil ||
-                             Date().timeIntervalSince(lastFilterCacheTime!) > 60 // 1 minute cache
+                             Date().timeIntervalSince(lastFilterCacheTime!) > 300 // 5 minute cache (optimized from 60s)
         
         var filteredEvents: [TaskItem]
         if shouldRecompute {
@@ -1358,17 +1417,7 @@ class SelineAppContext {
         // Build context with filtered events (skip refresh since we just did it)
         var context = ""
 
-        // Current date context - CRITICAL: Use local timezone explicitly
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .full
-        dateFormatter.timeStyle = .short
-        dateFormatter.timeZone = TimeZone.current // Use device's local timezone
-        
-        // Also create a day-of-week formatter for clarity
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = "EEEE" // Full day name (Monday, Tuesday, etc.)
-        dayFormatter.timeZone = TimeZone.current
-
+        // Current date context - using reusable formatters
         context += "=== CURRENT DATE ===\n"
         context += "Today is: \(dayFormatter.string(from: currentDate)), \(dateFormatter.string(from: currentDate))\n"
         let utcOffset = TimeZone.current.secondsFromGMT() / 3600
@@ -1605,9 +1654,6 @@ class SelineAppContext {
             // RECURRING EVENTS SUMMARY - With next occurrence dates for accurate answers
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
-                
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
                 context += "**IMPORTANT: For recurring events (especially birthdays/anniversaries), use the 'Next occurrence' date below to answer 'when' questions.**\n"
                 
@@ -2004,12 +2050,9 @@ class SelineAppContext {
                         if let timePeriod = timePeriodFilter {
                             let visitsInPeriod = await LocationVisitAnalytics.shared.getVisitsInDateRange(for: place.id, startDate: timePeriod.startDate, endDate: timePeriod.endDate)
                             if !visitsInPeriod.isEmpty {
-                                let dateFormatter = DateFormatter()
-                                dateFormatter.dateStyle = .medium
-                                dateFormatter.timeStyle = .short
                                 context += "    🎯 Visits during requested period:\n"
                                 for visit in visitsInPeriod.sorted(by: { $0.entryTime > $1.entryTime }) {
-                                    let entryStr = dateFormatter.string(from: visit.entryTime)
+                                    let entryStr = mediumDateTimeFormatter.string(from: visit.entryTime)
                                     let durationStr = visit.durationMinutes.map { "\($0) min" } ?? "ongoing"
                                     context += "      • \(entryStr) (\(durationStr))\n"
                                 }
@@ -2292,10 +2335,7 @@ class SelineAppContext {
 
                 // Show most recent emails first
                 for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(6) {  // Reduced from 10 to 6
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-                    dateFormatter.timeStyle = .short
-                    let formattedDate = dateFormatter.string(from: email.timestamp)
+                    let formattedDate = mediumDateTimeFormatter.string(from: email.timestamp)
 
                     let senderDisplay = email.sender.displayName
                     let status = email.isRead ? "" : " [UNREAD]"
@@ -2340,10 +2380,7 @@ class SelineAppContext {
 
                 // Show most recent emails first
                 for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(6) {  // Reduced from 10 to 6
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-                    dateFormatter.timeStyle = .short
-                    let formattedDate = dateFormatter.string(from: email.timestamp)
+                    let formattedDate = mediumDateTimeFormatter.string(from: email.timestamp)
 
                     let senderDisplay = email.senderName ?? email.senderEmail
                     let recipientDisplay = email.recipients.joined(separator: ", ")
@@ -2711,17 +2748,7 @@ class SelineAppContext {
 
         var context = ""
 
-        // Current date context - CRITICAL: Use local timezone explicitly
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .full
-        dateFormatter.timeStyle = .short
-        dateFormatter.timeZone = TimeZone.current // Use device's local timezone
-        
-        // Also create a day-of-week formatter for clarity
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = "EEEE" // Full day name (Monday, Tuesday, etc.)
-        dayFormatter.timeZone = TimeZone.current
-
+        // Current date context - using reusable formatters
         context += "=== CURRENT DATE ===\n"
         context += "Today is: \(dayFormatter.string(from: currentDate)), \(dateFormatter.string(from: currentDate))\n"
         let utcOffset2 = TimeZone.current.secondsFromGMT() / 3600
@@ -2905,9 +2932,6 @@ class SelineAppContext {
             // RECURRING EVENTS SUMMARY with next occurrence dates
             let recurringEvents = events.filter { $0.isRecurring }
             if !recurringEvents.isEmpty {
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
-                
                 context += "\n**RECURRING EVENTS SUMMARY** (\(recurringEvents.count) recurring):\n"
                 context += "**IMPORTANT: For recurring events (especially birthdays/anniversaries), use the 'Next occurrence' date below to answer 'when' questions.**\n"
                 
@@ -3152,10 +3176,7 @@ class SelineAppContext {
 
                 // Show most recent emails first, max 20 per folder
                 for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(20) {
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-                    dateFormatter.timeStyle = .short
-                    let formattedDate = dateFormatter.string(from: email.timestamp)
+                    let formattedDate = mediumDateTimeFormatter.string(from: email.timestamp)
 
                     let senderDisplay = email.sender.displayName
                     let recipientDisplay = email.recipients.map { $0.displayName }.joined(separator: ", ")
@@ -3272,10 +3293,7 @@ class SelineAppContext {
                 context += "\n**\(folder.name)** (\(folderEmails.count) emails):\n"
 
                 for email in folderEmails.sorted(by: { $0.timestamp > $1.timestamp }).prefix(15) {
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateStyle = .medium
-                    dateFormatter.timeStyle = .short
-                    let formattedDate = dateFormatter.string(from: email.timestamp)
+                    let formattedDate = mediumDateTimeFormatter.string(from: email.timestamp)
 
                     let senderDisplay = email.senderName ?? email.senderEmail
                     let recipientDisplay = email.recipients.joined(separator: ", ")
@@ -3473,15 +3491,11 @@ class SelineAppContext {
     }
 
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter.string(from: date)
+        return mediumDateFormatter.string(from: date)
     }
 
     private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return timeFormatter.string(from: date)
     }
 
     /// Fetch latest news headlines from web sources
