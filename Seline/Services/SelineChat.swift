@@ -176,8 +176,9 @@ class SelineChat: ObservableObject {
         } else {
             // For empty queries, use minimal essential context
             // Vector search needs a query to work with
-            contextPrompt = await vectorContextBuilder.buildContext(forQuery: "general status update")
-            print("📊 Empty query: Using minimal essential context")
+            let result = await vectorContextBuilder.buildContext(forQuery: "general status update")
+            contextPrompt = result.context
+            print("📊 Empty query: Using minimal essential context (\(result.metadata.estimatedTokens) tokens)")
         }
             
         // Get User Profile Context
