@@ -216,6 +216,11 @@ class NotesManager: ObservableObject {
     @Published var isLoading = false
     @Published var isViewingNoteInNavigation = false
 
+    // MARK: - Sync Status (Phase 3)
+    @Published var isSyncing: Bool = false
+    @Published var syncError: String?
+    @Published var lastSyncTime: Date?
+
     private let notesKey = "SavedNotes"
     private let foldersKey = "SavedNoteFolders"
     private let authManager = AuthenticationManager.shared

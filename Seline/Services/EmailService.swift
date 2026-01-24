@@ -17,7 +17,12 @@ class EmailService: ObservableObject {
     // Search functionality
     @Published var searchResults: [Email] = []
     @Published var isSearching: Bool = false
-    
+
+    // MARK: - Sync Status (Phase 3)
+    @Published var isSyncing: Bool = false
+    @Published var syncError: String?
+    @Published var lastSyncTime: Date?
+
     // Debouncing for search
     private var searchTask: Task<Void, Never>?
     private let searchDebounceDelay: TimeInterval = 0.5 // 500ms delay

@@ -456,6 +456,11 @@ class TaskManager: ObservableObject {
 
     @Published var tasks: [WeekDay: [TaskItem]] = [:]
 
+    // MARK: - Sync Status (Phase 3)
+    @Published var isSyncing: Bool = false
+    @Published var syncError: String?
+    @Published var lastSyncTime: Date?
+
     /// Cache of flattened tasks to avoid repeated flatMap operations
     /// Invalidated whenever tasks are modified
     private var cachedFlattenedTasks: [TaskItem]?

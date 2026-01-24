@@ -216,6 +216,11 @@ class LocationsManager: ObservableObject {
     @Published var provinces: Set<String> = []
     @Published var cities: Set<String> = []
 
+    // MARK: - Sync Status (Phase 3)
+    @Published var isSyncing: Bool = false
+    @Published var syncError: String?
+    @Published var lastSyncTime: Date?
+
     private let placesKey = "SavedPlaces"
     private let searchHistoryKey = "MapsSearchHistory"
     private let authManager = AuthenticationManager.shared
